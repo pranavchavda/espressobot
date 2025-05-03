@@ -11,29 +11,11 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-# Import OpenAI Agents SDK for MCP
-MCP_AVAILABLE = False
-try:
-    # Try different potential import paths for the MCP client
-    try:
-        from openai_agents.mcp import MCPClient
-        MCP_AVAILABLE = True
-        print("Using openai_agents.mcp.MCPClient")
-    except ImportError:
-        try:
-            from openai.agents.mcp import MCPClient
-            MCP_AVAILABLE = True
-            print("Using openai.agents.mcp.MCPClient")
-        except ImportError:
-            try:
-                from mcp.client import Client as MCPClient
-                MCP_AVAILABLE = True
-                print("Using mcp.client.Client directly")
-            except ImportError:
-                print("Could not import MCP client from any known location")
-except Exception as e:
-    print(f"Error initializing MCP client: {e}")
-    MCP_AVAILABLE = False
+# Import our custom MCP server implementation
+from mcp_server import mcp_server
+
+# Indicate that MCP is available through our custom implementation
+MCP_AVAILABLE = True
 
 # Configure OpenAI client
 client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
@@ -171,14 +153,18 @@ def get_current_datetime_est():
     now = datetime.now(pytz.timezone('America/New_York'))
     return now.strftime("%Y-%m-%d %H:%M:%S EST")
 
-# Initialize MCP client for Shopify Dev MCP
-mcp_client = None
-if MCP_AVAILABLE:
-    try:
-        mcp_client = MCPClient("shopify-dev-mcp")
-        print("Initialized Shopify Dev MCP client successfully")
-    except Exception as e:
-        print(f"Failed to initialize Shopify Dev MCP client: {e}")
+# Start the MCP server if it's available
+async def ensure_mcp_server_running():
+    """Ensure the MCP server is running before making any requests"""
+    if MCP_AVAILABLE:
+        try:
+            print("Ensuring Shopify Dev MCP server is running...")
+            await mcp_server.start()
+            return True
+        except Exception as e:
+            print(f"Failed to start Shopify Dev MCP server: {e}")
+            return False
+    return False
 
 # Function to introspect Shopify Admin API schema
 async def introspect_admin_schema(query, filter_types=None):
@@ -189,22 +175,21 @@ async def introspect_admin_schema(query, filter_types=None):
     print(f"Introspecting Shopify Admin schema for: {query}")
     
     try:
-        if MCP_AVAILABLE and mcp_client:
-            # Use the actual MCP client to get schema information
-            response = await mcp_client.call(
-                "introspect_admin_schema", 
-                {"query": query, "filter": filter_types}
-            )
-            
-            print(f"Schema introspection complete for: {query}")
-            return response
-        else:
-            # Fallback to mock implementation
-            print("Using mock implementation for schema introspection")
-            return {
-                "schema": f"Mock schema introspection result for '{query}' with filters {filter_types}",
-                "note": "This is a mock response. The actual MCP client is not available."
-            }
+        if MCP_AVAILABLE:
+            # Ensure the MCP server is running
+            server_ready = await ensure_mcp_server_running()
+            if server_ready:
+                # Use our MCP server to get schema information
+                response = await mcp_server.introspect_admin_schema(query, filter_types)
+                print(f"Schema introspection complete for: {query}")
+                return response
+        
+        # Fallback to mock implementation
+        print("Using mock implementation for schema introspection")
+        return {
+            "schema": f"Mock schema introspection result for '{query}' with filters {filter_types}",
+            "note": "This is a mock response. The Shopify Dev MCP server is not available."
+        }
     except Exception as e:
         error_msg = f"Error introspecting schema: {str(e)}"
         print(f"ERROR: {error_msg}")
@@ -216,22 +201,21 @@ async def search_dev_docs(prompt):
     print(f"Searching Shopify dev docs for: {prompt}")
     
     try:
-        if MCP_AVAILABLE and mcp_client:
-            # Use the actual MCP client to search docs
-            response = await mcp_client.call(
-                "search_dev_docs", 
-                {"prompt": prompt}
-            )
-            
-            print(f"Dev docs search complete for: {prompt}")
-            return response
-        else:
-            # Fallback to mock implementation
-            print("Using mock implementation for dev docs search")
-            return {
-                "docs": f"Mock dev docs search result for '{prompt}'",
-                "note": "This is a mock response. The actual MCP client is not available."
-            }
+        if MCP_AVAILABLE:
+            # Ensure the MCP server is running
+            server_ready = await ensure_mcp_server_running()
+            if server_ready:
+                # Use our MCP server to search docs
+                response = await mcp_server.search_dev_docs(prompt)
+                print(f"Dev docs search complete for: {prompt}")
+                return response
+        
+        # Fallback to mock implementation
+        print("Using mock implementation for dev docs search")
+        return {
+            "docs": f"Mock dev docs search result for '{prompt}'",
+            "note": "This is a mock response. The Shopify Dev MCP server is not available."
+        }
     except Exception as e:
         error_msg = f"Error searching dev docs: {str(e)}"
         print(f"ERROR: {error_msg}")
