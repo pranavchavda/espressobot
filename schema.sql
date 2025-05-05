@@ -1,0 +1,15 @@
+-- shopify-agent-flask/schema.sql
+CREATE TABLE IF NOT EXISTS conversations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  conv_id   INTEGER NOT NULL,
+  role      TEXT    NOT NULL,
+  content   TEXT    NOT NULL,
+  timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(conv_id) REFERENCES conversations(id)
+);

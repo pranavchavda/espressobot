@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Shopify Assistant</title>
+    <title>Pranav's Shopify Assistant</title>
     <style>
         body { 
             font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
@@ -125,13 +125,30 @@
         .formatted-message {
             white-space: pre-wrap;
         }
+        
+        #toggle-sidebar { position: fixed; top: 20px; left: 20px; z-index: 1001; background: #5c6ac4; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; }
+        #sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 250px; background: white; border-right: 1px solid #ddd; transform: translateX(-100%); transition: transform 0.3s ease; overflow-y: auto; z-index: 1000; padding-top: 60px; }
+        #sidebar.open { transform: translateX(0); }
+        .sidebar-header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
+        .sidebar-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar-item:hover { background: #f4f6f8; }
+        .delete-btn { background: transparent; border: none; color: #c00; cursor: pointer; font-size: 1rem; }
     </style>
 </head>
 <body>
     <header>
-        <h1>Shopify Assistant</h1>
+        <h1>Pranav's Shopify Assistant</h1>
         <p>Ask questions about your Shopify store and perform actions using natural language</p>
     </header>
+    
+    <button id="toggle-sidebar">☰</button>
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h3>Conversations</h3>
+            <button id="close-sidebar">×</button>
+        </div>
+        <div id="convo-list"></div>
+    </div>
     
     <div id="chat-container"></div>
     
@@ -146,6 +163,58 @@
         const messageInput = document.getElementById('message-input');
         const submitButton = document.getElementById('submit-button');
         let messageHistory = [];
+        let currentConvId = null;
+        
+        const toggleBtn = document.getElementById('toggle-sidebar');
+        const sidebar = document.getElementById('sidebar');
+        const closeBtn = document.getElementById('close-sidebar');
+        toggleBtn.addEventListener('click', () => sidebar.classList.toggle('open'));
+        closeBtn.addEventListener('click', () => sidebar.classList.remove('open'));
+
+        function loadSidebarList() {
+            fetch('/conversations')
+              .then(res => res.json())
+              .then(convs => {
+                const list = document.getElementById('convo-list');
+                list.innerHTML = '';
+                convs.forEach(c => {
+                  const item = document.createElement('div');
+                  item.className = 'sidebar-item';
+                  item.dataset.id = c.id;
+                  const label = document.createElement('span');
+                  label.textContent = `${c.title} (${new Date(c.created_at).toLocaleString()})`;
+                  label.addEventListener('click', () => loadConversation(c.id));
+                  const del = document.createElement('button');
+                  del.className = 'delete-btn';
+                  del.textContent = '🗑';
+                  del.addEventListener('click', e => { e.stopPropagation(); deleteConversation(c.id, item); });
+                  item.appendChild(label);
+                  item.appendChild(del);
+                  list.appendChild(item);
+                });
+              });
+        }
+
+        function loadConversation(id) {
+            fetch(`/conversations/${id}`)
+              .then(res => res.json())
+              .then(msgs => {
+                currentConvId = id;
+                messageHistory = [];
+                chatContainer.innerHTML = '';
+                msgs.forEach(m => addMessage(m.content, m.role));
+              });
+        }
+
+        function deleteConversation(id, elem) {
+            fetch(`/conversations/${id}`, { method: 'DELETE' })
+              .then(() => {
+                elem.remove();
+                if (currentConvId == id) { chatContainer.innerHTML = ''; currentConvId = null; messageHistory = []; }
+              });
+        }
+
+        loadSidebarList();
 
         // Add initial assistant message
         addMessage('Hello! I\'m your Shopify assistant. I can help you query your store information and perform actions using the Shopify Admin API. What would you like to do today?', 'assistant');
@@ -175,9 +244,10 @@
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        message, 
-                        history: messageHistory.slice(0, -1) // Exclude the message we just sent
+                    body: JSON.stringify({
+                        message,
+                        history: messageHistory.slice(0, -1),
+                        conv_id: currentConvId
                     })
                 });
                 
@@ -186,6 +256,9 @@
                 // Remove loading indicator
                 chatContainer.removeChild(loadingDiv);
                 
+                // Update current conv_id
+                currentConvId = data.conv_id;
+                
                 // Add assistant message to UI
                 addMessage(data.response, 'assistant');
                 
@@ -193,6 +266,8 @@
                 if (data.tool_calls && data.tool_calls.length > 0) {
                     console.log('Tool calls:', data.tool_calls);
                 }
+                
+                loadSidebarList();
             } catch (error) {
                 console.error('Error:', error);
                 // Remove loading indicator

@@ -1,32 +1,66 @@
 from flask import Flask, request, render_template, jsonify
 import os
 import asyncio
-from simple_agent import run_simple_agent
+from simple_agent import run_simple_agent, client as openai_client
 from dotenv import load_dotenv
+from database import init_db, get_db, close_db
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = Flask(__name__, template_folder="templates")
+app.teardown_appcontext(close_db)
+with app.app_context():
+    init_db()
 
 @app.route('/')
 def home():
     # Render the main chat interface
     return render_template('index.html')
 
+
+
 @app.route('/chat', methods=['POST'])
 def chat():
     # Get the message and conversation history from the request
     data = request.json
-    message = data.get('message', '')
-    history = data.get('history', [])
+    conv_id = data.get('conv_id')
+    db = get_db()
+    if not conv_id:
+        cur = db.execute('INSERT INTO conversations DEFAULT VALUES')
+        conv_id = cur.lastrowid
+        db.commit()
+        # Generate a title for the new conversation
+        try:
+            title_resp = openai_client.chat.completions.create(
+                model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
+                messages=[
+                    {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
+                    {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {data.get('message','')}"}
+                ]
+            )
+            title = title_resp.choices[0].message.content.strip()
+        except Exception:
+            title = f"Conversation {conv_id}"
+        db.execute('UPDATE conversations SET title = ? WHERE id = ?', (title, conv_id))
+        db.commit()
+    db.execute(
+        'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
+        (conv_id, 'user', data.get('message', ''))
+    )
+    db.commit()
+    rows = db.execute(
+        'SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id',
+        (conv_id,)
+    ).fetchall()
+    history = [{'role': r['role'], 'content': r['content']} for r in rows]
     
     # Run the agent in an async loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        print(f"Processing chat request with message: {message[:50]}...")
-        result = loop.run_until_complete(run_simple_agent(message, history))
+        print(f"Processing chat request with message: {data.get('message','')[:50]}...")
+        result = loop.run_until_complete(run_simple_agent(data.get('message',''), history))
         
         # Extract tool calls for debugging
         tool_calls = []
@@ -39,7 +73,13 @@ def chat():
                 })
         
         # Return the agent's response and debug info
+        db.execute(
+            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
+            (conv_id, 'assistant', result['final_output'])
+        )
+        db.commit()
         return jsonify({
+            'conv_id': conv_id,
             'response': result['final_output'],
             'steps': len(result['steps']),
             'tool_calls': tool_calls
@@ -57,6 +97,36 @@ def chat():
         }), 500
     finally:
         loop.close()
+
+
+
+
+@app.route('/conversations', methods=['GET'])
+def list_conversations():
+    db = get_db()
+    convs = db.execute(
+        'SELECT id, title, created_at FROM conversations ORDER BY created_at DESC'
+    ).fetchall()
+    return jsonify([
+        {'id': c['id'], 'title': c['title'], 'created_at': c['created_at']} for c in convs
+    ])
+
+@app.route('/conversations/<int:conv_id>', methods=['GET'])
+def get_conversation(conv_id):
+    db = get_db()
+    rows = db.execute(
+        'SELECT role, content, timestamp FROM messages WHERE conv_id = ? ORDER BY id',
+        (conv_id,)
+    ).fetchall()
+    return jsonify([{'role': r['role'], 'content': r['content'], 'timestamp': r['timestamp']} for r in rows])
+
+@app.route('/conversations/<int:conv_id>', methods=['DELETE'])
+def delete_conversation(conv_id):
+    db = get_db()
+    db.execute('DELETE FROM messages WHERE conv_id = ?', (conv_id,))
+    db.execute('DELETE FROM conversations WHERE id = ?', (conv_id,))
+    db.commit()
+    return ('', 204)
 
 if __name__ == '__main__':
     # Show environment status

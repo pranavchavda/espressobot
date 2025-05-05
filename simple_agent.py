@@ -153,77 +153,28 @@ def get_current_datetime_est():
     now = datetime.now(pytz.timezone('America/New_York'))
     return now.strftime("%Y-%m-%d %H:%M:%S EST")
 
-# Start the MCP server if it's available
-async def ensure_mcp_server_running():
-    """Ensure the MCP server is running before making any requests"""
-    if MCP_AVAILABLE:
-        try:
-            print("Ensuring Shopify Dev MCP server is running...")
-            await mcp_server.start()
-            return True
-        except Exception as e:
-            print(f"Failed to start Shopify Dev MCP server: {e}")
-            return False
-    return False
-
-# Function to introspect Shopify Admin API schema
 async def introspect_admin_schema(query, filter_types=None):
-    """Introspect the Shopify Admin API schema using the MCP tool"""
+    """Introspect the Shopify Admin API schema using the MCP server"""
     if filter_types is None:
         filter_types = ["all"]
-    
-    print(f"Introspecting Shopify Admin schema for: {query}")
-    
     try:
-        if MCP_AVAILABLE:
-            # Ensure the MCP server is running
-            server_ready = await ensure_mcp_server_running()
-            if server_ready:
-                # Use our MCP server to get schema information
-                response = await mcp_server.introspect_admin_schema(query, filter_types)
-                print(f"Schema introspection complete for: {query}")
-                return response
-        
-        # Fallback to mock implementation
-        print("Using mock implementation for schema introspection")
-        return {
-            "schema": f"Mock schema introspection result for '{query}' with filters {filter_types}",
-            "note": "This is a mock response. The Shopify Dev MCP server is not available."
-        }
+        return await mcp_server.introspect_admin_schema(query, filter_types)
     except Exception as e:
-        error_msg = f"Error introspecting schema: {str(e)}"
-        print(f"ERROR: {error_msg}")
-        return {"errors": [{"message": error_msg}]}
+        print(f"Error introspecting schema: {e}")
+        return {"errors": [{"message": str(e)}]}
 
-# Function to search Shopify dev docs
 async def search_dev_docs(prompt):
-    """Search Shopify developer documentation using the MCP tool"""
-    print(f"Searching Shopify dev docs for: {prompt}")
-    
+    """Search Shopify developer documentation using the MCP server"""
     try:
-        if MCP_AVAILABLE:
-            # Ensure the MCP server is running
-            server_ready = await ensure_mcp_server_running()
-            if server_ready:
-                # Use our MCP server to search docs
-                response = await mcp_server.search_dev_docs(prompt)
-                print(f"Dev docs search complete for: {prompt}")
-                return response
-        
-        # Fallback to mock implementation
-        print("Using mock implementation for dev docs search")
-        return {
-            "docs": f"Mock dev docs search result for '{prompt}'",
-            "note": "This is a mock response. The Shopify Dev MCP server is not available."
-        }
+        return await mcp_server.search_dev_docs(prompt)
     except Exception as e:
-        error_msg = f"Error searching dev docs: {str(e)}"
-        print(f"ERROR: {error_msg}")
-        return {"errors": [{"message": error_msg}]}
+        print(f"Error searching dev docs: {e}")
+        return {"errors": [{"message": str(e)}]}
 
 # Define available tools
 TOOLS = [
     {
+        "name": "run_shopify_query",
         "type": "function",
         "function": {
             "name": "run_shopify_query",
@@ -245,6 +196,7 @@ TOOLS = [
         }
     },
     {
+        "name": "run_shopify_mutation",
         "type": "function",
         "function": {
             "name": "run_shopify_mutation",
@@ -266,6 +218,7 @@ TOOLS = [
         }
     },
     {
+        "name": "introspect_admin_schema",
         "type": "function",
         "function": {
             "name": "introspect_admin_schema",
@@ -291,6 +244,7 @@ TOOLS = [
         }
     },
     {
+        "name": "search_dev_docs",
         "type": "function",
         "function": {
             "name": "search_dev_docs",
@@ -340,6 +294,7 @@ You have access to several tools:
 2. run_shopify_mutation - Execute GraphQL mutations against the Shopify Admin API to modify data
 3. introspect_admin_schema - Get information about the Shopify Admin API schema (types, queries, mutations)
 4. search_dev_docs - Search Shopify developer documentation for guidance
+5. web_search_preview - Search the web for information as a last resort
 
 IMPORTANT:
 - When unfamiliar with a specific part of the Shopify API, first use introspect_admin_schema to understand the available fields and types.
@@ -445,7 +400,7 @@ IMPORTANT:
                     formatted_messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(result)
+                        "content": json.dumps(result.model_dump() if hasattr(result, "model_dump") else result)
                     })
                 
                 # Let the model continue with tool results
