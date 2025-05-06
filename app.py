@@ -10,16 +10,39 @@ from database import init_db, get_db, close_db
 load_dotenv()
 
 app = Flask(__name__, template_folder="templates")
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'devsecret')  # Needed for session
 app.teardown_appcontext(close_db)
 with app.app_context():
     init_db()
 
-@app.route('/')
+from flask import session, redirect, url_for
+
+PASSWORD = os.environ.get("CHAT_PASSWORD", "letmein")
+
+@app.route('/', methods=['GET', 'POST'])
 def home():
+    if 'authenticated' not in session:
+        if request.method == 'POST':
+            pw = request.form.get('password', '')
+            if pw == PASSWORD:
+                session['authenticated'] = True
+                return redirect(url_for('home'))
+            else:
+                return render_template('password.html', error='Incorrect password!')
+        return render_template('password.html', error=None)
     # Render the main chat interface
     return render_template('index.html')
-@app.route('/responses')
+@app.route('/responses', methods=['GET', 'POST'])
 def responses_ui():
+    if 'authenticated' not in session:
+        if request.method == 'POST':
+            pw = request.form.get('password', '')
+            if pw == PASSWORD:
+                session['authenticated'] = True
+                return redirect(url_for('responses_ui'))
+            else:
+                return render_template('password.html', error='Incorrect password!')
+        return render_template('password.html', error=None)
     # Serve the UI pointing to the Responses API
     template_path = os.path.join(app.template_folder, 'index.html')
     with open(template_path, 'r') as f:
@@ -136,18 +159,12 @@ def chat_responses():
         (conv_id, 'user', data.get('message', ''))
     )
     db.commit()
-    rows = db.execute(
-        'SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id',
-        (conv_id,)
-    ).fetchall()
-    history = [{'role': r['role'], 'content': r['content']} for r in rows]
-
-    # Run the responses-based agent
+    prev_response_id = data.get('prev_response_id')
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         print(f"Processing chat_responses request with message: {data.get('message','')[:50]}...")
-        result = loop.run_until_complete(run_responses_agent(data.get('message',''), history))
+        result = loop.run_until_complete(run_responses_agent(data.get('message',''), prev_response_id))
 
         # Extract tool calls for debugging
         tool_calls = []
@@ -159,7 +176,6 @@ def chat_responses():
                     'output': step.get('output', None)
                 })
 
-        # Record assistant response
         db.execute(
             'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
             (conv_id, 'assistant', result['final_output'])
@@ -169,7 +185,8 @@ def chat_responses():
             'conv_id': conv_id,
             'response': result['final_output'],
             'steps': len(result['steps']),
-            'tool_calls': tool_calls
+            'tool_calls': tool_calls,
+            'response_id': result['response_id']
         })
     except Exception as e:
         import traceback

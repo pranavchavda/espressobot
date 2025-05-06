@@ -242,6 +242,7 @@
             chatContainer.appendChild(loadingDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
             
+            let prevResponseId = window.prevResponseId || null;
             try {
                 // Send request to backend
                 const response = await fetch(apiEndpoint, {
@@ -249,8 +250,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         message,
-                        history: messageHistory.slice(0, -1),
-                        conv_id: currentConvId
+                        conv_id: currentConvId,
+                        prev_response_id: prevResponseId
                     })
                 });
                 
@@ -258,18 +259,21 @@
                 
                 // Remove loading indicator
                 chatContainer.removeChild(loadingDiv);
-                
+
                 // Update current conv_id
                 currentConvId = data.conv_id;
-                
+
+                // Update prevResponseId for stateless Responses API
+                window.prevResponseId = data.response_id || null;
+
                 // Add assistant message to UI
                 addMessage(data.response, 'assistant');
-                
+
                 // Log tool calls for debugging
                 if (data.tool_calls && data.tool_calls.length > 0) {
                     console.log('Tool calls:', data.tool_calls);
                 }
-                
+
                 loadSidebarList();
             } catch (error) {
                 console.error('Error:', error);

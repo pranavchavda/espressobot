@@ -12,7 +12,6 @@ from typing import Dict, Any, List, Optional
 # Reuse helpers and client from simple_agent
 from simple_agent import (
     client,
-    TOOLS,
     execute_shopify_query,
     execute_shopify_mutation,
     introspect_admin_schema,
@@ -20,45 +19,118 @@ from simple_agent import (
     get_current_datetime_est,
 )
 
+TOOLS = [
+    {
+      "type": "web_search_preview",
+      "user_location": {
+        "type": "approximate"
+      },
+      "search_context_size": "medium"
+    },
+    {
+        "name": "run_shopify_query",
+        "type": "function",
+        "function": {
+            "name": "run_shopify_query",
+            "description": "Execute a Shopify GraphQL query to fetch data from the Shopify Admin API",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The GraphQL query string"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "name": "run_shopify_mutation",
+        "type": "function",
+        "function": {
+            "name": "run_shopify_mutation",
+            "description": "Execute a Shopify GraphQL mutation to modify data in the Shopify Admin API",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "GraphQL mutation string"
+                    },
+                    "variables": {
+                        "type": "object",
+                        "description": "Mutation variables"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "name": "introspect_admin_schema",
+        "type": "function",
+        "function": {
+            "name": "introspect_admin_schema",
+            "description": "Introspect the Shopify Admin API GraphQL schema to get details about types, queries, and mutations",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search term to filter schema elements by name (e.g., 'product', 'discountCode')"
+                    },
+                    "filter_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["all", "types", "queries", "mutations"]
+                        },
+                        "description": "Filter results to show specific sections"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "name": "search_dev_docs",
+        "type": "function",
+        "function": {
+            "name": "search_dev_docs",
+            "description": "Search Shopify developer documentation to get relevant information about Shopify APIs, features, and best practices",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The search query for Shopify documentation"
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
+    }
+]
 
 async def run_responses_agent(
-    message: str, history: Optional[List[Dict[str, Any]]] = None
+    message: str,
+    previous_response_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Run an agent using the Responses API. Supports function/tool calls identically to simple_agent.
-    Returns a dict with 'steps' and 'final_output'.
+    Run an agent using the Responses API in stateless mode.
+    Returns a dict with 'steps', 'final_output', and 'response_id'.
     """
-    if history is None:
-        history = []
-    # Build input items from conversation history
-    input_items: List[Dict[str, Any]] = []
-    for item in history:
-        role = item.get('role')
-        content = item.get('content', '')
-        if role == 'assistant':
-            # Represent assistant messages as ResponseOutputMessageParam
-            input_items.append({
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": content}],
-                "status": "completed",
-                "id": str(uuid4()),
-            })
-        else:
-            # User messages
-            input_items.append({
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": content}],
-            })
-    # Add current user message
-    input_items.append({
+    # Build only the new user message; let the Responses API handle prior turns server-side
+    input_items: List[Dict[str, Any]] = [{
         "type": "message",
         "role": "user",
         "content": [{"type": "input_text", "text": message}],
-    })
+    }]
+    steps: List[Dict[str, Any]] = []
+    resp_id = previous_response_id
 
-    # System instructions (passed separately)
+    # Prepare system instructions
     current_time = get_current_datetime_est()
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "Unknown")
     system_message = f"""
@@ -89,46 +161,36 @@ IMPORTANT:
 - Keep responses concise and informative.
 """
 
-    steps: List[Dict[str, Any]] = []
-    step_count = 0
     max_steps = 10
+    step_count = 0
     final_output = ""
-
-    # Main agent loop: handle tool calls iteratively
     while step_count < max_steps:
         step_count += 1
-        # Invoke the Responses API
         response = client.responses.create(
             model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
             input=input_items,
             instructions=system_message,
             tools=TOOLS,
             tool_choice="auto",
+            store=True,
+            parallel_tool_calls=True,
+            previous_response_id=resp_id,
         )
-        # Collect any new assistant messages and function calls
-        function_calls = []
-        for output in response.output:
-            if getattr(output, "type", None) == "message":
-                # Append assistant message to context
-                try:
-                    msg_param = output.model_dump()
-                except Exception:
-                    # Fallback to manual dict
-                    msg_param = {
-                        "type": output.type,
-                        "role": output.role,
-                        "content": [{"type": c.type, "text": c.text} for c in output.content],
-                        "status": output.status,
-                        "id": output.id,
-                    }
-                input_items.append(msg_param)
-            elif getattr(output, "type", None) == "function_call":
-                function_calls.append(output)
-        # If there are function calls, execute them and feed results back
+        resp_id = response.id
+        function_calls = [
+            o for o in response.output if getattr(o, "type", None) == "function_call"
+        ]
         if function_calls:
             for fc in function_calls:
                 call_id = fc.call_id
                 fname = fc.name
+                # Tell the API which function we're calling
+                input_items.append({
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": fname,
+                    "arguments": fc.arguments
+                })
                 args = json.loads(fc.arguments)
                 steps.append({"type": "tool", "name": fname, "input": args})
                 # Execute the actual tool
@@ -143,23 +205,21 @@ IMPORTANT:
                 else:
                     result = {"error": f"Unknown function: {fname}"}
                 steps.append({"type": "tool_result", "name": fname, "output": result})
-                # Feed function output back into context
+                payload = result.model_dump() if hasattr(result, "model_dump") else result
                 input_items.append({
                     "type": "function_call_output",
                     "call_id": call_id,
-                    "output": json.dumps(result),
+                    "output": json.dumps(payload),
                 })
-            # Continue loop to let model generate final answer
+            # Loop again so the model can generate its final answer
             continue
-        # No tool calls: gather final assistant response
-        texts: List[str] = []
-        for output in response.output:
-            if getattr(output, "type", None) == "message":
-                for c in output.content:
-                    if getattr(c, "type", None) == "output_text":
-                        texts.append(c.text)
-        final_output = "".join(texts)
+        # No more tools; pull out the assistant's final text
+        final_output = response.output_text
         steps.append({"type": "final", "output": final_output})
-        break
+        return {
+            "steps": steps,
+            "final_output": final_output,
+            "response_id": resp_id
+        }
 
     return {"steps": steps, "final_output": final_output}
