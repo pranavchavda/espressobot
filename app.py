@@ -2,6 +2,7 @@ from flask import Flask, request, render_template, jsonify
 import os
 import asyncio
 from simple_agent import run_simple_agent, client as openai_client
+from responses_agent import run_responses_agent
 from dotenv import load_dotenv
 from database import init_db, get_db, close_db
 
@@ -17,6 +18,15 @@ with app.app_context():
 def home():
     # Render the main chat interface
     return render_template('index.html')
+@app.route('/responses')
+def responses_ui():
+    # Serve the UI pointing to the Responses API
+    template_path = os.path.join(app.template_folder, 'index.html')
+    with open(template_path, 'r') as f:
+        html = f.read()
+    # Replace client fetch call from /chat to /chat_responses
+    html = html.replace("fetch('/chat'", "fetch('/chat_responses'")
+    return html
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -89,6 +99,84 @@ def chat():
         print(f"ERROR in /chat route: {str(e)}")
         print(error_traceback)
         
+        return jsonify({
+            'response': f"Sorry, an error occurred: {str(e)}",
+            'error': str(e)
+        }), 500
+    finally:
+        loop.close()
+        
+@app.route('/chat_responses', methods=['POST'])
+def chat_responses():
+    data = request.json
+    conv_id = data.get('conv_id')
+    db = get_db()
+    if not conv_id:
+        # Create new conversation
+        cur = db.execute('INSERT INTO conversations DEFAULT VALUES')
+        conv_id = cur.lastrowid
+        db.commit()
+        # Generate a title for the new conversation (reuse chat for title)
+        try:
+            title_resp = openai_client.chat.completions.create(
+                model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
+                messages=[
+                    {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
+                    {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {data.get('message','')}"}
+                ]
+            )
+            title = title_resp.choices[0].message.content.strip()
+        except Exception:
+            title = f"Conversation {conv_id}"
+        db.execute('UPDATE conversations SET title = ? WHERE id = ?', (title, conv_id))
+        db.commit()
+    # Insert user message
+    db.execute(
+        'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
+        (conv_id, 'user', data.get('message', ''))
+    )
+    db.commit()
+    rows = db.execute(
+        'SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id',
+        (conv_id,)
+    ).fetchall()
+    history = [{'role': r['role'], 'content': r['content']} for r in rows]
+
+    # Run the responses-based agent
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        print(f"Processing chat_responses request with message: {data.get('message','')[:50]}...")
+        result = loop.run_until_complete(run_responses_agent(data.get('message',''), history))
+
+        # Extract tool calls for debugging
+        tool_calls = []
+        for step in result['steps']:
+            if step['type'] == 'tool':
+                tool_calls.append({
+                    'tool_name': step['name'],
+                    'input': step['input'],
+                    'output': step.get('output', None)
+                })
+
+        # Record assistant response
+        db.execute(
+            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
+            (conv_id, 'assistant', result['final_output'])
+        )
+        db.commit()
+        return jsonify({
+            'conv_id': conv_id,
+            'response': result['final_output'],
+            'steps': len(result['steps']),
+            'tool_calls': tool_calls
+        })
+    except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"ERROR in /chat_responses route: {str(e)}")
+        print(error_traceback)
+
         return jsonify({
             'response': f"Sorry, an error occurred: {str(e)}",
             'error': str(e)

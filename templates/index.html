@@ -165,6 +165,8 @@
         const submitButton = document.getElementById('submit-button');
         let messageHistory = [];
         let currentConvId = null;
+        // Choose backend endpoint based on path
+        const apiEndpoint = window.location.pathname === '/responses' ? '/chat_responses' : '/chat';
         
         const toggleBtn = document.getElementById('toggle-sidebar');
         const sidebar = document.getElementById('sidebar');
@@ -242,7 +244,7 @@
             
             try {
                 // Send request to backend
-                const response = await fetch('/chat', {
+                const response = await fetch(apiEndpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
