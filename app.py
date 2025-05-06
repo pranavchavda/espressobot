@@ -18,8 +18,6 @@ def home():
     # Render the main chat interface
     return render_template('index.html')
 
-
-
 @app.route('/chat', methods=['POST'])
 def chat():
     # Get the message and conversation history from the request
@@ -97,8 +95,6 @@ def chat():
         }), 500
     finally:
         loop.close()
-
-
 
 
 @app.route('/conversations', methods=['GET'])

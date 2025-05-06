@@ -184,11 +184,7 @@ TOOLS = [
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "GraphQL query string"
-                    },
-                    "variables": {
-                        "type": "object",
-                        "description": "Query variables"
+                        "description": "The GraphQL query string"
                     }
                 },
                 "required": ["query"]
