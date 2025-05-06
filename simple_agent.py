@@ -56,8 +56,8 @@ async def execute_shopify_query(query, variables=None):
     }
 
     try:
-        # Set explicit timeout to avoid hanging and use certifi for SSL verification
-        async with httpx.AsyncClient(timeout=15.0, verify=certifi.where()) as client:
+        # Set explicit timeout to avoid hanging and disable SSL verification
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending request to Shopify API at {endpoint}")
             response = await client.post(
                 endpoint,
@@ -119,8 +119,8 @@ async def execute_shopify_mutation(mutation, variables=None):
     }
 
     try:
-        # Set explicit timeout to avoid hanging and use certifi for SSL verification
-        async with httpx.AsyncClient(timeout=15.0, verify=certifi.where()) as client:
+        # Set explicit timeout to avoid hanging and disable SSL verification
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending mutation request to Shopify API at {endpoint}")
             response = await client.post(
                 endpoint,
