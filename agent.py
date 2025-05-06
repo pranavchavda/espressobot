@@ -27,7 +27,7 @@ async def execute_shopify_query(args):
     }
     
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=True) as client:
             response = await client.post(
                 endpoint,
                 json={"query": query, "variables": variables},

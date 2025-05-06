@@ -55,8 +55,8 @@ async def execute_shopify_query(query, variables=None):
     }
     
     try:
-        # Set explicit timeout to avoid hanging
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # Set explicit timeout to avoid hanging and handle SSL verification
+        async with httpx.AsyncClient(timeout=15.0, verify=True) as client:
             print(f"Sending request to Shopify API at {endpoint}")
             response = await client.post(
                 endpoint,
@@ -118,8 +118,8 @@ async def execute_shopify_mutation(mutation, variables=None):
     }
     
     try:
-        # Set explicit timeout to avoid hanging
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # Set explicit timeout to avoid hanging and handle SSL verification
+        async with httpx.AsyncClient(timeout=15.0, verify=True) as client:
             print(f"Sending mutation request to Shopify API at {endpoint}")
             response = await client.post(
                 endpoint,
