@@ -3,6 +3,7 @@ import json
 from typing import Dict, Any, List, Optional
 from agents import Agent, Runner, Tool
 import httpx
+import certifi
 from datetime import datetime
 import pytz
 
@@ -27,7 +28,7 @@ async def execute_shopify_query(args):
     }
     
     try:
-        async with httpx.AsyncClient(verify=True) as client:
+        async with httpx.AsyncClient(verify=certifi.where()) as client:
             response = await client.post(
                 endpoint,
                 json={"query": query, "variables": variables},
