@@ -10,6 +10,7 @@ import openai
 import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+import certifi # Import certifi module
 
 # Import our custom MCP server implementation
 from mcp_server import mcp_server
@@ -25,16 +26,16 @@ async def execute_shopify_query(query, variables=None):
     """Execute a Shopify GraphQL query with the provided variables"""
     if variables is None:
         variables = {}
-    
+
     print(f"Executing Shopify query: {query[:100]}...")
-    
+
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "")
     access_token = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
     api_version = os.environ.get("SHOPIFY_API_VERSION", "2025-04")
-    
+
     if not shop_url or not access_token:
         raise ValueError("Missing Shopify credentials")
-    
+
     # Ensure we have a properly formatted URL
     if shop_url.startswith("http://") or shop_url.startswith("https://"):
         # URL already has scheme
@@ -42,21 +43,21 @@ async def execute_shopify_query(query, variables=None):
     else:
         # Add https:// scheme
         base_url = f"https://{shop_url}"
-        
+
     # Remove any trailing slashes
     base_url = base_url.rstrip("/")
-    
+
     endpoint = f"{base_url}/admin/api/{api_version}/graphql.json"
     print(f"Using Shopify endpoint: {endpoint}")
-    
+
     headers = {
         "X-Shopify-Access-Token": access_token,
         "Content-Type": "application/json"
     }
-    
+
     try:
-        # Set explicit timeout to avoid hanging
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # Set explicit timeout to avoid hanging and disable SSL verification
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending request to Shopify API at {endpoint}")
             response = await client.post(
                 endpoint,
@@ -88,16 +89,16 @@ async def execute_shopify_mutation(mutation, variables=None):
     """Execute a Shopify GraphQL mutation with the provided variables"""
     if variables is None:
         variables = {}
-    
+
     print(f"Executing Shopify mutation: {mutation[:100]}...")
-    
+
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "")
     access_token = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
     api_version = os.environ.get("SHOPIFY_API_VERSION", "2025-04")
-    
+
     if not shop_url or not access_token:
         raise ValueError("Missing Shopify credentials")
-    
+
     # Ensure we have a properly formatted URL
     if shop_url.startswith("http://") or shop_url.startswith("https://"):
         # URL already has scheme
@@ -105,21 +106,21 @@ async def execute_shopify_mutation(mutation, variables=None):
     else:
         # Add https:// scheme
         base_url = f"https://{shop_url}"
-        
+
     # Remove any trailing slashes
     base_url = base_url.rstrip("/")
-    
+
     endpoint = f"{base_url}/admin/api/{api_version}/graphql.json"
     print(f"Using Shopify endpoint for mutation: {endpoint}")
-    
+
     headers = {
         "X-Shopify-Access-Token": access_token,
         "Content-Type": "application/json"
     }
-    
+
     try:
-        # Set explicit timeout to avoid hanging
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        # Set explicit timeout to avoid hanging and disable SSL verification
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending mutation request to Shopify API at {endpoint}")
             response = await client.post(
                 endpoint,
@@ -264,14 +265,14 @@ async def run_simple_agent(message, history=None):
     """Run a simple agent implementation that uses the OpenAI API directly"""
     if history is None:
         history = []
-    
+
     # Convert history to the format expected by OpenAI
     formatted_history = []
     for item in history:
         role = item.get('role', 'user')
         content = item.get('content', '')
         formatted_history.append({"role": role, "content": content})
-    
+
     # System message with instructions
     current_time = get_current_datetime_est()
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "Unknown")
@@ -302,24 +303,24 @@ IMPORTANT:
 - Look for information in context and conversation history before querying the API.
 - Keep responses concise and informative.
 """
-    
+
     # Add system message to history
     formatted_messages = [{"role": "system", "content": system_message}] + formatted_history
     formatted_messages.append({"role": "user", "content": message})
-    
+
     # Step logs for tracking agent progress
     steps = []
-    
+
     # Main agent loop
     step_count = 0
     max_steps = 10  # Prevent infinite loops
     final_response = "I'm sorry, I couldn't complete the task due to an error."
-    
+
     try:
         while step_count < max_steps:
             step_count += 1
             print(f"Running agent step {step_count}")
-            
+
             # Call the model
             response = client.chat.completions.create(
                 model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
@@ -327,10 +328,10 @@ IMPORTANT:
                 tools=TOOLS,
                 tool_choice="auto"
             )
-            
+
             # Get the message content
             message = response.choices[0].message
-            
+
             # Check for tool calls
             if message.tool_calls:
                 # First, add the assistant's message with the tool call to the history
@@ -346,21 +347,21 @@ IMPORTANT:
                         }
                     } for tool_call in message.tool_calls]
                 })
-                
+
                 # Process each tool call
                 for tool_call in message.tool_calls:
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
-                    
+
                     # Record the tool call
                     steps.append({
                         "type": "tool",
                         "name": function_name,
                         "input": function_args
                     })
-                    
+
                     print(f"Tool call: {function_name} with args: {function_args}")
-                    
+
                     # Execute the appropriate function
                     result = None
                     if function_name == "run_shopify_query":
@@ -380,38 +381,38 @@ IMPORTANT:
                         result = await search_dev_docs(prompt)
                     else:
                         result = {"error": f"Unknown function: {function_name}"}
-                    
+
                     # Check for API errors
                     if result and "errors" in result:
                         print(f"API error in {function_name}: {result['errors']}")
-                    
+
                     # Record the result
                     steps.append({
                         "type": "tool_result",
                         "name": function_name,
                         "output": result
                     })
-                    
+
                     # Add the function response to messages correctly linked to the tool call
                     formatted_messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": json.dumps(result.model_dump() if hasattr(result, "model_dump") else result)
                     })
-                
+
                 # Let the model continue with tool results
                 continue
-            
+
             # If no tool calls, we're done
             final_response = message.content
             break
-    
+
     except Exception as e:
         import traceback
         print(f"Error in agent execution: {e}")
         print(traceback.format_exc())
         final_response = f"Sorry, an error occurred: {str(e)}"
-    
+
     # Return the final result
     return {
         "final_output": final_response,

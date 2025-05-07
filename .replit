@@ -1,0 +1,25 @@
+modules = ["python-3.12", "web"]
+run = "python app.py"
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+run = ["sh", "-c", "python app.py"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+exposeLocalhost = true
+
+[workflows]
+runButton = "Run"
+
+[[workflows.workflow]]
+name = "Run"
+author = 11185186
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python app.py"
