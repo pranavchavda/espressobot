@@ -200,6 +200,15 @@
     </form>
 
     <script>
+        document.getElementById('message-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                document.getElementById('message-form').dispatchEvent(new Event('submit', { cancelable: true }));
+            }
+        });
+    </script>
+
+    <script>
         const chatContainer = document.getElementById('chat-container');
         const messageForm = document.getElementById('message-form');
         const messageInput = document.getElementById('message-input');
