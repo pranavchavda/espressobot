@@ -471,13 +471,11 @@ IMPORTANT:
                     if asyncio.current_task().cancelled():
                         raise asyncio.CancelledError()
 
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-
-                    # Initialize tool_output for error safety
-                    tool_output = None
-                    # Dispatch tool execution
                     try:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        print(f"Executing tool call {tool_call.id}: {function_name} with arguments: {function_args}")
+                        # Execute the appropriate tool function
                         if function_name == "introspect_admin_schema":
                             tool_output = await introspect_admin_schema(
                                 function_args["query"],
@@ -497,52 +495,48 @@ IMPORTANT:
                             tool_output = await ask_perplexity(function_args["messages"])
                         else:
                             tool_output = {"error": f"Unknown tool: {function_name}"}
-                    except Exception as tool_exc:
-                        import traceback
-                        print(f"Error running tool {function_name}: {tool_exc}")
-                        print(traceback.format_exc())
-                        tool_output = {"error": f"Exception in tool '{function_name}': {str(tool_exc)}"}
+                        # Ensure tool_output is serializable
+                        serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
+                        steps.append({
+                            "step": f"Tool call: {function_name}",
+                            "input": function_args,
+                            "output": serializable_output
+                        })
 
-                    # Save tool output (always serializable)
-                    serializable_output = (
-                        tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
-                            tool_output.text if hasattr(tool_output, "text") else (
-                                str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
-                            )
-                        )
-                    )
-                    steps.append({
-                        "type": "tool",
-                        "name": function_name,
-                        "input": function_args,
-                        "output": serializable_output
-                    })
-
-                    # Save tool output to last step for compatibility
-                    steps[-1]["output"] = serializable_output
-
-                    # Add the function response to messages correctly linked to the tool call
-                    # Log tool output for debugging
-                    print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
-                    formatted_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(
-                            tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
-                                tool_output.text if hasattr(tool_output, "text") else (
-                                    str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                        # Add the function response to messages correctly linked to the tool call
+                        # Log tool output for debugging
+                        print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
+                        formatted_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                                    tool_output.text if hasattr(tool_output, "text") else (
+                                        str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                                    )
                                 )
                             )
-                        )
-                    })
+                        })
+                    except Exception as e:
+                        print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
+                        error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
+                        formatted_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": error_msg})
+                        })
+                        steps.append({
+                            "step": f"Error in tool call: {tool_call.function.name}",
+                            "input": json.loads(tool_call.function.arguments) if hasattr(tool_call.function, "arguments") else {},
+                            "output": {"error": error_msg}
+                        })
 
-                    # After tool call, let the model continue with tool results
-                    # (Do not continue here; allow the main loop to run again)
-                    break
+                # After tool call, let the outer loop run again to give GPT the tool results
+                continue
 
             # If no tool calls, we're done
             # Only apply Perplexity-specific extraction for Perplexity tool calls
-            if steps and steps[-1]["name"] in ("perplexity_ask", "perplexity_ask"):
+            if steps and "perplexity_ask" in steps[-1].get("step", ""):
                 tool_result = steps[-1]["output"]
                 # If Perplexity result is a dict with 'content' as a list of dicts
                 if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):

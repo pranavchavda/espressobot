@@ -372,6 +372,7 @@
             
             // Use Showdown to convert Markdown to HTML
             const converter = new showdown.Converter();
+            converter.setOption('tables', true);
             const htmlContent = converter.makeHtml(content);
             messageDiv.innerHTML = htmlContent;
             

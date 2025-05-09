@@ -3,6 +3,7 @@
 **Goal:** Create compelling, accurate product listings for iDrinkCoffee.com that match our brand and improve SEO.
 
 
+
 **Remember to:**
 
 - **Act human:** Write naturally and engagingly.
@@ -198,3 +199,165 @@ origin-tanzania
 - **Cost of Goods (COGS):** Include the product cost for COGS calculations (when available).
 - **Inventory Tracking:** Enable inventory tracking and set to "deny" for "Continue Selling" when out of stock.
 - **Product Status:** Always set the product status to `DRAFT` unless instructed otherwise.
+- **Inventory Weight:** Set the inventory weight to the weight of the product in grams for Shopify.
+
+## 7. Exceptions
+
+- For accessories, coffee and cleaning products, you can skip the Buy Box, FAQs, Tech Specs, and Features sections. Focus on a detailed overview (`body_html`).
+
+## Notes:
+
+✅ Variant Creation (Single Variant Products)
+mutation {
+  productVariantsBulkCreate(productId: "gid://shopify/Product/<ProductID>", variants: [
+    {
+      price: "<Price>",
+      optionValues: [{ optionName: "Title", name: "Default Title" }],
+      inventoryItem: {
+        sku: "<YourSKU>"
+      }
+    }
+  ]) {
+    productVariants {
+      id
+      inventoryItem {
+        id
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+✅ Media Upload (Image)
+mutation {
+  productCreateMedia(productId: "gid://shopify/Product/<ProductID>", media: [
+    {
+      originalSource: "<IMAGE_URL>",
+      mediaContentType: IMAGE
+    }
+  ]) {
+    media {
+      alt
+      mediaContentType
+      status
+    }
+    mediaUserErrors {
+      field
+      message
+    }
+  }
+}
+✅ Variant Price Update
+mutation {
+  productVariantsBulkUpdate(productId: "gid://shopify/Product/<ProductID>", variants: [
+    {
+      id: "gid://shopify/ProductVariant/<VariantID>",
+      price: "<NewPrice>"
+    }
+  ]) {
+    userErrors {
+      field
+      message
+    }
+  }
+}
+✅ SKU Update (via Inventory Item)
+mutation {
+  inventoryItemUpdate(id: "gid://shopify/InventoryItem/<InventoryItemID>", input: {
+    sku: "<NewSKU>"
+  }) {
+    inventoryItem {
+      id
+      sku
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+✅ To add an option (such as “Size”) to an existing product, always use the productOptionsCreate mutation.
+Do not rely on productUpdate, productSet, or older/deprecated mutations for adding options.
+Example Mutation:
+
+mutation {
+  productOptionsCreate(
+    productId: "gid://shopify/Product/xxxxxxxxxxxx",
+    options: [
+      {
+        name: "Size",
+        values: [
+          { name: "S" },
+          { name: "M" },
+          { name: "L" },
+          { name: "XL" },
+          { name: "2XL" }
+        ]
+      }
+    ]
+  ) {
+    userErrors {
+      field
+      message
+      code
+    }
+    product {
+      id
+      options {
+        name
+        optionValues {
+          name
+        }
+      }
+    }
+  }
+}
+
+## Important notes for variant cost and sku
+
+Shopify Product Guide Addendum: Managing Variant Cost
+How to Update the Variant Cost in Shopify (2025+)
+As of 2025-04 and later Shopify API versions:
+
+The variant’s “cost” (COGS/unit cost) is managed on the Inventory Item, not the Product or Variant directly.
+Use the inventoryItemUpdate GraphQL mutation to update the cost of any variant.
+The correct mutation and structure is:
+```
+mutation {
+  inventoryItemUpdate(
+    id: "gid://shopify/InventoryItem/xxxxxxx",   # InventoryItem GID for the variant
+    input: {
+      cost: "YOUR_COST_VALUE"                   # Use a string representing the currency amount
+    }
+  ) {
+    inventoryItem {
+      id
+      unitCost {
+        amount
+        currencyCode
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+```
+**Steps**:
+
+Fetch the variant’s InventoryItem ID (each variant has one).
+Use inventoryItemUpdate (not productVariantsBulkUpdate or any product/variant mutation) to set cost.
+Always input cost as a string (e.g., "54.99").
+Setting SKU and price is done via productVariantsBulkUpdate.
+Cost is not updatable via productVariantsBulkUpdate—ignore any docs/examples that try to do so.
+REST endpoints for cost are deprecated; always use GraphQL.
+Best Practice:
+Always verify fields supported by your current Shopify Admin API version when automating product or inventory management. Refer to official Shopify GraphQL docs for the latest.
+
+ALWAYS 
+- Use the correct mutation for the data you wish to update.
+- Always verify with the current API documentation if you have issues.
+- Use the Introspetion tool and perplexity ask tool for help, if you make mistakes, get help, don't guess, or ask the user to do it or suggest alternatives.

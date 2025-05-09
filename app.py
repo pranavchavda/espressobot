@@ -126,9 +126,9 @@ def chat():
         # Extract tool calls for debugging
         tool_calls = []
         for step in result['steps']:
-            if step['type'] == 'tool':
+            if 'tool call' in step['step'].lower():
                 tool_calls.append({
-                    'tool_name': step['name'],
+                    'tool_name': step['step'].split(':')[-1].strip() if ':' in step['step'] else step['step'],
                     'input': step['input'],
                     'output': step.get('output', None)
                 })
@@ -200,9 +200,9 @@ def chat_responses():
         # Extract tool calls for debugging
         tool_calls = []
         for step in result['steps']:
-            if step['type'] == 'tool':
+            if 'tool call' in step['step'].lower():
                 tool_calls.append({
-                    'tool_name': step['name'],
+                    'tool_name': step['step'].split(':')[-1].strip() if ':' in step['step'] else step['step'],
                     'input': step['input'],
                     'output': step.get('output', None)
                 })
