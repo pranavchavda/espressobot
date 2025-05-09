@@ -89,9 +89,39 @@ def chat():
     # Run the agent in an async loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    
+    # Create a task that can be cancelled
+    task = None
     try:
         print(f"Processing chat request with message: {data.get('message','')[:50]}...")
-        result = loop.run_until_complete(run_simple_agent(data.get('message',''), history))
+        task = loop.create_task(run_simple_agent(data.get('message',''), history))
+        
+        try:
+            result = loop.run_until_complete(task)
+        except asyncio.CancelledError:
+            # On cancellation, ensure task is properly cancelled
+            if task and not task.done():
+                task.cancel()
+                try:
+                    loop.run_until_complete(task)
+                except asyncio.CancelledError:
+                    pass
+            
+            # Return response with conversation ID preserved
+            return jsonify({
+                'response': 'Request cancelled by user.',
+                'conv_id': conv_id,
+                'suggestions': [],
+                'steps': 0,
+                'tool_calls': []
+            })
+        finally:
+            if task and not task.done():
+                task.cancel()
+                try:
+                    loop.run_until_complete(task)
+                except asyncio.CancelledError:
+                    pass
         
         # Extract tool calls for debugging
         tool_calls = []
@@ -113,7 +143,8 @@ def chat():
             'conv_id': conv_id,
             'response': result['final_output'],
             'steps': len(result['steps']),
-            'tool_calls': tool_calls
+            'tool_calls': tool_calls,
+            'suggestions': result.get('suggestions', [])
         })
     except Exception as e:
         # Handle any errors with detailed logging

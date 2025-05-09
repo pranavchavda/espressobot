@@ -67,6 +67,10 @@
             border-radius: 8px;
             font-size: 1rem;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            resize: vertical;
+            min-height: 50px;
+            max-height: 200px;
+            font-family: inherit;
         }
         #message-input:focus {
             outline: none;
@@ -95,6 +99,40 @@
             align-items: center;
             justify-content: center;
             margin: 15px 0;
+        }
+        
+        .suggestions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .suggestion {
+            background-color: #e4e9f2;
+            color: #454f5b;
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            border-radius: 16px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            font-weight: normal;
+        }
+        
+        .suggestion:hover {
+            background-color: #5c6ac4;
+            color: white;
+            border-color: #5c6ac4;
+        }
+        
+        #interrupt-button {
+            background-color: #dc3545;
+            display: none;
+        }
+        
+        #interrupt-button:hover {
+            background-color: #c82333;
         }
         .dot {
             display: inline-block;
@@ -154,8 +192,11 @@
     <div id="chat-container"></div>
     
     <form id="message-form">
-        <input type="text" id="message-input" placeholder="Type your message here..." autocomplete="off" />
-        <button type="submit" id="submit-button">Send</button>
+        <textarea id="message-input" placeholder="Type your message here..." autocomplete="off" rows="2"></textarea>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button type="submit" id="submit-button">Send</button>
+            <button type="button" id="interrupt-button">Stop</button>
+        </div>
     </form>
 
     <script>
@@ -163,6 +204,8 @@
         const messageForm = document.getElementById('message-form');
         const messageInput = document.getElementById('message-input');
         const submitButton = document.getElementById('submit-button');
+        const interruptButton = document.getElementById('interrupt-button');
+        let controller = null;
         let messageHistory = [];
         let currentConvId = null;
         // Choose backend endpoint based on path
@@ -244,8 +287,13 @@
             
             let prevResponseId = window.prevResponseId || null;
             try {
+                // Create an AbortController
+                controller = new AbortController();
+                interruptButton.style.display = 'block';
+                
                 // Send request to backend
                 const response = await fetch(apiEndpoint, {
+                    signal: controller.signal,
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -267,7 +315,7 @@
                 window.prevResponseId = data.response_id || null;
 
                 // Add assistant message to UI
-                addMessage(data.response, 'assistant');
+                addMessage(data.response, 'assistant', data.suggestions);
 
                 // Log tool calls for debugging
                 if (data.tool_calls && data.tool_calls.length > 0) {
@@ -279,16 +327,37 @@
                 console.error('Error:', error);
                 // Remove loading indicator
                 chatContainer.removeChild(loadingDiv);
-                addMessage('Sorry, there was an error processing your request.', 'assistant');
+                if (error.name === 'AbortError') {
+                    addMessage('Request cancelled by user.', 'assistant');
+                } else {
+                    addMessage('Sorry, there was an error processing your request.', 'assistant');
+                }
             } finally {
-                // Re-enable input
+                // Re-enable input and hide interrupt button
                 messageInput.disabled = false;
                 submitButton.disabled = false;
                 messageInput.focus();
+                interruptButton.style.display = 'none';
+                controller = null;
             }
         });
 
-        function addMessage(content, role) {
+        // Handle interrupt button click
+        interruptButton.addEventListener('click', () => {
+            if (controller) {
+                controller.abort();
+                controller = null;
+                interruptButton.style.display = 'none';
+            }
+        });
+
+        // Handle suggestion clicks
+        function handleSuggestionClick(suggestion) {
+            messageInput.value = suggestion;
+            messageForm.dispatchEvent(new Event('submit'));
+        }
+
+        function addMessage(content, role, suggestions = []) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message', `${role}-message`);
             
@@ -296,6 +365,20 @@
             const converter = new showdown.Converter();
             const htmlContent = converter.makeHtml(content);
             messageDiv.innerHTML = htmlContent;
+            
+            // Add suggestions if they exist and this is an assistant message
+            if (role === 'assistant' && suggestions && suggestions.length > 0) {
+                const suggestionsDiv = document.createElement('div');
+                suggestionsDiv.classList.add('suggestions');
+                suggestions.forEach(suggestion => {
+                    const suggestionButton = document.createElement('button');
+                    suggestionButton.classList.add('suggestion');
+                    suggestionButton.textContent = suggestion;
+                    suggestionButton.onclick = () => handleSuggestionClick(suggestion);
+                    suggestionsDiv.appendChild(suggestionButton);
+                });
+                messageDiv.appendChild(suggestionsDiv);
+            }
             
             // Add timestamp
             const timeDiv = document.createElement('div');

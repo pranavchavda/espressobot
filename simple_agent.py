@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import certifi # Import certifi module
+import re # Import re for URL validation
 
 # Import our custom MCP server implementation
 from mcp_server import mcp_server
@@ -166,14 +167,88 @@ async def introspect_admin_schema(query, filter_types=None):
 
 async def search_dev_docs(prompt):
     """Search Shopify developer documentation using the MCP server"""
+    if not mcp_server:
+        return {"error": "MCP server not available"}
+    return await mcp_server.call_tool("shopify-dev-mcp", "search_dev_docs", {"prompt": prompt})
+
+# Function to fetch product copy guidelines
+
+# Helper for Perplexity MCP
+async def ask_perplexity(messages):
+    from mcp_server import perplexity_mcp_server
     try:
-        return await mcp_server.search_dev_docs(prompt)
+        return await perplexity_mcp_server.perplexity_ask(messages)
     except Exception as e:
-        print(f"Error searching dev docs: {e}")
-        return {"errors": [{"message": str(e)}]}
+        print(f"Error calling Perplexity MCP: {e}")
+        return {"error": str(e)}
+
+async def get_product_copy_guidelines():
+    """Read product_copy_guidelines.md and return its content (up to 4000 chars, with a 'truncated' flag)."""
+    try:
+        with open("product_copy_guidelines.md", "r") as f:
+            content = f.read()
+        return {"content": content[:4000], "truncated": len(content) > 4000}
+    except Exception as e:
+        print(f"Error reading product copy guidelines: {e}")
+        return {"error": str(e)}
+
+# Function to fetch URL content with curl
+async def fetch_url_with_curl(url: str):
+    """Fetch the raw content of a public HTTP/HTTPS URL using curl. Returns up to 4000 characters."""
+    # Only allow http/https
+    if not url.lower().startswith(('http://', 'https://')):
+        return {"error": "Only HTTP and HTTPS URLs are allowed."}
+    # Block local/internal addresses
+    if re.search(r'(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)', url):
+        return {"error": "Local and internal network addresses are not allowed."}
+    try:
+        import subprocess
+        proc = await asyncio.create_subprocess_exec(
+            'curl', '-L', '--max-time', '8', '--silent', '--show-error', '--user-agent', 'ShopifyAgent/1.0', url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"error": "Request timed out."}
+        if proc.returncode != 0:
+            return {"error": f"curl error: {stderr.decode('utf-8')[:200]}"}
+        content = stdout.decode('utf-8', errors='replace')[:4000]
+        return {"content": content, "truncated": len(content) == 4000}
+    except Exception as e:
+        return {"error": str(e)}
 
 # Define available tools
 TOOLS = [
+    {
+        "name": "get_product_copy_guidelines",
+        "type": "function",
+        "function": {
+            "name": "get_product_copy_guidelines",
+            "description": "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "name": "fetch_url_with_curl",
+        "type": "function",
+        "function": {
+            "name": "fetch_url_with_curl",
+            "description": "Fetch the raw content of a public HTTP/HTTPS URL using curl. Useful for retrieving HTML, JSON, or plain text from the web. Only use for public internet resources.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The HTTP or HTTPS URL to fetch."
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
     {
         "name": "run_shopify_query",
         "type": "function",
@@ -245,24 +320,53 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_dev_docs",
-            "description": "Search Shopify developer documentation to get relevant information about Shopify APIs, features, and best practices",
+            "description": "Search Shopify developer documentation",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "The search query for Shopify documentation"
                     }
                 },
                 "required": ["prompt"]
+            }
+        }
+    },
+    {
+        "name": "perplexity_ask",
+        "type": "function",
+        "function": {
+            "name": "perplexity_ask",
+            "description": "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "messages": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role": {"type": "string"},
+                                "content": {"type": "string"}
+                            },
+                            "required": ["role", "content"]
+                        },
+                        "description": "Array of conversation messages"
+                    }
+                },
+                "required": ["messages"]
             }
         }
     }
 ]
 
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(message, history=None):
-    """Run a simple agent implementation that uses the OpenAI API directly"""
+async def run_simple_agent(user_input, history=[]):
+    # Initialize variables
+    step_count = 0
+    steps = []
+    import json  # Ensure json is available in this scope
+
     if history is None:
         history = []
 
@@ -287,15 +391,18 @@ You can help with:
 
 You have access to several tools:
 
-1. run_shopify_query - Execute GraphQL queries against the Shopify Admin API to fetch data
-2. run_shopify_mutation - Execute GraphQL mutations against the Shopify Admin API to modify data
-3. introspect_admin_schema - Get information about the Shopify Admin API schema (types, queries, mutations)
-4. search_dev_docs - Search Shopify developer documentation for guidance
-5. web_search_preview - Search the web for information as a last resort
+1. get_product_copy_guidelines - Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.
+2. fetch_url_with_curl - Fetch the raw content of a public HTTP/HTTPS URL using curl (for retrieving HTML, JSON, or plain text from the web).
+3. run_shopify_query - Execute GraphQL queries against the Shopify Admin API to fetch data.
+4. run_shopify_mutation - Execute GraphQL mutations against the Shopify Admin API to modify data.
+5. introspect_admin_schema - Get information about the Shopify Admin API schema (types, queries, mutations).
+6. search_dev_docs - Search Shopify developer documentation for guidance.
+7. perplexity_ask - Get real-time information and analysis from Perplexity AI (for current events, complex research, or when you need to verify or research something).
 
 IMPORTANT:
 - When unfamiliar with a specific part of the Shopify API, first use introspect_admin_schema to understand the available fields and types.
 - Use search_dev_docs when you need guidance on Shopify features or best practices.
+- Use perplexity_ask for up-to-date information, complex analysis, or real-time research beyond Shopify's documentation.
 - For any Shopify API operations, use the appropriate tool: run_shopify_query for fetching data, run_shopify_mutation for modifying data.
 - If a request requires prerequisite information (e.g., finding a product ID before updating it), first query for the missing information before attempting mutations.
 - Make sure all GraphQL queries and mutations are valid for the Shopify Admin API version '{os.environ.get("SHOPIFY_API_VERSION", "2025-04")}'.
@@ -306,7 +413,7 @@ IMPORTANT:
 
     # Add system message to history
     formatted_messages = [{"role": "system", "content": system_message}] + formatted_history
-    formatted_messages.append({"role": "user", "content": message})
+    formatted_messages.append({"role": "user", "content": user_input})
 
     # Step logs for tracking agent progress
     steps = []
@@ -322,12 +429,18 @@ IMPORTANT:
             print(f"Running agent step {step_count}")
 
             # Call the model
-            response = client.chat.completions.create(
-                model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
-                messages=formatted_messages,
-                tools=TOOLS,
-                tool_choice="auto"
-            )
+            try:
+                response = client.chat.completions.create(
+                    model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
+                    messages=formatted_messages,
+                    tools=TOOLS,
+                    tool_choice="auto"
+                )
+            except Exception as e:
+                # Check if this is a cancellation
+                if isinstance(e, asyncio.CancelledError):
+                    raise  # Re-raise CancelledError to propagate it
+                raise e
 
             # Get the message content
             message = response.choices[0].message
@@ -348,73 +461,202 @@ IMPORTANT:
                     } for tool_call in message.tool_calls]
                 })
 
+                # Check for cancellation before processing tool calls
+                if asyncio.current_task().cancelled():
+                    raise asyncio.CancelledError()
+
                 # Process each tool call
                 for tool_call in message.tool_calls:
+                    # Check for cancellation before each tool call
+                    if asyncio.current_task().cancelled():
+                        raise asyncio.CancelledError()
+
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
 
-                    # Record the tool call
+                    # Initialize tool_output for error safety
+                    tool_output = None
+                    # Dispatch tool execution
+                    try:
+                        if function_name == "introspect_admin_schema":
+                            tool_output = await introspect_admin_schema(
+                                function_args["query"],
+                                function_args.get("filter_types")
+                            )
+                        elif function_name == "search_dev_docs":
+                            tool_output = await search_dev_docs(function_args["prompt"])
+                        elif function_name == "run_shopify_query":
+                            tool_output = await execute_shopify_query(function_args["query"], function_args.get("variables"))
+                        elif function_name == "run_shopify_mutation":
+                            tool_output = await execute_shopify_mutation(function_args["query"], function_args.get("variables"))
+                        elif function_name == "get_product_copy_guidelines":
+                            tool_output = await get_product_copy_guidelines()
+                        elif function_name == "fetch_url_with_curl":
+                            tool_output = await fetch_url_with_curl(function_args["url"])
+                        elif function_name == "perplexity_ask":
+                            tool_output = await ask_perplexity(function_args["messages"])
+                        else:
+                            tool_output = {"error": f"Unknown tool: {function_name}"}
+                    except Exception as tool_exc:
+                        import traceback
+                        print(f"Error running tool {function_name}: {tool_exc}")
+                        print(traceback.format_exc())
+                        tool_output = {"error": f"Exception in tool '{function_name}': {str(tool_exc)}"}
+
+                    # Save tool output (always serializable)
+                    serializable_output = (
+                        tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                            tool_output.text if hasattr(tool_output, "text") else (
+                                str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                            )
+                        )
+                    )
                     steps.append({
                         "type": "tool",
                         "name": function_name,
-                        "input": function_args
+                        "input": function_args,
+                        "output": serializable_output
                     })
 
-                    print(f"Tool call: {function_name} with args: {function_args}")
-
-                    # Execute the appropriate function
-                    result = None
-                    if function_name == "run_shopify_query":
-                        query = function_args.get("query")
-                        variables = function_args.get("variables", {})
-                        result = await execute_shopify_query(query, variables)
-                    elif function_name == "run_shopify_mutation":
-                        mutation = function_args.get("query")
-                        variables = function_args.get("variables", {})
-                        result = await execute_shopify_mutation(mutation, variables)
-                    elif function_name == "introspect_admin_schema":
-                        query = function_args.get("query")
-                        filter_types = function_args.get("filter_types", ["all"])
-                        result = await introspect_admin_schema(query, filter_types)
-                    elif function_name == "search_dev_docs":
-                        prompt = function_args.get("prompt")
-                        result = await search_dev_docs(prompt)
-                    else:
-                        result = {"error": f"Unknown function: {function_name}"}
-
-                    # Check for API errors
-                    if result and "errors" in result:
-                        print(f"API error in {function_name}: {result['errors']}")
-
-                    # Record the result
-                    steps.append({
-                        "type": "tool_result",
-                        "name": function_name,
-                        "output": result
-                    })
+                    # Save tool output to last step for compatibility
+                    steps[-1]["output"] = serializable_output
 
                     # Add the function response to messages correctly linked to the tool call
+                    # Log tool output for debugging
+                    print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
                     formatted_messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(result.model_dump() if hasattr(result, "model_dump") else result)
+                        "content": json.dumps(
+                            tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                                tool_output.text if hasattr(tool_output, "text") else (
+                                    str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                                )
+                            )
+                        )
                     })
 
-                # Let the model continue with tool results
-                continue
+                    # After tool call, let the model continue with tool results
+                    # (Do not continue here; allow the main loop to run again)
+                    break
 
             # If no tool calls, we're done
-            final_response = message.content
-            break
+            # Only apply Perplexity-specific extraction for Perplexity tool calls
+            if steps and steps[-1]["name"] in ("perplexity_ask", "perplexity_ask"):
+                tool_result = steps[-1]["output"]
+                # If Perplexity result is a dict with 'content' as a list of dicts
+                if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):
+                    texts = [item.get("text", "") for item in tool_result["content"] if isinstance(item, dict)]
+                    final_response = "\n\n".join([t for t in texts if t.strip()])
+                    if not final_response:
+                        final_response = tool_result.get("error") or "I'm sorry, Perplexity did not return any content."
+                    break
+                elif isinstance(tool_result, dict) and tool_result.get("error"):
+                    final_response = tool_result["error"]
+                    break
+                # Otherwise, let the loop continue so the model can interpret
+
+            # For all other tool calls, only break if the model returns non-empty content
+            final_response = (message.content or "").strip()
+            if final_response:
+                break
+        # End of main loop
+        # If we exit the loop and have no response, fallback
+        if not final_response:
+            if steps and "output" in steps[-1]:
+                output = steps[-1]["output"]
+                if isinstance(output, (dict, list)):
+                    import json
+                    final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
+                else:
+                    final_response = str(output)
+            else:
+                final_response = "I'm sorry, I couldn't complete the task due to an error."
 
     except Exception as e:
         import traceback
         print(f"Error in agent execution: {e}")
         print(traceback.format_exc())
-        final_response = f"Sorry, an error occurred: {str(e)}"
+        final_response = f"Sorry, an error occurred: {str(e)}" if str(e) else ""
+
+    # Generate suggestions using gpt-4.1-nano
+    suggestions = []
+    try:
+        # Check for cancellation before generating suggestions
+        if asyncio.current_task().cancelled():
+            raise asyncio.CancelledError()
+            
+        print("Generating suggestions with gpt-4.1-nano...")
+        # Make a separate call to generate suggestions
+        suggestion_response = client.chat.completions.create(
+            model="gpt-4.1-nano",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (2-5 words) and relevant."},
+                {"role": "user", "content": user_input}  # Only use the current message for context
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "suggested_responses",
+                        "description": "Provide 2-3 suggested follow-up messages for the user",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "Suggestions": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "List of 2-3 suggested responses"
+                                }
+                            },
+                            "required": ["Suggestions"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "perplexity_ask",
+                        "description": "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "messages": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "role": {"type": "string"},
+                                            "content": {"type": "string"}
+                                        }
+                                    },
+                                    "description": "Array of conversation messages"
+                                }
+                            },
+                            "required": ["messages"]
+                        }
+                    }
+                },
+            ],
+            tool_choice={"type": "function", "function": {"name": "suggested_responses"}}
+        )
+        
+        # Extract suggestions from the response
+        if (hasattr(suggestion_response, 'choices') and 
+            suggestion_response.choices and 
+            hasattr(suggestion_response.choices[0], 'message') and
+            hasattr(suggestion_response.choices[0].message, 'tool_calls') and
+            suggestion_response.choices[0].message.tool_calls):
+            tool_call = suggestion_response.choices[0].message.tool_calls[0]
+            suggestions = json.loads(tool_call.function.arguments).get('Suggestions', [])
+            print(f"Generated suggestions: {suggestions}")
+    except Exception as e:
+        print(f"Error generating suggestions: {str(e)}")
+        print(traceback.format_exc())
 
     # Return the final result
     return {
-        "final_output": final_response,
-        "steps": steps
+        'final_output': final_response,
+        'steps': steps,
+        'suggestions': suggestions
     }
