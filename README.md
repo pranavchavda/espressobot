@@ -13,25 +13,26 @@ A friendly AI-powered chat interface for your Shopify store. Ask questions, run 
 ## Prerequisites
 
 Before you begin, make sure you have:
-
 - **Python 3.8** or higher installed
 - **pip** (Python package manager)
 - An active **OpenAI API key**
+- **OpenAI Model** name (e.g., `gpt-4.1`)
 - **Shopify Admin API** credentials:
   - Admin API Access Token
   - Store URL (e.g., `your-store.myshopify.com`)
+- **Perplexity API key** (`PERPLEXITY_API_KEY`)
+- **SKU Vault credentials**:
+  - Tenant Token (`SKUVAULT_TENANT_TOKEN`)
+  - User Token (`SKUVAULT_USER_TOKEN`)
 
 ## Setup Guide (For Non-Technical Users)
 
 1. **Download the Project**
-   - Download the ZIP from GitHub or clone with Git:
+   - Download the ZIP from GitHub or clone with SSH:
      ```bash
-     git clone https://github.com/yourusername/flask-shopifybot.git
+     git clone git@github.com:pranavchavda/flask-shopifybot.git
      ```
-   - Open a terminal (Command Prompt on Windows) and navigate:
-     ```bash
-     cd flask-shopifybot
-     ```
+     - If you don't have access, ask Pranav to add you as a collaborator or request a pre-filled `.env`.
 
 2. **Create a Python Environment**
    - Linux/macOS:
@@ -58,12 +59,16 @@ Before you begin, make sure you have:
 
      ```env
      OPENAI_API_KEY=your_openai_api_key
+     OPENAI_MODEL=gpt-4.1
      SHOPIFY_ACCESS_TOKEN=your_shopify_admin_api_token
      SHOPIFY_SHOP_URL=your-store.myshopify.com
      SHOPIFY_API_VERSION=2025-04
-     FLASK_SECRET_KEY=any_secret_text
      CHAT_PASSWORD=your_chat_password
-     DEFAULT_MODEL=gpt-4.1-nano
+     FLASK_SECRET_KEY=yourrandomsecret
+     PERPLEXITY_API_KEY=your_perplexity_api_key
+     SKUVAULT_TENANT_TOKEN=your_skuvault_tenant_token
+     SKUVAULT_USER_TOKEN=your_skuvault_user_token
+     DEFAULT_MODEL=gpt-4.1
      ```
 
 5. **Start the Application**
