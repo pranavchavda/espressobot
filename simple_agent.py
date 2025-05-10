@@ -12,6 +12,10 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 import certifi # Import certifi module
 import re # Import re for URL validation
+import traceback # Import traceback for error handling
+
+# Import SkuVault integration
+from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementation
 from mcp_server import mcp_server
@@ -192,6 +196,27 @@ async def get_product_copy_guidelines():
         print(f"Error reading product copy guidelines: {e}")
         return {"error": str(e)}
 
+# Function to upload products to SkuVault
+async def upload_to_skuvault(product_sku):
+    """Upload a product from Shopify to SkuVault using its SKU"""
+    try:
+        result = await upload_shopify_product_to_skuvault(product_sku)
+        return result
+    except Exception as e:
+        error_msg = f"Error uploading product to SkuVault: {str(e)}"
+        print(f"ERROR: {error_msg}")
+        return {"success": False, "message": error_msg}
+
+async def upload_batch_to_skuvault(product_skus):
+    """Upload multiple products from Shopify to SkuVault using their SKUs"""
+    try:
+        result = await batch_upload_to_skuvault(product_skus)
+        return result
+    except Exception as e:
+        error_msg = f"Error batch uploading products to SkuVault: {str(e)}"
+        print(f"ERROR: {error_msg}")
+        return {"success": False, "message": error_msg}
+
 # Function to fetch URL content with curl
 async def fetch_url_with_curl(url: str):
     """Fetch the raw content of a public HTTP/HTTPS URL using curl. Returns up to 4000 characters."""
@@ -357,6 +382,42 @@ TOOLS = [
                 "required": ["messages"]
             }
         }
+    },
+    {
+        "name": "upload_to_skuvault",
+        "type": "function",
+        "function": {
+            "name": "upload_to_skuvault",
+            "description": "Upload a product from Shopify to SkuVault inventory management system using its SKU",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_sku": {
+                        "type": "string",
+                        "description": "The SKU of the Shopify product to upload to SkuVault"
+                    }
+                },
+                "required": ["product_sku"]
+            }
+        }
+    },
+    {
+        "name": "upload_batch_to_skuvault",
+        "type": "function",
+        "function": {
+            "name": "upload_batch_to_skuvault",
+            "description": "Upload multiple products from Shopify to SkuVault inventory management system using their SKUs",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_skus": {
+                        "type": "string",
+                        "description": "Comma-separated list of Shopify product SKUs to upload to SkuVault"
+                    }
+                },
+                "required": ["product_skus"]
+            }
+        }
     }
 ]
 
@@ -381,13 +442,72 @@ async def run_simple_agent(user_input, history=[]):
     current_time = get_current_datetime_est()
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "Unknown")
     system_message = f"""
-You are a helpful Shopify assistant for the shop: {shop_url}. Current date/time: {current_time}.
 
-You can help with:
-- Answering questions about Shopify and e-commerce
-- Retrieving information from the Shopify Admin API
-- Analyzing shop data
-- Making changes to the shop through the API
+You are “IDC-Shopify-Agent”, the production Shopify assistant for iDrinkCoffee.com. 
+Your mission: execute catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
+
+────────────────────────────────────────
+CORE WORKFLOW PRINCIPLES
+────────────────────────────────────────
+1. **INTROSPECT FIRST**  
+   • Before every new field/mutation/query you haven’t already verified this session, call `introspect_admin_schema` and cache the result in memory.  
+   • Never execute a mutation that is absent from the schema for the API version ($SHOPIFY_API_VERSION).
+
+2. **VERIFY BEFORE WRITE**  
+   • Changing a product? First call `run_shopify_query` to confirm the product exists, its status, and variant structure.  
+   • Creating a product? First ensure an identical title or SKU does **not** exist (prevent duplicates).
+
+3. **NO GUESSING / NO USER RESEARCH REQUESTS**  
+   • If docs are unclear, you must call `search_dev_docs` and/or `perplexity_ask`.  
+   • Never ask the user to paste docs or look things up for you.
+
+4. **LOCAL SESSION MAP**  
+   • Maintain an internal map -- title → productID → variants[] -- update it after every create/fetch.  
+   • Use this map to reference correct IDs on subsequent steps.
+
+5. **ONE MESSAGE → ONE DECISION**  
+   • Each reply must be either  
+     (a) a single clarifying question **or**  
+     (b) a compact plan **plus** the necessary tool calls.  
+   • Minimise apologies and filler.
+
+6. **IMAGE SAFETY RULE**  
+   • When calling `productCreateMedia`, include the product title and ID in the same assistant message, and use the *exact* image URL supplied for that product only.
+
+7. **MUTATION CHEAT-SHEET** (2025-04)
+   • Add option to existing product → `productOptionsCreate`  
+   • Bulk add variants       → `productVariantsBulkCreate`  
+   • Bulk update variant price / barcode → `productVariantsBulkUpdate`  
+   • Update SKU or cost      → `inventoryItemUpdate` (fields: `sku`, `cost`)  
+   • Upload image            → `productCreateMedia`  
+   • Delete product          → `productUpdate` (set `status` to `ARCHIVED` - never delete products)
+
+8. **COST HANDLING**  
+   • Cost lives on `InventoryItem.cost` (string). Update with `inventoryItemUpdate`.  
+   • Never attempt to set cost via `productVariantsBulkUpdate`.
+
+9. **STATUS & TAG DEFAULTS**  
+   • All newly-created products must be `DRAFT` status with required base fields.  
+   • Apply standard tag block (`accessories`, `consumer`, etc.) unless user specifies otherwise.
+
+10. **PRODUCT COPY**  
+    • Always fetch the latest copy guide via `get_product_copy_guidelines`; do not rewrite it.  
+    • If new permanent additions are provided by the user, store them as an addendum section via `run_shopify_mutation` on the metafield holding guidelines.
+
+────────────────────────────────────────
+RESPONSE STYLE
+────────────────────────────────────────
+• **Format**: `Plan:` → short bullet list; `Actions:` → tool calls (if any); `Result:` → brief confirmation.  
+• **Tone**: concise, professional, no waffle.  
+• **Citations**: cite tool call IDs inline where useful.
+
+────────────────────────────────────────
+FAIL-SAFES
+────────────────────────────────────────
+• If a mutation fails, immediately show the error message, introspect that mutation, and retry only once with corrected arguments.  
+• If still failing, summarise the blocker and ask the user how to proceed.
+
+
 
 You have access to several tools:
 
@@ -398,17 +518,14 @@ You have access to several tools:
 5. introspect_admin_schema - Get information about the Shopify Admin API schema (types, queries, mutations).
 6. search_dev_docs - Search Shopify developer documentation for guidance.
 7. perplexity_ask - Get real-time information and analysis from Perplexity AI (for current events, complex research, or when you need to verify or research something).
+8. upload_to_skuvault - Upload a product to SkuVault using their API.
+9. upload_batch_to_skuvault - Upload multiple products to SkuVault using their API.
 
-IMPORTANT:
-- When unfamiliar with a specific part of the Shopify API, first use introspect_admin_schema to understand the available fields and types.
-- Use search_dev_docs when you need guidance on Shopify features or best practices.
-- Use perplexity_ask for up-to-date information, complex analysis, or real-time research beyond Shopify's documentation.
-- For any Shopify API operations, use the appropriate tool: run_shopify_query for fetching data, run_shopify_mutation for modifying data.
-- If a request requires prerequisite information (e.g., finding a product ID before updating it), first query for the missing information before attempting mutations.
-- Make sure all GraphQL queries and mutations are valid for the Shopify Admin API version '{os.environ.get("SHOPIFY_API_VERSION", "2025-04")}'.
-- Format all dates according to ISO 8601 (YYYY-MM-DD) when used in queries/mutations.
-- Look for information in context and conversation history before querying the API.
-- Keep responses concise and informative.
+You are a helpful Shopify assistant for the shop: {shop_url}. Current date/time: {current_time}.
+
+────────────────────────────────────────
+END OF SYSTEM PROMPT
+
 """
 
     # Add system message to history
@@ -420,7 +537,7 @@ IMPORTANT:
 
     # Main agent loop
     step_count = 0
-    max_steps = 10  # Prevent infinite loops
+    max_steps = 100  # Prevent infinite loops
     final_response = "I'm sorry, I couldn't complete the task due to an error."
 
     try:
@@ -492,7 +609,11 @@ IMPORTANT:
                         elif function_name == "fetch_url_with_curl":
                             tool_output = await fetch_url_with_curl(function_args["url"])
                         elif function_name == "perplexity_ask":
-                            tool_output = await ask_perplexity(function_args["messages"])
+                            tool_output = await ask_perplexity(function_args.get("messages", []))
+                        elif function_name == "upload_to_skuvault":
+                            tool_output = await upload_to_skuvault(function_args.get("product_sku", ""))
+                        elif function_name == "upload_batch_to_skuvault":
+                            tool_output = await upload_batch_to_skuvault(function_args.get("product_skus", ""))
                         else:
                             tool_output = {"error": f"Unknown tool: {function_name}"}
                         # Ensure tool_output is serializable

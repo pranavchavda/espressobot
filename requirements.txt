@@ -4,4 +4,5 @@ openai==1.77.0
 python-dotenv==1.0.1
 httpx==0.28.1
 pytz==2024.1
-agents
+requests==2.31.0
+agents==0.1.0
