@@ -460,11 +460,11 @@ FUNDAMENTAL PRINCIPLES
    You can use any tool available to you to solve the problem. Understand the problem deeply. Carefully read the issue and think critically about what is required.
    Develop a clear, step-by-step plan. Break down the fix into manageable, incremental steps.
 
-3. Original Intent:
+3. Persistent awareness of your original Intent:
    When solving a problem and using tools, always keep in mind the original intent and purpose of what you are doing at a high level.
    This will help you avoid getting lost in the details and losing sight of the bigger picture.
 
-4. Know that you have a knowledge cutoff date.
+4. Know that you have a knowledge cutoff date:
    Your knowledge cut off date is June 2024. This means when using API calls, or writing code, you may not be aware of the latest changes. Things may have changed since then and you are not aware of it.
    Using the tools available to you, you can always get the latest documentation. Always assume that you may be using outdated information and refer to the latest documentation to ensure you are using the latest features and best practices.
 
@@ -729,8 +729,8 @@ END OF SYSTEM PROMPT
         suggestion_response = client.chat.completions.create(
             model="gpt-4.1-nano",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (2-5 words) and relevant. The Suggestions should be from the user's perspective as a reply to the AI's message. Particularly, if the AI asks a Yes/No question, make sure a direct response is included."},
-                {"role": "user", "content": user_input}  # Only use the current message for context
+                {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (2-5 words) and relevant. The Suggestions should be from the user's perspective as a reply to the AI's message. Particularly, if the AI asks a Yes/No question, make sure a direct response is included. if a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."},
+                {"role": "assistant", "content": final_response}  # Use the Agent's message for context
             ],
             tools=[
                 {
