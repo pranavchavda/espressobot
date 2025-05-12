@@ -245,8 +245,31 @@ async def fetch_url_with_curl(url: str):
     except Exception as e:
         return {"error": str(e)}
 
+# Import Open Box listing tool
+from open_box_listing_tool import create_open_box_listing_single
+
 # Define available tools
 TOOLS = [
+    {
+        "name": "create_open_box_listing_single",
+        "type": "function",
+        "function": {
+        "name": "create_open_box_listing_single",
+        "description": "Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {"type": "string", "description": "Product title / handle / numeric ID / SKU to duplicate"},
+                "serial_number": {"type": "string", "description": "Unit serial number to embed in title & description."},
+                "suffix": {"type": "string", "description": "Condition descriptor appended to the title (e.g. 'Excellent')."},
+                "price": {"type": "number", "description": "Explicit Open Box price in CAD dollars.", "default": None},
+                "discount_pct": {"type": "number", "description": "Percent discount off the product’s higher of price / compareAtPrice.", "default": None},
+                "note": {"type": "string", "description": "Optional note to prepend to the description.", "default": None}
+            },
+            "required": ["identifier", "serial_number", "suffix"]
+        }
+    }
+    },
     {
         "name": "get_product_copy_guidelines",
         "type": "function",
@@ -543,6 +566,7 @@ You have access to several tools:
 7. perplexity_ask - Get real-time information and analysis from Perplexity AI (for current events, complex research, or when you need to verify or research something).
 8. upload_to_skuvault - Upload a product to SkuVault using their API.
 9. upload_batch_to_skuvault - Upload multiple products to SkuVault using their API.
+10. create_open_box_listing_single - Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.
 
 You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date/time: {current_time}.
 
@@ -637,6 +661,15 @@ END OF SYSTEM PROMPT
                             tool_output = await upload_to_skuvault(function_args.get("product_sku", ""))
                         elif function_name == "upload_batch_to_skuvault":
                             tool_output = await upload_batch_to_skuvault(function_args.get("product_skus", ""))
+                        elif function_name == "create_open_box_listing_single":
+                                tool_output = create_open_box_listing_single(
+                                    function_args.get("identifier"),
+                                    function_args.get("serial_number"),
+                                    function_args.get("suffix"),
+                                    function_args.get("price"),
+                                    function_args.get("discount_pct"),
+                                    function_args.get("note")
+        )
                         else:
                             tool_output = {"error": f"Unknown tool: {function_name}"}
                         # Ensure tool_output is serializable
