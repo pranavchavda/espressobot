@@ -1,4 +1,4 @@
-modules = ["python-3.12", "web"]
+modules = ["nodejs-20", "python-3.12", "web"]
 run = "python app.py"
 
 [nix]
@@ -6,6 +6,7 @@ channel = "stable-24_05"
 
 [deployment]
 run = ["sh", "-c", "python app.py"]
+deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 5000
