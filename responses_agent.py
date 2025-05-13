@@ -199,9 +199,17 @@ IMPORTANT:
                 elif fname == "run_shopify_mutation":
                     result = await execute_shopify_mutation(args.get("query", ""), args.get("variables", {}))
                 elif fname == "introspect_admin_schema":
-                    result = await introspect_admin_schema(args.get("query", ""), args.get("filter_types", ["all"]))
+                    try:
+                        result = await introspect_admin_schema(args.get("query", ""), args.get("filter_types", ["all"]))
+                    except Exception as e:
+                        print(f"Error in introspect_admin_schema: {e}")
+                        result = {"content": f"Error accessing Shopify schema: {str(e)}. Please try again later or check your connection."}
                 elif fname == "search_dev_docs":
-                    result = await search_dev_docs(args.get("prompt", ""))
+                    try:
+                        result = await search_dev_docs(args.get("prompt", ""))
+                    except Exception as e:
+                        print(f"Error in search_dev_docs: {e}")
+                        result = {"content": f"Error searching dev docs: {str(e)}. Please try again later or check your connection."}
                 else:
                     result = {"error": f"Unknown function: {fname}"}
                 steps.append({"type": "tool_result", "name": fname, "output": result})

@@ -61,7 +61,14 @@ def _patch_mcp_client_timeout(default_seconds: int = 30) -> None:
     MCPClientSession._timeout_patched = True  # type: ignore[attr-defined]
 
 # Apply the patch as soon as the module is imported.
-_patch_mcp_client_timeout()
+_patch_mcp_client_timeout(default_seconds=15)  # Increase timeout to 15 seconds
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class ShopifyMCPServer:
     """
@@ -70,8 +77,16 @@ class ShopifyMCPServer:
     and documentation search capabilities.
     """
     def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set to prevent unbound variable errors
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
         # Params for local Shopify Dev MCP server
-        self.params = {"command": "npx", "args": ["-y", "@shopify/dev-mcp@latest"]}
+        self.params = {
+            "command": "npx", 
+            "args": ["-y", "@shopify/dev-mcp@latest"],
+            "env": os.environ.copy()  # Explicitly pass environment variables
+        }
         self.cache = True
     
     async def introspect_admin_schema(self, query, filter_types=None):
@@ -209,12 +224,18 @@ class PerplexityMCPServer:
     This spawns an npx process running server-perplexity-ask.
     """
     def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
+        # Create a copy of the current environment and add Perplexity API key
+        env_vars = os.environ.copy()
+        env_vars["PERPLEXITY_API_KEY"] = os.environ.get("PERPLEXITY_API_KEY", "")
+        
         self.params = {
             "command": "npx",
             "args": ["-y", "server-perplexity-ask"],
-            "env": {
-                "PERPLEXITY_API_KEY": os.environ.get("PERPLEXITY_API_KEY", "")
-            }
+            "env": env_vars
         }
         self.cache = True
 
