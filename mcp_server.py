@@ -120,23 +120,6 @@ class ShopifyMCPServer:
         """Stop the MCP server process (no-op; context manager handles teardown)"""
         pass
     
-    async def search_dev_docs(self, prompt):
-        """Search Shopify developer documentation using the MCP server"""
-        try:
-            result = await self._run_mcp_command("search_dev_docs", {
-                "prompt": prompt
-            })
-            
-            # Check if we got an error response
-            if isinstance(result, dict) and result.get("isError", False):
-                logger.warning(f"Error from MCP server, using fallback response for search_dev_docs")
-                return self._get_mock_docs_response(prompt)
-            
-            return result
-        except Exception as e:
-            logger.error(f"Exception in search_dev_docs: {e}")
-            return self._get_mock_docs_response(prompt)
-    
     def _get_mock_docs_response(self, prompt):
         """Get a mock documentation response when the MCP server fails"""
         

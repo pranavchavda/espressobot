@@ -40,6 +40,13 @@ http = requests.Session()
 http.mount("https://", adapter)
 http.mount("http://", adapter)
 
+# Disable SSL certificate verification
+http.verify = False
+
+# Suppress InsecureRequestWarning messages
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 def fetch_product_details(product_id: str) -> Optional[Dict]:
     """Fetch original product details using GraphQL."""
     query = f"""
@@ -107,10 +114,23 @@ def duplicate_product(product_id: str, new_title: str, output_file: str) -> Opti
         )
         response.raise_for_status()
         data = response.json()
+        
+        # Check for GraphQL errors
         if 'errors' in data:
             logging.error(f"GraphQL error duplicating product {product_id}: {data['errors']}")
             return None
-        payload = data.get('data', {}).get('productDuplicate')
+            
+        # Check if 'data' key exists
+        if 'data' not in data:
+            logging.error(f"Missing 'data' key in response: {data}")
+            return None
+            
+        # Check if 'productDuplicate' exists in data
+        if 'productDuplicate' not in data['data']:
+            logging.error(f"Missing 'productDuplicate' in response data: {data}")
+            return None
+            
+        payload = data['data']['productDuplicate']
         if not payload:
             logging.error(f"Unexpected GraphQL response duplicating product {product_id}: {data}")
             return None
@@ -189,9 +209,27 @@ def update_product_details(product_id: str, tags: List[str], notes: str) -> bool
         response.raise_for_status()
         data = response.json()
         logging.debug(f"productUpdate Response: {data}")
+        
+        # Check for GraphQL errors
         if data.get("errors"):
             logging.error(f"GraphQL error updating product {product_id}: {data['errors']}")
             return False
+            
+        # Check if 'data' key exists
+        if 'data' not in data:
+            logging.error(f"Missing 'data' key in response: {data}")
+            return False
+            
+        # Check if 'productUpdate' exists in data
+        if 'productUpdate' not in data['data']:
+            logging.error(f"Missing 'productUpdate' in response data: {data}")
+            return False
+            
+        # Check if 'userErrors' exists in productUpdate
+        if 'userErrors' not in data['data']['productUpdate']:
+            logging.error(f"Missing 'userErrors' in productUpdate data: {data}")
+            return False
+            
         user_errors = data["data"]["productUpdate"]["userErrors"]
         if user_errors:
             logging.error(f"Error updating product {product_id} (tags/desc): {user_errors}")
@@ -307,9 +345,27 @@ def update_variant_details(variant_id: str, price: str, compare_price: str, new_
         response.raise_for_status()
         data = response.json()
         logging.debug(f"productVariantsBulkUpdate Response: {data}")
+        
+        # Check for GraphQL errors
         if data.get("errors"):
             logging.error(f"GraphQL error updating variant {variant_id}: {data['errors']}")
             return False
+            
+        # Check if 'data' key exists
+        if 'data' not in data:
+            logging.error(f"Missing 'data' key in response: {data}")
+            return False
+            
+        # Check if 'productVariantsBulkUpdate' exists in data
+        if 'productVariantsBulkUpdate' not in data['data']:
+            logging.error(f"Missing 'productVariantsBulkUpdate' in response data: {data}")
+            return False
+            
+        # Check if 'userErrors' exists in productVariantsBulkUpdate
+        if 'userErrors' not in data['data']['productVariantsBulkUpdate']:
+            logging.error(f"Missing 'userErrors' in productVariantsBulkUpdate data: {data}")
+            return False
+            
         user_errors = data["data"]["productVariantsBulkUpdate"]["userErrors"]
         if user_errors:
             logging.error(f"Error updating variant {variant_id}: {user_errors}")
@@ -371,6 +427,20 @@ def clear_bundle_product_ids(product_id: str) -> bool:
         )
         response.raise_for_status()
         data = response.json()
+        
+        # Check if 'data' key exists and has the expected structure
+        if 'data' not in data:
+            logging.error(f"Missing 'data' key in response: {data}")
+            return False
+            
+        if 'product' not in data['data'] or data['data']['product'] is None:
+            logging.error(f"Missing or null 'product' in response data: {data}")
+            return False
+            
+        if 'metafield' not in data['data']['product']:
+            logging.error(f"Missing 'metafield' in product data: {data}")
+            return False
+            
         metafield = data["data"]["product"]["metafield"]
         if metafield:
             metafield_id = metafield["id"]
@@ -398,9 +468,31 @@ def clear_bundle_product_ids(product_id: str) -> bool:
             )
             delete_response.raise_for_status()
             delete_data = delete_response.json()
+            
+            # Check for GraphQL errors
+            if delete_data.get("errors"):
+                logging.error(f"GraphQL error deleting metafield: {delete_data['errors']}")
+                return False
+                
+            # Check if 'data' key exists
+            if 'data' not in delete_data:
+                logging.error(f"Missing 'data' key in metafieldDelete response: {delete_data}")
+                return False
+                
+            # Check if 'metafieldDelete' exists in data
+            if 'metafieldDelete' not in delete_data['data']:
+                logging.error(f"Missing 'metafieldDelete' in response data: {delete_data}")
+                return False
+                
+            # Check if 'userErrors' exists in metafieldDelete
+            if 'userErrors' not in delete_data['data']['metafieldDelete']:
+                logging.error(f"Missing 'userErrors' in metafieldDelete data: {delete_data}")
+                return False
+                
             if delete_data["data"]["metafieldDelete"]["userErrors"]:
                 logging.error(f"Error removing 'bundle_product_ids': {delete_data['data']['metafieldDelete']['userErrors']}")
                 return False
+                
             logging.info(f"Successfully removed 'bundle_product_ids' metafield from product {product_id}.")
         else:
             logging.info("No 'bundle_product_ids' metafield found, so nothing to remove.")

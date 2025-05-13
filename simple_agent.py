@@ -173,7 +173,11 @@ async def search_dev_docs(prompt):
     """Search Shopify developer documentation using the MCP server"""
     if not mcp_server:
         return {"error": "MCP server not available"}
-    return await mcp_server.call_tool("shopify-dev-mcp", "search_dev_docs", {"prompt": prompt})
+    try:
+        return await mcp_server.search_dev_docs(prompt)
+    except Exception as e:
+        print(f"Error calling search_dev_docs: {e}")
+        return {"error": str(e)}
 
 # Function to fetch product copy guidelines
 
@@ -411,7 +415,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "upload_to_skuvault",
-            "description": "Upload a product from Shopify to SkuVault inventory management system using its SKU",
+            "description": "Upload a product to SkuVault using their API.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -429,7 +433,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "upload_batch_to_skuvault",
-            "description": "Upload multiple products from Shopify to SkuVault inventory management system using their SKUs",
+            "description": "Upload multiple products to SkuVault using their API.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -527,16 +531,24 @@ RULES
    • Update SKU or cost      → `inventoryItemUpdate` (fields: `sku`, `cost`)  
    • Upload image            → `productCreateMedia`  
    • Delete product          → `productUpdate` (set `status` to `ARCHIVED` - never delete products)
+   • Updating Shipping Weight → `inventoryItemUpdate` with the measurement field (weight.unit and weight.value). 
 
-8. **COST HANDLING**  
+8. **IDC Jargon**
+   • When asked add something to preorder, add the "preorder-2-weeks" tag to the product, and any tag that begins with "shipping-nis" (such as shipping-nis-April), similarly, when removing something from preorder, remove the "preorder-2-weeks" tag and any tag that begins with "shipping-nis" (such as shipping-nis-April).
+     Also ask the user if they want to change the inventory policy of that product to DENY when something is taken out of preorder, when something is added to preorder, inventory policy should be set to ALLOW, without needing to ask the user.
+   • Sale End Date: If asked to add a promotion or sale end date to any product, it can be added to the product's inventory.ShappifySaleEndDate metafiled (Namespace is inventory and key is ShappifySaleEndDate; it is single line text) Format example: 2023-08-04T03:00:00Z (For 3 AM on August 4, 2023) 
+   • For US/USD price updates, use the pricelist ID: `gid://shopify/PriceList/18798805026`.
+   
+   
+9. **COST HANDLING**  
    • Cost lives on `InventoryItem.cost` (string). Update with `inventoryItemUpdate`.  
    • Never attempt to set cost via `productVariantsBulkUpdate`.
 
-9. **STATUS & TAG DEFAULTS**  
+10. **STATUS & TAG DEFAULTS**  
    • All newly-created products must be `DRAFT` status with required base fields.  
    • Apply standard tag block (`accessories`, `consumer`, etc.) unless user specifies otherwise.
 
-10. **PRODUCT COPY**  
+11. **PRODUCT COPY**  
     • Always fetch the latest copy guide via `get_product_copy_guidelines`; do not rewrite it.  
     • If new permanent additions are provided by the user, store them as an addendum section via `run_shopify_mutation` on the metafield holding guidelines.
 
