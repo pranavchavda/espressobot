@@ -255,6 +255,24 @@ from open_box_listing_tool import create_open_box_listing_single
 # Define available tools
 TOOLS = [
     {
+        "name": "execute_python_code",
+        "type": "function",
+        "function": {
+            "name": "execute_python_code",
+            "description": "Execute Python code and return the results. This allows you to perform data analysis, calculations, and generate visualizations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The Python code to execute. The code should be complete and executable."
+                    }
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
         "name": "create_open_box_listing_single",
         "type": "function",
         "function": {
@@ -673,6 +691,10 @@ END OF SYSTEM PROMPT
                             tool_output = await upload_to_skuvault(function_args.get("product_sku", ""))
                         elif function_name == "upload_batch_to_skuvault":
                             tool_output = await upload_batch_to_skuvault(function_args.get("product_skus", ""))
+                        elif function_name == "execute_python_code":
+                            # Import code_interpreter at runtime to avoid circular imports
+                            from code_interpreter import execute_code
+                            tool_output = execute_code(function_args.get("code", ""))
                         elif function_name == "create_open_box_listing_single":
                                 tool_output = create_open_box_listing_single(
                                     function_args.get("identifier"),

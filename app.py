@@ -287,6 +287,49 @@ def delete_conversation(conv_id):
     db.commit()
     return ('', 204)
 
+@app.route('/execute_code', methods=['POST'])
+def execute_code_endpoint():
+    if 'authenticated' not in session:
+        return jsonify({"error": "Authentication required"}), 401
+        
+    # Import the code interpreter module
+    from code_interpreter import execute_code
+    
+    data = request.json
+    code = data.get('code', '')
+    
+    if not code:
+        return jsonify({"error": "No code provided"}), 400
+    
+    # Execute the code with a timeout
+    execution_result = execute_code(code, timeout=5)
+    
+    # Store the code execution in the database if requested
+    if data.get('store_in_conversation', False) and data.get('conv_id'):
+        conv_id = data.get('conv_id')
+        db = get_db()
+        
+        # Store the code as a user message
+        db.execute(
+            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
+            (conv_id, 'user', f"```python\n{code}\n```")
+        )
+        
+        # Store the result as an assistant message
+        output = execution_result.get('output', '')
+        error = execution_result.get('error', '')
+        result_content = f"```\n{output}\n```"
+        if error:
+            result_content += f"\n\nError:\n```\n{error}\n```"
+            
+        db.execute(
+            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
+            (conv_id, 'assistant', result_content)
+        )
+        db.commit()
+    
+    return jsonify(execution_result)
+
 if __name__ == '__main__':
     # Show environment status
     api_key = os.environ.get('OPENAI_API_KEY')

@@ -101,14 +101,14 @@
             justify-content: center;
             margin: 15px 0;
         }
-        
+
         .suggestions {
             display: flex;
             gap: 10px;
             margin-top: 10px;
             flex-wrap: wrap;
         }
-        
+
         .suggestion {
             background-color: #e4e9f2;
             color: #454f5b;
@@ -120,18 +120,18 @@
             transition: all 0.2s;
             font-weight: normal;
         }
-        
+
         .suggestion:hover {
             background-color: #5c6ac4;
             color: white;
             border-color: #5c6ac4;
         }
-        
+
         #interrupt-button {
             background-color: #dc3545;
             display: none;
         }
-        
+
         #interrupt-button:hover {
             background-color: #c82333;
         }
@@ -150,7 +150,7 @@
             0%, 80%, 100% { transform: scale(0); }
             40% { transform: scale(1.0); }
         }
-        
+
         /* Code block styling */
         pre {
             background-color: #f4f6f8;
@@ -165,7 +165,7 @@
         .formatted-message {
             white-space: pre-wrap;
         }
-        
+
         #toggle-sidebar { position: fixed; top: 20px; left: 20px; z-index: 1001; background: #5c6ac4; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; }
         #sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 250px; background: white; border-right: 1px solid #ddd; transform: translateX(-100%); transition: transform 0.3s ease; overflow-y: auto; z-index: 1000; padding-top: 60px; }
         #sidebar.open { transform: translateX(0); }
@@ -173,14 +173,50 @@
         .sidebar-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .sidebar-item:hover { background: #f4f6f8; }
         .delete-btn { background: transparent; border: none; color: #c00; cursor: pointer; font-size: 1rem; }
-    </style>
+    /* Code interpreter styling */
+    .code-interpreter-panel {
+      display: none;
+      margin-top: 15px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 10px;
+      background-color: #f9f9f9;
+    }
+
+    .code-editor {
+      width: 100%;
+      min-height: 150px;
+      font-family: monospace;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .code-result {
+      background-color: #f1f1f1;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      margin-top: 10px;
+    }
+
+    .toggle-code-panel {
+      margin-right: 10px;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
     <header>
         <h1>Pranav's Shopify Assistant</h1>
         <p>Ask questions about your Shopify store and perform actions using natural language</p>
     </header>
-    
+
     <button id="toggle-sidebar">☰</button>
     <div id="sidebar">
         <div class="sidebar-header">
@@ -189,9 +225,9 @@
         </div>
         <div id="convo-list"></div>
     </div>
-    
+
     <div id="chat-container"></div>
-    
+
     <form id="message-form">
         <textarea id="message-input" placeholder="Type your message here..." autocomplete="off" rows="2"></textarea>
         <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -199,6 +235,14 @@
             <button type="button" id="interrupt-button">Stop</button>
         </div>
     </form>
+
+        <!-- Code Interpreter Panel -->
+    <div id="codeInterpreterPanel" class="code-interpreter-panel">
+      <h3>Python Code Interpreter</h3>
+      <textarea id="codeEditor" class="code-editor" placeholder="Enter Python code here..."></textarea>
+      <button onclick="executeCode()">Run Code</button>
+      <div id="codeResult" class="code-result" style="display: none;"></div>
+    </div>
 
     <script>
         document.getElementById('message-input').addEventListener('keydown', function(e) {
@@ -220,7 +264,7 @@
         let currentConvId = null;
         // Choose backend endpoint based on path
         const apiEndpoint = window.location.pathname === '/responses' ? '/chat_responses' : '/chat';
-        
+
         const toggleBtn = document.getElementById('toggle-sidebar');
         const sidebar = document.getElementById('sidebar');
         const closeBtn = document.getElementById('close-sidebar');
@@ -279,28 +323,28 @@
             e.preventDefault();
             const message = messageInput.value.trim();
             if (!message) return;
-            
+
             // Add user message to UI
             addMessage(message, 'user');
             messageInput.value = '';
-            
+
             // Disable input while processing
             messageInput.disabled = true;
             submitButton.disabled = true;
-            
+
             // Show loading indicator
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'loading';
             loadingDiv.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
             chatContainer.appendChild(loadingDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
-            
+
             let prevResponseId = window.prevResponseId || null;
             try {
                 // Create an AbortController
                 controller = new AbortController();
                 interruptButton.style.display = 'block';
-                
+
                 // Send request to backend
                 const response = await fetch(apiEndpoint, {
                     signal: controller.signal,
@@ -312,9 +356,9 @@
                         prev_response_id: prevResponseId
                     })
                 });
-                
+
                 const data = await response.json();
-                
+
                 // Remove loading indicator
                 chatContainer.removeChild(loadingDiv);
 
@@ -367,16 +411,77 @@
             messageForm.dispatchEvent(new Event('submit'));
         }
 
+    // Code Interpreter Functions
+    function toggleCodePanel() {
+      const panel = document.getElementById('codeInterpreterPanel');
+      panel.style.display = panel.style.display === 'none' || panel.style.display === '' ? 'block' : 'none';
+    }
+
+    async function executeCode() {
+      const codeEditor = document.getElementById('codeEditor');
+      const codeResult = document.getElementById('codeResult');
+      const code = codeEditor.value.trim();
+
+      if (!code) {
+        alert('Please enter some code to execute');
+        return;
+      }
+
+      try {
+        codeResult.textContent = 'Running...';
+        codeResult.style.display = 'block';
+
+        const response = await fetch('/execute_code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            code: code,
+            store_in_conversation: true,
+            conv_id: currentConvId
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        // Display results
+        let output = '';
+        if (result.status === 'success') {
+          output += result.output;
+          if (result.error) {
+            output += '\n\nErrors:\n' + result.error;
+          }
+        } else {
+          output = 'Error: ' + result.error;
+        }
+
+        codeResult.textContent = output || 'Code executed with no output';
+
+        // If we're in a conversation, refresh the chat to show the new messages
+        if (currentConvId) {
+          loadConversation(currentConvId);
+        }
+      } catch (error) {
+        codeResult.textContent = 'Error: ' + error.message;
+      }
+    }
+
+
         function addMessage(content, role, suggestions = []) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message', `${role}-message`);
-            
+
             // Use Showdown to convert Markdown to HTML
             const converter = new showdown.Converter();
             converter.setOption('tables', true);
             const htmlContent = converter.makeHtml(content);
             messageDiv.innerHTML = htmlContent;
-            
+
             // Add suggestions if they exist and this is an assistant message
             if (role === 'assistant' && suggestions && suggestions.length > 0) {
                 const suggestionsDiv = document.createElement('div');
@@ -390,17 +495,17 @@
                 });
                 messageDiv.appendChild(suggestionsDiv);
             }
-            
+
             // Add timestamp
             const timeDiv = document.createElement('div');
             timeDiv.classList.add('message-time');
             const now = new Date();
             timeDiv.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             messageDiv.appendChild(timeDiv);
-            
+
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
-            
+
             // Add to history
             messageHistory.push({ role, content });
         }
