@@ -1,3 +1,30 @@
+import os
+import sys
+import subprocess
+
+# --- Ensure running inside venv ---
+def _in_venv():
+    return (
+        hasattr(sys, 'real_prefix') or
+        (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+    )
+
+def _find_venv_python():
+    venv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'myenv')
+    if os.name == 'nt':
+        python_path = os.path.join(venv_dir, 'Scripts', 'python.exe')
+    else:
+        python_path = os.path.join(venv_dir, 'bin', 'python')
+    return python_path if os.path.exists(python_path) else None
+
+if not _in_venv():
+    venv_python = _find_venv_python()
+    if venv_python:
+        print(f"[INFO] Relaunching in venv: {venv_python}")
+        os.execv(venv_python, [venv_python] + sys.argv)
+    else:
+        print("[WARNING] No venv found! Running with system Python. It is recommended to use a virtual environment in ./venv.")
+
 from flask import Flask, request, render_template, jsonify
 import os
 import asyncio
