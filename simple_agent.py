@@ -732,8 +732,7 @@ END OF SYSTEM PROMPT
                             "output": serializable_output
                         })
 
-                        # Add the function response to```python
- messages correctly linked to the tool call
+                        # Add the function response to```python messages correctly linked to the tool call
                         # Log tool output for debugging
                         print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
                         formatted_messages.append({
