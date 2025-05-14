@@ -732,7 +732,7 @@ END OF SYSTEM PROMPT
                             "output": serializable_output
                         })
 
-                        # Add the function response to```python messages correctly linked to the tool call
+                        # Add the function response to messages correctly linked to the tool call
                         # Log tool output for debugging
                         print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
                         formatted_messages.append({
@@ -741,7 +741,7 @@ END OF SYSTEM PROMPT
                             "content": json.dumps(
                                 tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
                                     tool_output.text if hasattr(tool_output, "text") else (
-                                        str(json.dumps(serializable_output))
+                                        json.dumps(serializable_output)
                                     )
                                 )
                             )
