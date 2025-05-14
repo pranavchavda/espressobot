@@ -10,9 +10,9 @@ import openai
 import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-import certifi # Import certifi module
-import re # Import re for URL validation
-import traceback # Import traceback for error handling
+import certifi  # Import certifi module
+import re  # Import re for URL validation
+import traceback  # Import traceback for error handling
 
 # Import SkuVault integration
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
@@ -25,6 +25,7 @@ MCP_AVAILABLE = True
 
 # Configure OpenAI client
 client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+
 
 # Function to execute GraphQL queries
 async def execute_shopify_query(query, variables=None):
@@ -64,11 +65,12 @@ async def execute_shopify_query(query, variables=None):
         # Set explicit timeout to avoid hanging and disable SSL verification
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending request to Shopify API at {endpoint}")
-            response = await client.post(
-                endpoint,
-                json={"query": query, "variables": variables},
-                headers=headers
-            )
+            response = await client.post(endpoint,
+                                         json={
+                                             "query": query,
+                                             "variables": variables
+                                         },
+                                         headers=headers)
             response.raise_for_status()
             result = response.json()
             print(f"Query result: {str(result)[:200]}...")
@@ -89,6 +91,7 @@ async def execute_shopify_query(query, variables=None):
         error_msg = f"Error connecting to Shopify API: {str(e)}"
         print(f"ERROR: {error_msg}")
         return {"errors": [{"message": error_msg}]}
+
 
 async def execute_shopify_mutation(mutation, variables=None):
     """Execute a Shopify GraphQL mutation with the provided variables"""
@@ -127,11 +130,12 @@ async def execute_shopify_mutation(mutation, variables=None):
         # Set explicit timeout to avoid hanging and disable SSL verification
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending mutation request to Shopify API at {endpoint}")
-            response = await client.post(
-                endpoint,
-                json={"query": mutation, "variables": variables},
-                headers=headers
-            )
+            response = await client.post(endpoint,
+                                         json={
+                                             "query": mutation,
+                                             "variables": variables
+                                         },
+                                         headers=headers)
             response.raise_for_status()
             result = response.json()
             print(f"Mutation result: {str(result)[:200]}...")
@@ -153,11 +157,13 @@ async def execute_shopify_mutation(mutation, variables=None):
         print(f"ERROR: {error_msg}")
         return {"errors": [{"message": error_msg}]}
 
+
 # Function to get current date/time in EST
 def get_current_datetime_est():
     """Get the current date and time in EST timezone formatted for context"""
     now = datetime.now(pytz.timezone('America/New_York'))
     return now.strftime("%Y-%m-%d %H:%M:%S EST")
+
 
 async def introspect_admin_schema(query, filter_types=None):
     """Introspect the Shopify Admin API schema using the MCP server"""
@@ -169,6 +175,7 @@ async def introspect_admin_schema(query, filter_types=None):
         print(f"Error introspecting schema: {e}")
         return {"errors": [{"message": str(e)}]}
 
+
 async def search_dev_docs(prompt):
     """Search Shopify developer documentation using the MCP server"""
     if not mcp_server:
@@ -179,7 +186,9 @@ async def search_dev_docs(prompt):
         print(f"Error calling search_dev_docs: {e}")
         return {"error": str(e)}
 
+
 # Function to fetch product copy guidelines
+
 
 # Helper for Perplexity MCP
 async def ask_perplexity(messages):
@@ -190,6 +199,7 @@ async def ask_perplexity(messages):
         print(f"Error calling Perplexity MCP: {e}")
         return {"error": str(e)}
 
+
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content (up to 4000 chars, with a 'truncated' flag)."""
     try:
@@ -199,6 +209,7 @@ async def get_product_copy_guidelines():
     except Exception as e:
         print(f"Error reading product copy guidelines: {e}")
         return {"error": str(e)}
+
 
 # Function to upload products to SkuVault
 async def upload_to_skuvault(product_sku):
@@ -211,6 +222,7 @@ async def upload_to_skuvault(product_sku):
         print(f"ERROR: {error_msg}")
         return {"success": False, "message": error_msg}
 
+
 async def upload_batch_to_skuvault(product_skus):
     """Upload multiple products from Shopify to SkuVault using their SKUs"""
     try:
@@ -221,6 +233,7 @@ async def upload_batch_to_skuvault(product_skus):
         print(f"ERROR: {error_msg}")
         return {"success": False, "message": error_msg}
 
+
 # Function to fetch URL content with curl
 async def fetch_url_with_curl(url: str):
     """Fetch the raw content of a public HTTP/HTTPS URL using curl. Returns up to 4000 characters."""
@@ -228,17 +241,29 @@ async def fetch_url_with_curl(url: str):
     if not url.lower().startswith(('http://', 'https://')):
         return {"error": "Only HTTP and HTTPS URLs are allowed."}
     # Block local/internal addresses
-    if re.search(r'(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)', url):
-        return {"error": "Local and internal network addresses are not allowed."}
+    if re.search(
+            r'(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)',
+            url):
+        return {
+            "error": "Local and internal network addresses are not allowed."
+        }
     try:
         import subprocess
         proc = await asyncio.create_subprocess_exec(
-            'curl', '-L', '--max-time', '8', '--silent', '--show-error', '--user-agent', 'ShopifyAgent/1.0', url,
+            'curl',
+            '-L',
+            '--max-time',
+            '8',
+            '--silent',
+            '--show-error',
+            '--user-agent',
+            'ShopifyAgent/1.0',
+            url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+            stderr=asyncio.subprocess.PIPE)
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(),
+                                                    timeout=10)
         except asyncio.TimeoutError:
             proc.kill()
             return {"error": "Request timed out."}
@@ -249,222 +274,265 @@ async def fetch_url_with_curl(url: str):
     except Exception as e:
         return {"error": str(e)}
 
+
 # Import Open Box listing tool
 from open_box_listing_tool import create_open_box_listing_single
 
 # Define available tools
-TOOLS = [
-    {
+TOOLS = [{
+    "name": "execute_python_code",
+    "type": "function",
+    "function": {
         "name": "execute_python_code",
-        "type": "function",
-        "function": {
-            "name": "execute_python_code",
-            "description": "Execute Python code and return the results. This allows you to perform data analysis, calculations, and generate visualizations.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "The Python code to execute. The code should be complete and executable."
-                    }
-                },
-                "required": ["code"]
-            }
-        }
-    },
-    {
-        "name": "create_open_box_listing_single",
-        "type": "function",
-        "function": {
-        "name": "create_open_box_listing_single",
-        "description": "Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.",
+        "description":
+        "Execute Python code and return the results. This allows you to perform data analysis, calculations, and generate visualizations.",
         "parameters": {
             "type": "object",
             "properties": {
-                "identifier": {"type": "string", "description": "Product title / handle / numeric ID / SKU to duplicate"},
-                "serial_number": {"type": "string", "description": "Unit serial number to embed in title & description."},
-                "suffix": {"type": "string", "description": "Condition descriptor appended to the title (e.g. 'Excellent')."},
-                "price": {"type": "number", "description": "Explicit Open Box price in CAD dollars.", "default": None},
-                "discount_pct": {"type": "number", "description": "Percent discount off the product’s higher of price / compareAtPrice.", "default": None},
-                "note": {"type": "string", "description": "Optional note to prepend to the description.", "default": None}
+                "code": {
+                    "type":
+                    "string",
+                    "description":
+                    "The Python code to execute. The code should be complete and executable."
+                }
+            },
+            "required": ["code"]
+        }
+    }
+}, {
+    "name": "create_open_box_listing_single",
+    "type": "function",
+    "function": {
+        "name": "create_open_box_listing_single",
+        "description":
+        "Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "identifier": {
+                    "type":
+                    "string",
+                    "description":
+                    "Product title / handle / numeric ID / SKU to duplicate"
+                },
+                "serial_number": {
+                    "type":
+                    "string",
+                    "description":
+                    "Unit serial number to embed in title & description."
+                },
+                "suffix": {
+                    "type":
+                    "string",
+                    "description":
+                    "Condition descriptor appended to the title (e.g. 'Excellent')."
+                },
+                "price": {
+                    "type": "number",
+                    "description": "Explicit Open Box price in CAD dollars.",
+                    "default": None
+                },
+                "discount_pct": {
+                    "type": "number",
+                    "description":
+                    "Percent discount off the product’s higher of price / compareAtPrice.",
+                    "default": None
+                },
+                "note": {
+                    "type": "string",
+                    "description":
+                    "Optional note to prepend to the description.",
+                    "default": None
+                }
             },
             "required": ["identifier", "serial_number", "suffix"]
         }
     }
-    },
-    {
+}, {
+    "name": "get_product_copy_guidelines",
+    "type": "function",
+    "function": {
         "name": "get_product_copy_guidelines",
-        "type": "function",
-        "function": {
-            "name": "get_product_copy_guidelines",
-            "description": "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.",
-            "parameters": {"type": "object", "properties": {}, "required": []}
-        }
-    },
-    {
-        "name": "fetch_url_with_curl",
-        "type": "function",
-        "function": {
-            "name": "fetch_url_with_curl",
-            "description": "Fetch the raw content of a public HTTP/HTTPS URL using curl. Useful for retrieving HTML, JSON, or plain text from the web. Only use for public internet resources.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The HTTP or HTTPS URL to fetch."
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    },
-    {
-        "name": "run_shopify_query",
-        "type": "function",
-        "function": {
-            "name": "run_shopify_query",
-            "description": "Execute a Shopify GraphQL query to fetch data from the Shopify Admin API",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The GraphQL query string"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "name": "run_shopify_mutation",
-        "type": "function",
-        "function": {
-            "name": "run_shopify_mutation",
-            "description": "Execute a Shopify GraphQL mutation to modify data in the Shopify Admin API",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "GraphQL mutation string"
-                    },
-                    "variables": {
-                        "type": "object",
-                        "description": "Mutation variables"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "name": "introspect_admin_schema",
-        "type": "function",
-        "function": {
-            "name": "introspect_admin_schema",
-            "description": "Introspect the Shopify Admin API GraphQL schema to get details about types, queries, and mutations",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search term to filter schema elements by name (e.g., 'product', 'discountCode')"
-                    },
-                    "filter_types": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "enum": ["all", "types", "queries", "mutations"]
-                        },
-                        "description": "Filter results to show specific sections"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "name": "search_dev_docs",
-        "type": "function",
-        "function": {
-            "name": "search_dev_docs",
-            "description": "Search Shopify developer documentation",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                    }
-                },
-                "required": ["prompt"]
-            }
-        }
-    },
-    {
-        "name": "perplexity_ask",
-        "type": "function",
-        "function": {
-            "name": "perplexity_ask",
-            "description": "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "messages": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "role": {"type": "string"},
-                                "content": {"type": "string"}
-                            },
-                            "required": ["role", "content"]
-                        },
-                        "description": "Array of conversation messages"
-                    }
-                },
-                "required": ["messages"]
-            }
-        }
-    },
-    {
-        "name": "upload_to_skuvault",
-        "type": "function",
-        "function": {
-            "name": "upload_to_skuvault",
-            "description": "Upload a product to SkuVault using their API.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "product_sku": {
-                        "type": "string",
-                        "description": "The SKU of the Shopify product to upload to SkuVault"
-                    }
-                },
-                "required": ["product_sku"]
-            }
-        }
-    },
-    {
-        "name": "upload_batch_to_skuvault",
-        "type": "function",
-        "function": {
-            "name": "upload_batch_to_skuvault",
-            "description": "Upload multiple products to SkuVault using their API.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "product_skus": {
-                        "type": "string",
-                        "description": "Comma-separated list of Shopify product SKUs to upload to SkuVault"
-                    }
-                },
-                "required": ["product_skus"]
-            }
+        "description":
+        "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
         }
     }
-]
+}, {
+    "name": "fetch_url_with_curl",
+    "type": "function",
+    "function": {
+        "name": "fetch_url_with_curl",
+        "description":
+        "Fetch the raw content of a public HTTP/HTTPS URL using curl. Useful for retrieving HTML, JSON, or plain text from the web. Only use for public internet resources.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The HTTP or HTTPS URL to fetch."
+                }
+            },
+            "required": ["url"]
+        }
+    }
+}, {
+    "name": "run_shopify_query",
+    "type": "function",
+    "function": {
+        "name": "run_shopify_query",
+        "description":
+        "Execute a Shopify GraphQL query to fetch data from the Shopify Admin API",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The GraphQL query string"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}, {
+    "name": "run_shopify_mutation",
+    "type": "function",
+    "function": {
+        "name": "run_shopify_mutation",
+        "description":
+        "Execute a Shopify GraphQL mutation to modify data in the Shopify Admin API",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "GraphQL mutation string"
+                },
+                "variables": {
+                    "type": "object",
+                    "description": "Mutation variables"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}, {
+    "name": "introspect_admin_schema",
+    "type": "function",
+    "function": {
+        "name": "introspect_admin_schema",
+        "description":
+        "Introspect the Shopify Admin API GraphQL schema to get details about types, queries, and mutations",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type":
+                    "string",
+                    "description":
+                    "Search term to filter schema elements by name (e.g., 'product', 'discountCode')"
+                },
+                "filter_types": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["all", "types", "queries", "mutations"]
+                    },
+                    "description": "Filter results to show specific sections"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}, {
+    "name": "search_dev_docs",
+    "type": "function",
+    "function": {
+        "name": "search_dev_docs",
+        "description": "Search Shopify developer documentation",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                }
+            },
+            "required": ["prompt"]
+        }
+    }
+}, {
+    "name": "perplexity_ask",
+    "type": "function",
+    "function": {
+        "name": "perplexity_ask",
+        "description":
+        "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {
+                                "type": "string"
+                            },
+                            "content": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["role", "content"]
+                    },
+                    "description": "Array of conversation messages"
+                }
+            },
+            "required": ["messages"]
+        }
+    }
+}, {
+    "name": "upload_to_skuvault",
+    "type": "function",
+    "function": {
+        "name": "upload_to_skuvault",
+        "description": "Upload a product to SkuVault using their API.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "product_sku": {
+                    "type":
+                    "string",
+                    "description":
+                    "The SKU of the Shopify product to upload to SkuVault"
+                }
+            },
+            "required": ["product_sku"]
+        }
+    }
+}, {
+    "name": "upload_batch_to_skuvault",
+    "type": "function",
+    "function": {
+        "name": "upload_batch_to_skuvault",
+        "description": "Upload multiple products to SkuVault using their API.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "product_skus": {
+                    "type":
+                    "string",
+                    "description":
+                    "Comma-separated list of Shopify product SKUs to upload to SkuVault"
+                }
+            },
+            "required": ["product_skus"]
+        }
+    }
+}]
+
 
 # Run the Shopify agent with a custom implementation
 async def run_simple_agent(user_input, history=[]):
@@ -606,7 +674,10 @@ END OF SYSTEM PROMPT
 """
 
     # Add system message to history
-    formatted_messages = [{"role": "system", "content": system_message}] + formatted_history
+    formatted_messages = [{
+        "role": "system",
+        "content": system_message
+    }] + formatted_history
     formatted_messages.append({"role": "user", "content": user_input})
 
     # Step logs for tracking agent progress
@@ -646,8 +717,7 @@ END OF SYSTEM PROMPT
                     model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
                     messages=api_messages,
                     tools=TOOLS,
-                    tool_choice="auto"
-                )
+                    tool_choice="auto")
             except Exception as e:
                 # Check if this is a cancellation
                 if isinstance(e, asyncio.CancelledError):
@@ -661,14 +731,19 @@ END OF SYSTEM PROMPT
             if message.tool_calls:
                 # First, add the assistant's message with the tool call to the history
                 formatted_messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
+                    "role":
+                    "assistant",
+                    "content":
+                    message.content or "",
                     "tool_calls": [{
                         "id": tool_call.id,
                         "type": "function",
                         "function": {
-                            "name": tool_call.function.name,
-                            "arguments": json.dumps(json.loads(tool_call.function.arguments))
+                            "name":
+                            tool_call.function.name,
+                            "arguments":
+                            json.dumps(json.loads(
+                                tool_call.function.arguments))
                         }
                     } for tool_call in message.tool_calls]
                 })
@@ -685,74 +760,95 @@ END OF SYSTEM PROMPT
 
                     try:
                         function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
-                        print(f"Executing tool call {tool_call.id}: {function_name} with arguments: {function_args}")
+                        function_args = json.loads(
+                            tool_call.function.arguments)
+                        print(
+                            f"Executing tool call {tool_call.id}: {function_name} with arguments: {function_args}"
+                        )
                         # Execute the appropriate tool function
                         if function_name == "introspect_admin_schema":
                             tool_output = await introspect_admin_schema(
                                 function_args["query"],
-                                function_args.get("filter_types")
-                            )
+                                function_args.get("filter_types"))
                         elif function_name == "search_dev_docs":
-                            tool_output = await search_dev_docs(function_args["prompt"])
+                            tool_output = await search_dev_docs(
+                                function_args["prompt"])
                         elif function_name == "run_shopify_query":
-                            tool_output = await execute_shopify_query(function_args["query"], function_args.get("variables"))
+                            tool_output = await execute_shopify_query(
+                                function_args["query"],
+                                function_args.get("variables"))
                         elif function_name == "run_shopify_mutation":
-                            tool_output = await execute_shopify_mutation(function_args["query"], function_args.get("variables"))
+                            tool_output = await execute_shopify_mutation(
+                                function_args["query"],
+                                function_args.get("variables"))
                         elif function_name == "get_product_copy_guidelines":
                             tool_output = await get_product_copy_guidelines()
                         elif function_name == "fetch_url_with_curl":
-                            tool_output = await fetch_url_with_curl(function_args["url"])
+                            tool_output = await fetch_url_with_curl(
+                                function_args["url"])
                         elif function_name == "perplexity_ask":
-                            tool_output = await ask_perplexity(function_args.get("messages", []))
+                            tool_output = await ask_perplexity(
+                                function_args.get("messages", []))
                         elif function_name == "upload_to_skuvault":
-                            tool_output = await upload_to_skuvault(function_args.get("product_sku", ""))
+                            tool_output = await upload_to_skuvault(
+                                function_args.get("product_sku", ""))
                         elif function_name == "upload_batch_to_skuvault":
-                            tool_output = await upload_batch_to_skuvault(function_args.get("product_skus", ""))
+                            tool_output = await upload_batch_to_skuvault(
+                                function_args.get("product_skus", ""))
                         elif function_name == "execute_python_code":
                             # Import code_interpreter at runtime to avoid circular imports
                             from code_interpreter import execute_code
-                            tool_output = execute_code(function_args.get("code", ""))
+                            tool_output = execute_code(
+                                function_args.get("code", ""))
                         elif function_name == "create_open_box_listing_single":
-                                tool_output = create_open_box_listing_single(
-                                    function_args.get("identifier"),
-                                    function_args.get("serial_number"),
-                                    function_args.get("suffix"),
-                                    function_args.get("price"),
-                                    function_args.get("discount_pct"),
-                                    function_args.get("note")
-        )
+                            tool_output = create_open_box_listing_single(
+                                function_args.get("identifier"),
+                                function_args.get("serial_number"),
+                                function_args.get("suffix"),
+                                function_args.get("price"),
+                                function_args.get("discount_pct"),
+                                function_args.get("note"))
                         else:
-                            tool_output = {"error": f"Unknown tool: {function_name}"}
+                            tool_output = {
+                                "error": f"Unknown tool: {function_name}"
+                            }
                         # Ensure tool_output is serializable
-                        serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
+                        serializable_output = tool_output.model_dump(
+                        ) if hasattr(tool_output,
+                                     "model_dump") else tool_output
                         steps.append({
                             "step": f"Tool call: {function_name}",
                             "input": function_args,
                             "output": serializable_output
                         })
 
-                        # Add the function response to messages correctly linked to the tool call```python
+                        # Add the function response to messages correctly linked to the tool callpython
                         # Log tool output for debugging
-                        print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
+                        print(
+                            f"[DEBUG] Tool '{function_name}' output: {serializable_output}"
+                        )
                         formatted_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(
-                                tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
-                                    tool_output.text if hasattr(tool_output, "text") else (
-                                        serializable_output
-                                    )
-                                )
-                            )
+                            "role":
+                            "tool",
+                            "tool_call_id":
+                            tool_call.id,
+                            "content":
+                            json.dumps(tool_output.model_dump(
+                            ) if hasattr(tool_output, "model_dump") else (
+                                tool_output.
+                                text if hasattr(tool_output, "text") else (
+                                    serializable_output)))
                         })
                     except Exception as e:
                         print(f"Tool execution error: {e}")
                         # Ensure proper tool response formatting with tool_call_id
                         formatted_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps({"error": str(e)})
+                            "role":
+                            "tool",
+                            "tool_call_id":
+                            tool_call.id,
+                            "content":
+                            json.dumps({"error": str(e)})
                         })
 
             else:
@@ -762,7 +858,10 @@ END OF SYSTEM PROMPT
     except Exception as e:
         print(f"An error occurred: {e}")
         traceback.print_exc()
-        return {"final_output": f"I'm sorry, an error occurred: {str(e)}", "steps": steps}
+        return {
+            "final_output": f"I'm sorry, an error occurred: {str(e)}",
+            "steps": steps
+        }
     finally:
         print("Agent run completed.")
 
