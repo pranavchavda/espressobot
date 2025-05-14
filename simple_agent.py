@@ -806,4 +806,166 @@ END OF SYSTEM PROMPT
                                 function_args.get("suffix"),
                                 function_args.get("price"),
                                 function_args.get("discount_pct"),
-                                function_args.get("note"))
+                                function_args.get("note")
+                            )
+                            else:
+                            tool_output = {"error": f"Unknown tool: {function_name}"}
+                            # Ensure tool_output is serializable
+                            serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
+                            steps.append({
+                            "step": f"Tool call: {function_name}",
+                            "input": function_args,
+                            "output": serializable_output
+                            })
+
+                            # Add the function response to messages correctly linked to the tool call
+                            # Log tool output for debugging
+                            print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
+                            formatted_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                            tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                                tool_output.text if hasattr(tool_output, "text") else (
+                                    str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                                )
+                            )
+                            )
+                            })
+                            except Exception as e:
+                            print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
+                            error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
+                            formatted_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": error_msg})
+                            })
+                            steps.append({
+                            "step": f"Error in tool call: {tool_call.function.name}",
+                            "input": json.loads(tool_call.function.arguments) if hasattr(tool_call.function, "arguments") else {},
+                            "output": {"error": error_msg}
+                            })
+
+                            # After tool call, let the outer loop run again to give GPT the tool results
+                            continue
+
+                            # If no tool calls, we're done
+                            # Only apply Perplexity-specific extraction for Perplexity tool calls
+                            if steps and "perplexity_ask" in steps[-1].get("step", ""):
+                            tool_result = steps[-1]["output"]
+                            # If Perplexity result is a dict with 'content' as a list of dicts
+                            if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):
+                            texts = [item.get("text", "") for item in tool_result["content"] if isinstance(item, dict)]
+                            final_response = "\n\n".join([t for t in texts if t.strip()])
+                            if not final_response:
+                            final_response = tool_result.get("error") or "I'm sorry, Perplexity did not return any content."
+                            break
+                            elif isinstance(tool_result, dict) and tool_result.get("error"):
+                            final_response = tool_result["error"]
+                            break
+                            # Otherwise, let the loop continue so the model can interpret
+
+                            # For all other tool calls, only break if the model returns non-empty content
+                            final_response = (message.content or "").strip()
+                            if final_response:
+                            break
+                            # End of main loop
+                            # If we exit the loop and have no response, fallback
+                            if not final_response:
+                            if steps and "output" in steps[-1]:
+                            output = steps[-1]["output"]
+                            if isinstance(output, (dict, list)):
+                            import json
+                            final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
+                            else:
+                            final_response = str(output)
+                            else:
+                            final_response = "I'm sorry, I couldn't complete the task due to an error."
+
+                            except Exception as e:
+                            import traceback
+                            print(f"Error in agent execution: {e}")
+                            print(traceback.format_exc())
+                            final_response = f"Sorry, an error occurred: {str(e)}" if str(e) else ""
+
+                            # Generate suggestions using gpt-4.1-nano
+                            suggestions = []
+                            try:
+                            # Check for cancellation before generating suggestions
+                            if asyncio.current_task().cancelled():
+                            raise asyncio.CancelledError()
+
+                            print("Generating suggestions with gpt-4.1-nano...")
+                            # Make a separate call to generate suggestions
+                            suggestion_response = client.chat.completions.create(
+                            model="gpt-4.1-nano",
+                            messages=[
+                            {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (2-5 words) and relevant. The Suggestions should be from the user's perspective as a reply to the AI's message. Particularly, if the AI asks a Yes/No question, make sure a direct response is included. if a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."},
+                            {"role": "assistant", "content": final_response}  # Use the Agent's message for context
+                            ],
+                            tools=[
+                            {
+                            "type": "function",
+                            "function": {
+                            "name": "suggested_responses",
+                            "description": "Provide 2-3 suggested follow-up messages for the user",
+                            "parameters": {
+                            "type": "object",
+                            "properties": {
+                            "Suggestions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of 2-3 suggested responses"
+                            }
+                            },
+                            "required": ["Suggestions"]
+                            }
+                            }
+                            },
+                            {
+                            "type": "function",
+                            "function": {
+                            "name": "perplexity_ask",
+                            "description": "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
+                            "parameters": {
+                            "type": "object",
+                            "properties": {
+                            "messages": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "role": {"type": "string"},
+                                        "content": {"type": "string"}
+                                    }
+                                },
+                                "description": "Array of conversation messages"
+                            }
+                            },
+                            "required": ["messages"]
+                            }
+                            }
+                            },
+                            ],
+                            tool_choice={"type": "function", "function": {"name": "suggested_responses"}}
+                            )
+
+                            # Extract suggestions from the response
+                            if (hasattr(suggestion_response, 'choices') and 
+                            suggestion_response.choices and 
+                            hasattr(suggestion_response.choices[0], 'message') and
+                            hasattr(suggestion_response.choices[0].message, 'tool_calls') and
+                            suggestion_response.choices[0].message.tool_calls):
+                            tool_call = suggestion_response.choices[0].message.tool_calls[0]
+                            suggestions = json.loads(tool_call.function.arguments).get('Suggestions', [])
+                            print(f"Generated suggestions: {suggestions}")
+                            except Exception as e:
+                            print(f"Error generating suggestions: {str(e)}")
+                            print(traceback.format_exc())
+
+                            # Return the final result
+                            return {
+                            'final_output': final_response,
+                            'steps': steps,
+                            'suggestions': suggestions
+                            }
