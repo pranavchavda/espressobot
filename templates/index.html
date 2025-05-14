@@ -15,11 +15,11 @@
         <p class="text-gray-600">Ask questions about your Shopify store and perform actions using natural language</p>
     </header>
 
-    <button id="toggle-sidebar" class="fixed top-5 left-5 z-50 bg-shopify-purple text-white p-2 rounded">☰</button>
+    <button id="toggle-sidebar" class="fixed top-5 left-5 z-50 bg-shopify-purple text-white p-2 rounded shadow-md">☰</button>
     <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-64 bg-white border-r border-gray-200 transform -translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto z-40 pt-16">
         <div class="flex justify-between items-center p-3 border-b border-gray-200">
-            <h3 class="font-semibold">Conversations</h3>
-            <button id="close-sidebar" class="text-xl">&times;</button>
+            <h3 class="font-semibold text-gray-800">Conversations</h3>
+            <button id="close-sidebar" class="text-xl text-gray-700 hover:text-gray-900">&times;</button>
         </div>
         <div id="convo-list"></div>
     </div>
@@ -29,17 +29,17 @@
     <form id="message-form" class="flex gap-3 mx-auto max-w-3xl">
         <textarea id="message-input" placeholder="Type your message here..." autocomplete="off" rows="2" class="flex-grow p-3 border border-gray-300 rounded-lg shadow-sm resize-y min-h-[50px] max-h-[200px] font-sans focus:outline-none focus:border-shopify-purple"></textarea>
         <div class="flex flex-col gap-2">
-            <button type="submit" id="submit-button" class="bg-shopify-purple text-white border-none py-3 px-5 rounded-lg font-semibold shadow-sm transition-colors duration-200 hover:bg-[#4959bd]">Send</button>
-            <button type="button" id="interrupt-button" class="hidden bg-red-600 text-white border-none py-3 px-5 rounded-lg font-semibold shadow-sm transition-colors duration-200 hover:bg-red-700">Stop</button>
+            <button type="submit" id="submit-button" class="bg-shopify-purple text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-[#4959bd]">Send</button>
+            <button type="button" id="interrupt-button" class="hidden bg-red-600 text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-red-700">Stop</button>
         </div>
     </form>
 
     <!-- Code Interpreter Panel -->
     <div id="codeInterpreterPanel" class="hidden mt-4 border border-gray-300 rounded-lg p-3 bg-gray-50 mx-auto max-w-3xl">
-      <h3 class="text-lg font-semibold mb-2">Python Code Interpreter</h3>
-      <textarea id="codeEditor" class="w-full min-h-[150px] font-mono p-3 border border-gray-300 rounded mb-2"></textarea>
-      <button onclick="executeCode()" class="bg-shopify-purple text-white border-none py-2 px-4 rounded font-semibold">Run Code</button>
-      <div id="codeResult" class="hidden bg-gray-100 border border-gray-300 rounded p-3 font-mono whitespace-pre-wrap overflow-x-auto mt-3"></div>
+      <h3 class="text-lg font-semibold mb-2 text-gray-800">Python Code Interpreter</h3>
+      <textarea id="codeEditor" class="w-full min-h-[150px] font-mono p-3 border border-gray-300 rounded mb-2 text-gray-800 bg-white"></textarea>
+      <button onclick="executeCode()" class="bg-shopify-purple text-white border-none py-2 px-4 rounded font-semibold shadow-md hover:bg-[#4959bd]">Run Code</button>
+      <div id="codeResult" class="hidden bg-gray-100 border border-gray-300 rounded p-3 font-mono whitespace-pre-wrap overflow-x-auto mt-3 text-gray-800"></div>
     </div>
 
     <script>
@@ -80,10 +80,11 @@
                   item.className = 'p-3 border-b border-gray-200 cursor-pointer flex justify-between items-center hover:bg-gray-100';
                   item.dataset.id = c.id;
                   const label = document.createElement('span');
+                  label.className = 'text-gray-800';
                   label.textContent = `${c.title} (${new Date(c.created_at).toLocaleString()})`;
                   label.addEventListener('click', () => loadConversation(c.id));
                   const del = document.createElement('button');
-                  del.className = 'text-red-600 bg-transparent border-none cursor-pointer';
+                  del.className = 'text-red-600 bg-transparent border-none cursor-pointer hover:text-red-800';
                   del.textContent = '🗑';
                   del.addEventListener('click', e => { e.stopPropagation(); deleteConversation(c.id, item); });
                   item.appendChild(label);
@@ -209,6 +210,15 @@
             messageForm.dispatchEvent(new Event('submit'));
         }
 
+        // Ensure suggestion buttons have good contrast
+        function createSuggestionButton(suggestion) {
+            const suggestionButton = document.createElement('button');
+            suggestionButton.classList.add('bg-gray-200', 'text-gray-700', 'border', 'border-gray-300', 'px-3', 'py-1', 'rounded-full', 'text-sm', 'transition-colors', 'hover:bg-shopify-purple', 'hover:text-white', 'hover:border-shopify-purple');
+            suggestionButton.textContent = suggestion;
+            suggestionButton.onclick = () => handleSuggestionClick(suggestion);
+            return suggestionButton;
+        }
+
     // Code Interpreter Functions
     function toggleCodePanel() {
       const panel = document.getElementById('codeInterpreterPanel');
@@ -291,11 +301,7 @@
                 const suggestionsDiv = document.createElement('div');
                 suggestionsDiv.classList.add('flex', 'flex-wrap', 'gap-2', 'mt-2');
                 suggestions.forEach(suggestion => {
-                    const suggestionButton = document.createElement('button');
-                    suggestionButton.classList.add('bg-gray-200', 'text-gray-700', 'border', 'border-gray-300', 'px-3', 'py-1', 'rounded-full', 'text-sm', 'transition-colors', 'hover:bg-shopify-purple', 'hover:text-white', 'hover:border-shopify-purple');
-                    suggestionButton.textContent = suggestion;
-                    suggestionButton.onclick = () => handleSuggestionClick(suggestion);
-                    suggestionsDiv.appendChild(suggestionButton);
+                    suggestionsDiv.appendChild(createSuggestionButton(suggestion));
                 });
                 messageDiv.appendChild(suggestionsDiv);
             }
