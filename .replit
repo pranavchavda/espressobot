@@ -1,3 +1,12 @@
+
+run = ["python", "app.py"]
+modules = ["python-3.10:v18-20230807-322e88b"]
+hidden = [".pythonlibs"]
+icon = "static/shopify_assistant_logo.png"
+
+[nix]
+channel = "stable-23_11"
+
 modules = ["python-3.12", "web", "nodejs-22"]
 run = "python app.py"
 
