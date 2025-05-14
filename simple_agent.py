@@ -806,4 +806,4 @@ END OF SYSTEM PROMPT
                                 function_args.get("suffix"),
                                 function_args.get("price"),
                                 function_args.get("discount_pct"),
-                                function
+                                function_args.get("note"))
