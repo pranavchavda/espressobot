@@ -834,18 +834,18 @@ END OF SYSTEM PROMPT
                             )
                         })
                             except Exception as e:
-                            print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
-                            error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
-                            formatted_messages.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": json.dumps({"error": error_msg})
-                            })
-                            steps.append({
-                                "step": f"Error in tool call: {tool_call.function.name}",
-                                "input": json.loads(tool_call.function.arguments) if hasattr(tool_call.function, "arguments") else {},
-                                "output": {"error": error_msg}
-                            })
+                        print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
+                        error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
+                        formatted_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": error_msg})
+                        })
+                        steps.append({
+                            "step": f"Error in tool call: {tool_call.function.name}",
+                            "input": json.loads(tool_call.function.arguments) if hasattr(tool_call.function, "arguments") else {},
+                            "output": {"error": error_msg}
+                        })
 
                 # After tool call, let the outer loop run again to give GPT the tool results
                 continue
@@ -966,8 +966,8 @@ END OF SYSTEM PROMPT
         print(traceback.format_exc())
 
                             # Return the final result
-                            return {
-                            'final_output': final_response,
-                            'steps': steps,
-                            'suggestions': suggestions
-                            }
+    return {
+        'final_output': final_response,
+        'steps': steps,
+        'suggestions': suggestions
+    }
