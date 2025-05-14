@@ -5,6 +5,17 @@
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'shopify-purple': '#5c6ac4',
+                    }
+                }
+            }
+        }
+    </script>
 </head>
 <body class="bg-gray-50 font-sans">
     <header class="text-center mb-5 pt-5">
@@ -15,7 +26,7 @@
         <p class="text-gray-600">Ask questions about your Shopify store and perform actions using natural language</p>
     </header>
 
-    <button id="toggle-sidebar" class="fixed top-5 left-5 z-50 bg-shopify-purple text-white p-2 rounded shadow-md">☰</button>
+    <button id="toggle-sidebar" class="fixed top-5 left-5 z-50 bg-shopify-purple text-white p-2 rounded shadow-md hover:bg-[#4959bd]">☰</button>
     <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-64 bg-white border-r border-gray-200 transform -translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto z-40 pt-16">
         <div class="flex justify-between items-center p-3 border-b border-gray-200">
             <h3 class="font-semibold text-gray-800">Conversations</h3>
