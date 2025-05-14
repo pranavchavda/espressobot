@@ -42,6 +42,7 @@
         <div class="flex flex-col gap-2">
             <button type="submit" id="submit-button" class="bg-shopify-purple text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-[#4959bd]">Send</button>
             <button type="button" id="interrupt-button" class="hidden bg-red-600 text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-red-700">Stop</button>
+            <button type="button" id="toggle-code-panel" class="bg-gray-700 text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-gray-800">Code</button>
         </div>
     </form>
 
@@ -59,6 +60,12 @@
                 e.preventDefault();
                 document.getElementById('message-form').dispatchEvent(new Event('submit', { cancelable: true }));
             }
+        });
+        
+        // Code Interpreter Panel Toggle
+        document.getElementById('toggle-code-panel').addEventListener('click', function() {
+            const panel = document.getElementById('codeInterpreterPanel');
+            panel.classList.toggle('hidden');
         });
     </script>
 
