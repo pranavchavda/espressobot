@@ -668,7 +668,7 @@ END OF SYSTEM PROMPT
                         "type": "function",
                         "function": {
                             "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments
+                            "arguments": json.dumps(json.loads(tool_call.function.arguments))
                         }
                     } for tool_call in message.tool_calls]
                 })
