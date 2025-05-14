@@ -626,14 +626,26 @@ END OF SYSTEM PROMPT
             try:
                 # Pass formatted messages directly to the API
                 # Convert to proper OpenAI message objects to fix typing issues
+                # Create a properly typed messages list for the API call
+                api_messages = []
+                for msg in formatted_messages:
+                    if isinstance(msg, dict) and "role" in msg:
+                        # Create a proper ChatCompletionMessageParam object
+                        message_params = {
+                            "role": msg["role"],
+                            "content": msg["content"]
+                        }
+                        # Add tool_calls if present
+                        if "tool_calls" in msg:
+                            message_params["tool_calls"] = msg["tool_calls"]
+                        api_messages.append(openai.types.chat.ChatCompletionMessageParam(**message_params))
+                    elif hasattr(msg, "role") and hasattr(msg, "content"):
+                        # If it's already a proper object with role and content attributes
+                        api_messages.append(msg)
+                
                 response = client.chat.completions.create(
                     model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
-                    messages=[
-                        openai.types.chat.ChatCompletionMessageParam(role=msg["role"], content=msg["content"]) 
-                        if isinstance(msg, dict) and "role" in msg 
-                        else msg 
-                        for msg in formatted_messages
-                    ],
+                    messages=api_messages,
                     tools=TOOLS,
                     tool_choice="auto"
                 )
