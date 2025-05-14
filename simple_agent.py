@@ -624,10 +624,10 @@ END OF SYSTEM PROMPT
 
             # Call the model
             try:
-                # Convert dictionaries to proper ChatCompletionMessage objects
+                # Pass formatted messages directly to the API
                 response = client.chat.completions.create(
                     model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
-                    messages=[{k: v for k, v in msg.items()} for msg in formatted_messages],
+                    messages=formatted_messages,
                     tools=TOOLS,
                     tool_choice="auto"
                 )
