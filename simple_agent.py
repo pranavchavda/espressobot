@@ -616,7 +616,6 @@ END OF SYSTEM PROMPT
     step_count = 0
     max_steps = 100  # Prevent infinite loops
     final_response = "I'm sorry, I couldn't complete the task due to an error."
-
     try:
         while step_count < max_steps:
             step_count += 1
@@ -642,7 +641,7 @@ END OF SYSTEM PROMPT
                     elif hasattr(msg, "role") and hasattr(msg, "content"):
                         # If it's already a proper object with role and content attributes
                         api_messages.append(msg)
-                
+
                 response = client.chat.completions.create(
                     model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
                     messages=api_messages,
@@ -733,7 +732,8 @@ END OF SYSTEM PROMPT
                             "output": serializable_output
                         })
 
-                        # Add the function response to messages correctly linked to the tool call
+                        # Add the function response to```python
+ messages correctly linked to the tool call
                         # Log tool output for debugging
                         print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
                         formatted_messages.append({
@@ -742,4 +742,29 @@ END OF SYSTEM PROMPT
                             "content": json.dumps(
                                 tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
                                     tool_output.text if hasattr(tool_output, "text") else (
-                                        str(json\n" + json.dumps(output, indent=2) + "\n
+                                        str(json.dumps(serializable_output))
+                                    )
+                                )
+                            )
+                        })
+                    except Exception as e:
+                        print(f"Tool execution error: {e}")
+                        formatted_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": str(e)})
+                        })
+
+            else:
+                # No tool calls, so this is the final answer
+                final_response = message.content
+                break
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        traceback.print_exc()
+        return {"response": final_response, "steps": steps}
+    finally:
+        print("Agent run completed.")
+
+    # Return the final response and step logs
+    return {"response": final_response, "steps": steps}
