@@ -42,17 +42,8 @@
         <div class="flex flex-col gap-2">
             <button type="submit" id="submit-button" class="bg-shopify-purple text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-[#4959bd]">Send</button>
             <button type="button" id="interrupt-button" class="hidden bg-red-600 text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-red-700">Stop</button>
-            <button type="button" id="toggle-code-panel" class="bg-gray-700 text-white border-none py-3 px-5 rounded-lg font-semibold shadow-md transition-colors duration-200 hover:bg-gray-800">Code</button>
         </div>
     </form>
-
-    <!-- Code Interpreter Panel -->
-    <div id="codeInterpreterPanel" class="hidden mt-4 border border-gray-300 rounded-lg p-3 bg-gray-50 mx-auto max-w-3xl">
-      <h3 class="text-lg font-semibold mb-2 text-gray-800">Python Code Interpreter</h3>
-      <textarea id="codeEditor" class="w-full min-h-[150px] font-mono p-3 border border-gray-300 rounded mb-2 text-gray-800 bg-white"></textarea>
-      <button onclick="executeCode()" class="bg-shopify-purple text-white border-none py-2 px-4 rounded font-semibold shadow-md hover:bg-[#4959bd]">Run Code</button>
-      <div id="codeResult" class="hidden bg-gray-100 border border-gray-300 rounded p-3 font-mono whitespace-pre-wrap overflow-x-auto mt-3 text-gray-800"></div>
-    </div>
 
     <script>
         document.getElementById('message-input').addEventListener('keydown', function(e) {
@@ -60,12 +51,6 @@
                 e.preventDefault();
                 document.getElementById('message-form').dispatchEvent(new Event('submit', { cancelable: true }));
             }
-        });
-        
-        // Code Interpreter Panel Toggle
-        document.getElementById('toggle-code-panel').addEventListener('click', function() {
-            const panel = document.getElementById('codeInterpreterPanel');
-            panel.classList.toggle('hidden');
         });
     </script>
 
@@ -237,65 +222,7 @@
             return suggestionButton;
         }
 
-    // Code Interpreter Functions
-    function toggleCodePanel() {
-      const panel = document.getElementById('codeInterpreterPanel');
-      panel.style.display = panel.style.display === 'none' || panel.style.display === '' ? 'block' : 'none';
-    }
-
-    async function executeCode() {
-      const codeEditor = document.getElementById('codeEditor');
-      const codeResult = document.getElementById('codeResult');
-      const code = codeEditor.value.trim();
-
-      if (!code) {
-        alert('Please enter some code to execute');
-        return;
-      }
-
-      try {
-        codeResult.textContent = 'Running...';
-        codeResult.style.display = 'block';
-
-        const response = await fetch('/execute_code', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            code: code,
-            store_in_conversation: true,
-            conv_id: currentConvId
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        // Display results
-        let output = '';
-        if (result.status === 'success') {
-          output += result.output;
-          if (result.error) {
-            output += '\n\nErrors:\n' + result.error;
-          }
-        } else {
-          output = 'Error: ' + result.error;
-        }
-
-        codeResult.textContent = output || 'Code executed with no output';
-
-        // If we're in a conversation, refresh the chat to show the new messages
-        if (currentConvId) {
-          loadConversation(currentConvId);
-        }
-      } catch (error) {
-        codeResult.textContent = 'Error: ' + error.message;
-      }
-    }
+    
 
 
         function addMessage(content, role, suggestions = []) {
