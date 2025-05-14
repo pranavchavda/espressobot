@@ -1,0 +1,29 @@
+sing Shopify endpoint: https://idrinkcoffee.myshopify.com/admin/api/2025-04/graphql.json
+Sending request to Shopify API at https://idrinkcoffee.myshopify.com/admin/api/2025-04/graphql.json
+2025-05-14 18:21:24,880 - INFO - HTTP Request: POST https://idrinkcoffee.myshopify.com/admin/api/2025-04/graphql.json "HTTP/1.1 200 OK"
+Query result: {'data': {'products': {'edges': [{'node': {'id': 'gid://shopify/Product/5430446017', 'title': 'Krome Dispense Steaming Pitcher Rinser - Flush Mount'}}, {'node': {'id': 'gid://shopify/Product/543044659...
+[DEBUG] Tool 'run_shopify_query' output: {'data': {'products': {'edges': [{'node': {'id': 'gid://shopify/Product/5430446017', 'title': 'Krome Dispense Steaming Pitcher Rinser - Flush Mount'}}, {'node': {'id': 'gid://shopify/Product/5430446593', 'title': 'Krome Dispense Steaming Pitcher Rinser - Countertop'}}, {'node': {'id': 'gid://shopify/Product/5430475585', 'title': 'Urnex Cafe Wipz'}}]}}, 'extensions': {'cost': {'requestedQueryCost': 4, 'actualQueryCost': 4, 'throttleStatus': {'maximumAvailable': 20000.0, 'currentlyAvailable': 19996, 'restoreRate': 1000.0}}}}
+Running agent step 2
+2025-05-14 18:21:25,256 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 400 Bad Request"
+An error occurred: Error code: 400 - {'error': {'message': "Missing parameter 'tool_call_id': messages with role 'tool' must have a 'tool_call_id'.", 'type': 'invalid_request_error', 'param': 'messages.[8].tool_call_id', 'code': None}}
+Traceback (most recent call last):
+  File "/home/runner/workspace/simple_agent.py", line 725, in run_simple_agent
+    raise e
+  File "/home/runner/workspace/simple_agent.py", line 716, in run_simple_agent
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages/openai/_utils/_utils.py", line 287, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages/openai/resources/chat/completions/completions.py", line 925, in create
+    return self._post(
+           ^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages/openai/_base_client.py", line 1239, in post
+    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.12/site-packages/openai/_base_client.py", line 1034, in request
+    raise self._make_status_error_from_response(err.response) from None
+openai.BadRequestError: Error code: 400 - {'error': {'message': "Missing parameter 'tool_call_id': messages with role 'tool' must have a 'tool_call_id'.", 'type': 'invalid_request_error', 'param': 'messages.[8].tool_call_id', 'code': None}}
+Agent run completed.
+2025-05-14 18:21:25,285 - INFO - 127.0.0.1 - - [14/May/2025 18:21:25] "POST /chat HTTP/1.1" 200 -
+2025-05-14 18:21:25,321 - INFO - 127.0.0.1 - - [14/May/2025 18:21:25] "GET /conversations HTTP/1.1" 200 -
