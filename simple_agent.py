@@ -625,9 +625,15 @@ END OF SYSTEM PROMPT
             # Call the model
             try:
                 # Pass formatted messages directly to the API
+                # Convert to proper OpenAI message objects to fix typing issues
                 response = client.chat.completions.create(
                     model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
-                    messages=formatted_messages,
+                    messages=[
+                        openai.types.chat.ChatCompletionMessageParam(**msg) 
+                        if isinstance(msg, dict) and "role" in msg 
+                        else msg 
+                        for msg in formatted_messages
+                    ],
                     tools=TOOLS,
                     tool_choice="auto"
                 )
