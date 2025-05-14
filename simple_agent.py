@@ -808,30 +808,31 @@ END OF SYSTEM PROMPT
                                 function_args.get("discount_pct"),
                                 function_args.get("note")
                             )
-                            else:
+                        else:
                             tool_output = {"error": f"Unknown tool: {function_name}"}
-                            # Ensure tool_output is serializable
-                            serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
-                            steps.append({
+                        
+                        # Ensure tool_output is serializable
+                        serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
+                        steps.append({
                             "step": f"Tool call: {function_name}",
                             "input": function_args,
                             "output": serializable_output
-                            })
+                        })
 
-                            # Add the function response to messages correctly linked to the tool call
-                            # Log tool output for debugging
-                            print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
-                            formatted_messages.append({
+                        # Add the function response to messages correctly linked to the tool call
+                        # Log tool output for debugging
+                        print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
+                        formatted_messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "content": json.dumps(
-                            tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
-                                tool_output.text if hasattr(tool_output, "text") else (
-                                    str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                                tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                                    tool_output.text if hasattr(tool_output, "text") else (
+                                        str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                                    )
                                 )
                             )
-                            )
-                            })
+                        })
                             except Exception as e:
                             print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
                             error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
@@ -852,41 +853,41 @@ END OF SYSTEM PROMPT
                             # If no tool calls, we're done
                             # Only apply Perplexity-specific extraction for Perplexity tool calls
                             if steps and "perplexity_ask" in steps[-1].get("step", ""):
-                            tool_result = steps[-1]["output"]
-                            # If Perplexity result is a dict with 'content' as a list of dicts
-                            if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):
-                            texts = [item.get("text", "") for item in tool_result["content"] if isinstance(item, dict)]
-                            final_response = "\n\n".join([t for t in texts if t.strip()])
-                            if not final_response:
-                            final_response = tool_result.get("error") or "I'm sorry, Perplexity did not return any content."
-                            break
-                            elif isinstance(tool_result, dict) and tool_result.get("error"):
-                            final_response = tool_result["error"]
-                            break
+                                tool_result = steps[-1]["output"]
+                                # If Perplexity result is a dict with 'content' as a list of dicts
+                                if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):
+                                    texts = [item.get("text", "") for item in tool_result["content"] if isinstance(item, dict)]
+                                    final_response = "\n\n".join([t for t in texts if t.strip()])
+                                    if not final_response:
+                                        final_response = tool_result.get("error") or "I'm sorry, Perplexity did not return any content."
+                                    break
+                                elif isinstance(tool_result, dict) and tool_result.get("error"):
+                                    final_response = tool_result["error"]
+                                    break
                             # Otherwise, let the loop continue so the model can interpret
 
                             # For all other tool calls, only break if the model returns non-empty content
                             final_response = (message.content or "").strip()
                             if final_response:
-                            break
-                            # End of main loop
-                            # If we exit the loop and have no response, fallback
-                            if not final_response:
-                            if steps and "output" in steps[-1]:
-                            output = steps[-1]["output"]
-                            if isinstance(output, (dict, list)):
+                                break
+                        # End of main loop
+                # If we exit the loop and have no response, fallback
+                if not final_response:
+                    if steps and "output" in steps[-1]:
+                        output = steps[-1]["output"]
+                        if isinstance(output, (dict, list)):
                             import json
                             final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
-                            else:
+                        else:
                             final_response = str(output)
-                            else:
-                            final_response = "I'm sorry, I couldn't complete the task due to an error."
+                    else:
+                        final_response = "I'm sorry, I couldn't complete the task due to an error."
 
-                            except Exception as e:
-                            import traceback
-                            print(f"Error in agent execution: {e}")
-                            print(traceback.format_exc())
-                            final_response = f"Sorry, an error occurred: {str(e)}" if str(e) else ""
+            except Exception as e:
+                import traceback
+                print(f"Error in agent execution: {e}")
+                print(traceback.format_exc())
+                final_response = f"Sorry, an error occurred: {str(e)}" if str(e) else ""
 
                             # Generate suggestions using gpt-4.1-nano
                             suggestions = []
