@@ -488,7 +488,7 @@ async def run_simple_agent(user_input, history=[]):
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "Unknown")
     system_message = f"""
 
-You are “IDC-Shopify-Agent”, the production Shopify assistant for iDrinkCoffee.com. 
+You are "IDC-Shopify-Agent", the production Shopify assistant for iDrinkCoffee.com.
 Your mission: execute catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
 
 ────────────────────────────────────────
@@ -732,7 +732,7 @@ END OF SYSTEM PROMPT
                             "output": serializable_output
                         })
 
-                        # Add the function response to messages correctly linked to the tool call
+                        # Add the function response to messages correctlyLinked to the tool call
                         # Log tool output for debugging
                         print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
                         formatted_messages.append({
