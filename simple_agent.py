@@ -828,27 +828,19 @@ END OF SYSTEM PROMPT
                             f"[DEBUG] Tool '{function_name}' output: {serializable_output}"
                         )
                         formatted_messages.append({
-                            "role":
-                            "tool",
-                            "tool_call_id":
-                            tool_call.id,
-                            "content":
-                            json.dumps(tool_output.model_dump(
-                            ) if hasattr(tool_output, "model_dump") else (
-                                tool_output.
-                                text if hasattr(tool_output, "text") else (
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                                tool_output.text if hasattr(tool_output, "text") else (
                                     serializable_output)))
                         })
                     except Exception as e:
                         print(f"Tool execution error: {e}")
                         # Ensure proper tool response formatting with tool_call_id
                         formatted_messages.append({
-                            "role":
-                            "tool",
-                            "tool_call_id":
-                            tool_call.id,
-                            "content":
-                            json.dumps({"error": str(e)})
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": str(e)})
                         })
 
             else:
