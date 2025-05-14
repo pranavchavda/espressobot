@@ -629,7 +629,7 @@ END OF SYSTEM PROMPT
                 response = client.chat.completions.create(
                     model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
                     messages=[
-                        openai.types.chat.ChatCompletionMessageParam(**msg) 
+                        openai.types.chat.ChatCompletionMessageParam(role=msg["role"], content=msg["content"]) 
                         if isinstance(msg, dict) and "role" in msg 
                         else msg 
                         for msg in formatted_messages
