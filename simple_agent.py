@@ -732,7 +732,7 @@ END OF SYSTEM PROMPT
                             "output": serializable_output
                         })
 
-                        # Add the function response to messages correctlyLinked to the tool call
+                        # Add the function response to messages correctly linked to the tool call
                         # Log tool output for debugging
                         print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
                         formatted_messages.append({
@@ -741,13 +741,14 @@ END OF SYSTEM PROMPT
                             "content": json.dumps(
                                 tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
                                     tool_output.text if hasattr(tool_output, "text") else (
-                                        json.dumps(serializable_output)
+                                        serializable_output
                                     )
                                 )
                             )
                         })
                     except Exception as e:
                         print(f"Tool execution error: {e}")
+                        # Ensure we properly format the tool response with tool_call_id
                         formatted_messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
