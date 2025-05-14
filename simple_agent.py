@@ -629,7 +629,7 @@ END OF SYSTEM PROMPT
                 api_messages = []
                 for msg in formatted_messages:
                     if isinstance(msg, dict) and "role" in msg:
-                        # Create a proper ChatCompletionMessageParam object
+                        # Create a message dictionary with the required fields
                         message_params = {
                             "role": msg["role"],
                             "content": msg["content"]
@@ -637,7 +637,7 @@ END OF SYSTEM PROMPT
                         # Add tool_calls if present
                         if "tool_calls" in msg:
                             message_params["tool_calls"] = msg["tool_calls"]
-                        api_messages.append(openai.types.chat.ChatCompletionMessageParam(**message_params))
+                        api_messages.append(message_params)
                     elif hasattr(msg, "role") and hasattr(msg, "content"):
                         # If it's already a proper object with role and content attributes
                         api_messages.append(msg)
@@ -761,9 +761,9 @@ END OF SYSTEM PROMPT
     except Exception as e:
         print(f"An error occurred: {e}")
         traceback.print_exc()
-        return {"response": final_response, "steps": steps}
+        return {"final_output": f"I'm sorry, an error occurred: {str(e)}", "steps": steps}
     finally:
         print("Agent run completed.")
 
     # Return the final response and step logs
-    return {"response": final_response, "steps": steps}
+    return {"final_output": final_response, "steps": steps}

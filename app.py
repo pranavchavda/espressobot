@@ -112,17 +112,17 @@ def chat():
         (conv_id,)
     ).fetchall()
     history = [{'role': r['role'], 'content': r['content']} for r in rows]
-    
+
     # Run the agent in an async loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     # Create a task that can be cancelled
     task = None
     try:
         print(f"Processing chat request with message: {data.get('message','')[:50]}...")
         task = loop.create_task(run_simple_agent(data.get('message',''), history))
-        
+
         try:
             result = loop.run_until_complete(task)
         except asyncio.CancelledError:
@@ -133,7 +133,7 @@ def chat():
                     loop.run_until_complete(task)
                 except asyncio.CancelledError:
                     pass
-            
+
             # Return response with conversation ID preserved
             return jsonify({
                 'response': 'Request cancelled by user.',
@@ -149,7 +149,7 @@ def chat():
                     loop.run_until_complete(task)
                 except asyncio.CancelledError:
                     pass
-        
+
         # Extract tool calls for debugging
         tool_calls = []
         for step in result['steps']:
@@ -159,16 +159,17 @@ def chat():
                     'input': step['input'],
                     'output': step.get('output', None)
                 })
-        
+
         # Return the agent's response and debug info
+        final_output = result.get('final_output', result.get('response', 'No response available'))
         db.execute(
             'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-            (conv_id, 'assistant', result['final_output'])
+            (conv_id, 'assistant', final_output)
         )
         db.commit()
         return jsonify({
             'conv_id': conv_id,
-            'response': result['final_output'],
+            'response': final_output,
             'steps': len(result['steps']),
             'tool_calls': tool_calls,
             'suggestions': result.get('suggestions', [])
@@ -179,14 +180,14 @@ def chat():
         error_traceback = traceback.format_exc()
         print(f"ERROR in /chat route: {str(e)}")
         print(error_traceback)
-        
+
         return jsonify({
             'response': f"Sorry, an error occurred: {str(e)}",
             'error': str(e)
         }), 500
     finally:
         loop.close()
-        
+
 @app.route('/chat_responses', methods=['POST'])
 def chat_responses():
     data = request.json
@@ -291,56 +292,56 @@ def delete_conversation(conv_id):
 def execute_code_endpoint():
     if 'authenticated' not in session:
         return jsonify({"error": "Authentication required"}), 401
-        
+
     # Import the code interpreter module
     from code_interpreter import execute_code
-    
+
     data = request.json
     code = data.get('code', '')
-    
+
     if not code:
         return jsonify({"error": "No code provided"}), 400
-    
+
     # Execute the code with a timeout
     execution_result = execute_code(code, timeout=5)
-    
+
     # Store the code execution in the database if requested
     if data.get('store_in_conversation', False) and data.get('conv_id'):
         conv_id = data.get('conv_id')
         db = get_db()
-        
+
         # Store the code as a user message
         db.execute(
             'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
             (conv_id, 'user', f"```python\n{code}\n```")
         )
-        
+
         # Store the result as an assistant message
         output = execution_result.get('output', '')
         error = execution_result.get('error', '')
         result_content = f"```\n{output}\n```"
         if error:
             result_content += f"\n\nError:\n```\n{error}\n```"
-            
+
         db.execute(
             'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
             (conv_id, 'assistant', result_content)
         )
         db.commit()
-    
+
     return jsonify(execution_result)
 
 if __name__ == '__main__':
     # Show environment status
     api_key = os.environ.get('OPENAI_API_KEY')
     shopify_url = os.environ.get('SHOPIFY_SHOP_URL')
-    
+
     if not api_key:
         print("⚠️ Warning: OPENAI_API_KEY environment variable not set. Agent will not function properly.")
     if not shopify_url:
         print("⚠️ Warning: SHOPIFY_SHOP_URL environment variable not set. Agent will not function properly.")
-    
+
     print(f"Starting Flask application with Shopify Agent for shop: {shopify_url or 'NOT SET'}")
-    
+
     # Run the Flask application
     app.run(debug=True, port=5000)
