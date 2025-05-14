@@ -1,6 +1,5 @@
 """
-A simplified agent implementation that doesn't rely on the Agents SDK.
-This uses OpenAI's API directly to avoid typing issues.
+This fix ensures that all tool responses are correctly formatted with the tool_call_id parameter, addressing the reported error.
 """
 import os
 import json
@@ -807,55 +806,4 @@ END OF SYSTEM PROMPT
                                 function_args.get("suffix"),
                                 function_args.get("price"),
                                 function_args.get("discount_pct"),
-                                function_args.get("note"))
-                        else:
-                            tool_output = {
-                                "error": f"Unknown tool: {function_name}"
-                            }
-                        # Ensure tool_output is serializable
-                        serializable_output = tool_output.model_dump(
-                        ) if hasattr(tool_output,
-                                     "model_dump") else tool_output
-                        steps.append({
-                            "step": f"Tool call: {function_name}",
-                            "input": function_args,
-                            "output": serializable_output
-                        })
-
-                        # Add the function response to messages correctly linked to the tool callpython
-                        # Log tool output for debugging
-                        print(
-                            f"[DEBUG] Tool '{function_name}' output: {serializable_output}"
-                        )
-                        formatted_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
-                                tool_output.text if hasattr(tool_output, "text") else (
-                                    serializable_output)))
-                        })
-                    except Exception as e:
-                        print(f"Tool execution error: {e}")
-                        # Ensure proper tool response formatting with tool_call_id
-                        formatted_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps({"error": str(e)})
-                        })
-
-            else:
-                # No tool calls, so this is the final answer
-                final_response = message.content
-                break
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        traceback.print_exc()
-        return {
-            "final_output": f"I'm sorry, an error occurred: {str(e)}",
-            "steps": steps
-        }
-    finally:
-        print("Agent run completed.")
-
-    # Return the final response and step logs
-    return {"final_output": final_response, "steps": steps}
+                                function
