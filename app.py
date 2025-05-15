@@ -151,14 +151,22 @@ def chat():
                     pass
 
         # Extract tool calls for debugging
+        steps_list = result.get('steps', [])
         tool_calls = []
-        for step in result['steps']:
-            if 'tool call' in step['step'].lower():
-                tool_calls.append({
-                    'tool_name': step['step'].split(':')[-1].strip() if ':' in step['step'] else step['step'],
-                    'input': step['input'],
-                    'output': step.get('output', None)
-                })
+        for idx, step in enumerate(steps_list):
+            if step.get('type') == 'tool':
+                name = step.get('name')
+                inp = step.get('input')
+                output_raw = None
+                # check for matching tool_result
+                if idx + 1 < len(steps_list) and steps_list[idx+1].get('type') == 'tool_result' and steps_list[idx+1].get('name') == name:
+                    output_raw = steps_list[idx+1].get('output')
+                # ensure JSON-serializable
+                if not isinstance(output_raw, (str, int, float, bool, list, dict, type(None))):
+                    output = str(output_raw)
+                else:
+                    output = output_raw
+                tool_calls.append({'tool_name': name, 'input': inp, 'output': output})
 
         # Return the agent's response and debug info
         final_output = result.get('final_output', result.get('response', 'No response available'))
@@ -226,14 +234,22 @@ def chat_responses():
         result = loop.run_until_complete(run_responses_agent(data.get('message',''), prev_response_id))
 
         # Extract tool calls for debugging
+        steps_list = result.get('steps', [])
         tool_calls = []
-        for step in result['steps']:
-            if 'tool call' in step['step'].lower():
-                tool_calls.append({
-                    'tool_name': step['step'].split(':')[-1].strip() if ':' in step['step'] else step['step'],
-                    'input': step['input'],
-                    'output': step.get('output', None)
-                })
+        for idx, step in enumerate(steps_list):
+            if step.get('type') == 'tool':
+                name = step.get('name')
+                inp = step.get('input')
+                output_raw = None
+                # check for matching tool_result
+                if idx + 1 < len(steps_list) and steps_list[idx+1].get('type') == 'tool_result' and steps_list[idx+1].get('name') == name:
+                    output_raw = steps_list[idx+1].get('output')
+                # ensure JSON-serializable
+                if not isinstance(output_raw, (str, int, float, bool, list, dict, type(None))):
+                    output = str(output_raw)
+                else:
+                    output = output_raw
+                tool_calls.append({'tool_name': name, 'input': inp, 'output': output})
 
         db.execute(
             'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
