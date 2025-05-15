@@ -4,18 +4,7 @@
     <title>Pranav's Shopify Assistant</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'shopify-purple': '#5c6ac4',
-                    }
-                }
-            }
-        }
-    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='output.css') }}">
 </head>
 <body class="bg-gray-50 font-sans">
     <header class="text-center mb-5 pt-5">
@@ -121,82 +110,94 @@
         // Add initial assistant message
         addMessage('Hello! I\'m your Shopify assistant. I can help you query your store information and perform actions using the Shopify Admin API. What would you like to do today?', 'assistant');
 
-        messageForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const message = messageInput.value.trim();
-            if (!message) return;
+        // Defensive: Remove any previous submit handler before adding
+        if (window._messageFormSubmitHandler) {
+            messageForm.removeEventListener('submit', window._messageFormSubmitHandler);
+        }
+        async function handleMessageFormSubmit(e) {
+    e.preventDefault();
+    const message = messageInput.value.trim();
+    if (!message) return;
 
-            // Add user message to UI
-            addMessage(message, 'user');
-            messageInput.value = '';
+    // Add user message to UI
+    addMessage(message, 'user');
+    messageInput.value = '';
 
-            // Disable input while processing
-            messageInput.disabled = true;
-            submitButton.disabled = true;
+    // Disable input while processing
+    messageInput.disabled = true;
+    submitButton.disabled = true;
 
-            // Show loading indicator
-            const loadingDiv = document.createElement('div');
-            loadingDiv.className = 'flex items-center justify-center my-4';
-            loadingDiv.innerHTML = '<div class="animate-bounce mx-1 h-2 w-2 bg-shopify-purple rounded-full"></div><div class="animate-bounce mx-1 h-2 w-2 bg-shopify-purple rounded-full" style="animation-delay: -0.32s;"></div><div class="animate-bounce mx-1 h-2 w-2 bg-shopify-purple rounded-full" style="animation-delay: -0.16s;"></div>';
-            chatContainer.appendChild(loadingDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+    // Show loading indicator
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'flex items-center justify-center my-4';
+    loadingDiv.innerHTML = '<div class="animate-bounce mx-1 h-2 w-2 bg-shopify-purple rounded-full"></div><div class="animate-bounce mx-1 h-2 w-2 bg-shopify-purple rounded-full" style="animation-delay: -0.32s;"></div><div class="animate-bounce mx-1 h-2 w-2 bg-shopify-purple rounded-full" style="animation-delay: -0.16s;"></div>';
+    chatContainer.appendChild(loadingDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
 
-            let prevResponseId = window.prevResponseId || null;
-            try {
-                // Create an AbortController
-                controller = new AbortController();
-                interruptButton.style.display = 'block';
+    let prevResponseId = window.prevResponseId || null;
+    try {
+        // Create an AbortController
+        controller = new AbortController();
+        interruptButton.style.display = 'block';
 
-                // Send request to backend
-                const response = await fetch(apiEndpoint, {
-                    signal: controller.signal,
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message,
-                        conv_id: currentConvId,
-                        prev_response_id: prevResponseId
-                    })
-                });
-
-                const data = await response.json();
-
-                // Remove loading indicator
-                chatContainer.removeChild(loadingDiv);
-
-                // Update current conv_id
-                currentConvId = data.conv_id;
-
-                // Update prevResponseId for stateless Responses API
-                window.prevResponseId = data.response_id || null;
-
-                // Add assistant message to UI
-                addMessage(data.response, 'assistant', data.suggestions);
-
-                // Log tool calls for debugging
-                if (data.tool_calls && data.tool_calls.length > 0) {
-                    console.log('Tool calls:', data.tool_calls);
-                }
-
-                loadSidebarList();
-            } catch (error) {
-                console.error('Error:', error);
-                // Remove loading indicator
-                chatContainer.removeChild(loadingDiv);
-                if (error.name === 'AbortError') {
-                    addMessage('Request cancelled by user.', 'assistant');
-                } else {
-                    addMessage('Sorry, there was an error processing your request.', 'assistant');
-                }
-            } finally {
-                // Re-enable input and hide interrupt button
-                messageInput.disabled = false;
-                submitButton.disabled = false;
-                messageInput.focus();
-                interruptButton.style.display = 'none';
-                controller = null;
-            }
+        // Send request to backend
+        const response = await fetch(apiEndpoint, {
+            signal: controller.signal,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message,
+                conv_id: currentConvId,
+                prev_response_id: prevResponseId
+            })
         });
+
+        const data = await response.json();
+
+        // Remove loading indicator
+        chatContainer.removeChild(loadingDiv);
+
+        // Update current conv_id
+        currentConvId = data.conv_id;
+
+        // Update prevResponseId for stateless Responses API
+        window.prevResponseId = data.response_id || null;
+
+        // Add assistant message to UI
+        addMessage(data.response, 'assistant', data.suggestions);
+
+        // Log tool calls for debugging
+        if (data.tool_calls && data.tool_calls.length > 0) {
+            console.log('Tool calls:', data.tool_calls);
+        }
+
+        loadSidebarList();
+    } catch (error) {
+        console.error('Error:', error);
+        // Remove loading indicator
+        chatContainer.removeChild(loadingDiv);
+        if (error.name === 'AbortError') {
+            addMessage('Request cancelled by user.', 'assistant');
+        } else {
+            addMessage('Sorry, there was an error processing your request.', 'assistant');
+        }
+    } finally {
+        // Re-enable input and hide interrupt button
+        messageInput.disabled = false;
+        submitButton.disabled = false;
+        messageInput.focus();
+        interruptButton.style.display = 'none';
+        controller = null;
+    }
+}
+
+// Defensive: Remove any previous submit handler before adding
+if (window._messageFormSubmitHandler) {
+    messageForm.removeEventListener('submit', window._messageFormSubmitHandler);
+}
+window._messageFormSubmitHandler = handleMessageFormSubmit;
+messageForm.addEventListener('submit', window._messageFormSubmitHandler);
+// (Removed duplicate/old async handler code below. Only the named function and defensive binding remain.)
 
         // Handle interrupt button click
         interruptButton.addEventListener('click', () => {
@@ -228,18 +229,46 @@
         function addMessage(content, role, suggestions = []) {
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('mb-4', 'p-3', 'rounded-lg', 'max-w-[80%]', 'relative');
+            
 
             if (role === 'user') {
-                messageDiv.classList.add('bg-shopify-purple', 'text-white', 'ml-auto');
+                messageDiv.classList.add('bg-shopify-purple', 'text-white', 'ml-auto', 'prose', 'prose-sm', 'prose-invert');
+                // Add avatar and user label with extra padding
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'flex items-center mb-3 gap-3';
+                headerDiv.innerHTML = `
+                  <span class=\"inline-flex items-center justify-center text-white font-bold text-xl shadow p-2\">👤</span>
+                  <span class=\"font-semibold text-gray-200 text-xs tracking-wide\">Me</span>
+                `;
+                messageDiv.appendChild(headerDiv);
             } else {
-                messageDiv.classList.add('bg-gray-100', 'text-gray-800');
+                // Assistant message: modern, beautiful look
+                messageDiv.classList.add(
+                    'bg-gradient-to-br', 'from-white', 'to-gray-500',
+                    'text-gray-900', 'shadow-lg', 'border', 'border-gray-200', 'prose', 'prose-sm', 'prose-invert','prose-a:text-shopify-purple',
+                    'text-sm', 'leading-relaxed', 'max-w-2xl', 'mx-auto', 'rounded-xl', 'p-6', 'mb-6', 'relative', 'fade-in'
+                );
+                // Add avatar and assistant label with extra padding
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'flex items-center mb-3 gap-3';
+                headerDiv.innerHTML = `
+                  <span class=\"inline-flex items-center justify-center h-10 w-10 rounded-full bg-shopify-purple text-white font-bold text-xl shadow p-2\">🤖</span>
+                  <span class=\"font-semibold text-shopify-purple text-lg tracking-wide\">Shopify Assistant</span>
+                `;
+                messageDiv.appendChild(headerDiv);
             }
 
             // Use Showdown to convert Markdown to HTML
             const converter = new showdown.Converter();
             converter.setOption('tables', true);
-            const htmlContent = converter.makeHtml(content);
-            messageDiv.innerHTML = htmlContent;
+            let htmlContent = converter.makeHtml(content);
+            // Style <thinking>...</thinking> tags
+            htmlContent = htmlContent.replace(/<thinking>([\s\S]*?)<\/thinking>/gi, '<thinking>$1</thinking>');
+            // Always append Markdown as a bodyDiv so headerDiv is not overwritten
+            const bodyDiv = document.createElement('div');
+            bodyDiv.className = 'mt-2';
+            bodyDiv.innerHTML = htmlContent;
+            messageDiv.appendChild(bodyDiv);
 
             // Add suggestions if they exist and this is an assistant message
             if (role === 'assistant' && suggestions && suggestions.length > 0) {

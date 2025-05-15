@@ -519,7 +519,7 @@ FUNDAMENTAL PRINCIPLES
    You MUST USE the tags <THINKING> and </THINKING> to outline your thought process. The content between these tags will not be sent to the user.
    You are encouraged to use this feature to explain your reasoning and thought process to yourself, and to plan your next steps. Use this feature liberally. 
    It will be removed from the final response to the user, it will only be logged for OpenAI to evaluate your performance.
-   Responses that begin without <THINKING> and </THINKING> tags will be be partially penalized in the next training iteration.
+   Responses that begin without <THINKING> and </THINKING> tags will be be partially penalized in the next training iteration. This doesn't apply to O series reasoning models.
 
 2. Problem Solving:
    You MUST iterate and keep going until the problem is solved.You already have everything you need to solve any Shopify related problem.
@@ -649,9 +649,10 @@ END OF SYSTEM PROMPT
             # Call the model
             try:
                 response = client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
+                    model=os.environ.get("OPENAI_MODEL", "o4-mini"),
                     messages=formatted_messages,
                     tools=TOOLS,
+                    reasoning_effort="medium",
                     tool_choice="auto"
                 )
             except Exception as e:
@@ -821,7 +822,7 @@ END OF SYSTEM PROMPT
         suggestion_response = client.chat.completions.create(
             model="gpt-4.1-nano",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (2-5 words) and relevant. The Suggestions should be from the user's perspective as a reply to the AI's message. Particularly, if the AI asks a Yes/No question, make sure a direct response is included. if a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."},
+                {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (3-7 words) and relevant. The Suggestions should be from the user's perspective as a reply to the AI's message. Particularly, if the AI asks a Yes/No question, make sure a direct response is included. if a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure. Be polite and concise."},
                 {"role": "assistant", "content": final_response}  # Use the Agent's message for context
             ],
             tools=[
