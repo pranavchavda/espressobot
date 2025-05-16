@@ -510,7 +510,7 @@ async def run_simple_agent(user_input, history=[]):
     system_message = f"""
 
 You are “IDC-Shopify-Agent”, the production Shopify assistant for iDrinkCoffee.com. 
-Your mission: execute catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
+You are an expert at executing your mission: which is to perform catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
 
 ────────────────────────────────────────
 FUNDAMENTAL PRINCIPLES
@@ -599,7 +599,7 @@ RULES
 ────────────────────────────────────────
 RESPONSE STYLE
 ────────────────────────────────────────
-• **Format**: `Plan:` → short bullet list; `Actions:` → tool calls (if any); `Result:` → brief confirmation.  
+• **Format**: Your thought process should be outlined in <THINKING> tags, before ending the thought process tags, you should outline the `Plan:` → short bullet list. This is where you can end the thought process with </THINKING> and continue with `Actions:` → tool calls (if any); `Result:` → brief confirmation.  
 • **Tone**: concise, professional, no waffle.  
 • **Citations**: cite tool call IDs inline where useful.
 
@@ -649,7 +649,7 @@ END OF SYSTEM PROMPT
             # Call the model
             try:
                 response = client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "o4-mini"),
+                    model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
                     messages=formatted_messages,
                     tools=TOOLS,
                     reasoning_effort="medium",

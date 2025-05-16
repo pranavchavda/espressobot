@@ -1,8 +1,120 @@
 @import "tailwindcss";
 
-/* Basic global styles, extend as needed */
+/* Basic global styles */
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
   background: #f9f9f9;
+}
+
+/* Syntax highlighting */
+pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Light theme */
+:root {
+  --code-bg: #f8f8f8;
+  --code-text: #333;
+  --code-comment: #6a9955;
+  --code-keyword: #0000ff;
+  --code-string: #a31515;
+  --code-number: #098658;
+  --code-tag: #800000;
+  --code-attr: #ff0000;
+}
+
+/* Dark theme */
+.dark {
+  --code-bg: #1e1e1e;
+  --code-text: #d4d4d4;
+  --code-comment: #6a9955;
+  --code-keyword: #569cd6;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-tag: #569cd6;
+  --code-attr: #9cdcfe;
+}
+
+/* Code block styling */
+pre code {
+  display: block;
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+
+/* Inline code */
+:not(pre) > code {
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+
+/* Syntax highlighting */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--code-comment);
+}
+
+.token.punctuation {
+  color: var(--code-text);
+}
+
+.token.selector,
+.token.tag {
+  color: var(--code-tag);
+}
+
+.token.property,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.attr-name,
+.token.deleted {
+  color: var(--code-number);
+}
+
+.token.string,
+.token.char,
+.token.attr-value,
+.token.builtin,
+.token.inserted {
+  color: var(--code-string);
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: var(--code-text);
+}
+
+.token.atrule,
+.token.keyword {
+  color: var(--code-keyword);
+}
+
+.token.function,
+.token.class-name {
+  color: var(--code-attr);
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: var(--code-text);
 }

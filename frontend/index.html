@@ -3,10 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Catalyst React SPA</title>
+    <title>Espresso Bot</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" href="/static/favicon.ico">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" class="min-h-screen flex flex-col">
+      <header class="w-full bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div class="flex items-center">
+            <img src="/static/shopify_assistant_logo.png" alt="Espresso Bot" class="h-8 w-auto mr-3" />
+            <h1 class="text-xl font-bold text-zinc-900 dark:text-zinc-50">Espresso Bot</h1>
+          </div>
+        </div>
+      </header>
+      <main class="flex-grow">
+        <div id="root"></div>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

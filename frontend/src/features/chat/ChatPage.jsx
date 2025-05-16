@@ -1,14 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Textarea } from '@common/textarea';
 import { Button } from '@common/button';
+import { format } from 'date-fns';
+import { Loader2, Send, ShoppingBagIcon, UserIcon, BotIcon } from 'lucide-react';
+import { MarkdownRenderer } from '@components/chat/MarkdownRenderer';
+import { Text } from '@common/text';
+import { Avatar } from '@common/avatar';
+import Markdown, { MarkdownAsync } from 'react-markdown';
 
 // ChatPage: Main chat interface page
 function ChatPage({ convId, refreshConversations }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [msgLoading, setMsgLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [activeConv, setActiveConv] = useState(convId);
+  const messagesEndRef = useRef(null);
 
   // Fetch messages for selected conversation
   useEffect(() => {
@@ -28,9 +35,36 @@ function ChatPage({ convId, refreshConversations }) {
       .finally(() => setLoading(false));
   }, [convId]);
 
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Format timestamp to readable format
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return '';
+    try {
+      return format(new Date(timestamp), 'h:mm a');
+    } catch (e) {
+      return '';
+    }
+  };
+
   async function handleSend() {
-    if (!input.trim()) return;
-    setMsgLoading(true);
+    if (!input.trim() || isSending) return;
+    
+    const userMessage = {
+      role: 'user',
+      content: input.trim(),
+      timestamp: new Date().toISOString(),
+      status: 'sending'
+    };
+
+    // Optimistically add user message
+    setMessages(prev => [...prev, userMessage]);
+    setIsSending(true);
+    setInput('');
+
     try {
       const res = await fetch('/chat', {
         method: 'POST',
@@ -40,34 +74,107 @@ function ChatPage({ convId, refreshConversations }) {
           message: input.trim(),
         })
       });
+      
       const data = await res.json();
+      
       if (data.conv_id && !activeConv) {
-        // New conversation started
         refreshConversations && refreshConversations();
         setActiveConv(data.conv_id);
       }
-      // Fetch messages after sending
-      fetch(`/conversations/${data.conv_id || activeConv}`)
-        .then(res => res.json())
-        .then(setMessages);
-      setInput('');
+      
+      // Fetch updated messages
+      const messagesRes = await fetch(`/conversations/${data.conv_id || activeConv}`);
+      const updatedMessages = await messagesRes.json();
+      setMessages(updatedMessages);
+      
     } catch (e) {
-      // Optionally show error
+      // Update message status to failed
+      setMessages(prev => 
+        prev.map(msg => 
+          msg === userMessage 
+            ? { ...msg, status: 'failed' } 
+            : msg
+        )
+      );
     } finally {
-      setMsgLoading(false);
+      setIsSending(false);
     }
   }
 
   return (
     <div className="flex flex-col h-[100vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
       {/* Chat messages area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-0 sm:px-0 py-8 max-w-3xl w-full mx-auto">
-        <div className="flex flex-col gap-2">
-          {messages.map((msg, i) => (
-            <div key={i} className="py-2 px-4 rounded-lg bg-white shadow border border-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700">
-              {msg.content}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 max-w-3xl w-full mx-auto">
+        <div className="flex flex-col gap-3">
+          {loading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-zinc-500"></div>
             </div>
-          ))}
+          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center text-zinc-500 mt-12">
+              <img
+                src="/static/shopify_assistant_logo.png"
+                alt="Espresso Bot Logo"
+                className="mx-auto mt-6 mb-2 h-96 w-96 object-contain drop-shadow-lg"
+                draggable="false"
+              />
+              <Text>Start a new conversation by sending a message</Text>
+            </div>
+          ) : (
+            messages.map((msg, i) => (
+              <div 
+                key={i} 
+                className={`flex items-start gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+              >
+                {/* Avatar */}
+                <div className="flex-shrink-0">
+                  {msg.role === 'user' ? (
+                    <Avatar
+                      className="size-8 bg-gray-100 dark:bg-zinc-700"
+                      initials="Me" 
+                      alt="User" 
+                    />
+                  ) : (
+                    <Avatar
+                      className="size-8 bg-blue-100 dark:bg-blue-900/30"
+                      alt="ShopifyBot"
+                      initials="🤖"
+                    />
+                  )}
+                </div>
+                
+                {/* Message bubble */}
+                <div 
+                  className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 ${
+                    msg.role === 'user' 
+                      ? 'bg-gray-200 text-black rounded-tr-none' 
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
+                  }`}
+                >
+                  <div className="w-full break-words">
+                    <MarkdownRenderer isAgent={msg.role === 'assistant'}>{String(msg.content || '')}</MarkdownRenderer>
+                  </div>
+                  <div className={`text-xs mt-2 flex items-center justify-end gap-2 ${
+                    msg.role === 'user' ? 'text-gray-400' : 'text-zinc-500 dark:text-zinc-400'
+                  }`}>
+                    {msg.status === 'sending' && (
+                      <span className="flex items-center">
+                        <span className="inline-block w-2 h-2 bg-current rounded-full mr-1"></span>
+                        Sending
+                      </span>
+                    )}
+                    {msg.status === 'failed' && 'Failed to send'}
+                    {msg.timestamp && (
+                      <span className="whitespace-nowrap">
+                        {formatTimestamp(msg.timestamp)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} className="h-4" />
         </div>
       </div>
       {/* Input area fixed at the bottom */}
@@ -89,8 +196,17 @@ function ChatPage({ convId, refreshConversations }) {
               }
             }}
           />
-          <Button type="submit" className="h-fit px-6 py-3">
-            Send
+          <Button 
+            type="submit" 
+            className="h-fit px-4 py-3 min-w-[80px] flex items-center justify-center"
+            disabled={isSending || !input.trim()}
+          >
+            {isSending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            <span className="ml-2">Send</span>
           </Button>
         </form>
       </div>

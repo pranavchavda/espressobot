@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
+import tailwindTypography from '@tailwindcss/typography';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,14 +12,21 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss({
-      theme: {
-        extend: {
-          colors: {
-            shopifyPurple: '#5c6ac4',
+      config: {
+        darkMode: 'class',
+        content: [
+          "./index.html",
+          "./src/**/*.{js,ts,jsx,tsx}",
+        ],
+        theme: {
+          extend: {
+            colors: {
+              shopifyPurple: '#5c6ac4',
+            },
           },
         },
+        plugins: [tailwindTypography],
       },
-      // You can add more Tailwind options here if needed
     }),
   ],
   server: {
