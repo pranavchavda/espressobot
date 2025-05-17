@@ -711,6 +711,12 @@ END OF SYSTEM PROMPT
                                         current_args = tool_calls_buffer[tool_call.index]['function']['arguments']
                                         tool_calls_buffer[tool_call.index]['function']['arguments'] = current_args + tool_call.function.arguments
 
+                    # Define a response_message for the streaming case to avoid the variable reference error
+                    response_message = type('obj', (object,), {
+                        'tool_calls': tool_calls_buffer,
+                        'content': current_content
+                    })
+
                     # Process any tool calls that were completed
                     for tool_call in tool_calls_buffer:
                         if tool_call['function']['name'] and tool_call['function']['arguments']:

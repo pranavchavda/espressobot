@@ -1,0 +1,39 @@
+caught TypeError: Cannot read properties of null (reading 'content')
+    at StreamingChatPage.jsx:184:45
+    at basicStateReducer (react-dom.development.js:15721:41)
+    at updateReducer (react-dom.development.js:15845:22)
+    at updateState (react-dom.development.js:16185:10)
+    at Object.useState (react-dom.development.js:17096:16)
+    at useState (react.development.js:1622:21)
+    at StreamingChatPage (StreamingChatPage.jsx:13:35)
+    at renderWithHooks (react-dom.development.js:15486:18)
+    at updateFunctionComponent (react-dom.development.js:19617:20)
+    at beginWork (react-dom.development.js:21640:16)
+react-dom.development.js:18704  The above error occurred in the <StreamingChatPage> component:
+
+    at StreamingChatPage (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/src/features/chat/StreamingChatPage.jsx:31:30)
+    at RenderedRoute (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c9574e63:5449:26)
+    at Routes (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c9574e63:6182:3)
+    at div
+    at div
+    at main
+    at div
+    at SidebarLayout (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/src/components/common/sidebar-layout.jsx:124:33)
+    at App (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/src/App.jsx:32:47)
+    at Router (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c9574e63:6125:13)
+    at BrowserRouter (https://12f6ecea-c9e1-4bad-8c4c-8ea74693ffd2-00-93kdybu2jx1s.pike.replit.dev/node_modules/.vite/deps/react-router-dom.js?v=c9574e63:9111:3)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries.
+logCapturedError @ react-dom.development.js:18704
+react-dom.development.js:26962  Uncaught TypeError: Cannot read properties of null (reading 'content')
+    at StreamingChatPage.jsx:184:45
+    at basicStateReducer (react-dom.development.js:15721:41)
+    at updateReducer (react-dom.development.js:15845:22)
+    at updateState (react-dom.development.js:16185:10)
+    at Object.useState (react-dom.development.js:17096:16)
+    at useState (react.development.js:1622:21)
+    at StreamingChatPage (StreamingChatPage.jsx:13:35)
+    at renderWithHooks (react-dom.development.js:15486:18)
+    at updateFunctionComponent (react-dom.development.js:19617:20)
+    at beginWork (react-dom.development.js:21640:16)
