@@ -13,6 +13,16 @@ deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 2000
+externalPort = 3002
+exposeLocalhost = true
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
+exposeLocalhost = true
+
+[[ports]]
+localPort = 5173
 externalPort = 80
 exposeLocalhost = true
 
@@ -26,4 +36,4 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "bash start_preview.sh"
+args = "bash start_dev.sh"
