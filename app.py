@@ -131,9 +131,31 @@ def chat():
     task = None
     try:
         print(f"Processing chat request with message: {data.get('message','')[:50]}...")
-        task = loop.create_task(run_simple_agent(data.get('message',''), history))
-
+        # Run the agent and collect results (since it's an async generator)
+        result = {'steps': []}
         try:
+            async def collect_results():
+                nonlocal result
+                final_output = ""
+                steps = []
+                async for chunk in run_simple_agent(data.get('message',''), history):
+                    if chunk.get('type') == 'content':
+                        if 'delta' in chunk:
+                            final_output += chunk['delta']
+                        elif 'result' in chunk:
+                            try:
+                                parsed = json.loads(chunk['result'])
+                                if 'content' in parsed:
+                                    final_output = parsed['content']
+                                if 'steps' in parsed:
+                                    steps = parsed['steps']
+                            except:
+                                pass
+                    elif chunk.get('type') in ['tool', 'tool_result']:
+                        steps.append(chunk)
+                return {'final_output': final_output, 'steps': steps, 'suggestions': []}
+            
+            task = loop.create_task(collect_results())
             result = loop.run_until_complete(task)
         except asyncio.CancelledError:
             # On cancellation, ensure task is properly cancelled
