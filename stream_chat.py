@@ -69,30 +69,13 @@ def create_stream_blueprint(app):
             # Set up for incremental streaming
             full_response = ""
             try:
-                # Run agent in async mode
-                async def process_agent():
-                    nonlocal full_response
-
-                    # Run the agent with streaming=True
-                    async for chunk in run_simple_agent(message, history, streaming=True):
-                        if chunk.get('type') == 'content':
-                            delta = chunk.get('delta', '')
-                            full_response += delta
-                            yield f"data: {{\n"
-                            yield f"data: \"delta\": {json.dumps(delta)},\n"
-                            yield f"data: \"content\": {json.dumps(full_response)}\n"
-                            yield f"data: }}\n\n"
-                        elif chunk.get('type') == 'tool_call':
-                            # Send tool call information
-                            yield f"data: {{\n"
-                            yield f"data: \"tool_call\": {json.dumps(chunk)}\n"
-                            yield f"data: }}\n\n"
-                        elif chunk.get('type') == 'suggestions' and chunk.get('suggestions'):
-                            # Send suggestions when available
-                            yield f"data: {{\n"
-                            yield f"data: \"suggestions\": {json.dumps(chunk.get('suggestions', []))}\n"
-                            yield f"data: }}\n\n"
-
+                # Helper function to collect results from async generator
+                async def collect_async_generator(agen):
+                    results = []
+                    async for item in agen:
+                        results.append(item)
+                    return results
+                
                 # Define the async generator function
                 async def process_agent():
                     nonlocal full_response
@@ -119,13 +102,6 @@ def create_stream_blueprint(app):
                 # Use asyncio to run the async generator and yield its results
                 for chunk in loop.run_until_complete(collect_async_generator(process_agent())):
                     yield chunk
-                
-                # Helper function to collect results from async generator
-                async def collect_async_generator(agen):
-                    results = []
-                    async for item in agen:
-                        results.append(item)
-                    return results
 
                 # Store the final response in the database
                 if full_response:
