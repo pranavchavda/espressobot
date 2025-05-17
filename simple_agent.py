@@ -985,6 +985,10 @@ END OF SYSTEM PROMPT
                         break
             # End of main loop
             # If we exit the loop and have no response, fallback
+        except Exception as e:
+            print(f"Error in agent: {str(e)}")
+            final_response = f"I encountered an error: {str(e)}"
+        finally:
             if not final_response:
                 if steps and "output" in steps[-1]:
                     output = steps[-1]["output"]
