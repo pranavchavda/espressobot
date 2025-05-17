@@ -171,10 +171,44 @@ async def search_dev_docs(prompt):
     if not mcp_server:
         return {"error": "MCP server not available"}
     try:
-        return await mcp_server.search_dev_docs(prompt)
+        raw_res = await mcp_server.search_dev_docs(prompt)
+        # Convert CallToolResult to dict to ensure JSON serialization works
+        res = {}
+        if hasattr(raw_res, "meta"):
+            res["meta"] = raw_res.meta
+        if hasattr(raw_res, "content"):
+            res["content"] = [
+                {"type": getattr(c, "type", None), "text": getattr(c, "text", None), "annotations": getattr(c, "annotations", None)}
+                for c in raw_res.content
+            ]
+        if hasattr(raw_res, "isError"):
+            res["isError"] = raw_res.isError
+        return res
     except Exception as e:
         print(f"Error calling search_dev_docs: {e}")
         return {"error": str(e)}
+
+async def introspect_admin_schema(query, filter_types=None):
+    """Introspect the Shopify Admin API schema using the MCP server"""
+    if filter_types is None:
+        filter_types = ["all"]
+    try:
+        raw_res = await mcp_server.introspect_admin_schema(query, filter_types)
+        # Convert CallToolResult to dict to ensure JSON serialization works
+        res = {}
+        if hasattr(raw_res, "meta"):
+            res["meta"] = raw_res.meta
+        if hasattr(raw_res, "content"):
+            res["content"] = [
+                {"type": getattr(c, "type", None), "text": getattr(c, "text", None), "annotations": getattr(c, "annotations", None)}
+                for c in raw_res.content
+            ]
+        if hasattr(raw_res, "isError"):
+            res["isError"] = raw_res.isError
+        return res
+    except Exception as e:
+        print(f"Error introspecting schema: {e}")
+        return {"errors": [{"message": str(e)}]}
 
 # Function to fetch product copy guidelines
 

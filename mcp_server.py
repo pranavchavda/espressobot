@@ -61,7 +61,7 @@ def _patch_mcp_client_timeout(default_seconds: int = 30) -> None:
     MCPClientSession._timeout_patched = True  # type: ignore[attr-defined]
 
 # Apply the patch as soon as the module is imported.
-_patch_mcp_client_timeout(default_seconds=15)  # Increase timeout to 15 seconds
+_patch_mcp_client_timeout(default_seconds=30)  # Increase timeout to 30 seconds
 
 # Configure logging
 logging.basicConfig(
