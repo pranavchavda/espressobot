@@ -171,19 +171,24 @@ async def search_dev_docs(prompt):
     if not mcp_server:
         return {"error": "MCP server not available"}
     try:
-        raw_res = await mcp_server.search_dev_docs(prompt)
-        # Convert CallToolResult to dict to ensure JSON serialization works
-        res = {}
-        if hasattr(raw_res, "meta"):
-            res["meta"] = raw_res.meta
-        if hasattr(raw_res, "content"):
-            res["content"] = [
-                {"type": getattr(c, "type", None), "text": getattr(c, "text", None), "annotations": getattr(c, "annotations", None)}
-                for c in raw_res.content
-            ]
-        if hasattr(raw_res, "isError"):
-            res["isError"] = raw_res.isError
-        return res
+        print(f"[DEBUG] Calling mcp_server.search_dev_docs with prompt: {prompt}")
+        result = await mcp_server.search_dev_docs(prompt)
+        
+        # At this point result should already be a properly serializable dictionary
+        # Let's log its structure to verify
+        print(f"[DEBUG] search_dev_docs result type: {type(result)}")
+        if isinstance(result, dict):
+            content_count = len(result.get("content", []))
+            print(f"[DEBUG] search_dev_docs result has {content_count} content items")
+            
+            # Log the first content item (truncated)
+            if content_count > 0:
+                first_item = result["content"][0]
+                text_length = len(first_item.get("text", ""))
+                print(f"[DEBUG] First content item text length: {text_length} chars")
+                print(f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}...")
+        
+        return result
     except Exception as e:
         print(f"Error calling search_dev_docs: {e}")
         return {"error": str(e)}

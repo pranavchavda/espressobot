@@ -37,6 +37,22 @@ async def test_shopify_dev_docs(query):
                     print(f"\n--- FULL CONTENT for item {i} ---")
                     print(text_content)
                     print("--- END CONTENT ---\n")
+
+                    # Extract and log the raw response data for debugging
+                    if 'filename' in text_content:
+                        try:
+                            import json
+                            json_data = json.loads(text_content)
+                            if isinstance(json_data, list):
+                                for idx, item in enumerate(json_data):
+                                    print(f"JSON item {idx}:")
+                                    print(f"  filename: {item.get('filename', 'N/A')}")
+                                    print(f"  score: {item.get('score', 'N/A')}")
+                                    content_len = len(item.get('content', ''))
+                                    print(f"  content length: {content_len} chars")
+                                    print(f"  content snippet: {item.get('content', '')[:150]}...")
+                        except:
+                            print("Failed to parse as JSON")
                     res["content"].append({
                         "type": getattr(c, "type", None),
                         "text": getattr(c, "text", None),

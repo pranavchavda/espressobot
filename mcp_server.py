@@ -137,6 +137,10 @@ class ShopifyMCPServer:
                     "search_dev_docs", {"prompt": prompt}
                 )
                 
+                # Log the raw response for debugging
+                print(f"[DEBUG] Raw search_dev_docs result type: {type(raw_result)}")
+                print(f"[DEBUG] Raw search_dev_docs attributes: {dir(raw_result)[:200]}")
+                
                 # Convert CallToolResult to dictionary for proper JSON serialization
                 result = {
                     "meta": getattr(raw_result, "meta", None),
@@ -147,11 +151,20 @@ class ShopifyMCPServer:
                 # Extract content items
                 if hasattr(raw_result, "content"):
                     for content_item in raw_result.content:
+                        # Get full text content
+                        text_content = getattr(content_item, "text", "")
+                        print(f"[DEBUG] Content item type: {getattr(content_item, 'type', None)}")
+                        print(f"[DEBUG] Content text length: {len(text_content)} chars")
+                        
+                        # Preserve the complete text content
                         result["content"].append({
                             "type": getattr(content_item, "type", None),
-                            "text": getattr(content_item, "text", None),
+                            "text": text_content,
                             "annotations": getattr(content_item, "annotations", None)
                         })
+                
+                # Log the final result for debugging
+                print(f"[DEBUG] Final result content items: {len(result['content'])}")
                 
                 return result
         except Exception as e:
