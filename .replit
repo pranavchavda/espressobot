@@ -8,7 +8,7 @@ run = "bash start_dev.sh"
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "bash start_preview.sh"]
+run = ["sh", "-c", "python app.py"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
