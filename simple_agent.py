@@ -717,57 +717,70 @@ END OF SYSTEM PROMPT
                         'content': current_content
                     })
 
-                    # Process any tool calls that were completed
-                    for tool_call in tool_calls_buffer:
-                        if tool_call['function']['name'] and tool_call['function']['arguments']:
-                            try:
-                                fn_name = tool_call['function']['name']
-                                args = json.loads(tool_call['function']['arguments'])
+                    # First, add the assistant message with tool calls
+                    if tool_calls_buffer:
+                        formatted_messages.append({
+                            'role': 'assistant',
+                            'content': current_content,
+                            'tool_calls': tool_calls_buffer
+                        })
+                        
+                        # Then process the tool calls
+                        for tool_call in tool_calls_buffer:
+                            if tool_call['function']['name'] and tool_call['function']['arguments']:
+                                try:
+                                    fn_name = tool_call['function']['name']
+                                    args = json.loads(tool_call['function']['arguments'])
 
-                                # Add to steps
-                                steps.append({
-                                    'type': 'tool', 
-                                    'name': fn_name,                                    'input': args
-                                })
-
-                                # Execute the tool function
-                                if fn_name in tool_functions:
-                                    tool_result = await tool_functions[fn_name](**args)
-
-                                    # Add result to steps
+                                    # Add to steps
                                     steps.append({
-                                        'type': 'tool_result',
+                                        'type': 'tool', 
                                         'name': fn_name,
-                                        'output': tool_result
+                                        'input': args
                                     })
 
-                                    # Yield the tool result to client
+                                    # Execute the tool function
+                                    if fn_name in tool_functions:
+                                        tool_result = await tool_functions[fn_name](**args)
+
+                                        # Add result to steps
+                                        steps.append({
+                                            'type': 'tool_result',
+                                            'name': fn_name,
+                                            'output': tool_result
+                                        })
+
+                                        # Yield the tool result to client
+                                        yield {
+                                            'type': 'tool_result',
+                                            'name': fn_name,
+                                            'result': json.dumps(tool_result)
+                                        }
+
+                                        # Add tool result to messages - this should come after the assistant message with tool_calls
+                                        formatted_messages.append({
+                                            'role': 'tool',
+                                            'tool_call_id': tool_call.get('id', ''),
+                                            'name': fn_name,
+                                            'content': json.dumps(tool_result)
+                                        })
+
+                                except Exception as e:
+                                    print(f"Error processing tool call: {e}")
                                     yield {
-                                        'type': 'tool_result',
-                                        'name': fn_name,
-                                        'result': json.dumps(tool_result)
+                                        'type': 'error',
+                                        'message': str(e)
                                     }
-
-                                    # Add tool result to messages
-                                    formatted_messages.append({
-                                        'role': 'tool',
-                                        'tool_call_id': tool_call.get('id', ''),
-                                        'name': fn_name,
-                                        'content': json.dumps(tool_result)
-                                    })
-
-                            except Exception as e:
-                                print(f"Error processing tool call: {e}")
-                                yield {
-                                    'type': 'error',
-                                    'message': str(e)
-                                }
-                                formatted_messages.append({
-                                    'role': 'tool',
-                                    'tool_call_id': tool_call.get('id', ''),
-                                    'name': fn_name,
-                                    'content': f"Error: {str(e)}"
-                                })
+                                    # Make sure we have an assistant message with tool_calls before adding tool response
+                                    if formatted_messages[-1]['role'] != 'assistant' or 'tool_calls' not in formatted_messages[-1]:
+                                        print("Cannot add tool response without preceding assistant message with tool_calls")
+                                    else:
+                                        formatted_messages.append({
+                                            'role': 'tool',
+                                            'tool_call_id': tool_call.get('id', ''),
+                                            'name': fn_name, 
+                                            'content': f"Error: {str(e)}"
+                                        })
 
                 else:
                     # Non-streaming mode
@@ -784,6 +797,14 @@ END OF SYSTEM PROMPT
 
                     # Process tool calls
                     if response_message.tool_calls:
+                        # First add the assistant message with tool calls
+                        formatted_messages.append({
+                            'role': 'assistant',
+                            'content': current_content or "",
+                            'tool_calls': response_message.tool_calls
+                        })
+                        
+                        # Then process each tool call
                         tool_calls = response_message.tool_calls
                         for tool_call in tool_calls:
                             fn_name = tool_call.function.name
@@ -824,6 +845,11 @@ END OF SYSTEM PROMPT
                                 })
                     else:
                         print("No tool calls in response")
+                        if current_content:
+                            formatted_messages.append({
+                                'role': 'assistant',
+                                'content': current_content
+                            })
 
             except Exception as e:
                 print(f"Error during OpenAI call: {e}")
@@ -831,13 +857,14 @@ END OF SYSTEM PROMPT
                 final_response = f"I encountered an error: {str(e)}"
                 break
 
-            # Append assistant response to messages (either content or function call results)
-            if current_content:
+            # Append assistant response to messages only if no tool calls were processed
+            # (when there are tool calls, the assistant message is already added earlier)
+            if not response_message.tool_calls and current_content:
                 formatted_messages.append({
                     'role': 'assistant',
                     'content': current_content
                 })
-            else:
+            elif not current_content and not response_message.tool_calls:
                 print("No content in response")
 
             # Check if the agent has provided a final answer
