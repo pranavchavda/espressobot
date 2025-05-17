@@ -32,8 +32,9 @@ export default defineConfig({
     open: true,
     host: "0.0.0.0",
     proxy: {
-      "/chat": "http://localhost:5000",
-      "/conversations": "http://localhost:5000",
+      "/chat": "http://0.0.0.0:5000",
+      "/conversations": "http://0.0.0.0:5000",
+      "/stream_chat": "http://0.0.0.0:5000",
     },
     allowedHosts: ["localhost", ".replit.dev", ".replit.app", ".repl.co"],
   },
