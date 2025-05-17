@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
@@ -94,7 +93,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
     setIsSending(true);
     setInput("");
     setSuggestions([]);
-    
+
     // Initialize streaming message
     setStreamingMessage({
       role: "assistant",
@@ -111,7 +110,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
     try {
       // Set up Server-Sent Events connection
       const fetchUrl = "/stream_chat";
-      
+
       // Use fetch POST to start the stream
       const response = await fetch(fetchUrl, {
         method: "POST",
@@ -130,37 +129,37 @@ function StreamingChatPage({ convId, refreshConversations }) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let eventData = "";
-      
+
       // Process the stream
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         const chunk = decoder.decode(value);
         eventData += chunk;
-        
+
         // Process any complete SSE messages
         const messages = eventData.split(/\n\n/);
         eventData = messages.pop() || ""; // Keep the last incomplete chunk for next iteration
-        
+
         for (const message of messages) {
           if (!message.trim() || !message.startsWith("data:")) continue;
-          
+
           try {
             // Extract and parse the JSON data
             const jsonString = message.split(/\n/)
               .filter(line => line.startsWith("data:"))
               .map(line => line.slice(5).trim())
               .join("");
-              
+
             const data = JSON.parse(jsonString);
-            
+
             // Handle initial connection with conversation ID
             if (data.conv_id && !activeConv) {
               setActiveConv(data.conv_id);
               refreshConversations && refreshConversations();
             }
-            
+
             // Handle content updates
             if (data.delta || data.content) {
               setStreamingMessage(prev => ({
@@ -168,12 +167,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
                 content: data.content || (prev?.content + (data.delta || "")),
               }));
             }
-            
+
             // Handle suggestions
             if (data.suggestions && Array.isArray(data.suggestions)) {
               setSuggestions(data.suggestions);
             }
-            
+
             // Handle completion
             if (data.done) {
               // Move streaming message to regular messages
@@ -188,7 +187,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
               setStreamingMessage(null);
               break;
             }
-            
+
             // Handle errors
             if (data.error) {
               console.error("Stream error:", data.error);
@@ -205,7 +204,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       }
     } catch (e) {
       console.error("Failed to send message or process stream:", e);
-      
+
       // Update streaming message with error
       setStreamingMessage(prev => 
         prev ? { ...prev, content: `Error: ${e.message}`, isError: true } : null
