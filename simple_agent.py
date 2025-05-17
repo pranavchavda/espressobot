@@ -675,7 +675,8 @@ END OF SYSTEM PROMPT
                     tool_calls_buffer = []
                     steps = []
 
-                    async for chunk in response:
+                    # For OpenAI SDK v1.x, we need to iterate over the stream with regular for loop
+                    for chunk in response:
                         delta = chunk.choices[0].delta
 
                         # Process content chunks
