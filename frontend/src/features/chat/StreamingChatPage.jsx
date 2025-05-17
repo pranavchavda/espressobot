@@ -175,15 +175,20 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle completion
             if (data.done) {
+              // Store content before setting streamingMessage to null
+              const finalContent = streamingMessage?.content || "";
+              
               // Move streaming message to regular messages
               setMessages(prev => [
                 ...prev, 
                 { 
                   role: "assistant", 
-                  content: streamingMessage.content, 
+                  content: finalContent, 
                   timestamp: new Date().toISOString(),
                 }
               ]);
+              
+              // Only set streaming message to null after preserving content
               setStreamingMessage(null);
               break;
             }
