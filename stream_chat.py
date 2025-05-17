@@ -1,6 +1,6 @@
-
 import os
 import asyncio
+import json
 from flask import Flask, request, Response, stream_with_context, jsonify
 from simple_agent import run_simple_agent
 from database import get_db
@@ -11,7 +11,7 @@ def create_stream_blueprint(app):
         data = request.json
         conv_id = data.get('conv_id')
         message = data.get('message', '')
-        
+
         # Insert user message into database
         db = get_db()
         if not conv_id:
@@ -19,7 +19,7 @@ def create_stream_blueprint(app):
             cur = db.execute('INSERT INTO conversations DEFAULT VALUES')
             conv_id = cur.lastrowid
             db.commit()
-            
+
             # Generate a title for the new conversation
             try:
                 from simple_agent import client as openai_client
@@ -33,24 +33,24 @@ def create_stream_blueprint(app):
                 title = title_resp.choices[0].message.content.strip()
             except Exception:
                 title = f"Conversation {conv_id}"
-            
+
             db.execute('UPDATE conversations SET title = ? WHERE id = ?', (title, conv_id))
             db.commit()
-        
+
         # Insert user message
         db.execute(
             'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
             (conv_id, 'user', message)
         )
         db.commit()
-        
+
         # Prepare history for the agent
         rows = db.execute(
             'SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id',
             (conv_id,)
         ).fetchall()
         history = [{'role': r['role'], 'content': r['content']} for r in rows]
-        
+
         # Set up streaming response
         def generate():
             # Initial JSON data with conversation ID
@@ -61,18 +61,18 @@ def create_stream_blueprint(app):
             yield f"data: \"suggestions\": [],\n"
             yield f"data: \"tool_calls\": []\n"
             yield f"data: }}\n\n"
-            
+
             # Create async event loop for the agent
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             # Set up for incremental streaming
             full_response = ""
             try:
                 # Run agent in async mode
                 async def process_agent():
                     nonlocal full_response
-                    
+
                     # Run the agent with streaming=True
                     async for chunk in run_simple_agent(message, history, streaming=True):
                         if chunk.get('type') == 'content':
@@ -92,10 +92,10 @@ def create_stream_blueprint(app):
                             yield f"data: {{\n"
                             yield f"data: \"suggestions\": {json.dumps(chunk.get('suggestions', []))}\n"
                             yield f"data: }}\n\n"
-                
+
                 # Process the agent and yield chunks
-                yield from loop.run_until_complete(process_agent())
-                
+                await process_agent()
+
                 # Store the final response in the database
                 if full_response:
                     db.execute(
@@ -103,25 +103,25 @@ def create_stream_blueprint(app):
                         (conv_id, 'assistant', full_response)
                     )
                     db.commit()
-                
+
                 # Send completion message
                 yield f"data: {{\n"
                 yield f"data: \"done\": true\n"
                 yield f"data: }}\n\n"
-                
+
             except Exception as e:
                 import traceback
                 error_traceback = traceback.format_exc()
                 print(f"ERROR in /stream_chat route: {str(e)}")
                 print(error_traceback)
-                
+
                 # Send error message
                 yield f"data: {{\n"
                 yield f"data: \"error\": {json.dumps(str(e))}\n"
                 yield f"data: }}\n\n"
             finally:
                 loop.close()
-        
+
         return Response(
             stream_with_context(generate()),
             mimetype='text/event-stream',
@@ -130,5 +130,5 @@ def create_stream_blueprint(app):
                 'X-Accel-Buffering': 'no'
             }
         )
-    
+
     return app
