@@ -8,8 +8,6 @@ import pytz
 import openai
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, List, Optional
-import certifi # Import certifi module
 import re # Import re for URL validation
 import traceback # Import traceback for error handling
 
@@ -248,7 +246,6 @@ async def fetch_url_with_curl(url: str):
     if re.search(r'(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)', url):
         return {"error": "Local and internal network addresses are not allowed."}
     try:
-        import subprocess
         proc = await asyncio.create_subprocess_exec(
             'curl', '-L', '--max-time', '8', '--silent', '--show-error', '--user-agent', 'ShopifyAgent/1.0', url,
             stdout=asyncio.subprocess.PIPE,
@@ -491,7 +488,6 @@ async def run_simple_agent(prompt, history=[], streaming=False):
     # Initialize variables
     step_count = 0
     steps = []
-    import json  # Ensure json is available in this scope
 
     if history is None:
         history = []
@@ -743,7 +739,7 @@ END OF SYSTEM PROMPT
                                         'type': 'tool_result',
                                         'name': fn_name,
                                         'result': json.dumps(tool_result)
-                                    })
+                                    }
 
                                     # Add tool result to messages
                                     formatted_messages.append({
@@ -851,17 +847,21 @@ END OF SYSTEM PROMPT
 
     # Return final result (not streamed)
     if not streaming:
-        return {
+        final_result = {
             'content': final_response,
             'steps': steps
         }
-
+        yield {
+            'type': 'content',
+            'result': json.dumps(final_result)
+        }
 # Example function to execute Python code
 async def execute_code(code):
     """Executes Python code and returns the output."""
     try:
         # Redirect stdout and stderr to capture output
-        import io, sys
+        import io
+        import sys
         old_stdout = sys.stdout
         old_stderr = sys.stderr
         sys.stdout = io.StringIO()
