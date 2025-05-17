@@ -1,4 +1,3 @@
-"""Fixes a syntax error in the simple_agent.py file by properly associating the except block with a try block."""
 """
 This commit modifies the agent to support streaming responses from OpenAI and includes logic for handling tool calls and suggestions in streaming mode.
 """
