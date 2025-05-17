@@ -252,7 +252,7 @@ function ChatPage({ convId, refreshConversations }) {
               }
             }}
             placeholder="Type a message..."
-            className="flex-1 min-h-[44px] max-h-36 resize-y leading-tight py-2.5" // Adjusted padding & max-height
+            className="flex-1 min-h-[60px] max-h-36 resize-y leading-tight py-2.5" // Adjusted padding & max-height
             rows={1}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) {

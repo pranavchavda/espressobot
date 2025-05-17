@@ -1,37 +1,105 @@
 // App: Root of the SPA, sets up layout and routing
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SidebarLayout } from '@common/sidebar-layout';
 import { Button } from '@common/button';
 import ChatPage from './features/chat/ChatPage';
+import LoginPage from './features/auth/LoginPage'; // Import LoginPage
 import { Routes, Route } from 'react-router-dom';
 
-import { useEffect } from 'react';
+// const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
 function App() {
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Use 'loading' as per previous code
 
-  // Fetch conversations from Flask API
+  // Authentication state (frontend-only) - KEPT
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false); // No initial async auth check - KEPT
+  const [authError, setAuthError] = useState(null); // KEPT
+
+  // Fetch conversations from Flask API - REVERTED to previous structure
   const fetchConversations = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/conversations');
+      // Assuming '/conversations' will be proxied by Vite or is same-origin
+      const res = await fetch('/conversations'); 
       const data = await res.json();
-      setConversations(data);
-      if (!selectedChat && data.length > 0) setSelectedChat(data[0].id);
+      setConversations(data); // Assumes data is the array of conversations
+      // The previous code had 'data.conversations'. If Flask sends {conversations: []}, this should be data.conversations
+      // For now, sticking to 'data' as per user-provided previous code.
+      // Consider changing to setConversations(data.conversations || []) if Flask sends an object.
+      const currentConversations = data.conversations || [];
+      if (!selectedChat && currentConversations.length > 0) {
+        setSelectedChat(currentConversations[0].id);
+      }
     } catch (e) {
+      console.error('Failed to fetch conversations (reverted):', e);
       setConversations([]);
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { fetchConversations(); }, []);
 
+  // Call fetchConversations when component mounts or isAuthenticated changes - MODIFIED TO INCLUDE AUTH CHECK
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchConversations();
+    }
+  }, [isAuthenticated]); // Fetch when isAuthenticated becomes true
+
+  // handleLogin - KEPT
+  const handleLogin = (password) => {
+    setAuthLoading(true);
+    setAuthError(null);
+    const appPassword = import.meta.env.VITE_APP_PASSWORD;
+    if (!appPassword) {
+      console.error('VITE_APP_PASSWORD is not set in the environment.');
+      setAuthError('Application password configuration error.');
+      setIsAuthenticated(false);
+      setAuthLoading(false);
+      return;
+    }
+    if (password === appPassword) {
+      setIsAuthenticated(true);
+      setSelectedChat(null); 
+    } else {
+      setAuthError('Incorrect password.');
+      setIsAuthenticated(false);
+    }
+    setAuthLoading(false);
+  };
+
+  // handleLogout - KEPT
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setSelectedChat(null);
+    setConversations([]);
+    setAuthError(null);
+  };
+
+  // Conditional rendering based on authentication state - KEPT
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-zinc-100 dark:bg-zinc-900">
+        <div className="text-xl text-zinc-700 dark:text-zinc-300">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={handleLogin} error={authError} loading={authLoading} />;
+  }
+
+  // User is authenticated, render the main app - REVERTED TO PREVIOUS JSX STRUCTURE
   return (
     <SidebarLayout
       className=""
-      navbar={<div className="font-semibold text-lg px-4 py-2">Chat App</div>}
+      navbar={<div className="flex justify-between items-center w-full">
+          <div className="font-semibold text-lg px-4 py-2">Chat App</div>
+          {/* Added Logout button to the reverted navbar structure */} 
+          <Button onClick={handleLogout} variant="ghost" className="mr-2 px-3 py-1 text-sm">Logout</Button>
+        </div>}
       sidebar={
         <div className="flex flex-col h-full">
           <Button className="mb-4 mx-2" onClick={() => setSelectedChat(null)}>+ New Chat</Button>
@@ -52,7 +120,7 @@ function App() {
                     </button>
                   </li>
                 ))}
-                {conversations.length === 0 && (
+                {conversations.length === 0 && !loading && (
                   <li className="text-zinc-400 px-4 py-2">No conversations</li>
                 )}
               </ul>
@@ -67,6 +135,5 @@ function App() {
     </SidebarLayout>
   );
 }
-
 
 export default App;

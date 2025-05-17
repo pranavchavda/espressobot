@@ -38,6 +38,8 @@ load_dotenv()
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'devsecret')  # Needed for session
+
+
 app.teardown_appcontext(close_db)
 with app.app_context():
     init_db()
@@ -59,6 +61,7 @@ def home():
         return render_template('password.html', error=None)
     # Render the main chat interface
     return render_template('index.html')
+
 @app.route('/responses', methods=['GET', 'POST'])
 def responses_ui():
     if 'authenticated' not in session:
@@ -78,10 +81,12 @@ def responses_ui():
     html = html.replace("fetch('/chat'", "fetch('/chat_responses'")
     return html
 
+
 @app.route('/chat', methods=['POST'])
 def chat():
     # Get the message and conversation history from the request
     data = request.json
+
     conv_id = data.get('conv_id')
     db = get_db()
     if not conv_id:
@@ -199,6 +204,7 @@ def chat():
 @app.route('/chat_responses', methods=['POST'])
 def chat_responses():
     data = request.json
+
     conv_id = data.get('conv_id')
     db = get_db()
     if not conv_id:
