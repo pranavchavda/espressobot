@@ -25,6 +25,17 @@ export default defineConfig({
     historyApiFallback: true, // SPA fallback for React Router
     port: 5173,
     open: true,
+    host: '0.0.0.0',
+    allowedHosts: [
+      'localhost',
+      '*.replit.dev',
+      '*.replit.app',
+      '*.repl.co'
+    ],
+    proxy: {
+      '/chat': 'http://localhost:5000',
+      '/conversations': 'http://localhost:5000',
+    },
   },
   resolve: {
     alias: {

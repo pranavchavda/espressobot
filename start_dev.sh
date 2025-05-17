@@ -5,6 +5,9 @@ echo "Starting Python backend..."
 python3 app.py &
 PYTHON_PID=$!
 echo "Python backend started with PID: $PYTHON_PID"
+# Wait for the backend to fully initialize
+echo "Waiting for backend to initialize..."
+sleep 3
 
 # Navigate to the frontend directory
 cd frontend/
