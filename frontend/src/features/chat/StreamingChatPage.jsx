@@ -175,23 +175,37 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle completion
             if (data.done) {
-              // Store content before setting streamingMessage to null
+              // First, capture the final content
               const finalContent = streamingMessage?.content || "";
+              const timestamp = new Date().toISOString();
               
-              // Move streaming message to regular messages
+              // Add to messages array first, with a unique ID to ensure it's stable
+              const messageId = `msg-${Date.now()}`;
               setMessages(prev => [
                 ...prev, 
                 { 
+                  id: messageId,
                   role: "assistant", 
                   content: finalContent, 
-                  timestamp: new Date().toISOString(),
+                  timestamp: timestamp,
                 }
               ]);
               
-              // Use setTimeout to ensure state updates are processed before clearing
+              // Ensure the new message is in the state before clearing streaming
+              // Use a longer timeout and only clear if content matches
               setTimeout(() => {
-                setStreamingMessage(null);
-              }, 100);
+                setMessages(prevMsgs => {
+                  // Verify the message was actually added before clearing streaming
+                  const messageExists = prevMsgs.some(msg => 
+                    msg.id === messageId && msg.content === finalContent);
+                  
+                  if (messageExists) {
+                    // Only now clear the streaming message
+                    setStreamingMessage(null);
+                  }
+                  return prevMsgs;
+                });
+              }, 250);
               
               break;
             }
