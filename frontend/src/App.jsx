@@ -5,6 +5,7 @@ import { Button } from "@common/button";
 import StreamingChatPage from "./features/chat/StreamingChatPage";
 import LoginPage from "./features/auth/LoginPage"; // Import LoginPage
 import { Routes, Route } from "react-router-dom";
+import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -47,6 +48,38 @@ function App() {
       fetchConversations();
     }
   }, [isAuthenticated]); // Fetch when isAuthenticated becomes true
+
+  // Function to handle deleting a conversation
+  const handleDeleteConversation = async (convIdToDelete) => {
+    if (!convIdToDelete) return;
+
+    // Optional: Add a confirmation dialog here
+    // if (!window.confirm("Are you sure you want to delete this conversation?")) {
+    //   return;
+    // }
+
+    try {
+      const response = await fetch(`/conversations/${convIdToDelete}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Refresh the conversations list
+        fetchConversations(); 
+        // If the deleted chat was the selected one, clear selection
+        if (selectedChat === convIdToDelete) {
+          setSelectedChat(null);
+        }
+      } else {
+        console.error("Failed to delete conversation:", response.statusText);
+        // Optionally, show an error message to the user
+        alert("Error deleting conversation. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error during delete request:", error);
+      alert("An error occurred while trying to delete the conversation.");
+    }
+  };
 
   // handleLogin - KEPT
   const handleLogin = (password) => {
@@ -124,7 +157,7 @@ function App() {
             ) : (
               <ul className="flex flex-col gap-1">
                 {conversations.map((chat) => (
-                  <li key={chat.id}>
+                  <li key={chat.id} className="group relative pr-4"> {/* Added relative and pr for button positioning */}
                     <button
                       className={`w-full text-left px-4 py-3 rounded-lg transition-colors
                         ${selectedChat === chat.id ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
@@ -137,6 +170,18 @@ function App() {
                           : ""}
                       </div>
                     </button>
+                    <Button
+                      variant="ghost"
+                      size="iconSm" // Assuming a small icon button size, adjust if needed
+                      className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent chat selection when clicking delete
+                        handleDeleteConversation(chat.id);
+                      }}
+                      aria-label="Delete conversation"
+                    >
+                      <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
+                    </Button>
                   </li>
                 ))}
                 {conversations.length === 0 && !loading && (

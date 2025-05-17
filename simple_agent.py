@@ -21,7 +21,9 @@ from mcp_server import mcp_server
 MCP_AVAILABLE = True
 
 # Configure OpenAI client
-client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+# client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+# Use AsyncOpenAI for async operations
+client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 # Function to execute GraphQL queries
 async def execute_shopify_query(query, variables=None):
@@ -684,7 +686,7 @@ END OF SYSTEM PROMPT
             try:
                 if streaming:
                     # Streaming mode
-                    response = client.chat.completions.create(
+                    response = await client.chat.completions.create(
                         model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
                         messages=formatted_messages,
                         tools=TOOLS,
@@ -698,8 +700,8 @@ END OF SYSTEM PROMPT
                     tool_calls_buffer = []
                     steps = []
 
-                    # For OpenAI SDK v1.x, we need to iterate over the stream with regular for loop
-                    for chunk in response:
+                    # For OpenAI SDK v1.x, we need to iterate over the async stream with async for
+                    async for chunk in response:
                         delta = chunk.choices[0].delta
 
                         # Process content chunks
@@ -912,6 +914,127 @@ END OF SYSTEM PROMPT
             'type': 'content',
             'result': json.dumps(final_result)
         }
+    else:
+        # For streaming, after all content chunks are sent, send suggestions
+        suggestions_list = []
+        if final_response and not final_response.startswith("I encountered an error"):
+            try:
+                # Ensure client is passed to _generate_suggestions_async
+                suggestions_list = await _generate_suggestions_async(formatted_messages, client)
+            except Exception as e:
+                print(f"Error generating suggestions in streaming mode: {e}")
+        
+        yield {
+            'type': 'suggestions',
+            'suggestions': suggestions_list
+        }
+
+        # Signal end of all data for this request
+        yield {
+            'type': 'stream_end'
+        }
+from typing import List, Dict
+
+async def _generate_suggestions_async(conversation_history: List[Dict[str, str]], openai_client: openai.AsyncOpenAI):
+    """
+    Generates 3 brief follow-up suggestions based on the conversation history.
+    The conversation_history should include the AI's last message.
+    """
+    suggestions = []
+    if not conversation_history:
+        print("No conversation history, skipping suggestions.")
+        return []
+
+    ai_last_message_content = ""
+    # Try to find the last assistant message in the history
+    for i in range(len(conversation_history) - 1, -1, -1):
+        if conversation_history[i]["role"] == "assistant":
+            ai_last_message_content = conversation_history[i]["content"]
+            break
+    
+    if not ai_last_message_content:
+        print("No assistant message found in history, skipping suggestions.")
+        return []
+
+    suggestion_prompt_system = (
+        "You are a helpful assistant that generates 3 brief follow-up suggestions "
+        "based on the conversation context. Keep suggestions short (2-5 words) and relevant. "
+        "The Suggestions should be from the user's perspective as a reply to the AI's message. "
+        "Particularly, if the AI asks a Yes/No question, make sure a direct response is included. "
+        "If a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."
+    )
+    
+    user_context_for_suggestions = f"The AI just said: \"{ai_last_message_content}\". Based on this, what could the user say next? Provide 3 distinct suggestions."
+
+    suggestion_prompt_messages = [
+        {"role": "system", "content": suggestion_prompt_system},
+        {"role": "user", "content": user_context_for_suggestions}
+    ]
+
+    try:
+        print(f"Generating suggestions based on AI's last message: {ai_last_message_content[:100]}...")
+        suggestion_response = await openai_client.chat.completions.create(
+            model=os.environ.get("DEFAULT_MODEL", "gpt-4.1-nano"), 
+            messages=suggestion_prompt_messages,
+            tools=[{
+                "type": "function",
+                "function": {
+                    "name": "provide_suggestions",
+                    "description": "Provides a list of follow-up suggestions.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "Suggestions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of 3 short (2-5 words) follow-up suggestions. Each suggestion should be a complete phrase a user might say."
+                            }
+                        },
+                        "required": ["Suggestions"]
+                    }
+                }
+            }],
+            tool_choice={"type": "function", "function": {"name": "provide_suggestions"}},
+            temperature=0.7,
+        )
+
+        if (hasattr(suggestion_response, 'choices') and 
+            suggestion_response.choices and 
+            hasattr(suggestion_response.choices[0], 'message') and
+            hasattr(suggestion_response.choices[0].message, 'tool_calls') and
+            suggestion_response.choices[0].message.tool_calls):
+            
+            tool_call = suggestion_response.choices[0].message.tool_calls[0]
+            if tool_call.function.name == "provide_suggestions":
+                arguments = json.loads(tool_call.function.arguments)
+                suggestions = arguments.get('Suggestions', [])
+                suggestions = [str(s) for s in suggestions[:3]] 
+                print(f"Generated suggestions: {suggestions}")
+        else:
+            print("No valid tool_calls for suggestions found in OpenAI response.")
+            if suggestion_response.choices and suggestion_response.choices[0].message and suggestion_response.choices[0].message.content:
+                # Fallback attempt if model just returns content (less ideal)
+                content = suggestion_response.choices[0].message.content
+                print(f"Suggestion fallback content: {content}")
+                # Basic parsing, assuming simple list or newline separated - could be improved
+                try:
+                    parsed_suggestions = json.loads(content)
+                    if isinstance(parsed_suggestions, list):
+                        suggestions = [str(s) for s in parsed_suggestions[:3]]
+                    elif isinstance(parsed_suggestions, dict) and "Suggestions" in parsed_suggestions:
+                        suggestions = [str(s) for s in parsed_suggestions.get("Suggestions", [])[:3]]
+                except json.JSONDecodeError:
+                    # If it's just text, try splitting by newlines, but this is often messy
+                    raw_suggestions = content.split('\n')
+                    suggestions = [s.strip() for s in raw_suggestions if s.strip() and len(s.strip()) > 1 and len(s.strip()) < 30][:3]
+                    print(f"Parsed suggestions from raw text: {suggestions}")
+
+    except Exception as e:
+        print(f"Error generating suggestions with OpenAI: {str(e)}")
+        traceback.print_exc()
+
+    return suggestions
+
 # Example function to execute Python code
 async def execute_code(code):
     """Executes Python code and returns the output."""
