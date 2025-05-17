@@ -1,11 +1,11 @@
 import clsx from 'clsx'
 import { Link } from './link'
 
-export function Text({ className, ...props }) {
+export function Text({ as: Component = 'p', className, ...props }) {
   return (
-    <p
+    <Component
       data-slot="text"
-      {...props}
+      {...props} // props includes children
       className={clsx(className, 'text-base/6 text-zinc-500 sm:text-sm/6 dark:text-zinc-400')}
     />
   )

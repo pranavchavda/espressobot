@@ -1,8 +1,6 @@
-## ☕ iDrinkCoffee.com Product Listing Guide for AI
+## ☕ iDrinkCoffee.com Product Listing Guide
 
 **Goal:** Create compelling, accurate product listings for iDrinkCoffee.com that match our brand and improve SEO.
-
-
 
 **Remember to:**
 
@@ -157,6 +155,21 @@ Tags are crucial for filtering and internal search. Use **both** standard and sp
 - Match tags to the product's features and functions.
 - Use `manual-drip` or `dual-purpose-grinder` when appropriate.
 
+## 3.4 The full list of tags:
+
+### General Tags
+consumer, commercial, WAR-ACC, WAR-CON, WAR-COM, WAR-SG, WAR-VIM, VIM
+
+### Category/Collection Tags
+NC_300ml, NC_Accessories5, NC_Appliances, NC_AutomaticDrip, NC_BaristaTools, NC_Baristatools, NC_BeanStorage, NC_Black, NC_BlackCoffee, NC_BlackTea, NC_Books, NC_BrandedCups, NC_Brandedcups, NC_BrewGrinders, NC_Brewgrinders, NC_BurrSets, NC_CaffeLatte, NC_CaféSyrups, NC_Cleaning, NC_Coffee, NC_CoffeeMakers, NC_CoffeeRoasters, NC_CoffeeandTea, NC_CofffeeandTea, NC_ColdBrew, NC_Decaffe, NC_Decaffeinated, NC_DecaffeinatedCoffee, NC_Descaling, NC_Distributors, NC_DosingCups, NC_DosingFunnels, NC_DoubleWalledGlassCups, NC_Drinkware, NC_DripCoffeeGrinders, NC_DualBoiler, NC_DualPurposeGrinders, NC_Dualpurposegrinders, NC_ElectricMilkFrothers, NC_EspressoCoffee, NC_EspressoGrinders, NC_EspressoMachines2, NC_EspressoMachines-DualBoiler, NC_EspressoMachinesUpgrades, NC_Espressogrinders, NC_FilterBaskets, NC_FilterBrewing, NC_Filters, NC_Flavoured, NC_FlowControl, NC_FrenchPress, NC_FreshCoffee, NC_FrothingPitchers, NC_FrozenBeverageDispensers, NC_Fruit, NC_Green, NC_GreenCoffee, NC_GreenTea, NC_Grinders6, NC_GroupGaskets, NC_Handgrinders, NC_HeatExchanger, NC_Heatexchanger, NC_Herbal, NC_HerbalTea, NC_Hoppers, NC_Kettles, NC_KnockBoxes, NC_LapelPins, NC_LatteArt, NC_Lever, NC_Maintainance, NC_Maintenance, NC_Manual, NC_ManualBrewing, NC_ManualDripOrPourOver, NC_ManualDriporpourover, NC_MilkAlternatives, NC_MilkContainers, NC_MokaPot, NC_Oolong, NC_Organic, NC_Other, NC_OtherGlassware, NC_PIDControllers, NC_Parts, NC_PorcelainCups, NC_PorcelainSaucers, NC_Portafilters, NC_PourOverDrippers, NC_PuEhr, NC_Rooibos, NC_Scales, NC_ServersandCarafes, NC_Shottimers, NC_ShowerScreens, NC_SingleBoiler, NC_Singleboiler, NC_SugarFreeSyrups, NC_SuperAutomatic, NC_Superautomatic, NC_Syrups, NC_Tamper, NC_TamperStands, NC_Tampers, NC_TampingStands, NC_Tea, NC_TeaKettles, NC_TeaPots, NC_Thermometers, NC_Travel, NC_TravelMug, NC_Upgrades, NC_Vacuum, NC_WaterTreatment, NC_White, NC_WoodUpgrade
+
+### Other Tags
+automatic-drip, automatic-tamper, bottomless-portafilter, bottomless-portafilters, burr-grinder, burrs, coffee maker, coffee makers, coffee tamper, coffee-aficionado, coffee-brewer, coffee-maker, coffee-makers, coffee-roaster, coffee-sensor, consolation15, consumable, double-boiler, drip-grinder, dripper, dual-purpose-grinder, electric-milk, electric-tamper, espress-machines, espresso-bean, espresso-grinder, green-coffee, grinder2, grinders, hand-grinder, heat-exchange, hemrousdiscount, herbal-tisanes, heycafe, hot-water-tower, icon- Stepless-Adjustment, icon-58mm-Portafilter2, icon-Analog-Controls, icon-Bypass-Doser, icon-Cappucinatore, icon-Conical-Burrs, icon-Digital-Controls, icon-Doserless, icon-Double-Boiler, icon-E61-Group-Head, icon-Flat-Burrs, icon-Heat-Exchanger, icon-One-Touch-Cappuccino, icon-PID, icon-Plumbed-In, icon-Programmable, icon-Rotary-Pump, icon-Shot-Timer, icon-Single-Boiler, icon-Sirai, icon-Steam-Wand, icon-Stepless-Adjustment, icon-Stepped-Adjustment, icon-Super-Automatic, icon-Thermoblock, icon-Vibration-Pump, icon-Water-Tank5, manual, manual-drip, manual-grinder, milk, non-dairy, server-filter, sugarfree, sugarfree_yes, super-automatic, superautomatic, superautomaticmachine, syrup, t-shirt, tags, tamper, tamper-handle, tamper-stand, tamping-stand, tea, tea-brewer, tea-kettle, tea-pot, teacup
+
+### Roasted Coffee Tag Format
+ELEVATION-*, HARVESTING-*, VARIETAL-*, ACIDITY-*, REGION-*, PROCESSING-*, NOTES-*, BLEND-*, ROAST-*, BREW-*, origin-*
+For Notes, use # in lieu of commas. the #s will be rendered as commas. The notes are formatted this way so that they don't add as multiple tags on Shopify.
+
 ## 4. Coffee Product Listings (Escarpment Coffee Roasters)
 
 - **Vendor:** `Escarpment Coffee Roasters`
@@ -164,22 +177,7 @@ Tags are crucial for filtering and internal search. Use **both** standard and sp
 - **Skip Buy Box and FAQs** (unless specifically requested).
 
 ## 4.1 Required Tag Format:
-
-Use these key-value style tags:
-
-```
-ELEVATION-3300 feet
-HARVESTING-Hand-Picking
-VARIETAL-Bourbon
-ACIDITY-Very Low
-REGION-Tanzania
-PROCESSING-Washed
-NOTES-Balanced# Light Acidity# Winey Taste
-BLEND-Single Origin
-ROAST-Medium
-BREW-Filter
-origin-tanzania
-```
+   See the Roasted Coffee Tag Format section for the required tag format.
 
 ## 4.2 Metafield:
 
@@ -188,7 +186,7 @@ origin-tanzania
 - **Type:** `boolean`
 - **Value:** `true` if seasonal; `false` if a standard offering.
 
-## 5. Shopify Product Creation Rules
+## 5. Important Shopify Product Creation Rules
 
 - **Status:** Always set to `DRAFT`.
 - **Required Fields:** `title`, `body_html`, `vendor`, `product_type`, `tags`, `variants.price`, `variants.sku`
@@ -196,14 +194,163 @@ origin-tanzania
 
 ## 6. Important Reminders
 
-- **Cost of Goods (COGS):** Include the product cost for COGS calculations (when available).
+- **Cost of Goods (COGS):** Include the product cost for COGS calculations (if not provided, ask the user before creating the product).
 - **Inventory Tracking:** Enable inventory tracking and set to "deny" for "Continue Selling" when out of stock.
-- **Product Status:** Always set the product status to `DRAFT` unless instructed otherwise.
 - **Inventory Weight:** Set the inventory weight to the weight of the product in grams for Shopify.
 
 ## 7. Exceptions
 
 - For accessories, coffee and cleaning products, you can skip the Buy Box, FAQs, Tech Specs, and Features sections. Focus on a detailed overview (`body_html`).
+
+---
+
+## Anatomy of a Product (iDrinkCoffee)
+
+A product in the iDrinkCoffee system is a Shopify product entity that is extensively enriched with custom metafields, tags, and references. These augmentations support advanced merchandising, dynamic UI, and business-specific workflows. The following describes the key fields and, in particular, the custom metafields that are central to iDrinkCoffee’s product model.
+
+### Core Shopify Fields
+
+- **id**: Unique identifier for the product.
+- **title**: Product name.
+- **handle**: URL slug for the product.
+- **productType**: Shopify product type/category.
+- **vendor**: Brand or manufacturer.
+- **descriptionHtml / description**: Product description (HTML and plain text).
+- **seo**: SEO metadata (`title`, `description`).
+- **media**: Array of images and videos, each with URLs, alt text, and dimensions.
+- **variants & options**: Standard Shopify variant structure.
+
+### iDrinkCoffee-Specific Metafields
+
+These metafields extend the product data model. Each metafield is defined by a `key` and `namespace`, and its structure is described below.
+
+#### 1. **Breadcrumbs**
+- Key/Namespace: `breadcrumb_reference` in `custom`
+- **Type:** Reference to Shopify Collections
+- Schema: `references`: Array of up to 10 collections; Each: `{ id, title, handle }`
+- **Purpose:** Used for generating navigation breadcrumbs.
+
+#### 2. **Sizes**
+- Key/Namespace: `Weight`, `Height`, `Width`, `Depth` in `size`
+- **Type:** Simple value metafields
+- Schema: Each `{ key, value }` (e.g., `{ key: "Weight", value: "10kg" }`)
+- **Purpose:** Specifies product dimensions for specs and shipping.
+
+#### 3. **Rich Snippets HTML**
+- Key/Namespace: `richsnippetshtml` in `yotpo`
+- **Type:** String (HTML)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Stores SEO-optimized HTML for structured data (reviews, ratings, etc).
+
+#### 4. **Variant Tooltips**
+- Key/Namespace:
+  - `variant_tooltip` in `custom` (single string)
+  - `variantTooltips` in `custom` (JSON)
+- **Type:** String or JSON
+- Schema: `{ key, namespace, value }`. JSON maps option values to tooltip text.
+- **Purpose:** Tooltip/help text for product options or variants.
+
+#### 5. **Reviews Count**
+- Key/Namespace: `reviews_count` in `yotpo`
+- **Type:** Integer (as string)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Number of product reviews.
+
+#### 6. **Features**
+- Key/Namespace:
+  - `featruresjson` in `content` (typo)
+  - `featuresjson` in `content`
+- **Type:** JSON (stringified)
+- Schema: `{ key, namespace, value }` where `value` is a JSON string, e.g. `[{"title": "Feature 1", "description": "Desc", "icon": "url"}]`
+- **Purpose:** List of product features, shown in feature boxes.
+
+#### 7. **Buy Box Content**
+- Key/Namespace: `content` in `buybox`
+- **Type:** String (HTML or Markdown)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Custom content for the buy box area.
+
+#### 8. **FAQs**
+- Key/Namespace: `content` in `faq`
+- **Type:** String (HTML, Markdown, or JSON)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Frequently asked questions for the product.
+
+#### 9. **Video**
+- Key/Namespace:
+  - `Video` in `littlerocket`
+  - `video` in `littlerocket`
+- **Type:** String (URL or embed code)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Product video(s).
+
+#### 10. **Included Items**
+- Key/Namespace: `included` in `littlerocket`
+- **Type:** String (JSON or delimited list)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Lists accessories/items included with the product.
+
+#### 11. **Specs**
+- Key/Namespace: `techjson` in `specs`
+- **Type:** JSON (stringified)
+- Schema: `{ key, namespace, value }` where `value` is a JSON string of technical specs.
+- **Purpose:** Technical specifications.
+
+#### 12. **Sale End**
+- Key/Namespace: `ShappifySaleEndDate` in `inventory`
+- **Type:** String (ISO date)
+- Schema: `{ key, namespace, value }`
+- **Purpose:** End date for a sale or promotion.
+
+#### 13. **Seasonality**
+- Key/Namespace: `seasonality` in `coffee`
+- **Type:** String (e.g., "seasonal")
+- Schema: `{ key, namespace, value }`
+- **Purpose:** Indicates if the product is seasonal.
+
+#### 14. **Downloads**
+- Key/Namespace: `downloads` in `custom`
+- **Type:** Reference (to files)
+- Schema: `{ key, namespace, value, type, references }`, `references`: Array of up to 20 files; Each: `{ id, url, previewImage: { url, height, width } }`
+- **Purpose:** Downloadable product files (manuals, guides).
+
+#### 15. **Features Box**
+- Key/Namespace: `features_box` in `content`
+- **Type:** Reference (to metaobjects)
+- Schema: `{ key, namespace, value, references }`, `references`: Array of metaobjects; Each: `{ id, fields: [ { key, value, type, reference } ] }`
+- **Purpose:** Rich feature highlights, often with images.
+
+#### 16. **Promo CTA**
+- Key/Namespace: `cta` in `promo`
+- **Type:** Reference (to metaobject)
+- Schema: `{ key, value, reference }`, `reference`: Metaobject with fields (images, text, links, etc.)
+- **Purpose:** Promotional call-to-action.
+
+#### 17. **Variant Links**
+- Key/Namespace: `varLinks` in `new`
+- **Type:** Reference (to products)
+- Schema: `{ key, namespace, value, references }`, `references`: Array of up to 30 products; Each: `{ id, title, handle, variantPreviewName (metafield), featuredImage, availableForSale }`
+- **Purpose:** Links to related/alternative products.
+
+#### 18. **Complementary Products**
+- Key/Namespace: `complementary_products` in `shopify--discovery--product_recommendation`
+- **Type:** Reference (to products)
+- Schema: `{ key, namespace, value, references }`, `references`: Array of up to 30 products; Each: `{ id, title, handle, featuredImage, availableForSale }`
+- **Purpose:** Products recommended as complements.
+
+### Tags
+
+Product tags are used for business logic, filtering, and UI presentation. Examples include:
+- Warranty tags (e.g., `WAR-SG`, `WAR-ACC`)
+- Seasonal or promotional tags
+- Feature-related tags
+
+
+### Summary
+
+The iDrinkCoffee product model is a Shopify product augmented with a rich set of metafields and tags. These enable advanced merchandising, dynamic UI, and deep integration with business processes. Agents should always check both core product fields and these custom metafields/tags to understand and manipulate product data accurately.
+
+---
 
 ## Notes:
 
@@ -349,15 +496,17 @@ mutation {
 **Steps**:
 
 Fetch the variant’s InventoryItem ID (each variant has one).
-Use inventoryItemUpdate (not productVariantsBulkUpdate or any product/variant mutation) to set cost.
+Use inventoryItemUpdate to set cost.
 Always input cost as a string (e.g., "54.99").
 Setting SKU and price is done via productVariantsBulkUpdate.
-Cost is not updatable via productVariantsBulkUpdate—ignore any docs/examples that try to do so.
-REST endpoints for cost are deprecated; always use GraphQL.
+Cost is updatable via productVariantsBulkUpdate only via InventoryItem. You can also use inventoryItemUpdate to update the cost of a variant.
+ALL SHOPIFY REST endpoints are deprecated; always use GraphQL.
 Best Practice:
-Always verify fields supported by your current Shopify Admin API version when automating product or inventory management. Refer to official Shopify GraphQL docs for the latest.
+Always verify fields supported by your current Shopify Admin API version when automating product or inventory management. Refer to official Shopify GraphQL docs via available tools/MCP.
 
 ALWAYS 
 - Use the correct mutation for the data you wish to update.
 - Always verify with the current API documentation if you have issues.
 - Use the Introspetion tool and perplexity ask tool for help, if you make mistakes, get help, don't guess, or ask the user to do it or suggest alternatives.
+
+---

@@ -209,11 +209,11 @@ async def ask_perplexity(messages):
         return {"error": str(e)}
 
 async def get_product_copy_guidelines():
-    """Read product_copy_guidelines.md and return its content (up to 4000 chars, with a 'truncated' flag)."""
+    """Read product_copy_guidelines.md and return its content."""
     try:
         with open("product_copy_guidelines.md", "r") as f:
             content = f.read()
-        return {"content": content[:4000], "truncated": len(content) > 4000}
+        return {"content": content, "truncated": False}
     except Exception as e:
         print(f"Error reading product copy guidelines: {e}")
         return {"error": str(e)}
@@ -579,6 +579,8 @@ RULES
      Also ask the user if they want to change the inventory policy of that product to DENY when something is taken out of preorder, when something is added to preorder, inventory policy should be set to ALLOW, without needing to ask the user.
    • Sale End Date: If asked to add a promotion or sale end date to any product, it can be added to the product's inventory.ShappifySaleEndDate metafiled (Namespace is inventory and key is ShappifySaleEndDate; it is single line text) Format example: 2023-08-04T03:00:00Z (For 3 AM on August 4, 2023) 
    • For US/USD price updates, use the pricelist ID: `gid://shopify/PriceList/18798805026`.
+   • Prices are always in CAD and don't need to use a separate price list, only use a price list when a currency is specified or a currency other than CAD is specified.
+   
    
    
 9. **COST HANDLING**  
@@ -610,7 +612,7 @@ FAIL-SAFES
 
 You have access to several tools:
 
-1. get_product_copy_guidelines - Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.
+1. get_product_copy_guidelines - Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown. Always pull this up when asked to create a product.
 2. fetch_url_with_curl - Fetch the raw content of a public HTTP/HTTPS URL using curl (for retrieving HTML, JSON, or plain text from the web).
 3. run_shopify_query - Execute GraphQL queries against the Shopify Admin API to fetch data.
 4. run_shopify_mutation - Execute GraphQL mutations against the Shopify Admin API to modify data.

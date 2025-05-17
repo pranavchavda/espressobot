@@ -1,56 +1,20 @@
 import React, { useRef, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeSanitize from 'rehype-sanitize';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import rehypeRaw from 'rehype-raw';
+// import rehypeSanitize from 'rehype-sanitize';
+
+import clsx from 'clsx';
 import { Button } from '../../components/common/button';
 import { Text, Code } from '../../components/common/text';
 
-function processContent(content) {
-  if (!content) return { processedContent: '' };
-  
-  const lines = content.split('\n');
-  const processedLines = [];
-  let inThinkingBlock = false;
-  
-  for (const line of lines) {
-    if (line.trim() === '<THINKING>') {
-      inThinkingBlock = true;
-    } else if (line.trim() === '</THINKING>') {
-      inThinkingBlock = false;
-    } else if (inThinkingBlock) {
-      // Skip empty lines after these blocks
-      if (line.trim() === '' && (
-        processedLines[processedLines.length - 1]?.startsWith(':::') ||
-        processedLines[processedLines.length - 1]?.trim() === ''
-      )) continue;
-      
-      processedLines.push(line);
-    } else {
-      processedLines.push(line);
-    }
-    
-    // Close the block if we hit an empty line after it
-    if (inThinkingBlock && line.trim() === '') {
-      inThinkingBlock = false;
-      processedLines.push(':::');
-    }
-  }
-  
-  return {
-    processedContent: processedLines.join('\n'),
-    hasSpecialBlocks: inThinkingBlock 
-  };
-}
-
-const CodeBlock = ({ language, children }) => {
+const SimpleCodeBlock = React.memo(({ language, children }) => {
   const codeRef = useRef(null);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    if (codeRef.current) {
-      navigator.clipboard.writeText(children);
+    if (codeRef.current && children) {
+      navigator.clipboard.writeText(String(children));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -58,7 +22,7 @@ const CodeBlock = ({ language, children }) => {
 
   return (
     <div ref={codeRef} className="relative my-5 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
-      <div className="flex justify-between items-center bg-zinc-100 dark:bg-zinc-800 px-4 py-2 text-xs text-zinc-800 dark:text-zinc-200">
+      <div className="flex justify-between items-center bg-zinc-200 dark:bg-zinc-800 px-4 py-2 text-xs text-zinc-800 dark:text-zinc-200">
         <span className="font-mono font-medium">{language}</span>
         <Button
          plain
@@ -72,45 +36,54 @@ const CodeBlock = ({ language, children }) => {
           {copied ? 'Copied!' : 'Copy'}
         </Button>
       </div>
-      <SyntaxHighlighter
-        style={oneDark}
-        language={language || 'text'}
-        customStyle={{
-          margin: 0,
-          padding: '1rem',
-          background: 'rgb(24 24 27)', // Tailwind zinc-900
-          borderRadius: 0,
-          fontSize: '0.875rem'
-        }}
-      >
+      <pre className="bg-zinc-800 text-zinc-200 p-1 rounded-b-lg overflow-x-auto text-sm font-mono whitespace-pre-wrap break-all">
         {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
+      </pre>
     </div>
   );
-};
+});
 
-export function MarkdownRenderer({ children, className = '' }) {
-  const { processedContent, hasSpecialBlocks } = useMemo(
-    () => processContent(children),
-    [children]
-  );
-
+export const MarkdownRenderer = React.memo(function MarkdownRenderer({ children: rawMarkdownContent, className = '' }) {
+  let processedMarkdown = rawMarkdownContent;
+  if (typeof rawMarkdownContent === 'string') {
+    processedMarkdown = rawMarkdownContent.replace(/<THINKING>/g, '<div class="mb-2 bg-zinc-200 dark:bg-zinc-800 p-2 rounded-lg shadow-sm"><span class="text-xs text-zinc-500 dark:text-zinc-400" data-custom-tag="thinking-block-start">thought:').replace(/<\/THINKING>/g, '</span></div>');
+  }
+  console.log('MarkdownRenderer processedMarkdown for ReactMarkdown:', processedMarkdown);
+  console.log('Type of processedMarkdown:', typeof processedMarkdown);
   const components = useMemo(() => ({
     // Headings
     h1: ({ node, children, ...props }) => (
-      <Text as="h1" className="text-2xl font-bold mt-6 mb-4 text-zinc-900 dark:text-zinc-100" {...props}>{children}</Text>
+      <Text as="h1" className="text-2xl font-bold mt-6 mb-4 text-zinc-900 dark:text-zinc-100" {...props}>
+        {children}
+      </Text>
     ),
     h2: ({ node, children, ...props }) => (
-      <Text as="h2" className="text-xl font-bold mt-5 mb-3 text-zinc-900 dark:text-zinc-100" {...props}>{children}</Text>
+      <Text as="h2" className="text-xl font-bold mt-5 mb-3 text-zinc-900 dark:text-zinc-100" {...props}>
+        {children}
+      </Text>
     ),
     h3: ({ node, children, ...props }) => (
-      <Text as="h3" className="text-lg font-bold mt-4 mb-2 text-zinc-900 dark:text-zinc-100" {...props}>{children}</Text>
+      <Text as="h3" className="text-lg font-bold mt-4 mb-2 text-zinc-900 dark:text-zinc-100" {...props}>
+        {children}
+      </Text>
     ),
     // Paragraphs
-    p: ({ node, children, ...props }) => (
-      <Text className="text-base leading-relaxed my-3 whitespace-pre-wrap text-zinc-800 dark:text-zinc-200" {...props}>{children}</Text>
-    ),
-    // Lists
+    p: ({ node, children, ...props }) => {
+      const pRendererClassName = "text-base leading-relaxed my-3 whitespace-pre-wrap text-zinc-800 dark:text-zinc-200";
+      // Base classes that were inside Text component for p tags
+      const textComponentBaseClassName = 'text-base/6 text-zinc-500 sm:text-sm/6 dark:text-zinc-400';
+      const combinedClassName = clsx(pRendererClassName, textComponentBaseClassName);
+      
+      // Directly render a <p> tag, bypassing the Text component for this case.
+      // {...props} are props from ReactMarkdown for the p element (like node, sourcePosition), 
+      // and 'children' is the content.
+      return (
+        <p {...props} className={combinedClassName}>
+          {children}
+        </p>
+      );
+    },
+    // Lists - renderWithThinkingBlocks is applied to <li> elements
     ul: ({ node, children, ...props }) => (
       <ul className="list-disc pl-6 my-4 space-y-2 text-zinc-800 dark:text-zinc-200" {...props}>{children}</ul>
     ),
@@ -118,7 +91,9 @@ export function MarkdownRenderer({ children, className = '' }) {
       <ol className="list-decimal pl-6 my-4 space-y-2 text-zinc-800 dark:text-zinc-200" {...props}>{children}</ol>
     ),
     li: ({ node, children, ...props }) => (
-      <li className="ml-2" {...props}>{children}</li>
+      <li className="ml-2" {...props}>
+        {children}
+      </li>
     ),
     // Blockquotes
     blockquote: ({ node, children, ...props }) => (
@@ -129,7 +104,7 @@ export function MarkdownRenderer({ children, className = '' }) {
         {children}
       </blockquote>
     ),
-    // Links
+    // Links - children of <a> are processed if they are text nodes.
     a: ({ node, children, ...props }) => (
       <a 
         className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
@@ -137,10 +112,12 @@ export function MarkdownRenderer({ children, className = '' }) {
         rel="noopener noreferrer"
         {...props}
       >
-        {children}
+        {children} 
       </a>
     ),
-    // Tables
+    // Tables - content within <th> and <td> will be handled by their own renderers if they were customized
+    // For now, assuming table cell content is primarily text or simple inline elements not needing deep <THINKING> recursion.
+    // If <THINKING> tags are expected within table cells, th and td renderers would also need renderWithThinkingBlocks.
     table: ({ node, children, ...props }) => (
       <div className="overflow-x-auto my-6">
         <table className="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700 border border-zinc-200 dark:border-zinc-700 rounded-lg" {...props}>{children}</table>
@@ -156,10 +133,14 @@ export function MarkdownRenderer({ children, className = '' }) {
       <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-800/70" {...props}>{children}</tr>
     ),
     th: ({ node, children, ...props }) => (
-      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider" {...props}>{children}</th>
+      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider" {...props}>
+        {children}
+      </th>
     ),
     td: ({ node, children, ...props }) => (
-      <td className="px-4 py-3 text-sm text-zinc-800 dark:text-zinc-200" {...props}>{children}</td>
+      <td className="px-4 py-3 text-sm text-zinc-800 dark:text-zinc-200" {...props}>
+        {children}
+      </td>
     ),
     // Code blocks and inline code
     code({ node, inline, className, children, ...props }) {
@@ -168,14 +149,15 @@ export function MarkdownRenderer({ children, className = '' }) {
       if (inline) {
         return (
           <Code className="bg-zinc-100 dark:bg-zinc-700 rounded px-1.5 py-0.5 text-sm font-mono">
-            {children}
+            {children} 
           </Code>
         );
       }
+      // For block code, use SimpleCodeBlock (which handles its children as a string)
       return (
-        <CodeBlock language={language}>
+        <SimpleCodeBlock language={language}>
           {String(children).replace(/\n$/, '')}
-        </CodeBlock>
+        </SimpleCodeBlock>
       );
     },
     // Images
@@ -196,34 +178,47 @@ export function MarkdownRenderer({ children, className = '' }) {
     ),
     // Strikethrough
     del: ({ node, children, ...props }) => (
-      <del className="line-through text-zinc-500 dark:text-zinc-400" {...props}>{children}</del>
+      <del className="line-through text-zinc-500 dark:text-zinc-400" {...props}>
+         {children}
+      </del>
     ),
     // Strong/emphasis
     strong: ({ node, children, ...props }) => (
-      <strong className="font-bold text-zinc-900 dark:text-zinc-100" {...props}>{children}</strong>
+      <strong className="font-bold text-zinc-900 dark:text-zinc-100" {...props}>
+        {children}
+      </strong>
     ),
     em: ({ node, children, ...props }) => (
-      <em className="italic text-zinc-800 dark:text-zinc-200" {...props}>{children}</em>
+      <em className="italic text-zinc-800 dark:text-zinc-200" {...props}>
+        {children}
+      </em>
     ),
     hr: ({ node, ...props }) => (
       <hr className="my-6 border-t border-zinc-200 dark:border-zinc-700" {...props} />
     ),
-    // Pre (wrapper for code blocks)
     pre({ node, children, ...props }) {
-      return <div className="my-2">{children}</div>;
+      // This 'pre' renderer handles <pre> tags that are not code blocks (e.g., not triple backticks).
+      // Children here might be a <code> element, handled by the code renderer, or plain text.
+      return (
+        <pre className="my-2 bg-zinc-100 dark:bg-zinc-800 p-2 rounded whitespace-pre-wrap" {...props}>
+          {children}
+        </pre>
+      );
     },
-  }), []);
+  // Add renderWithThinkingBlocks to dependency array if it were defined inside MarkdownRenderer,
+  // but since it's a top-level const, components only needs to re-memoize if its direct code changes.
+  // The current empty array [] means components is memoized once.
+  }), []); 
 
   return (
     <div className={`markdown-content ${className}`}>
       <ReactMarkdown
         components={components}
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
+        rehypePlugins={[rehypeRaw]}
       >
-        {processedContent}
+        {processedMarkdown}
       </ReactMarkdown>
     </div>
   );
-}
-
+});

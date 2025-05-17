@@ -2,17 +2,17 @@
 
 hidden = [".pythonlibs"]
 modules = ["python-3.12", "web", "nodejs-22"]
-run = "python app.py"
+run = "bash start_dev.sh"
 
 [nix]
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "python app.py"]
+run = ["sh", "-c", "bash start_preview.sh"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
-localPort = 5000
+localPort = 2000
 externalPort = 80
 exposeLocalhost = true
 
@@ -26,4 +26,4 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python app.py"
+args = "bash start_preview.sh"
