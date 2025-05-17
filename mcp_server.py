@@ -95,9 +95,27 @@ class ShopifyMCPServer:
             filter_types = ["all"]
         try:
             async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
-                return await server.call_tool(
+                raw_result = await server.call_tool(
                     "introspect_admin_schema", {"query": query, "filter": filter_types}
                 )
+                
+                # Convert CallToolResult to dictionary for proper JSON serialization
+                result = {
+                    "meta": getattr(raw_result, "meta", None),
+                    "content": [],
+                    "isError": getattr(raw_result, "isError", False)
+                }
+                
+                # Extract content items
+                if hasattr(raw_result, "content"):
+                    for content_item in raw_result.content:
+                        result["content"].append({
+                            "type": getattr(content_item, "type", None),
+                            "text": getattr(content_item, "text", None),
+                            "annotations": getattr(content_item, "annotations", None)
+                        })
+                
+                return result
         except Exception as e:
             print(f"Error in introspect_admin_schema: {e}")
             # Fallback response
@@ -115,9 +133,27 @@ class ShopifyMCPServer:
         """Search Shopify developer documentation using the MCP server"""
         try:
             async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
-                return await server.call_tool(
+                raw_result = await server.call_tool(
                     "search_dev_docs", {"prompt": prompt}
                 )
+                
+                # Convert CallToolResult to dictionary for proper JSON serialization
+                result = {
+                    "meta": getattr(raw_result, "meta", None),
+                    "content": [],
+                    "isError": getattr(raw_result, "isError", False)
+                }
+                
+                # Extract content items
+                if hasattr(raw_result, "content"):
+                    for content_item in raw_result.content:
+                        result["content"].append({
+                            "type": getattr(content_item, "type", None),
+                            "text": getattr(content_item, "text", None),
+                            "annotations": getattr(content_item, "annotations", None)
+                        })
+                
+                return result
         except Exception as e:
             print(f"Error in search_dev_docs: {e}")
             # Fallback response
