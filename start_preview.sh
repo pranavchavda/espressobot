@@ -15,7 +15,7 @@ echo "Setting up Node.js environment..."
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   source "$HOME/.nvm/nvm.sh"  # This loads nvm
   nvm use 22
-elif [ -s "$(brew --prefix nvm)/nvm.sh" ]; then # Check for Homebrew nvm on macOS
+elif command -v brew >/dev/null 2>&1 && [ -s "$(brew --prefix nvm)/nvm.sh" ]; then # Check for Homebrew nvm on macOS
     source "$(brew --prefix nvm)/nvm.sh"
     nvm use 22
 else
@@ -27,9 +27,9 @@ fi
 echo "Building frontend..."
 npm run build
 
-# Start frontend preview server on port 2000
-echo "Starting frontend preview server on port 2000..."
-npm run preview --port=2000
+# Start frontend preview server on port 5173
+echo "Starting frontend preview server on port 5173..."
+npm run preview --port=5173
 
 # Function to clean up background process on exit
 cleanup() {
@@ -41,6 +41,7 @@ cleanup() {
 # Trap EXIT signal to run cleanup function
 trap cleanup EXIT SIGINT SIGTERM
 
-# Wait for npm run dev to finish (which typically runs until manually stopped)
-# This 'wait' will keep the script alive. If npm dev exits, the script exits, triggering the trap.
-wait $!
+# Keep the script running without exiting
+while true; do
+  sleep 60
+done

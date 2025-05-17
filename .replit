@@ -12,7 +12,7 @@ run = ["sh", "-c", "bash start_preview.sh"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
-localPort = 2000
+localPort = 5173
 externalPort = 80
 exposeLocalhost = true
 
@@ -20,9 +20,6 @@ exposeLocalhost = true
 localPort = 5000
 externalPort = 5000
 exposeLocalhost = true
-
-[[ports]]
-localPort = 5173
 
 [workflows]
 runButton = "Run"
