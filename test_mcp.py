@@ -1,4 +1,3 @@
-
 """
 Test script to directly query MCP servers and see their raw output
 """
@@ -14,11 +13,11 @@ async def test_shopify_dev_docs(query):
         result = await mcp_server.search_dev_docs(query)
         print("\nRaw result type:", type(result))
         print("Raw result attributes:", dir(result))
-        
+
         # Print the raw result
         print("\n--- Raw Result ---")
         print(result)
-        
+
         # Convert to dictionary if needed
         if hasattr(result, 'meta') or hasattr(result, 'content'):
             print("\n--- Converting to Dictionary ---")
@@ -30,10 +29,14 @@ async def test_shopify_dev_docs(query):
                 print("\nContent items:", len(result.content))
                 res["content"] = []
                 for i, c in enumerate(result.content):
+                    text_content = getattr(c, 'text', '')
                     print(f"\nContent item {i}:")
                     print(f"  Type: {getattr(c, 'type', None)}")
-                    print(f"  Text length: {len(getattr(c, 'text', ''))} chars")
-                    print(f"  Text snippet: {getattr(c, 'text', '')[:100]}...")
+                    print(f"  Text length: {len(text_content)} chars")
+                    print(f"  Text snippet: {text_content[:100]}...")
+                    print(f"\n--- FULL CONTENT for item {i} ---")
+                    print(text_content)
+                    print("--- END CONTENT ---\n")
                     res["content"].append({
                         "type": getattr(c, "type", None),
                         "text": getattr(c, "text", None),
@@ -42,7 +45,7 @@ async def test_shopify_dev_docs(query):
             if hasattr(result, 'isError'):
                 res["isError"] = result.isError
                 print("isError:", result.isError)
-            
+
             # Try to convert to JSON
             try:
                 json_str = json.dumps(res)
@@ -60,11 +63,11 @@ async def test_introspect_admin_schema(query):
         result = await mcp_server.introspect_admin_schema(query)
         print("\nRaw result type:", type(result))
         print("Raw result attributes:", dir(result))
-        
+
         # Print the raw result
         print("\n--- Raw Result ---")
         print(result)
-        
+
         # Convert to dictionary if needed
         if hasattr(result, 'meta') or hasattr(result, 'content'):
             print("\n--- Converting to Dictionary ---")
@@ -88,7 +91,7 @@ async def test_introspect_admin_schema(query):
             if hasattr(result, 'isError'):
                 res["isError"] = result.isError
                 print("isError:", result.isError)
-            
+
             # Try to convert to JSON
             try:
                 json_str = json.dumps(res)
@@ -107,11 +110,11 @@ async def test_perplexity(query):
         result = await perplexity_mcp_server.perplexity_ask(messages)
         print("\nRaw result type:", type(result))
         print("Raw result attributes:", dir(result))
-        
+
         # Print the raw result
         print("\n--- Raw Result ---")
         print(result)
-        
+
         # Convert to dictionary if needed
         if hasattr(result, 'meta') or hasattr(result, 'content'):
             print("\n--- Converting to Dictionary ---")
@@ -135,7 +138,7 @@ async def test_perplexity(query):
             if hasattr(result, 'isError'):
                 res["isError"] = result.isError
                 print("isError:", result.isError)
-            
+
             # Try to convert to JSON
             try:
                 json_str = json.dumps(res)
@@ -151,10 +154,10 @@ async def main():
         print("Usage: python test_mcp.py [tool] [query]")
         print("Tools: search_dev_docs, introspect_admin_schema, perplexity_ask")
         return
-    
+
     tool = sys.argv[1]
     query = sys.argv[2]
-    
+
     if tool == "search_dev_docs":
         await test_shopify_dev_docs(query)
     elif tool == "introspect_admin_schema":

@@ -219,21 +219,8 @@ async def ask_perplexity(messages):
     if not messages:
         return {"error": "perplexity_ask requires non-empty 'messages' parameter."}
     try:
-        raw_res = await perplexity_mcp_server.perplexity_ask(messages)
-        # Convert CallToolResult to dict
-        if hasattr(raw_res, "model_dump"):
-            return raw_res.model_dump()
-        res = {}
-        if hasattr(raw_res, "meta"):
-            res["meta"] = raw_res.meta
-        if hasattr(raw_res, "content"):
-            res["content"] = [
-                {"type": getattr(c, "type", None), "text": getattr(c, "text", None), "annotations": getattr(c, "annotations", None)}
-                for c in raw_res.content
-            ]
-        if hasattr(raw_res, "isError"):
-            res["isError"] = raw_res.isError
-        return res
+        # The perplexity_mcp_server now returns a properly serializable dictionary
+        return await perplexity_mcp_server.perplexity_ask(messages)
     except Exception as e:
         print(f"Error calling Perplexity MCP: {e}")
         import traceback; traceback.print_exc()

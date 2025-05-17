@@ -282,11 +282,28 @@ class PerplexityMCPServer:
             async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
                 print("[MCP_SERVER_DEBUG] Perplexity MCP server context entered. Calling tool...")
                 try:
-                    tool_response = await server.call_tool(
+                    raw_result = await server.call_tool(
                         "perplexity_ask", {"messages": messages}
                     )
-                    print(f"[MCP_SERVER_DEBUG] Perplexity MCP tool_response: {str(tool_response)[:200]}...") # Log snippet
-                    return tool_response
+                    print(f"[MCP_SERVER_DEBUG] Perplexity MCP raw_result: {str(raw_result)[:200]}...") # Log snippet
+                    
+                    # Convert CallToolResult to dictionary for proper JSON serialization
+                    result = {
+                        "meta": getattr(raw_result, "meta", None),
+                        "content": [],
+                        "isError": getattr(raw_result, "isError", False)
+                    }
+                    
+                    # Extract content items
+                    if hasattr(raw_result, "content"):
+                        for content_item in raw_result.content:
+                            result["content"].append({
+                                "type": getattr(content_item, "type", None),
+                                "text": getattr(content_item, "text", None),
+                                "annotations": getattr(content_item, "annotations", None)
+                            })
+                    
+                    return result
                 except asyncio.TimeoutError as e:
                     print(f"[MCP_SERVER_DEBUG] asyncio.TimeoutError during Perplexity call_tool: {e}")
                     # Fallback response
