@@ -724,28 +724,27 @@ END OF SYSTEM PROMPT
                                 # Add to steps
                                 steps.append({
                                     'type': 'tool', 
-                                    'name': fn_name,
-                                    'input': args
+                                    'name': fn_name,                                    'input': args
                                 })
-                                
+
                                 # Execute the tool function
                                 if fn_name in tool_functions:
                                     tool_result = await tool_functions[fn_name](**args)
-                                    
+
                                     # Add result to steps
                                     steps.append({
                                         'type': 'tool_result',
                                         'name': fn_name,
                                         'output': tool_result
                                     })
-                                    
+
                                     # Yield the tool result to client
                                     yield {
                                         'type': 'tool_result',
                                         'name': fn_name,
                                         'result': json.dumps(tool_result)
-                                    }
-                                    
+                                    })
+
                                     # Add tool result to messages
                                     formatted_messages.append({
                                         'role': 'tool',
@@ -753,3 +752,134 @@ END OF SYSTEM PROMPT
                                         'name': fn_name,
                                         'content': json.dumps(tool_result)
                                     })
+
+                            except Exception as e:
+                                print(f"Error processing tool call: {e}")
+                                yield {
+                                    'type': 'error',
+                                    'message': str(e)
+                                }
+                                formatted_messages.append({
+                                    'role': 'tool',
+                                    'tool_call_id': tool_call.get('id', ''),
+                                    'name': fn_name,
+                                    'content': f"Error: {str(e)}"
+                                })
+
+                else:
+                    # Non-streaming mode
+                    response = client.chat.completions.create(
+                        model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+                        messages=formatted_messages,
+                        tools=TOOLS,
+                        tool_choice="auto",
+                    )
+
+                    # Extract response message
+                    response_message = response.choices[0].message
+                    current_content = response_message.content
+
+                    # Process tool calls
+                    if response_message.tool_calls:
+                        tool_calls = response_message.tool_calls
+                        for tool_call in tool_calls:
+                            fn_name = tool_call.function.name
+                            args = json.loads(tool_call.function.arguments)
+
+                            # Add to steps
+                            steps.append({
+                                'type': 'tool',
+                                'name': fn_name,
+                                'input': args
+                            })
+
+                            # Execute the tool function
+                            if fn_name in tool_functions:
+                                tool_result = await tool_functions[fn_name](**args)
+
+                                # Add result to steps
+                                steps.append({
+                                    'type': 'tool_result',
+                                    'name': fn_name,
+                                    'output': tool_result
+                                })
+
+                                # Add tool result to messages
+                                formatted_messages.append({
+                                    'role': 'tool',
+                                    'tool_call_id': tool_call.id,
+                                    'name': fn_name,
+                                    'content': json.dumps(tool_result)
+                                })
+                            else:
+                                print(f"Tool {fn_name} not found")
+                                formatted_messages.append({
+                                    'role': 'tool',
+                                    'tool_call_id': tool_call.id,
+                                    'name': fn_name,
+                                    'content': f"Error: Tool {fn_name} not found"
+                                })
+                    else:
+                        print("No tool calls in response")
+
+            except Exception as e:
+                print(f"Error during OpenAI call: {e}")
+                traceback.print_exc()
+                final_response = f"I encountered an error: {str(e)}"
+                break
+
+            # Append assistant response to messages (either content or function call results)
+            if current_content:
+                formatted_messages.append({
+                    'role': 'assistant',
+                    'content': current_content
+                })
+            else:
+                print("No content in response")
+
+            # Check if the agent has provided a final answer
+            if not response_message.tool_calls:
+                final_response = current_content
+                break
+
+        if step_count >= max_steps:
+            final_response = "I couldn't complete the task in the maximum number of steps."
+
+    except Exception as e:
+        print(f"Error in main agent loop: {e}")
+        final_response = f"I encountered an unexpected error: {str(e)}"
+
+    # Return final result (not streamed)
+    if not streaming:
+        return {
+            'content': final_response,
+            'steps': steps
+        }
+
+# Example function to execute Python code
+async def execute_code(code):
+    """Executes Python code and returns the output."""
+    try:
+        # Redirect stdout and stderr to capture output
+        import io, sys
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        # Execute the code
+        exec(code, globals(), locals())
+
+        # Capture the output
+        stdout_output = sys.stdout.getvalue()
+        stderr_output = sys.stderr.getvalue()
+
+        # Restore stdout and stderr
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+
+        # Combine stdout and stderr
+        output = stdout_output + stderr_output
+        return {"result": output}
+    except Exception as e:
+        return {"error": str(e)}
