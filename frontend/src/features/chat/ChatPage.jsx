@@ -1,18 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Textarea } from '@common/textarea';
-import { Button } from '@common/button'; // Ensure Button component is correctly imported
-import { format } from 'date-fns';
-import { Loader2, Send, UserIcon, BotIcon } from 'lucide-react'; // Removed ShoppingBagIcon if not used
-import { MarkdownRenderer } from '@components/chat/MarkdownRenderer'; // Assuming this path is correct
-import { Text } from '@common/text';
-import { Avatar } from '@common/avatar';
+import React, { useEffect, useRef, useState } from "react";
+import { Textarea } from "@common/textarea";
+import { Button } from "@common/button"; // Ensure Button component is correctly imported
+import { format } from "date-fns";
+import { Loader2, Send, UserIcon, BotIcon } from "lucide-react"; // Removed ShoppingBagIcon if not used
+import { MarkdownRenderer } from "@components/chat/MarkdownRenderer"; // Assuming this path is correct
+import { Text } from "@common/text";
+import { Avatar } from "@common/avatar";
+import logo from "../../../static/shopify_assistant_logo.png";
+
 // Markdown import seems duplicated, MarkdownAsync might be what you intend to use if it's different
-// import Markdown, { MarkdownAsync } from 'react-markdown'; 
+// import Markdown, { MarkdownAsync } from 'react-markdown';
 
 // ChatPage: Main chat interface page
 function ChatPage({ convId, refreshConversations }) {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [activeConv, setActiveConv] = useState(convId);
@@ -29,14 +31,18 @@ function ChatPage({ convId, refreshConversations }) {
     }
     setLoading(true);
     fetch(`/conversations/${convId}`)
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         setMessages(data);
         setActiveConv(convId);
         // Check if the last message in fetched data has suggestions
         // This is a more robust way if suggestions persist with conversations
         const lastMessage = data[data.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant' && lastMessage.suggestions) {
+        if (
+          lastMessage &&
+          lastMessage.role === "assistant" &&
+          lastMessage.suggestions
+        ) {
           setSuggestions(lastMessage.suggestions);
         } else {
           setSuggestions([]); // Clear if no relevant suggestions
@@ -51,83 +57,87 @@ function ChatPage({ convId, refreshConversations }) {
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // Format timestamp to readable format
   const formatTimestamp = (timestamp) => {
-    if (!timestamp) return '';
+    if (!timestamp) return "";
     try {
-      return format(new Date(timestamp), 'h:mm a');
+      return format(new Date(timestamp), "h:mm a");
     } catch (e) {
-      return ''; // Invalid timestamp
+      return ""; // Invalid timestamp
     }
   };
 
   async function handleSend(messageContent) {
-  const textToSend = (typeof messageContent === 'string') ? messageContent.trim() : input.trim();
+    const textToSend =
+      typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
-  if (!textToSend || isSending) return;
+    if (!textToSend || isSending) return;
 
-  const userMessage = {
-    role: 'user',
-    content: textToSend,
-    timestamp: new Date().toISOString(),
-    status: 'sending'
-  };
+    const userMessage = {
+      role: "user",
+      content: textToSend,
+      timestamp: new Date().toISOString(),
+      status: "sending",
+    };
 
-  setMessages(prev => [...prev, userMessage]);
-  setIsSending(true);
-  setInput(''); // Clear the main input box
-  setSuggestions([]); // Always clear suggestions when a message is being sent
+    setMessages((prev) => [...prev, userMessage]);
+    setIsSending(true);
+    setInput(""); // Clear the main input box
+    setSuggestions([]); // Always clear suggestions when a message is being sent
 
-  try {
-    const res = await fetch('/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+    try {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conv_id: activeConv || undefined,
           message: textToSend, // Use textToSend
-        })
+        }),
       });
-      
+
       const data = await res.json(); // Expect: { conv_id, suggestions?, (other message data if backend is modified) }
-      
+
       if (data.conv_id && !activeConv) {
         refreshConversations && refreshConversations();
         setActiveConv(data.conv_id);
       }
-      
+
       // Set suggestions from the direct API response for the *new* bot message
       if (data.suggestions && Array.isArray(data.suggestions)) {
         setSuggestions(data.suggestions);
       } else {
         // Ensure suggestions are cleared if API doesn't provide new ones
         // (already done at the start of handleSend, but for clarity)
-        setSuggestions([]); 
+        setSuggestions([]);
       }
 
       // Fetch updated messages to get the new bot message and ensure UI consistency
       // This is crucial as the `data` from `/chat` might not contain the full message object
       // or if multiple messages (user + bot) are added in one go by the backend.
-      const messagesRes = await fetch(`/conversations/${data.conv_id || activeConv}`);
+      const messagesRes = await fetch(
+        `/conversations/${data.conv_id || activeConv}`,
+      );
       const updatedMessages = await messagesRes.json();
       setMessages(updatedMessages);
-      
+
       // If the backend directly returns the new bot message and suggestions,
       // and messages are only added one by one on the frontend,
       // you might be able to optimize by not re-fetching all messages.
       // However, re-fetching ensures data integrity.
-
     } catch (e) {
       console.error("Failed to send message or fetch updates:", e);
-      setMessages(prev => 
-        prev.map(msg => 
+      setMessages((prev) =>
+        prev.map((msg) =>
           // Find the optimistic message by content and original timestamp (or a unique ID if you add one)
-          (msg.content === userMessage.content && msg.role === 'user' && msg.status === 'sending')
-            ? { ...msg, status: 'failed' } 
-            : msg
-        )
+          msg.content === userMessage.content &&
+          msg.role === "user" &&
+          msg.status === "sending"
+            ? { ...msg, status: "failed" }
+            : msg,
+        ),
       );
       setSuggestions([]); // Clear suggestions on error
     } finally {
@@ -155,7 +165,7 @@ function ChatPage({ convId, refreshConversations }) {
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-center text-zinc-500 mt-12">
               <img
-                src="/static/shopify_assistant_logo.png"
+                src={logo}
                 alt="Espresso Bot Logo"
                 className="mx-auto mt-6 mb-2 h-96 w-96 object-contain drop-shadow-lg"
                 draggable="false"
@@ -164,16 +174,16 @@ function ChatPage({ convId, refreshConversations }) {
             </div>
           ) : (
             messages.map((msg, i) => (
-              <div 
+              <div
                 key={msg.id || i} // Prefer a stable ID if available from backend
-                className={`flex items-start gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
               >
                 <div className="flex-shrink-0">
-                  {msg.role === 'user' ? (
+                  {msg.role === "user" ? (
                     <Avatar
                       className="size-8 bg-gray-100 dark:bg-zinc-700"
-                      initials="Me" 
-                      alt="User" 
+                      initials="Me"
+                      alt="User"
                     />
                   ) : (
                     <Avatar
@@ -183,32 +193,41 @@ function ChatPage({ convId, refreshConversations }) {
                     />
                   )}
                 </div>
-                
-                <div 
+
+                <div
                   className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
-                    msg.role === 'user' 
-                      ? 'bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none' 
-                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none'
+                    msg.role === "user"
+                      ? "bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none"
+                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
                   }`}
                 >
                   <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
-                    <MarkdownRenderer isAgent={msg.role === 'assistant'}>{String(msg.content || '')}</MarkdownRenderer>
+                    <MarkdownRenderer isAgent={msg.role === "assistant"}>
+                      {String(msg.content || "")}
+                    </MarkdownRenderer>
                   </div>
-                  <div className={`text-xs mt-2 flex items-center justify-end gap-2 ${
-                    msg.role === 'user' ? 'text-gray-400 dark:text-gray-500' : 'text-zinc-500 dark:text-zinc-400'
-                  }`}>
-                    {msg.status === 'sending' && (
+                  <div
+                    className={`text-xs mt-2 flex items-center justify-end gap-2 ${
+                      msg.role === "user"
+                        ? "text-gray-400 dark:text-gray-500"
+                        : "text-zinc-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    {msg.status === "sending" && (
                       <span className="flex items-center">
-                        <Loader2 className="h-3 w-3 animate-spin mr-1" /> 
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
                         Processing
                       </span>
                     )}
-                    {msg.status === 'failed' && <span className="text-red-500">Failed</span>}
-                    {msg.timestamp && !msg.status && ( // Only show timestamp if not sending or failed
-                      <span className="whitespace-nowrap">
-                        {formatTimestamp(msg.timestamp)}
-                      </span>
+                    {msg.status === "failed" && (
+                      <span className="text-red-500">Failed</span>
                     )}
+                    {msg.timestamp &&
+                      !msg.status && ( // Only show timestamp if not sending or failed
+                        <span className="whitespace-nowrap">
+                          {formatTimestamp(msg.timestamp)}
+                        </span>
+                      )}
                   </div>
                 </div>
               </div>
@@ -217,7 +236,7 @@ function ChatPage({ convId, refreshConversations }) {
           <div ref={messagesEndRef} className="h-4" /> {/* Scroll anchor */}
         </div>
       </div>
-      
+
       {/* Input area + Suggestions, fixed at the bottom */}
       <div className="sticky bottom-0 w-full bg-zinc-50 dark:bg-zinc-900 py-3 border-t border-zinc-200 dark:border-zinc-700 z-10">
         {/* Suggestions Area */}
@@ -239,39 +258,43 @@ function ChatPage({ convId, refreshConversations }) {
 
         {/* Input Form */}
         <form
-          className="flex max-w-3xl w-full mx-auto gap-2 px-4 items-end" 
-          onSubmit={e => { e.preventDefault(); handleSend(); }}
+          className="flex max-w-3xl w-full mx-auto gap-2 px-4 items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSend();
+          }}
         >
           <Textarea
             ref={inputRef} // Assign ref
             value={input}
-            onChange={e => {
+            onChange={(e) => {
               setInput(e.target.value);
-              if (e.target.value.trim() !== '' && suggestions.length > 0) {
+              if (e.target.value.trim() !== "" && suggestions.length > 0) {
                 setSuggestions([]); // Clear suggestions if user starts typing
               }
             }}
             placeholder="Type a message..."
             className="flex-1 min-h-[60px] max-h-36 resize-y leading-tight py-2.5" // Adjusted padding & max-height
             rows={1}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();
               }
             }}
           />
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center" // Adjusted for icon only on small screens
             disabled={isSending || !input.trim()}
           >
             {isSending ? (
               <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
-              <Send className="h-5 w-5" /> 
+              <Send className="h-5 w-5" />
             )}
-            <span className="ml-2 hidden sm:inline">Send</span> {/* Hide "Send" text on small screens */}
+            <span className="ml-2 hidden sm:inline">Send</span>{" "}
+            {/* Hide "Send" text on small screens */}
           </Button>
         </form>
       </div>
