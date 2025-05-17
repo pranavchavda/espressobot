@@ -27,11 +27,13 @@ if not _in_venv():
 
 from flask import Flask, request, render_template, jsonify
 import os
+import json
 import asyncio
 from simple_agent import run_simple_agent, client as openai_client
 from responses_agent import run_responses_agent
 from dotenv import load_dotenv
 from database import init_db, get_db, close_db
+from stream_chat import create_stream_blueprint
 
 # Load environment variables from .env file
 load_dotenv()
@@ -43,6 +45,9 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'devsecret')  # Needed for s
 app.teardown_appcontext(close_db)
 with app.app_context():
     init_db()
+
+# Initialize streaming endpoints
+create_stream_blueprint(app)
 
 from flask import session, redirect, url_for
 

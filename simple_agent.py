@@ -1,6 +1,5 @@
 """
-A simplified agent implementation that doesn't rely on the Agents SDK.
-This uses OpenAI's API directly to avoid typing issues.
+This commit modifies the agent to support streaming responses from OpenAI and includes logic for handling tool calls and suggestions in streaming mode.
 """
 import os
 import json
@@ -292,7 +291,7 @@ TOOLS = [{
         }
     }
 },
-    
+
     {
         "name": "create_open_box_listing_single",
         "type": "function",
@@ -488,7 +487,7 @@ TOOLS = [{
 ]
 
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(user_input, history=[]):
+async def run_simple_agent(prompt, history=[], streaming=False):
     # Initialize variables
     step_count = 0
     steps = []
@@ -580,14 +579,14 @@ RULES
    • Sale End Date: If asked to add a promotion or sale end date to any product, it can be added to the product's inventory.ShappifySaleEndDate metafiled (Namespace is inventory and key is ShappifySaleEndDate; it is single line text) Format example: 2023-08-04T03:00:00Z (For 3 AM on August 4, 2023) 
    • For US/USD price updates, use the pricelist ID: `gid://shopify/PriceList/18798805026`.
    • Prices are always in CAD and don't need to use a separate price list, only use a price list when a currency is specified or a currency other than CAD is specified.
-   
-   
-   
+
+
+
 9. **COST HANDLING**  
    • Cost is set via the cost field on InventoryItemInput, which can be used with either inventoryItemUpdate (as cost under input) or within productVariantsBulkUpdate (as cost under inventoryItem).
    • The returned field is InventoryItem.unitCost (type: MoneyV2).
    • You may update cost for multiple variants in bulk by using productVariantsBulkUpdate with the inventoryItem.cost field.
-        
+
 
 10. **STATUS & TAG DEFAULTS**  
    • All newly-created products must be `DRAFT` status with required base fields, never set it to `ACTIVE`.
@@ -632,7 +631,7 @@ END OF SYSTEM PROMPT
 
     # Add system message to history
     formatted_messages = [{"role": "system", "content": system_message}] + formatted_history
-    formatted_messages.append({"role": "user", "content": user_input})
+    formatted_messages.append({"role": "user", "content": prompt})
 
     # Step logs for tracking agent progress
     steps = []
@@ -642,6 +641,21 @@ END OF SYSTEM PROMPT
     max_steps = 100  # Prevent infinite loops
     final_response = "I'm sorry, I couldn't complete the task due to an error."
 
+    # Define available tool functions
+    tool_functions = {
+        "introspect_admin_schema": introspect_admin_schema,
+        "search_dev_docs": search_dev_docs,
+        "run_shopify_query": execute_shopify_query,
+        "run_shopify_mutation": execute_shopify_mutation,
+        "get_product_copy_guidelines": get_product_copy_guidelines,
+        "fetch_url_with_curl": fetch_url_with_curl,
+        "perplexity_ask": ask_perplexity,
+        "upload_to_skuvault": upload_to_skuvault,
+        "upload_batch_to_skuvault": upload_batch_to_skuvault,
+        "execute_python_code": lambda code: asyncio.run(execute_code(code)),  # Fix: Execute code in the event loop
+        "create_open_box_listing_single": create_open_box_listing_single
+    }
+
     try:
         while step_count < max_steps:
             step_count += 1
@@ -649,246 +663,331 @@ END OF SYSTEM PROMPT
 
             # Call the model
             try:
-                response = client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
-                    messages=formatted_messages,
-                    tools=TOOLS,
-                    reasoning_effort="medium",
-                    tool_choice="auto"
-                )
-            except Exception as e:
-                # Check if this is a cancellation
-                if isinstance(e, asyncio.CancelledError):
-                    raise  # Re-raise CancelledError to propagate it
-                raise e
+                if streaming:
+                    # Streaming mode
+                    response = client.chat.completions.create(
+                        model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+                        messages=formatted_messages,
+                        tools=TOOLS,
+                        reasoning_effort="medium",
+                        tool_choice="auto",
+                        stream=True
+                    )
 
-            # Get the message content
-            message = response.choices[0].message
+                    # Handle streaming chunks
+                    current_content = ""
+                    tool_calls_buffer = []
+                    steps = []
 
-            # Check for tool calls
-            if message.tool_calls:
-                # First, add the assistant's message with the tool call to the history
-                formatted_messages.append({
-                    "role": "assistant",
-                    "content": message.content or "",
-                    "tool_calls": [{
-                        "id": tool_call.id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments
-                        }
-                    } for tool_call in message.tool_calls]
-                })
+                    async for chunk in response:
+                        delta = chunk.choices[0].delta
 
-                # Check for cancellation before processing tool calls
-                if asyncio.current_task().cancelled():
-                    raise asyncio.CancelledError()
+                        # Process content chunks
+                        if hasattr(delta, 'content') and delta.content:
+                            current_content += delta.content
+                            yield {
+                                'type': 'content',
+                                'delta': delta.content
+                            }
 
-                # Process each tool call
-                for tool_call in message.tool_calls:
-                    # Check for cancellation before each tool call
-                    if asyncio.current_task().cancelled():
-                        raise asyncio.CancelledError()
+                        # Process tool calls
+                        if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                            for tool_call in delta.tool_calls:
+                                # Extract and handle tool call information
+                                if tool_call.index >= len(tool_calls_buffer):
+                                    tool_calls_buffer.append({
+                                        'id': tool_call.id if hasattr(tool_call, 'id') else None,
+                                        'type': 'function',
+                                        'function': {'name': '', 'arguments': ''}
+                                    })
 
-                    try:
-                        function_name = tool_call.function.name
-                        function_args = json.loads(tool_call.function.arguments)
-                        print(f"Executing tool call {tool_call.id}: {function_name} with arguments: {function_args}")
-                        # Execute the appropriate tool function
-                        if function_name == "introspect_admin_schema":
-                            tool_output = await introspect_admin_schema(
-                                function_args["query"],
-                                function_args.get("filter_types")
-                            )
-                        elif function_name == "search_dev_docs":
-                            tool_output = await search_dev_docs(function_args["prompt"])
-                        elif function_name == "run_shopify_query":
-                            tool_output = await execute_shopify_query(function_args["query"], function_args.get("variables"))
-                        elif function_name == "run_shopify_mutation":
-                            tool_output = await execute_shopify_mutation(function_args["query"], function_args.get("variables"))
-                        elif function_name == "get_product_copy_guidelines":
-                            tool_output = await get_product_copy_guidelines()
-                        elif function_name == "fetch_url_with_curl":
-                            tool_output = await fetch_url_with_curl(function_args["url"])
-                        elif function_name == "perplexity_ask":
-                            tool_output = await ask_perplexity(function_args.get("messages", []))
-                        elif function_name == "upload_to_skuvault":
-                            tool_output = await upload_to_skuvault(function_args.get("product_sku", ""))
-                        elif function_name == "upload_batch_to_skuvault":
-                            tool_output = await upload_batch_to_skuvault(function_args.get("product_skus", ""))
-                        elif function_name == "execute_python_code":
-                            # Import code_interpreter at runtime to avoid circular imports
-                            from code_interpreter import execute_code
-                            tool_output = execute_code(
-                                function_args.get("code", ""))
-                        elif function_name == "create_open_box_listing_single":
-                                tool_output = create_open_box_listing_single(
-                                    function_args.get("identifier"),
-                                    function_args.get("serial_number"),
-                                    function_args.get("suffix"),
-                                    function_args.get("price"),
-                                    function_args.get("discount_pct"),
-                                    function_args.get("note")
-        )
-                        else:
-                            tool_output = {"error": f"Unknown tool: {function_name}"}
-                        # Ensure tool_output is serializable
-                        serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
-                        steps.append({
-                            "step": f"Tool call: {function_name}",
-                            "input": function_args,
-                            "output": serializable_output
-                        })
-
-                        # Add the function response to messages correctly linked to the tool call
-                        # Log tool output for debugging
-                        print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
-                        formatted_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(
-                                tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
-                                    tool_output.text if hasattr(tool_output, "text") else (
-                                        str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
-                                    )
-                                )
-                            )
-                        })
-                    except Exception as e:
-                        print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
-                        error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
-                        formatted_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps({"error": error_msg})
-                        })
-                        steps.append({
-                            "step": f"Error in tool call: {tool_call.function.name}",
-                            "input": json.loads(tool_call.function.arguments) if hasattr(tool_call.function, "arguments") else {},
-                            "output": {"error": error_msg}
-                        })
-
-                # After tool call, let the outer loop run again to give GPT the tool results
-                continue
-
-            # If no tool calls, we're done
-            # Only apply Perplexity-specific extraction for Perplexity tool calls
-            if steps and "perplexity_ask" in steps[-1].get("step", ""):
-                tool_result = steps[-1]["output"]
-                # If Perplexity result is a dict with 'content' as a list of dicts
-                if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):
-                    texts = [item.get("text", "") for item in tool_result["content"] if isinstance(item, dict)]
-                    final_response = "\n\n".join([t for t in texts if t.strip()])
-                    if not final_response:
-                        final_response = tool_result.get("error") or "I'm sorry, Perplexity did not return any content."
-                    break
-                elif isinstance(tool_result, dict) and tool_result.get("error"):
-                    final_response = tool_result["error"]
-                    break
-                # Otherwise, let the loop continue so the model can interpret
-
-            # For all other tool calls, only break if the model returns non-empty content
-            final_response = (message.content or "").strip()
-            if final_response:
-                break
-        # End of main loop
-        # If we exit the loop and have no response, fallback
-        if not final_response:
-            if steps and "output" in steps[-1]:
-                output = steps[-1]["output"]
-                if isinstance(output, (dict, list)):
-                    import json
-                    final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
-                else:
-                    final_response = str(output)
-            else:
-                final_response = "I'm sorry, I couldn't complete the task due to an error."
-
-    except Exception as e:
-        import traceback
-        print(f"Error in agent execution: {e}")
-        print(traceback.format_exc())
-        final_response = f"Sorry, an error occurred: {str(e)}" if str(e) else ""
-
-    # Generate suggestions using gpt-4.1-nano
-    suggestions = []
-    try:
-        # Check for cancellation before generating suggestions
-        if asyncio.current_task().cancelled():
-            raise asyncio.CancelledError()
-            
-        print("Generating suggestions with gpt-4.1-nano...")
-        # Make a separate call to generate suggestions
-        suggestion_response = client.chat.completions.create(
-            model="gpt-4.1-nano",
-            messages=[
-                {"role": "system", "content": "You are an expert at crafting 3 insightful and actionable follow-up suggestions for a user interacting with an AI assistant. Each suggestion should be a concise (2-6 words) and natural-sounding phrase from the USER'S perspective, as a potential reply to the AI's last message.\nSuggestions should:\n1.  Be highly relevant to the AI's last statement or question.\n2.  Offer diverse options: perhaps a confirmation, a clarifying question, or a logical next step.\n3.  If the AI asked a direct question, ensure at least one suggestion directly answers it (e.g., 'Yes', 'No, let's try...').\n4.  If the AI completed a task, one suggestion could be 'Great, thanks!' or 'What's next?'.\nAvoid generic suggestions. Aim for helpfulness and proactive engagement."},
-                {"role": "assistant", "content": final_response}  # Use the Agent's message for context
-            ],
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "suggested_responses",
-                        "description": "Provide 2-3 suggested follow-up messages for the user",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "Suggestions": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "List of 2-3 suggested responses"
-                                }
-                            },
-                            "required": ["Suggestions"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "perplexity_ask",
-                        "description": "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "messages": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "role": {"type": "string"},
-                                            "content": {"type": "string"}
+                                if hasattr(tool_call, 'function'):
+                                    if hasattr(tool_call.function, 'name') and tool_call.function.name:
+                                        tool_calls_buffer[tool_call.index]['function']['name'] = tool_call.function.name
+                                        yield {
+                                            'type': 'tool_call',
+                                            'name': tool_call.function.name,
+                                            'status': 'started'
                                         }
-                                    },
-                                    "description": "Array of conversation messages"
-                                }
-                            },
-                            "required": ["messages"]
-                        }
-                    }
-                },
-            ],
-            tool_choice={"type": "function", "function": {"name": "suggested_responses"}}
-        )
-        
-        # Extract suggestions from the response
-        if (hasattr(suggestion_response, 'choices') and 
-            suggestion_response.choices and 
-            hasattr(suggestion_response.choices[0], 'message') and
-            hasattr(suggestion_response.choices[0].message, 'tool_calls') and
-            suggestion_response.choices[0].message.tool_calls):
-            tool_call = suggestion_response.choices[0].message.tool_calls[0]
-            suggestions = json.loads(tool_call.function.arguments).get('Suggestions', [])
-            print(f"Generated suggestions: {suggestions}")
-    except Exception as e:
-        print(f"Error generating suggestions: {str(e)}")
-        print(traceback.format_exc())
 
-    # Return the final result
-    return {
-        'final_output': final_response,
-        'steps': steps,
-        'suggestions': suggestions
-    }
+                                    if hasattr(tool_call.function, 'arguments') and tool_call.function.arguments:
+                                        current_args = tool_calls_buffer[tool_call.index]['function']['arguments']
+                                        tool_calls_buffer[tool_call.index]['function']['arguments'] = current_args + tool_call.function.arguments
+
+                    # Process any tool calls that were completed
+                    for tool_call in tool_calls_buffer:
+                        if tool_call['function']['name'] and tool_call['function']['arguments']:
+                            try:
+                                fn_name = tool_call['function']['name']
+                                args = json.loads(tool_call['function']['arguments'])
+
+                                # Add to steps
+                                steps.append({
+                                    'type': 'tool', 
+                                    'name': fn_name,
+                                    'input': args
+                                })
+
+                                # Execute the tool
+                                yield {
+                                    'type': 'tool_call',
+                               'name': fn_name,
+                                    'args': args,
+                                    'status': 'executing'
+                                }
+
+                                # Get the corresponding tool function
+                                tool_to_call = next((t for t in TOOLS if t['function']['name'] == fn_name), None)
+                                if tool_to_call:
+                                    tool_fn = tool_functions[fn_name]
+                                    result = await tool_fn(**args)
+
+                                    # Add tool result to steps
+                                    steps.append({
+                                        'type': 'tool_result',
+                                        'name': fn_name,
+                                        'output': result
+                                    })
+
+                                    yield {
+                                        'type': 'tool_call',
+                                        'name': fn_name,
+                                        'result': result,
+                                        'status': 'completed'
+                                    }
+
+                                    # Add this result to messages for the agent
+                                    formatted_messages.append({
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": [{
+                                            "id": tool_call["id"] or f"call_{len(formatted_messages)}",
+                                            "type": "function",
+                                            "function": {
+                                                "name": fn_name,
+                                                "arguments": tool_call['function']['arguments']
+                                            }
+                                        }]
+                                    })
+
+                                    formatted_messages.append({
+                                        "role": "tool",
+                                        "tool_call_id": tool_call["id"] or f"call_{len(formatted_messages)-1}",
+                                        "content": str(result)
+                                    })
+                            except Exception as e:
+                                print(f"Error executing tool {tool_call['function']['name']}: {e}")
+                                # Add error to steps
+                                steps.append({
+                                    'type': 'tool_result',
+                                    'name': tool_call['function']['name'],
+                                    'output': f"Error: {str(e)}"
+                                })
+
+                                yield {
+                                    'type': 'tool_call',
+                                    'name': tool_call['function']['name'],
+                                    'error': str(e),
+                                    'status': 'error'
+                                }
+
+                    # If we had tool calls, make a follow-up call to get final response
+                    if tool_calls_buffer:
+                        # Make a follow-up call to get the final response
+                        response = client.chat.completions.create(
+                            model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+                            messages=formatted_messages,
+                            tools=TOOLS,
+                            reasoning_effort="medium",
+                            tool_choice="auto",
+                            stream=True
+                        )
+
+                        current_content = ""
+                        async for chunk in response:
+                            delta = chunk.choices[0].delta
+                            if hasattr(delta, 'content') and delta.content:
+                                current_content += delta.content
+                                yield {
+                                    'type': 'content',
+                                    'delta': delta.content
+                                }
+
+                    # Extract suggested follow-up questions
+                    suggestions = []
+                    try:
+                        # Extract suggestions from the final content
+                        suggestion_match = re.search(r'(?:Suggested follow-up questions:|Suggested questions:|Follow-up questions:)(.*?)(?:$|(?:\n\n))', current_content, re.DOTALL)
+                        if suggestion_match:
+                            suggestion_text = suggestion_match.group(1).strip()
+                            suggestions = [q.strip().strip('-*•').strip() for q in suggestion_text.split('\n') if q.strip()]
+                            suggestions = [q for q in suggestions if len(q) > 0 and q != ""]
+
+                            # Remove suggestions section from content if found
+                            current_content = re.sub(r'\n*(?:Suggested follow-up questions:|Suggested questions:|Follow-up questions:)(.*?)(?:$|(?:\n\n))', '', current_content, flags=re.DOTALL)
+                            current_content = current_content.strip()
+
+                            yield {
+                                'type': 'suggestions',
+                                'suggestions': suggestions
+                            }
+                    except Exception as e:
+                        print(f"Error extracting suggestions: {e}")
+
+                    # Return final content
+                    final_output = current_content
+
+                    # Return result structure
+                    return {
+                        'response': final_output,
+                        'final_output': final_output,
+                        'steps': steps,
+                        'suggestions': suggestions
+                    }
+                else:
+                    # Non-streaming mode (original behavior)
+                    response = client.chat.completions.create(
+                        model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+                        messages=formatted_messages,
+                        tools=TOOLS,
+                        reasoning_effort="medium",
+                        tool_choice="auto"
+                    )
+
+                    message = response.choices[0].message
+
+                    # Check for tool calls
+                    if message.tool_calls:
+                        # First, add the assistant's message with the tool call to the history
+                        formatted_messages.append({
+                            "role": "assistant",
+                            "content": message.content or "",
+                            "tool_calls": [{
+                                "id": tool_call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_call.function.name,
+                                    "arguments": tool_call.function.arguments
+                                }
+                            } for tool_call in message.tool_calls]
+                        })
+
+                        # Check for cancellation before processing tool calls
+                        if asyncio.current_task().cancelled():
+                            raise asyncio.CancelledError()
+
+                        # Process each tool call
+                        for tool_call in message.tool_calls:
+                            # Check for cancellation before each tool call
+                            if asyncio.current_task().cancelled():
+                                raise asyncio.CancelledError()
+
+                            try:
+                                function_name = tool_call.function.name
+                                function_args = json.loads(tool_call.function.arguments)
+                                print(f"Executing tool call {tool_call.id}: {function_name} with arguments: {function_args}")
+                                # Execute the appropriate tool function
+                                if function_name == "introspect_admin_schema":
+                                    tool_output = await introspect_admin_schema(
+                                        function_args["query"],
+                                        function_args.get("filter_types")
+                                    )
+                                elif function_name == "search_dev_docs":
+                                    tool_output = await search_dev_docs(function_args["prompt"])
+                                elif function_name == "run_shopify_query":
+                                    tool_output = await execute_shopify_query(function_args["query"], function_args.get("variables"))
+                                elif function_name == "run_shopify_mutation":
+                                    tool_output = await execute_shopify_mutation(function_args["query"], function_args.get("variables"))
+                                elif function_name == "get_product_copy_guidelines":
+                                    tool_output = await get_product_copy_guidelines()
+                                elif function_name == "fetch_url_with_curl":
+                                    tool_output = await fetch_url_with_curl(function_args["url"])
+                                elif function_name == "perplexity_ask":
+                                    tool_output = await ask_perplexity(function_args.get("messages", []))
+                                elif function_name == "upload_to_skuvault":
+                                    tool_output = await upload_to_skuvault(function_args.get("product_sku", ""))
+                                elif function_name == "upload_batch_to_skuvault":
+                                    tool_output = await upload_batch_to_skuvault(function_args.get("product_skus", ""))
+                                elif function_name == "execute_python_code":
+                                    # Import code_interpreter at runtime to avoid circular imports
+                                    from code_interpreter import execute_code
+                                    tool_output = execute_code(
+                                        function_args.get("code", ""))
+                                elif function_name == "create_open_box_listing_single":
+                                        tool_output = create_open_box_listing_single(
+                                            function_args.get("identifier"),
+                                            function_args.get("serial_number"),
+                                            function_args.get("suffix"),
+                                            function_args.get("price"),
+                                            function_args.get("discount_pct"),
+                                            function_args.get("note")
+                )
+                                else:
+                                    tool_output = {"error": f"Unknown tool: {function_name}"}
+                                # Ensure tool_output is serializable
+                                serializable_output = tool_output.model_dump() if hasattr(tool_output, "model_dump") else tool_output
+                                steps.append({
+                                    "step": f"Tool call: {function_name}",
+                                    "input": function_args,
+                                    "output": serializable_output
+                                })
+
+                                # Add the function response to messages correctly linked to the tool call
+                                # Log tool output for debugging
+                                print(f"[DEBUG] Tool '{function_name}' output: {serializable_output}")
+                                formatted_messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(
+                                        tool_output.model_dump() if hasattr(tool_output, "model_dump") else (
+                                            tool_output.text if hasattr(tool_output, "text") else (
+                                                str(tool_output) if not isinstance(tool_output, (dict, list, str, int, float, bool, type(None))) else tool_output
+                                            )
+                                        )
+                                    )
+                                })
+                            except Exception as e:
+                                print(f"[ERROR] Error executing tool {tool_call.function.name}: {str(e)}")
+                                error_msg = f"Error executing tool {tool_call.function.name}: {str(e)}"
+                                formatted_messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps({"error": error_msg})
+                                })
+                                steps.append({
+                                    "step": f"Error in tool call: {tool_call.function.name}",
+                                    "input": json.loads(tool_call.function.arguments) if hasattr(tool_call.function, "arguments") else {},
+                                    "output": {"error": error_msg}
+                                })
+
+                        # After tool call, let the outer loop run again to give GPT the tool results
+                        continue
+
+                    # If no tool calls, we're done
+                    # Only apply Perplexity-specific extraction for Perplexity tool calls
+                    if steps and "perplexity_ask" in steps[-1].get("step", ""):
+                        tool_result = steps[-1]["output"]
+                        # If Perplexity result is a dict with 'content' as a list of dicts
+                        if isinstance(tool_result, dict) and isinstance(tool_result.get("content"), list):
+                            texts = [item.get("text", "") for item in tool_result["content"] if isinstance(item, dict)]
+                            final_response = "\n\n".join([t for t in texts if t.strip()])
+                            if not final_response:
+                                final_response = tool_result.get("error") or "I'm sorry, Perplexity did not return any content."
+                            break
+                        elif isinstance(tool_result, dict) and tool_result.get("error"):
+                            final_response = tool_result["error"]
+                            break
+                        # Otherwise, let the loop continue so the model can interpret
+
+                    # For all other tool calls, only break if the model returns non-empty content
+                    final_response = (message.content or "").strip()
+                    if final_response:
+                        break
+            # End of main loop
+            # If we exit the loop and have no response, fallback
+            if not final_response:
+                if steps and "output" in steps[-1]:
+                    output = steps[-1]["output"]
+                    if isinstance(output, (dict, list)):
+                        import json
+                        final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { SidebarLayout } from "@common/sidebar-layout";
 import { Button } from "@common/button";
-import ChatPage from "./features/chat/ChatPage";
+import StreamingChatPage from "./features/chat/StreamingChatPage";
 import LoginPage from "./features/auth/LoginPage"; // Import LoginPage
 import { Routes, Route } from "react-router-dom";
 
@@ -155,7 +155,7 @@ function App() {
         <Route
           path="/"
           element={
-            <ChatPage
+            <StreamingChatPage
               key={selectedChat}
               convId={selectedChat}
               refreshConversations={fetchConversations}
