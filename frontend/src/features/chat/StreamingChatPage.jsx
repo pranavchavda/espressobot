@@ -188,8 +188,11 @@ function StreamingChatPage({ convId, refreshConversations }) {
                 }
               ]);
               
-              // Only set streaming message to null after preserving content
-              setStreamingMessage(null);
+              // Use setTimeout to ensure state updates are processed before clearing
+              setTimeout(() => {
+                setStreamingMessage(null);
+              }, 100);
+              
               break;
             }
 
