@@ -725,5 +725,31 @@ END OF SYSTEM PROMPT
                                 steps.append({
                                     'type': 'tool', 
                                     'name': fn_name,
-'input': args
-                               json\n" + json.dumps(output, indent=2) + "\n
+                                    'input': args
+                                })
+                                
+                                # Execute the tool function
+                                if fn_name in tool_functions:
+                                    tool_result = await tool_functions[fn_name](**args)
+                                    
+                                    # Add result to steps
+                                    steps.append({
+                                        'type': 'tool_result',
+                                        'name': fn_name,
+                                        'output': tool_result
+                                    })
+                                    
+                                    # Yield the tool result to client
+                                    yield {
+                                        'type': 'tool_result',
+                                        'name': fn_name,
+                                        'result': json.dumps(tool_result)
+                                    }
+                                    
+                                    # Add tool result to messages
+                                    formatted_messages.append({
+                                        'role': 'tool',
+                                        'tool_call_id': tool_call.get('id', ''),
+                                        'name': fn_name,
+                                        'content': json.dumps(tool_result)
+                                    })
