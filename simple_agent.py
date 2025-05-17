@@ -986,8 +986,8 @@ END OF SYSTEM PROMPT
             # End of main loop
             # If we exit the loop and have no response, fallback
             if not final_response:
-                    if steps and "output" in steps[-1]:
-                        output = steps[-1]["output"]
-                        if isinstance(output, (dict, list)):
-                            import json
-                            final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
+                if steps and "output" in steps[-1]:
+                    output = steps[-1]["output"]
+                    if isinstance(output, (dict, list)):
+                        import json
+                        final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
