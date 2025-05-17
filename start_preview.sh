@@ -29,7 +29,7 @@ npm run build
 
 # Start frontend preview server on port 2000
 echo "Starting frontend preview server on port 2000..."
-npm run preview -- --port=2000
+npm run preview --port=2000
 
 # Function to clean up background process on exit
 cleanup() {

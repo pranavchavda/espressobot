@@ -13,7 +13,7 @@ deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 2000
-externalPort = 3002
+externalPort = 80
 exposeLocalhost = true
 
 [[ports]]
@@ -23,7 +23,6 @@ exposeLocalhost = true
 
 [[ports]]
 localPort = 5173
-externalPort = 80
 
 [workflows]
 runButton = "Run"

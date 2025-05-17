@@ -28,7 +28,7 @@ fi
 
 # Start frontend development server
 echo "Starting frontend development server..."
-npm run dev
+npm run dev --port=2000
 
 # Function to clean up background process on exit
 cleanup() {
