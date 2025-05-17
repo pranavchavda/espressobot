@@ -28,9 +28,9 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: [
       'localhost',
-      '*.replit.dev',
-      '*.replit.app',
-      '*.repl.co'
+      '.replit.dev',
+      '.replit.app',
+      '.repl.co'
     ],
     proxy: {
       '/chat': 'http://localhost:5000',

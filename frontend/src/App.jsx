@@ -1,10 +1,10 @@
 // App: Root of the SPA, sets up layout and routing
-import React, { useState, useEffect } from 'react';
-import { SidebarLayout } from '@common/sidebar-layout';
-import { Button } from '@common/button';
-import ChatPage from './features/chat/ChatPage';
-import LoginPage from './features/auth/LoginPage'; // Import LoginPage
-import { Routes, Route } from 'react-router-dom';
+import React, { useState, useEffect } from "react";
+import { SidebarLayout } from "@common/sidebar-layout";
+import { Button } from "@common/button";
+import ChatPage from "./features/chat/ChatPage";
+import LoginPage from "./features/auth/LoginPage"; // Import LoginPage
+import { Routes, Route } from "react-router-dom";
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -23,7 +23,7 @@ function App() {
     setLoading(true);
     try {
       // Assuming '/conversations' will be proxied by Vite or is same-origin
-      const res = await fetch('/conversations'); 
+      const res = await fetch("/conversations");
       const data = await res.json();
       setConversations(data); // Assumes data is the array of conversations
       // The previous code had 'data.conversations'. If Flask sends {conversations: []}, this should be data.conversations
@@ -34,7 +34,7 @@ function App() {
         setSelectedChat(currentConversations[0].id);
       }
     } catch (e) {
-      console.error('Failed to fetch conversations (reverted):', e);
+      console.error("Failed to fetch conversations (reverted):", e);
       setConversations([]);
     } finally {
       setLoading(false);
@@ -54,17 +54,17 @@ function App() {
     setAuthError(null);
     const appPassword = import.meta.env.VITE_APP_PASSWORD;
     if (!appPassword) {
-      console.error('VITE_APP_PASSWORD is not set in the environment.');
-      setAuthError('Application password configuration error.');
+      console.error("VITE_APP_PASSWORD is not set in the environment.");
+      setAuthError("Application password configuration error.");
       setIsAuthenticated(false);
       setAuthLoading(false);
       return;
     }
     if (password === appPassword) {
       setIsAuthenticated(true);
-      setSelectedChat(null); 
+      setSelectedChat(null);
     } else {
-      setAuthError('Incorrect password.');
+      setAuthError("Incorrect password.");
       setIsAuthenticated(false);
     }
     setAuthLoading(false);
@@ -82,41 +82,60 @@ function App() {
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-zinc-100 dark:bg-zinc-900">
-        <div className="text-xl text-zinc-700 dark:text-zinc-300">Loading...</div>
+        <div className="text-xl text-zinc-700 dark:text-zinc-300">
+          Loading...
+        </div>
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={handleLogin} error={authError} loading={authLoading} />;
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        error={authError}
+        loading={authLoading}
+      />
+    );
   }
 
   // User is authenticated, render the main app - REVERTED TO PREVIOUS JSX STRUCTURE
   return (
     <SidebarLayout
       className=""
-      navbar={<div className="flex justify-between items-center w-full">
+      navbar={
+        <div className="flex justify-between items-center w-full">
           <div className="font-semibold text-lg px-4 py-2">Chat App</div>
-          {/* Added Logout button to the reverted navbar structure */} 
-          <Button onClick={handleLogout} variant="ghost" className="mr-2 px-3 py-1 text-sm">Logout</Button>
-        </div>}
+          {/* Added Logout button to the reverted navbar structure */}
+          <Button
+            onClick={handleLogout}
+            variant="ghost"
+            className="mr-2 px-3 py-1 text-sm"
+          >
+            Logout
+          </Button>
+        </div>
+      }
       sidebar={
         <div className="flex flex-col h-full">
-          <Button className="mb-4 mx-2" onClick={() => setSelectedChat(null)}>+ New Chat</Button>
           <nav className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="text-zinc-400 px-4 py-2">Loading...</div>
             ) : (
               <ul className="flex flex-col gap-1">
-                {conversations.map(chat => (
+                {conversations.map((chat) => (
                   <li key={chat.id}>
                     <button
                       className={`w-full text-left px-4 py-3 rounded-lg transition-colors
-                        ${selectedChat === chat.id ? 'bg-zinc-200 dark:bg-zinc-800 font-semibold' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+                        ${selectedChat === chat.id ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
                       onClick={() => setSelectedChat(chat.id)}
                     >
                       <div className="truncate">{chat.title}</div>
-                      <div className="text-xs text-zinc-500 truncate">{chat.created_at ? new Date(chat.created_at).toLocaleString() : ''}</div>
+                      <div className="text-xs text-zinc-500 truncate">
+                        {chat.created_at
+                          ? new Date(chat.created_at).toLocaleString()
+                          : ""}
+                      </div>
                     </button>
                   </li>
                 ))}
@@ -126,11 +145,23 @@ function App() {
               </ul>
             )}
           </nav>
+          <Button className="mb-4 mx-2" onClick={() => setSelectedChat(null)}>
+            + New Chat
+          </Button>
         </div>
       }
     >
       <Routes>
-        <Route path="/" element={<ChatPage key={selectedChat} convId={selectedChat} refreshConversations={fetchConversations} />} />
+        <Route
+          path="/"
+          element={
+            <ChatPage
+              key={selectedChat}
+              convId={selectedChat}
+              refreshConversations={fetchConversations}
+            />
+          }
+        />
       </Routes>
     </SidebarLayout>
   );
