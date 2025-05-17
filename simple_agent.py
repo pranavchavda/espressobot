@@ -161,9 +161,26 @@ async def introspect_admin_schema(query, filter_types=None):
     if filter_types is None:
         filter_types = ["all"]
     try:
-        return await mcp_server.introspect_admin_schema(query, filter_types)
+        print(f"[DEBUG] Calling mcp_server.introspect_admin_schema with query: {query}")
+        result = await mcp_server.introspect_admin_schema(query, filter_types)
+        
+        # Log the returned result structure for debugging
+        print(f"[DEBUG] introspect_admin_schema result type: {type(result)}")
+        if isinstance(result, dict):
+            content_count = len(result.get("content", []))
+            print(f"[DEBUG] introspect_admin_schema result has {content_count} content items")
+            
+            # Log the first content item (truncated)
+            if content_count > 0:
+                first_item = result["content"][0]
+                text_length = len(first_item.get("text", ""))
+                print(f"[DEBUG] First content item text length: {text_length} chars")
+                print(f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}...")
+        
+        return result
     except Exception as e:
         print(f"Error introspecting schema: {e}")
+        traceback.print_exc()  # Add stack trace for better debugging
         return {"errors": [{"message": str(e)}]}
 
 async def search_dev_docs(prompt):
@@ -193,27 +210,7 @@ async def search_dev_docs(prompt):
         print(f"Error calling search_dev_docs: {e}")
         return {"error": str(e)}
 
-async def introspect_admin_schema(query, filter_types=None):
-    """Introspect the Shopify Admin API schema using the MCP server"""
-    if filter_types is None:
-        filter_types = ["all"]
-    try:
-        raw_res = await mcp_server.introspect_admin_schema(query, filter_types)
-        # Convert CallToolResult to dict to ensure JSON serialization works
-        res = {}
-        if hasattr(raw_res, "meta"):
-            res["meta"] = raw_res.meta
-        if hasattr(raw_res, "content"):
-            res["content"] = [
-                {"type": getattr(c, "type", None), "text": getattr(c, "text", None), "annotations": getattr(c, "annotations", None)}
-                for c in raw_res.content
-            ]
-        if hasattr(raw_res, "isError"):
-            res["isError"] = raw_res.isError
-        return res
-    except Exception as e:
-        print(f"Error introspecting schema: {e}")
-        return {"errors": [{"message": str(e)}]}
+# This duplicate function has been removed, we're using the implementation at line ~128
 
 # Function to fetch product copy guidelines
 

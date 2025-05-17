@@ -94,10 +94,16 @@ class ShopifyMCPServer:
         if filter_types is None:
             filter_types = ["all"]
         try:
+            print(f"[DEBUG] Starting introspect_admin_schema with query: {query}")
             async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                print(f"[DEBUG] MCPServerStdio context entered for schema introspection")
                 raw_result = await server.call_tool(
                     "introspect_admin_schema", {"query": query, "filter": filter_types}
                 )
+                
+                # Log the raw response for debugging
+                print(f"[DEBUG] Raw introspect_admin_schema result type: {type(raw_result)}")
+                print(f"[DEBUG] Raw introspect_admin_schema attributes: {dir(raw_result)[:200]}")
                 
                 # Convert CallToolResult to dictionary for proper JSON serialization
                 result = {
@@ -109,11 +115,20 @@ class ShopifyMCPServer:
                 # Extract content items
                 if hasattr(raw_result, "content"):
                     for content_item in raw_result.content:
+                        # Get full text content
+                        text_content = getattr(content_item, "text", "")
+                        print(f"[DEBUG] Schema content item type: {getattr(content_item, 'type', None)}")
+                        print(f"[DEBUG] Schema content text length: {len(text_content)} chars")
+                        
+                        # Preserve the complete text content
                         result["content"].append({
                             "type": getattr(content_item, "type", None),
-                            "text": getattr(content_item, "text", None),
+                            "text": text_content,
                             "annotations": getattr(content_item, "annotations", None)
                         })
+                
+                # Log the final result for debugging
+                print(f"[DEBUG] Final introspect_admin_schema result content items: {len(result['content'])}")
                 
                 return result
         except Exception as e:

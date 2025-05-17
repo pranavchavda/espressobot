@@ -95,13 +95,18 @@ async def test_introspect_admin_schema(query):
                 print("\nContent items:", len(result.content))
                 res["content"] = []
                 for i, c in enumerate(result.content):
+                    text_content = getattr(c, 'text', '')
                     print(f"\nContent item {i}:")
                     print(f"  Type: {getattr(c, 'type', None)}")
-                    print(f"  Text length: {len(getattr(c, 'text', ''))} chars")
-                    print(f"  Text snippet: {getattr(c, 'text', '')[:100]}...")
+                    print(f"  Text length: {len(text_content)} chars")
+                    print(f"  Text snippet: {text_content[:100]}...")
+                    print(f"\n--- FULL CONTENT for item {i} ---")
+                    print(text_content)
+                    print("--- END CONTENT ---\n")
+
                     res["content"].append({
                         "type": getattr(c, "type", None),
-                        "text": getattr(c, "text", None),
+                        "text": text_content,
                         "annotations": getattr(c, "annotations", None)
                     })
             if hasattr(result, 'isError'):
