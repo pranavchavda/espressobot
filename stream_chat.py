@@ -94,7 +94,8 @@ def create_stream_blueprint(app):
                             yield f"data: }}\n\n"
 
                 # Process the agent and yield chunks
-                await process_agent()
+                for chunk in process_agent():
+                    yield chunk
 
                 # Store the final response in the database
                 if full_response:
