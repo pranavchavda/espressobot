@@ -990,4 +990,4 @@ END OF SYSTEM PROMPT
                         output = steps[-1]["output"]
                         if isinstance(output, (dict, list)):
                             import json
-                            final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n
+                            final_response = "Result:\n```json\n" + json.dumps(output, indent=2) + "\n```"
