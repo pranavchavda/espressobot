@@ -82,6 +82,20 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
     if (!textToSend || isSending) return;
 
+    // Before sending a new message, check if we have a completed streaming message
+    // If so, move it to regular messages
+    if (streamingMessage?.isComplete) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}`,
+          role: "assistant",
+          content: streamingMessage.content,
+          timestamp: streamingMessage.timestamp,
+        }
+      ]);
+    }
+
     // Add user message to the conversation
     const userMessage = {
       role: "user",
@@ -100,6 +114,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       content: "",
       timestamp: new Date().toISOString(),
       isStreaming: true,
+      isComplete: false, // Add this flag to track completion state
     });
 
     // Close any existing SSE connection
@@ -175,37 +190,20 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle completion
             if (data.done) {
-              // First, capture the final content
-              const finalContent = streamingMessage?.content || "";
-              const timestamp = new Date().toISOString();
+              // Important: Don't clear streamingMessage immediately
+              // Instead, mark it as complete but keep displaying it
+              setStreamingMessage(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  isComplete: true, // Mark as complete but don't remove
+                  isStreaming: false, // No longer streaming
+                };
+              });
               
-              // Add to messages array first, with a unique ID to ensure it's stable
-              const messageId = `msg-${Date.now()}`;
-              setMessages(prev => [
-                ...prev, 
-                { 
-                  id: messageId,
-                  role: "assistant", 
-                  content: finalContent, 
-                  timestamp: timestamp,
-                }
-              ]);
-              
-              // Ensure the new message is in the state before clearing streaming
-              // Use a longer timeout and only clear if content matches
-              setTimeout(() => {
-                setMessages(prevMsgs => {
-                  // Verify the message was actually added before clearing streaming
-                  const messageExists = prevMsgs.some(msg => 
-                    msg.id === messageId && msg.content === finalContent);
-                  
-                  if (messageExists) {
-                    // Only now clear the streaming message
-                    setStreamingMessage(null);
-                  }
-                  return prevMsgs;
-                });
-              }, 250);
+              // We no longer add to messages array here
+              // The streaming message will stay visible and 
+              // be "locked in place" since it's marked complete
               
               break;
             }
@@ -335,7 +333,10 @@ function StreamingChatPage({ convId, refreshConversations }) {
                     />
                   </div>
 
-                  <div className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none">
+                  <div 
+                    className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+                    data-state={streamingMessage.isComplete ? "complete" : "streaming"}
+                  >
                     <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
                       <MarkdownRenderer isAgent={true}>
                         {streamingMessage.content || ""}
