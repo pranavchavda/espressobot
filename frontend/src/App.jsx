@@ -4,7 +4,8 @@ import { SidebarLayout } from "@common/sidebar-layout";
 import { Button } from "@common/button";
 import StreamingChatPage from "./features/chat/StreamingChatPage";
 import LoginPage from "./features/auth/LoginPage"; // Import LoginPage
-import { Routes, Route } from "react-router-dom";
+import ProfilePage from './pages/ProfilePage'; // Import ProfilePage
+import { Routes, Route, Link } from "react-router-dom";
 import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
@@ -12,14 +13,36 @@ import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
 function App() {
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
-  const [loading, setLoading] = useState(true); // Use 'loading' as per previous code
+  const [loading, setLoading] = useState(true); // For conversations loading
 
-  // Authentication state (frontend-only) - KEPT
+  // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false); // No initial async auth check - KEPT
-  const [authError, setAuthError] = useState(null); // KEPT
+  const [authLoading, setAuthLoading] = useState(true); // Start with true for initial auth check
+  const [authError, setAuthError] = useState(null);
 
-  // Fetch conversations from Flask API - REVERTED to previous structure
+  // Initial check for existing backend session
+  useEffect(() => {
+    const checkBackendAuth = async () => {
+      try {
+        const res = await fetch("/api/check_auth");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isAuthenticated) {
+            setIsAuthenticated(true);
+          }
+        }
+        // If not res.ok or not data.isAuthenticated, user remains unauthenticated
+      } catch (e) {
+        console.error("Failed to check backend auth:", e);
+        // User remains unauthenticated
+      } finally {
+        setAuthLoading(false); // Finished initial auth check
+      }
+    };
+    checkBackendAuth();
+  }, []);
+
+  // Fetch conversations from Flask API
   const fetchConversations = async () => {
     setLoading(true);
     try {
@@ -42,12 +65,12 @@ function App() {
     }
   };
 
-  // Call fetchConversations when component mounts or isAuthenticated changes - MODIFIED TO INCLUDE AUTH CHECK
+  // Call fetchConversations when component mounts or isAuthenticated changes
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !authLoading) { // Only fetch if authenticated and initial auth check is done
       fetchConversations();
     }
-  }, [isAuthenticated]); // Fetch when isAuthenticated becomes true
+  }, [isAuthenticated, authLoading]);
 
   // Function to handle deleting a conversation
   const handleDeleteConversation = async (convIdToDelete) => {
@@ -81,37 +104,77 @@ function App() {
     }
   };
 
-  // handleLogin - KEPT
-  const handleLogin = (password) => {
+  // handleLogin
+  const handleLogin = async (email, password) => {
     setAuthLoading(true);
     setAuthError(null);
-    const appPassword = import.meta.env.VITE_APP_PASSWORD;
-    if (!appPassword) {
-      console.error("VITE_APP_PASSWORD is not set in the environment.");
-      setAuthError("Application password configuration error.");
-      setIsAuthenticated(false);
-      setAuthLoading(false);
-      return;
-    }
-    if (password === appPassword) {
-      setIsAuthenticated(true);
-      setSelectedChat(null);
-    } else {
-      setAuthError("Incorrect password.");
+    try {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setIsAuthenticated(true);
+        // Optionally store user data from `data.user` into a currentUser state here
+        // e.g., setCurrentUser(data.user);
+        setSelectedChat(null); // Reset chat selection
+      } else {
+        setAuthError(data.error || "Login failed. Please try again.");
+        setIsAuthenticated(false);
+      }
+    } catch (e) {
+      console.error("Login API call failed:", e);
+      setAuthError("Login failed due to a network or server error.");
       setIsAuthenticated(false);
     }
     setAuthLoading(false);
   };
 
-  // handleLogout - KEPT
-  const handleLogout = () => {
+  // handleRegister
+  const handleRegister = async (email, password, name) => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const response = await fetch("/api/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password, name }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert(data.message || "Registration successful! Please login."); 
+      } else {
+        setAuthError(data.error || "Registration failed. Please try again.");
+      }
+    } catch (e) {
+      console.error("Register API call failed:", e);
+      setAuthError("Registration failed due to a network or server error.");
+    }
+    setAuthLoading(false);
+  };
+
+  // handleLogout
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } catch (e) {
+      console.error("Error during backend logout:", e);
+      // Proceed with frontend logout anyway
+    }
     setIsAuthenticated(false);
     setSelectedChat(null);
     setConversations([]);
     setAuthError(null);
+    // Optionally, clear other states or redirect
   };
 
-  // Conditional rendering based on authentication state - KEPT
+  // Conditional rendering based on authentication state
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-zinc-100 dark:bg-zinc-900">
@@ -126,8 +189,10 @@ function App() {
     return (
       <LoginPage
         onLogin={handleLogin}
+        onRegister={handleRegister} // Pass the new handler
         error={authError}
-        loading={authLoading}
+        loading={authLoading} // This might need to be more granular (loginLoading, registerLoading)
+                           // For now, a single `authLoading` covers both.
       />
     );
   }
@@ -138,7 +203,7 @@ function App() {
       className=""
       navbar={
         <div className="flex justify-between items-center w-full">
-          <div className="font-semibold text-lg px-4 py-2">Chat App</div>
+          <div className="font-semibold text-lg px-4 py-2">EspressoBot</div>
           {/* Added Logout button to the reverted navbar structure */}
           <Button
             onClick={handleLogout}
@@ -193,6 +258,11 @@ function App() {
           <Button className="mb-4 mx-2" onClick={() => setSelectedChat(null)}>
             + New Chat
           </Button>
+          <Link to="/profile" className="mb-4 mx-2">
+            <Button variant="outline" className="w-full">
+              Profile
+            </Button>
+          </Link>
         </div>
       }
     >
@@ -207,6 +277,7 @@ function App() {
             />
           }
         />
+        <Route path="/profile" element={<ProfilePage />} />
       </Routes>
     </SidebarLayout>
   );

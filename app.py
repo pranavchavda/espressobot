@@ -25,69 +25,158 @@ if not _in_venv():
     else:
         print("[WARNING] No venv found! Running with system Python. It is recommended to use a virtual environment in ./venv.")
 
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, jsonify
 import os
 import json
 import asyncio
 from simple_agent import run_simple_agent, client as openai_client
 from responses_agent import run_responses_agent
 from dotenv import load_dotenv
-from database import init_db, get_db, close_db
+from flask_login import login_user, logout_user, current_user, login_required
+# UserMixin will be in models.py with the User model
+from werkzeug.security import generate_password_hash, check_password_hash
+import datetime
+
+# Import Models
+from models import User, Conversation, Message
+
+# Import extensions
+from extensions import db, migrate, login_manager
+
+# Import blueprints - ensure stream_chat is imported before its blueprint is created/used
 from stream_chat import create_stream_blueprint
 
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__, template_folder="templates")
+app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'devsecret')  # Needed for session
 
+# Database Configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', f"sqlite:///{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shopify_agent.db')}")
+print(f"DEBUG: Connecting to DB: {app.config['SQLALCHEMY_DATABASE_URI']}")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-app.teardown_appcontext(close_db)
-with app.app_context():
-    init_db()
+# Initialize extensions with the app object
+db.init_app(app)
+migrate.init_app(app, db) # Migrate needs db instance as well
+login_manager.init_app(app)
+
+login_manager.login_view = None # We are an API, frontend handles login prompts
+login_manager.session_protection = "strong"
+
+@app.route('/api/profile', methods=['GET'])
+@login_required
+def get_profile():
+    return jsonify({
+        "name": current_user.name,
+        "email": current_user.email, # Email is usually good to return, though not editable here
+        "bio": current_user.bio
+    }), 200
+
+@app.route('/api/profile', methods=['PUT'])
+@login_required
+def update_profile():
+    data = request.get_json()
+    
+    if 'name' in data:
+        current_user.name = data['name']
+    if 'bio' in data:
+        current_user.bio = data['bio']
+        
+    db.session.commit()
+    return jsonify({"message": "Profile updated successfully."}), 200
+
+# User loader function uses the imported User model
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id)) # Use db.session.get for SQLAlchemy 2.0 style
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    raw_email = data.get('email')
+    password = data.get('password')
+    name = data.get('name', None)
+
+    if not raw_email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+
+    email = raw_email.lower() # Convert to lowercase
+
+    # Check if user already exists using the case-insensitive email
+    if User.query.filter(db.func.lower(User.email) == email).first():
+        return jsonify({"error": "Email address already registered"}), 400
+
+    allowed_emails_str = os.environ.get('ALLOWED_EMAILS', '')
+    # Convert allowed emails to lowercase for case-insensitive comparison
+    allowed_emails = [e.strip().lower() for e in allowed_emails_str.split(',') if e.strip()]
+    is_whitelisted = email in allowed_emails
+
+    new_user = User(email=email, name=name, is_whitelisted=is_whitelisted)
+    new_user.set_password(password)
+    
+    db.session.add(new_user)
+    db.session.commit()
+    
+    return jsonify({"message": "User registered successfully", "user_id": new_user.id, "email": new_user.email, "is_whitelisted": new_user.is_whitelisted}), 201
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    raw_email = data.get('email')
+    password = data.get('password')
+
+    if not raw_email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+
+    email_to_check = raw_email.lower() # Convert to lowercase for lookup
+
+    # Case-insensitive email lookup
+    user = User.query.filter(db.func.lower(User.email) == email_to_check).first()
+
+    if user and user.check_password(password):
+        if not user.is_whitelisted:
+            return jsonify({"error": "Access denied. User not whitelisted."}), 403
+        
+        login_user(user)
+        return jsonify({"message": "Logged in successfully", "user": {"id": user.id, "email": user.email, "name": user.name, "is_whitelisted": user.is_whitelisted}}), 200
+    
+    return jsonify({"error": "Invalid email or password"}), 401
+
+@app.route('/api/logout', methods=['POST'])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({"message": "Logged out successfully"}), 200
+
+@app.route('/api/check_auth', methods=['GET'])
+def check_auth_status():
+    if current_user.is_authenticated:
+        return jsonify({
+            "isAuthenticated": True, 
+            "user": {
+                "id": current_user.id, 
+                "email": current_user.email, 
+                "name": current_user.name,
+                "is_whitelisted": current_user.is_whitelisted
+            }
+        }), 200
+    else:
+        return jsonify({"isAuthenticated": False}), 401
 
 # Initialize streaming endpoints
-create_stream_blueprint(app)
+# openai_client is imported from simple_agent earlier in the file
+stream_bp = create_stream_blueprint(app, openai_client) # Pass app and openai_client
+app.register_blueprint(stream_bp) # Register the blueprint
 
-from flask import session, redirect, url_for
-
-PASSWORD = os.environ.get("CHAT_PASSWORD", "letmein")
-
-@app.route('/', methods=['GET', 'POST'])
-def home():
-    if 'authenticated' not in session:
-        if request.method == 'POST':
-            pw = request.form.get('password', '')
-            if pw == PASSWORD:
-                session['authenticated'] = True
-                return redirect(url_for('home'))
-            else:
-                return render_template('password.html', error='Incorrect password!')
-        return render_template('password.html', error=None)
-    # Render the main chat interface
-    return render_template('index.html')
-
-@app.route('/responses', methods=['GET', 'POST'])
-def responses_ui():
-    if 'authenticated' not in session:
-        if request.method == 'POST':
-            pw = request.form.get('password', '')
-            if pw == PASSWORD:
-                session['authenticated'] = True
-                return redirect(url_for('responses_ui'))
-            else:
-                return render_template('password.html', error='Incorrect password!')
-        return render_template('password.html', error=None)
-    # Serve the UI pointing to the Responses API
-    template_path = os.path.join(app.template_folder, 'index.html')
-    with open(template_path, 'r') as f:
-        html = f.read()
-    # Replace client fetch call from /chat to /chat_responses
-    html = html.replace("fetch('/chat'", "fetch('/chat_responses'")
-    return html
+# The old PASSWORD var and 'from flask import session' might still be needed by other parts of the app.
+# We will address removing them later if they become fully obsolete.
+from flask import session
 
 
 @app.route('/chat', methods=['POST'])
+@login_required
 def chat():
     # Get the message and conversation history from the request
     data = request.json
@@ -229,6 +318,7 @@ def chat():
         loop.close()
 
 @app.route('/chat_responses', methods=['POST'])
+@login_required
 def chat_responses():
     data = request.json
 
@@ -311,36 +401,57 @@ def chat_responses():
 
 
 @app.route('/conversations', methods=['GET'])
+@login_required
 def list_conversations():
-    db = get_db()
-    convs = db.execute(
-        'SELECT id, title, created_at FROM conversations ORDER BY created_at DESC'
-    ).fetchall()
+    # Fetch conversations for the currently logged-in user
+    user_conversations = Conversation.query.filter_by(user_id=current_user.id).order_by(Conversation.created_at.desc()).all()
     return jsonify([
-        {'id': c['id'], 'title': c['title'], 'created_at': c['created_at']} for c in convs
+        {'id': conv.id, 'title': conv.title, 'created_at': conv.created_at.isoformat() if conv.created_at else None} for conv in user_conversations
     ])
 
+from models import Message, Conversation # Ensure Message is imported
+from flask_login import current_user # Ensure current_user is available
+
 @app.route('/conversations/<int:conv_id>', methods=['GET'])
+@login_required
 def get_conversation(conv_id):
-    db = get_db()
-    rows = db.execute(
-        'SELECT role, content, timestamp FROM messages WHERE conv_id = ? ORDER BY id',
-        (conv_id,)
-    ).fetchall()
-    return jsonify([{'role': r['role'], 'content': r['content'], 'timestamp': r['timestamp']} for r in rows])
+    # First, get the conversation and verify it belongs to the current user
+    conversation = Conversation.query.filter_by(id=conv_id, user_id=current_user.id).first_or_404()
+    
+    # Then, get all messages for that conversation, ordered by creation time
+    messages = Message.query.filter_by(conv_id=conversation.id).order_by(Message.created_at.asc()).all()
+    
+    return jsonify([
+        {
+            'role': msg.role,
+            'content': msg.content,
+            'timestamp': msg.created_at.isoformat() if msg.created_at else None,
+            'tool_call_id': msg.tool_call_id,
+            'tool_name': msg.tool_name
+        } for msg in messages
+    ])
 
 @app.route('/conversations/<int:conv_id>', methods=['DELETE'])
+@login_required
 def delete_conversation(conv_id):
-    db = get_db()
-    db.execute('DELETE FROM messages WHERE conv_id = ?', (conv_id,))
-    db.execute('DELETE FROM conversations WHERE id = ?', (conv_id,))
-    db.commit()
-    return ('', 204)
+    # Ensure Conversation, db, current_user, and jsonify are imported/available in this scope.
+    # e.g., from models import Conversation
+    # from extensions import db
+    # from flask_login import current_user
+    # from flask import jsonify
+
+    conversation = Conversation.query.filter_by(id=conv_id, user_id=current_user.id).first_or_404()
+    
+    # Messages associated with this conversation will be deleted automatically
+    # due to the cascade="all, delete-orphan" setting in the Conversation.messages relationship.
+    db.session.delete(conversation)
+    db.session.commit()
+    
+    return jsonify({'message': f'Conversation {conv_id} and its messages deleted successfully.'}), 200
 
 @app.route('/execute_code', methods=['POST'])
+@login_required
 def execute_code_endpoint():
-    if 'authenticated' not in session:
-        return jsonify({"error": "Authentication required"}), 401
 
     # Import the code interpreter module
     from code_interpreter import execute_code

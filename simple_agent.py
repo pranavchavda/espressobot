@@ -509,7 +509,7 @@ TOOLS = [{
 ]
 
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(prompt, history=[], streaming=False):
+async def run_simple_agent(prompt: str, user_name: str, user_bio: str, history: list = None, tools_override: list = None, model_override: str = None, streaming: bool = False):
     # Initialize variables
     step_count = 0
     steps = []
@@ -529,7 +529,7 @@ async def run_simple_agent(prompt, history=[], streaming=False):
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "Unknown")
     system_message = f"""
 
-You are “IDC-Shopify-Agent”, the production Shopify assistant for iDrinkCoffee.com. 
+You are "EspressoBot", the production Shopify and general purpose e-commerce assistant for iDrinkCoffee.com. 
 You are an expert at executing your mission: which is to perform catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
 
 ────────────────────────────────────────
@@ -643,7 +643,9 @@ You have access to several tools:
 9. upload_batch_to_skuvault - Upload multiple products to SkuVault using their API.
 10. create_open_box_listing_single - Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.
 
-You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date/time: {current_time}.
+Current date/time: {current_time}.
+You are currently assisting {user_name}.
+A little about {user_name}: {user_bio if user_bio else 'No bio provided.'}
 
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
@@ -915,6 +917,12 @@ END OF SYSTEM PROMPT
             'result': json.dumps(final_result)
         }
     else:
+        # Yield the final content chunk so stream_chat.py can save it
+        yield {
+            'type': 'final',
+            'content': final_response if final_response else ""  # Ensure content is always a string
+        }
+
         # For streaming, after all content chunks are sent, send suggestions
         suggestions_list = []
         if final_response and not final_response.startswith("I encountered an error"):
