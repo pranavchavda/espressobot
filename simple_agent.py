@@ -89,8 +89,15 @@ async def execute_shopify_query(query, variables=None):
         print(f"ERROR: {error_msg}")
         return {"errors": [{"message": error_msg}]}
 
-async def execute_shopify_mutation(mutation, variables=None):
-    """Execute a Shopify GraphQL mutation with the provided variables"""
+async def execute_shopify_mutation(mutation=None, variables=None, query=None):
+    """Execute a Shopify GraphQL mutation with the provided variables.
+    Can accept the mutation string via either 'mutation' or 'query' keyword arguments.
+    """
+    if mutation is None and query is not None:
+        mutation = query
+    elif mutation is None and query is None:
+        raise ValueError("No mutation string provided. Please use 'mutation' or 'query' argument.")
+
     if variables is None:
         variables = {}
 
