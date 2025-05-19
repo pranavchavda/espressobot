@@ -12,6 +12,10 @@ run = ["sh", "-c", "bash start_preview.sh"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
+localPort = 2000
+externalPort = 8080
+
+[[ports]]
 localPort = 5000
 externalPort = 5000
 
