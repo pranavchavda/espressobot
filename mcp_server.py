@@ -756,3 +756,150 @@ class FetchMCPServer:
 
 # Create a singleton instance
 fetch_mcp_server = FetchMCPServer()
+
+class SequentialThinkingMCPServer:
+    """
+    A class to handle structured, step-by-step thinking using the MCP sequential thinking server.
+    This enhances the current <THINKING> tags with a more formal reasoning process.
+    """
+    def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
+        # Create a copy of the current environment
+        env_vars = os.environ.copy()
+        
+        self.params = {
+            "command": "npx",
+            "args": ["-y", "server-sequential-thinking"],
+            "env": env_vars
+        }
+        self.cache = True
+    
+    async def think(self, prompt, thinking_type="general", max_steps=5):
+        """
+        Perform structured step-by-step thinking on a prompt.
+        
+        Args:
+            prompt: The prompt to think about
+            thinking_type: Type of thinking (general, problem-solving, coding)
+            max_steps: Maximum number of thinking steps
+            
+        Returns:
+            Dictionary with the thinking steps and final conclusion
+        """
+        print(f"[THINKING_MCP] Starting sequential thinking process: {prompt[:50]}...")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "think", {
+                        "prompt": prompt,
+                        "type": thinking_type,
+                        "max_steps": max_steps
+                    }
+                )
+                
+                # Convert result to a structured format
+                result = {
+                    "success": True,
+                    "steps": [],
+                    "conclusion": "",
+                    "thinking_type": thinking_type
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    # Try to parse thinking steps and conclusion
+                    try:
+                        thinking_text = raw_result.content[0].text
+                        thinking_parts = thinking_text.split("\n\nConclusion: ")
+                        
+                        if len(thinking_parts) > 1:
+                            # Extract steps and conclusion
+                            steps_text = thinking_parts[0]
+                            conclusion = thinking_parts[1].strip()
+                            
+                            # Parse steps
+                            steps = []
+                            step_lines = steps_text.split("\n")
+                            current_step = ""
+                            step_number = 0
+                            
+                            for line in step_lines:
+                                if line.startswith("Step ") and ":" in line:
+                                    # Save previous step if it exists
+                                    if current_step and step_number > 0:
+                                        steps.append({
+                                            "number": step_number,
+                                            "content": current_step.strip()
+                                        })
+                                    
+                                    # Start new step
+                                    step_parts = line.split(":", 1)
+                                    try:
+                                        step_number = int(step_parts[0].replace("Step ", "").strip())
+                                    except ValueError:
+                                        step_number = len(steps) + 1
+                                        
+                                    current_step = step_parts[1].strip() if len(step_parts) > 1 else ""
+                                else:
+                                    # Continue current step
+                                    current_step += "\n" + line
+                            
+                            # Add the last step
+                            if current_step and step_number > 0:
+                                steps.append({
+                                    "number": step_number,
+                                    "content": current_step.strip()
+                                })
+                            
+                            result["steps"] = steps
+                            result["conclusion"] = conclusion
+                        else:
+                            # No clear conclusion format, use the whole text
+                            result["conclusion"] = thinking_text.strip()
+                    except Exception as e:
+                        print(f"[THINKING_MCP] Error parsing thinking result: {e}")
+                        result["steps"] = []
+                        result["conclusion"] = raw_result.content[0].text
+                
+                return result
+        except Exception as e:
+            print(f"[THINKING_MCP] Error in sequential thinking: {e}")
+            return {
+                "success": False,
+                "steps": [],
+                "conclusion": f"Error in sequential thinking: {str(e)}",
+                "thinking_type": thinking_type,
+                "error": str(e)
+            }
+    
+    async def solve_problem(self, problem, max_steps=5):
+        """
+        Apply problem-solving thinking to a specific problem.
+        
+        Args:
+            problem: The problem to solve
+            max_steps: Maximum number of thinking steps
+            
+        Returns:
+            Dictionary with problem-solving steps and solution
+        """
+        return await self.think(problem, thinking_type="problem-solving", max_steps=max_steps)
+    
+    async def plan_code(self, coding_task, max_steps=5):
+        """
+        Plan coding implementation with step-by-step thinking.
+        
+        Args:
+            coding_task: The coding task to plan
+            max_steps: Maximum number of thinking steps
+            
+        Returns:
+            Dictionary with coding plan steps and final implementation plan
+        """
+        return await self.think(coding_task, thinking_type="coding", max_steps=max_steps)
+
+# Create a singleton instance
+thinking_mcp_server = SequentialThinkingMCPServer()
