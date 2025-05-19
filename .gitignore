@@ -57,3 +57,7 @@ shopify_agent.db
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Storage directory
+storage/*
+!storage/.gitkeep
