@@ -206,7 +206,7 @@ function App() {
         <SidebarLayout
           className=""
           navbar={
-            <div className="flex justify-between items-center w-full">
+            <div className="flex justify-between items-center w-full py-2">
               <div className="flex items-center">
               <NavLink to="/">
                 <img 
