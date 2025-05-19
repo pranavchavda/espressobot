@@ -4,7 +4,7 @@ import { Button } from "@common/button"; // Ensure Button component is correctly
 import { format } from "date-fns";
 import { Loader2, Send, UserIcon, BotIcon } from "lucide-react"; // Removed ShoppingBagIcon if not used
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer"; // Assuming this path is correct
-import { Text } from "@common/text";
+import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
 
@@ -170,7 +170,9 @@ function ChatPage({ convId, refreshConversations }) {
                 className="mx-auto mt-6 mb-2 h-96 w-96 object-contain drop-shadow-lg"
                 draggable="false"
               />
-              <Text>Start a new conversation by sending a message</Text>
+              <Text>Start a new conversation by sending a message
+                 visit the <TextLink to="/about">About</TextLink> page for more information and to learn how to use the bot.
+              </Text>
             </div>
           ) : (
             messages.map((msg, i) => (

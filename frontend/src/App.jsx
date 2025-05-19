@@ -208,12 +208,13 @@ function App() {
           navbar={
             <div className="flex justify-between items-center w-full">
               <div className="flex items-center">
+              <NavLink to="/">
                 <img 
                   src={logo}
                   alt="EspressoBot Logo" 
                   className="h-8 ml-2 mr-2"
                 />
-                <span className="font-semibold text-lg">EspressoBot</span>
+                </NavLink>
               </div>
               <div className="flex items-center space-x-4">
                 <NavLink 
