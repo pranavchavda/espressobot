@@ -903,3 +903,367 @@ class SequentialThinkingMCPServer:
 
 # Create a singleton instance
 thinking_mcp_server = SequentialThinkingMCPServer()
+
+class FilesystemMCPServer:
+    """
+    A class to handle filesystem operations using the MCP filesystem server.
+    This provides controlled access to read and write files in designated locations.
+    """
+    def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
+        # Create a copy of the current environment
+        env_vars = os.environ.copy()
+        
+        # Set up the base storage directory for all files
+        self.base_dir = os.path.join(PROJECT_ROOT, "storage")
+        os.makedirs(self.base_dir, exist_ok=True)
+        
+        # Set up templates directory
+        self.templates_dir = os.path.join(self.base_dir, "templates")
+        os.makedirs(self.templates_dir, exist_ok=True)
+        
+        # Set up exports directory
+        self.exports_dir = os.path.join(self.base_dir, "exports")
+        os.makedirs(self.exports_dir, exist_ok=True)
+        
+        # Set up user files directory
+        self.users_dir = os.path.join(self.base_dir, "users")
+        os.makedirs(self.users_dir, exist_ok=True)
+        
+        # Parameters for the filesystem MCP server
+        self.params = {
+            "command": "npx",
+            "args": ["-y", "server-filesystem"],
+            "env": env_vars
+        }
+        self.cache = True
+    
+    def _resolve_path(self, path, user_id=None):
+        """
+        Resolve a path to an absolute path within the allowed directories.
+        
+        Args:
+            path: The path to resolve (can be relative to base_dir)
+            user_id: Optional user ID to scope to user directory
+            
+        Returns:
+            Absolute path within allowed directories, or None if invalid
+        """
+        # Check if path is absolute or relative
+        if os.path.isabs(path):
+            # For absolute paths, verify they're within allowed directories
+            norm_path = os.path.normpath(path)
+            if not (norm_path.startswith(self.base_dir) or 
+                    norm_path.startswith(self.templates_dir) or 
+                    norm_path.startswith(self.exports_dir) or 
+                    norm_path.startswith(self.users_dir)):
+                # Path is outside allowed directories
+                return None
+            return norm_path
+        else:
+            # For relative paths, resolve based on context
+            if path.startswith("templates/"):
+                # Template path
+                rel_path = path[len("templates/"):]
+                return os.path.join(self.templates_dir, rel_path)
+            elif path.startswith("exports/"):
+                # Export path
+                rel_path = path[len("exports/"):]
+                return os.path.join(self.exports_dir, rel_path)
+            elif path.startswith("users/"):
+                # User path
+                rel_path = path[len("users/"):]
+                return os.path.join(self.users_dir, rel_path)
+            elif user_id is not None:
+                # User-specific path
+                user_dir = os.path.join(self.users_dir, str(user_id))
+                os.makedirs(user_dir, exist_ok=True)
+                return os.path.join(user_dir, path)
+            else:
+                # Default to base directory
+                return os.path.join(self.base_dir, path)
+    
+    async def read_file(self, path, user_id=None, encoding="utf-8"):
+        """
+        Read a file using the MCP filesystem server.
+        
+        Args:
+            path: Path to the file (relative to base_dir or absolute)
+            user_id: Optional user ID to scope to user directory
+            encoding: Text encoding to use
+            
+        Returns:
+            Dictionary with file content and metadata
+        """
+        print(f"[FILESYSTEM_MCP] Reading file: {path}")
+        
+        # Resolve and validate path
+        abs_path = self._resolve_path(path, user_id)
+        if not abs_path:
+            return {
+                "success": False,
+                "path": path,
+                "error": "Invalid path. Path must be within allowed directories."
+            }
+        
+        # Check if file exists
+        if not os.path.exists(abs_path):
+            return {
+                "success": False,
+                "path": path,
+                "error": "File does not exist."
+            }
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "readFile", {
+                        "path": abs_path,
+                        "encoding": encoding
+                    }
+                )
+                
+                # Extract content from result
+                result = {
+                    "success": True,
+                    "path": path,
+                    "content": "",
+                    "exists": True
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    result["content"] = raw_result.content[0].text
+                
+                return result
+        except Exception as e:
+            print(f"[FILESYSTEM_MCP] Error reading file: {e}")
+            return {
+                "success": False,
+                "path": path,
+                "error": str(e)
+            }
+    
+    async def write_file(self, path, content, user_id=None, encoding="utf-8"):
+        """
+        Write content to a file using the MCP filesystem server.
+        
+        Args:
+            path: Path to the file (relative to base_dir or absolute)
+            content: Content to write to the file
+            user_id: Optional user ID to scope to user directory
+            encoding: Text encoding to use
+            
+        Returns:
+            Dictionary with operation status
+        """
+        print(f"[FILESYSTEM_MCP] Writing file: {path}")
+        
+        # Resolve and validate path
+        abs_path = self._resolve_path(path, user_id)
+        if not abs_path:
+            return {
+                "success": False,
+                "path": path,
+                "error": "Invalid path. Path must be within allowed directories."
+            }
+        
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+            
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "writeFile", {
+                        "path": abs_path,
+                        "content": content,
+                        "encoding": encoding
+                    }
+                )
+                
+                return {
+                    "success": True,
+                    "path": path,
+                    "message": f"File written successfully to {path}"
+                }
+        except Exception as e:
+            print(f"[FILESYSTEM_MCP] Error writing file: {e}")
+            return {
+                "success": False,
+                "path": path,
+                "error": str(e)
+            }
+    
+    async def list_directory(self, path, user_id=None):
+        """
+        List contents of a directory using the MCP filesystem server.
+        
+        Args:
+            path: Path to the directory (relative to base_dir or absolute)
+            user_id: Optional user ID to scope to user directory
+            
+        Returns:
+            Dictionary with directory contents
+        """
+        print(f"[FILESYSTEM_MCP] Listing directory: {path}")
+        
+        # Resolve and validate path
+        abs_path = self._resolve_path(path, user_id)
+        if not abs_path:
+            return {
+                "success": False,
+                "path": path,
+                "error": "Invalid path. Path must be within allowed directories."
+            }
+        
+        # Check if directory exists
+        if not os.path.exists(abs_path) or not os.path.isdir(abs_path):
+            return {
+                "success": False,
+                "path": path,
+                "error": "Directory does not exist."
+            }
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "listDirectory", {
+                        "path": abs_path
+                    }
+                )
+                
+                # Extract directory contents
+                result = {
+                    "success": True,
+                    "path": path,
+                    "files": [],
+                    "directories": []
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    try:
+                        content_text = raw_result.content[0].text
+                        dir_listing = json.loads(content_text) if content_text else {}
+                        
+                        result["files"] = dir_listing.get("files", [])
+                        result["directories"] = dir_listing.get("directories", [])
+                    except json.JSONDecodeError:
+                        # Handle non-JSON format
+                        result["raw_listing"] = raw_result.content[0].text
+                
+                return result
+        except Exception as e:
+            print(f"[FILESYSTEM_MCP] Error listing directory: {e}")
+            return {
+                "success": False,
+                "path": path,
+                "error": str(e)
+            }
+    
+    async def delete_file(self, path, user_id=None):
+        """
+        Delete a file using the MCP filesystem server.
+        
+        Args:
+            path: Path to the file (relative to base_dir or absolute)
+            user_id: Optional user ID to scope to user directory
+            
+        Returns:
+            Dictionary with operation status
+        """
+        print(f"[FILESYSTEM_MCP] Deleting file: {path}")
+        
+        # Resolve and validate path
+        abs_path = self._resolve_path(path, user_id)
+        if not abs_path:
+            return {
+                "success": False,
+                "path": path,
+                "error": "Invalid path. Path must be within allowed directories."
+            }
+        
+        # Check if file exists
+        if not os.path.exists(abs_path) or os.path.isdir(abs_path):
+            return {
+                "success": False,
+                "path": path,
+                "error": "File does not exist or is a directory."
+            }
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "deleteFile", {
+                        "path": abs_path
+                    }
+                )
+                
+                return {
+                    "success": True,
+                    "path": path,
+                    "message": f"File deleted successfully: {path}"
+                }
+        except Exception as e:
+            print(f"[FILESYSTEM_MCP] Error deleting file: {e}")
+            return {
+                "success": False,
+                "path": path,
+                "error": str(e)
+            }
+    
+    async def check_file_exists(self, path, user_id=None):
+        """
+        Check if a file exists using the MCP filesystem server.
+        
+        Args:
+            path: Path to the file (relative to base_dir or absolute)
+            user_id: Optional user ID to scope to user directory
+            
+        Returns:
+            Dictionary with existence status
+        """
+        print(f"[FILESYSTEM_MCP] Checking if file exists: {path}")
+        
+        # Resolve and validate path
+        abs_path = self._resolve_path(path, user_id)
+        if not abs_path:
+            return {
+                "success": False,
+                "path": path,
+                "exists": False,
+                "error": "Invalid path. Path must be within allowed directories."
+            }
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "exists", {
+                        "path": abs_path
+                    }
+                )
+                
+                # Extract existence status
+                result = {
+                    "success": True,
+                    "path": path,
+                    "exists": False
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    content_text = raw_result.content[0].text.lower()
+                    result["exists"] = "true" in content_text
+                
+                return result
+        except Exception as e:
+            print(f"[FILESYSTEM_MCP] Error checking file existence: {e}")
+            return {
+                "success": False,
+                "path": path,
+                "exists": False,
+                "error": str(e)
+            }
+
+# Create a singleton instance
+filesystem_mcp_server = FilesystemMCPServer()

@@ -18,7 +18,7 @@ from memory_service import memory_service
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server
+from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -368,6 +368,64 @@ async def plan_code(coding_task, max_steps=5):
     except Exception as e:
         print(f"Error in code planning: {e}")
         return {"success": False, "error": str(e)}
+        
+# Filesystem functions
+async def read_file(path, user_id=None, encoding="utf-8"):
+    """Read a file using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.read_file(path, user_id, encoding)
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def write_file(path, content, user_id=None, encoding="utf-8"):
+    """Write content to a file using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+        if content is None:
+            return {"success": False, "error": "Content is required"}
+            
+        return await filesystem_mcp_server.write_file(path, content, user_id, encoding)
+    except Exception as e:
+        print(f"Error writing file: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def list_directory(path, user_id=None):
+    """List contents of a directory using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.list_directory(path, user_id)
+    except Exception as e:
+        print(f"Error listing directory: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def delete_file(path, user_id=None):
+    """Delete a file using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.delete_file(path, user_id)
+    except Exception as e:
+        print(f"Error deleting file: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def check_file_exists(path, user_id=None):
+    """Check if a file exists using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.check_file_exists(path, user_id)
+    except Exception as e:
+        print(f"Error checking file existence: {e}")
+        return {"success": False, "path": path, "exists": False, "error": str(e)}
 
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content."""
@@ -432,6 +490,130 @@ from open_box_listing_tool import create_open_box_listing_single
 
 # Define available tools
 TOOLS = [
+    # Filesystem tools
+    {
+        "name": "read_file",
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from the controlled filesystem storage. Files are stored in dedicated areas for templates, exports, and user-specific files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope file to user directory"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "Text encoding to use (default: utf-8)"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "name": "write_file",
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file in the controlled filesystem storage. Files can be stored in dedicated areas for templates, exports, and user-specific files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write to the file"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope file to user directory"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "Text encoding to use (default: utf-8)"
+                    }
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "name": "list_directory",
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "List contents of a directory in the controlled filesystem storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the directory (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope to user directory"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "name": "delete_file",
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "Delete a file from the controlled filesystem storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope to user directory"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "name": "check_file_exists",
+        "type": "function",
+        "function": {
+            "name": "check_file_exists",
+            "description": "Check if a file exists in the controlled filesystem storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope to user directory"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    
     # Sequential Thinking tools
     {
         "name": "structured_thinking",
@@ -1092,6 +1274,27 @@ Good uses for sequential thinking:
 - Solving inventory or pricing problems
 - Designing implementation strategies for new features
 
+## FILESYSTEM SYSTEM
+
+You have access to controlled filesystem operations for persistent storage:
+
+1. `read_file` - Read content from files in allowed directories
+2. `write_file` - Write content to files in allowed directories
+3. `list_directory` - List contents of directories in allowed locations
+4. `delete_file` - Remove files from allowed directories
+5. `check_file_exists` - Check if a file exists in allowed locations
+
+The filesystem is organized into dedicated areas:
+- Templates directory (`templates/`) - For reusable content templates
+- Exports directory (`exports/`) - For CSV, JSON, and other exports
+- User-specific directories (`users/<user_id>/`) - For files scoped to specific users
+
+Good uses for filesystem:
+- Saving frequently used GraphQL templates
+- Storing user-specific configuration files
+- Exporting reports and data in various formats
+- Maintaining reusable product descriptions or attributes
+
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
 
@@ -1131,7 +1334,12 @@ END OF SYSTEM PROMPT
         "fetch_json": fetch_json,
         "structured_thinking": structured_thinking,
         "solve_problem": solve_problem,
-        "plan_code": plan_code
+        "plan_code": plan_code,
+        "read_file": read_file,
+        "write_file": write_file,
+        "list_directory": list_directory,
+        "delete_file": delete_file,
+        "check_file_exists": check_file_exists
     }
 
     try:
