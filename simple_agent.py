@@ -18,7 +18,7 @@ from memory_service import memory_service
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import mcp_server, memory_mcp_server
+from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -288,6 +288,52 @@ async def delete_user_memory(user_id, key):
     except Exception as e:
         print(f"Error deleting user memory: {e}")
         return {"success": False, "key": key, "error": str(e)}
+        
+# Fetch functions
+async def fetch_url(url, options=None):
+    """Fetch content from a URL using the MCP fetch server."""
+    try:
+        if not url:
+            return {"success": False, "error": "URL is required"}
+            
+        # Ensure URL is properly formatted
+        if not url.startswith(('http://', 'https://')):
+            url = f"https://{url}"
+            
+        return await fetch_mcp_server.fetch_url(url, options)
+    except Exception as e:
+        print(f"Error fetching URL: {e}")
+        return {"success": False, "url": url, "error": str(e)}
+
+async def fetch_and_extract_text(url, selector=None):
+    """Fetch a URL and extract text content, optionally filtered by a CSS selector."""
+    try:
+        if not url:
+            return {"success": False, "error": "URL is required"}
+            
+        # Ensure URL is properly formatted
+        if not url.startswith(('http://', 'https://')):
+            url = f"https://{url}"
+            
+        return await fetch_mcp_server.fetch_and_extract_text(url, selector)
+    except Exception as e:
+        print(f"Error extracting text from URL: {e}")
+        return {"success": False, "url": url, "error": str(e)}
+
+async def fetch_json(url, options=None):
+    """Fetch and parse JSON content from a URL."""
+    try:
+        if not url:
+            return {"success": False, "error": "URL is required"}
+            
+        # Ensure URL is properly formatted
+        if not url.startswith(('http://', 'https://')):
+            url = f"https://{url}"
+            
+        return await fetch_mcp_server.fetch_json(url, options)
+    except Exception as e:
+        print(f"Error fetching JSON: {e}")
+        return {"success": False, "url": url, "error": str(e)}
 
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content."""
@@ -352,6 +398,74 @@ from open_box_listing_tool import create_open_box_listing_single
 
 # Define available tools
 TOOLS = [
+    # Fetch tools
+    {
+        "name": "fetch_url",
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "Fetch content from a URL. Provides the raw content and metadata.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch"
+                    },
+                    "options": {
+                        "type": "object",
+                        "description": "Optional parameters for the fetch request (headers, timeout, etc.)"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "name": "fetch_and_extract_text",
+        "type": "function",
+        "function": {
+            "name": "fetch_and_extract_text",
+            "description": "Fetch a webpage and extract the text content, removing HTML tags and formatting. Optionally filter by CSS selector.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch"
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector to extract specific content (e.g., 'article', '.main-content')"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "name": "fetch_json",
+        "type": "function",
+        "function": {
+            "name": "fetch_json",
+            "description": "Fetch and parse JSON content from a URL or API endpoint.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch JSON from"
+                    },
+                    "options": {
+                        "type": "object",
+                        "description": "Optional parameters for the fetch request (headers, timeout, etc.)"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    
     # Memory tools
     {
         "name": "store_user_memory",
@@ -809,9 +923,12 @@ A little about {user_name}: {user_bio if user_bio else 'No bio provided.'}
 User ID: {user_id if user_id else 'Unknown'}
 
 ────────────────────────────────────────
-MEMORY CAPABILITIES
+ENHANCED CAPABILITIES
 ────────────────────────────────────────
-You have access to user-specific memory functions that can help you maintain context across conversations:
+
+## MEMORY SYSTEM
+
+You have access to user-specific memory functions that help maintain context across conversations:
 
 1. `store_user_memory` - Store information about this user for future retrieval
 2. `retrieve_user_memory` - Retrieve previously stored information about this user
@@ -826,6 +943,27 @@ Good uses for memory:
 - Remember frequently accessed products or information
 - Keep track of conversation history highlights
 - Remember custom templates or formats the user prefers
+
+## WEB FETCH SYSTEM
+
+You have access to enhanced web content fetching capabilities:
+
+1. `fetch_url` - Fetch raw content and metadata from any URL
+2. `fetch_and_extract_text` - Fetch a webpage and extract clean text content (with optional CSS selector filtering)
+3. `fetch_json` - Fetch and parse JSON content from URLs and APIs
+
+These fetch tools are more robust than the basic curl function and provide:
+- Better error handling
+- HTML-to-text conversion
+- CSS selector filtering for targeted content extraction
+- Automatic JSON parsing
+- Proper headers and metadata handling
+
+Good uses for fetch:
+- Research product information from external websites
+- Access web APIs for additional data
+- Extract pricing and competitive information
+- Retrieve documentation for reference
 
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
@@ -860,7 +998,10 @@ END OF SYSTEM PROMPT
         "store_user_memory": store_user_memory,
         "retrieve_user_memory": retrieve_user_memory,
         "list_user_memories": list_user_memories,
-        "delete_user_memory": delete_user_memory
+        "delete_user_memory": delete_user_memory,
+        "fetch_url": fetch_url,
+        "fetch_and_extract_text": fetch_and_extract_text,
+        "fetch_json": fetch_json
     }
 
     try:
