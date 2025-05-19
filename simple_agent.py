@@ -553,6 +553,9 @@ FUNDAMENTAL PRINCIPLES
    You can use any tool available to you to solve the problem. Understand the problem deeply. Carefully read the issue and think critically about what is required.
    Develop a clear, step-by-step plan. Break down the fix into manageable, incremental steps.
 
+2a. Multi-Tool Workflows
+    Whenever you recognize that more than one tool could simplify, verify, or enrich the solution, proactively design and execute a chained workflow—for example, fetching raw data with  fetch_url_with_curl, then parsing or transforming it with  execute_python_code—even if the user did not explicitly request each tool.
+
 3. Persistent awareness of your original Intent:
    When solving a problem and using tools, always keep in mind the original intent and purpose of what you are doing at a high level.
    This will help you avoid getting lost in the details and losing sight of the bigger picture.
@@ -682,7 +685,7 @@ END OF SYSTEM PROMPT
         "perplexity_ask": ask_perplexity,
         "upload_to_skuvault": upload_to_skuvault,
         "upload_batch_to_skuvault": upload_batch_to_skuvault,
-        "execute_python_code": lambda code: asyncio.run(execute_code(code)),  # Fix: Execute code in the event loop
+        "execute_python_code": execute_code,  # Correctly reference the async function to be awaited
         "create_open_box_listing_single": create_open_box_listing_single
     }
 
