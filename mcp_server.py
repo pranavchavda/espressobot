@@ -556,3 +556,203 @@ class MemoryMCPServer:
 
 # Create a singleton instance
 memory_mcp_server = MemoryMCPServer()
+
+class FetchMCPServer:
+    """
+    A class to handle web content fetching using the MCP fetch server.
+    This provides more robust web content retrieval than simple curl commands.
+    """
+    def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
+        # Create a copy of the current environment
+        env_vars = os.environ.copy()
+        
+        self.params = {
+            "command": "npx",
+            "args": ["-y", "server-fetch"],
+            "env": env_vars
+        }
+        self.cache = True
+    
+    async def fetch_url(self, url, options=None):
+        """
+        Fetch content from a URL using the MCP fetch server.
+        
+        Args:
+            url: The URL to fetch
+            options: Optional dict of fetch options (e.g., headers, timeout)
+            
+        Returns:
+            Dictionary with the fetched content and metadata
+        """
+        if options is None:
+            options = {}
+            
+        print(f"[FETCH_MCP] Fetching URL: {url}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "fetch", {"url": url, **options}
+                )
+                
+                # Extract the content from the result
+                result = {
+                    "success": True,
+                    "url": url,
+                    "content": "",
+                    "status": 200,
+                    "headers": {},
+                    "content_type": ""
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    # Extract text content
+                    content_text = ""
+                    for content_item in raw_result.content:
+                        if hasattr(content_item, "text") and content_item.text:
+                            content_text += content_item.text
+                    
+                    result["content"] = content_text
+                    
+                    # Try to extract metadata if available
+                    if hasattr(raw_result, "meta") and raw_result.meta:
+                        meta = raw_result.meta
+                        if hasattr(meta, "status"):
+                            result["status"] = meta.status
+                        if hasattr(meta, "headers"):
+                            result["headers"] = meta.headers
+                        if hasattr(meta, "content_type"):
+                            result["content_type"] = meta.content_type
+                
+                return result
+        except Exception as e:
+            print(f"[FETCH_MCP] Error fetching URL: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+                "content": "",
+                "status": 0
+            }
+    
+    async def fetch_and_extract_text(self, url, selector=None):
+        """
+        Fetch a URL and extract text content, optionally filtered by a CSS selector.
+        
+        Args:
+            url: The URL to fetch
+            selector: Optional CSS selector to filter content
+            
+        Returns:
+            Dictionary with the extracted text content
+        """
+        print(f"[FETCH_MCP] Fetching and extracting text from URL: {url}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                tool_args = {"url": url}
+                if selector:
+                    tool_args["selector"] = selector
+                    
+                raw_result = await server.call_tool("extractText", tool_args)
+                
+                # Extract the text content from the result
+                result = {
+                    "success": True,
+                    "url": url,
+                    "text": "",
+                    "status": 200
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    # Combine all text content
+                    content_text = ""
+                    for content_item in raw_result.content:
+                        if hasattr(content_item, "text") and content_item.text:
+                            content_text += content_item.text
+                    
+                    result["text"] = content_text
+                    
+                    # Try to extract metadata if available
+                    if hasattr(raw_result, "meta") and raw_result.meta:
+                        meta = raw_result.meta
+                        if hasattr(meta, "status"):
+                            result["status"] = meta.status
+                
+                return result
+        except Exception as e:
+            print(f"[FETCH_MCP] Error extracting text from URL: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+                "text": "",
+                "status": 0
+            }
+    
+    async def fetch_json(self, url, options=None):
+        """
+        Fetch and parse JSON content from a URL.
+        
+        Args:
+            url: The URL to fetch
+            options: Optional dict of fetch options (e.g., headers, timeout)
+            
+        Returns:
+            Dictionary with the parsed JSON content
+        """
+        if options is None:
+            options = {}
+            
+        print(f"[FETCH_MCP] Fetching JSON from URL: {url}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "fetchJson", {"url": url, **options}
+                )
+                
+                # Extract the JSON content from the result
+                result = {
+                    "success": True,
+                    "url": url,
+                    "json": None,
+                    "status": 200,
+                    "headers": {}
+                }
+                
+                if hasattr(raw_result, "content") and raw_result.content:
+                    # Try to parse JSON content
+                    try:
+                        if raw_result.content[0].text:
+                            result["json"] = json.loads(raw_result.content[0].text)
+                    except (json.JSONDecodeError, IndexError) as json_err:
+                        print(f"[FETCH_MCP] JSON parsing error: {json_err}")
+                        result["success"] = False
+                        result["error"] = f"JSON parsing error: {str(json_err)}"
+                    
+                    # Try to extract metadata if available
+                    if hasattr(raw_result, "meta") and raw_result.meta:
+                        meta = raw_result.meta
+                        if hasattr(meta, "status"):
+                            result["status"] = meta.status
+                        if hasattr(meta, "headers"):
+                            result["headers"] = meta.headers
+                
+                return result
+        except Exception as e:
+            print(f"[FETCH_MCP] Error fetching JSON: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+                "json": None,
+                "status": 0
+            }
+
+# Create a singleton instance
+fetch_mcp_server = FetchMCPServer()
