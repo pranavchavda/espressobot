@@ -20,8 +20,9 @@ def verify_db_connection():
         tuple: (bool, str) - Success flag and error message if any
     """
     try:
-        # Simple query to test connection
-        db.session.execute("SELECT 1")
+        # Simple query to test connection using SQLAlchemy text() for proper escaping
+        from sqlalchemy import text
+        db.session.execute(text("SELECT 1"))
         db.session.commit()
         return True, ""
     except OperationalError as e:
