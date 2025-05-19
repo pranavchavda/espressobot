@@ -94,7 +94,9 @@ def create_stream_blueprint(app, openai_client):
                     # Get user's name and bio
                     user_name = current_user.name
                     user_bio = current_user.bio
-                    async for chunk in run_simple_agent(message_text, user_name, user_bio, history, streaming=True):
+                    # Pass the user_id for user-specific memory
+                    user_id = current_user.id
+                    async for chunk in run_simple_agent(message_text, user_name, user_bio, history, streaming=True, user_id=user_id):
                         if chunk.get('type') == 'content':
                             delta = chunk.get('delta', '')
                             full_response += delta
