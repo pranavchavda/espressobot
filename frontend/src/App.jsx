@@ -5,8 +5,10 @@ import { Button } from "@common/button";
 import StreamingChatPage from "./features/chat/StreamingChatPage";
 import LoginPage from "./features/auth/LoginPage"; // Import LoginPage
 import ProfilePage from './pages/ProfilePage'; // Import ProfilePage
-import { Routes, Route, Link } from "react-router-dom";
+import AboutPage from './pages/AboutPage'; // Import AboutPage
+import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
 import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
+import logo from '../static/EspressoBotLogo.png';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -197,76 +199,118 @@ function App() {
     );
   }
 
-  // User is authenticated, render the main app - REVERTED TO PREVIOUS JSX STRUCTURE
+  // User is authenticated, render the main app with sidebar layout
   return (
-    <SidebarLayout
-      className=""
-      navbar={
-        <div className="flex justify-between items-center w-full">
-          <div className="font-semibold text-lg px-4 py-2">EspressoBot</div>
-          {/* Added Logout button to the reverted navbar structure */}
-          <Button
-            onClick={handleLogout}
-            variant="ghost"
-            className="mr-2 px-3 py-1 text-sm"
-          >
-            Logout
-          </Button>
-        </div>
-      }
-      sidebar={
-        <div className="flex flex-col h-full">
-          <nav className="flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="text-zinc-400 px-4 py-2">Loading...</div>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {conversations.map((chat) => (
-                  <li key={chat.id} className="group relative pr-4"> {/* Added relative and pr for button positioning */}
-                    <button
-                      className={`w-full text-left px-4 py-3 rounded-lg transition-colors
-                        ${selectedChat === chat.id ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-                      onClick={() => setSelectedChat(chat.id)}
-                    >
-                      <div className="truncate">{chat.title}</div>
-                      <div className="text-xs text-zinc-500 truncate">
-                        {chat.created_at
-                          ? new Date(chat.created_at).toLocaleString()
-                          : ""}
-                      </div>
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="iconSm" // Assuming a small icon button size, adjust if needed
-                      className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation(); // Prevent chat selection when clicking delete
-                        handleDeleteConversation(chat.id);
-                      }}
-                      aria-label="Delete conversation"
-                    >
-                      <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
-                    </Button>
-                  </li>
-                ))}
-                {conversations.length === 0 && !loading && (
-                  <li className="text-zinc-400 px-4 py-2">No conversations</li>
+    <Routes>
+      <Route element={
+        <SidebarLayout
+          className=""
+          navbar={
+            <div className="flex justify-between items-center w-full">
+              <div className="flex items-center">
+                <img 
+                  src={logo}
+                  alt="EspressoBot Logo" 
+                  className="h-8 ml-2 mr-2"
+                />
+                <span className="font-semibold text-lg">EspressoBot</span>
+              </div>
+              <div className="flex items-center space-x-4">
+                <NavLink 
+                  to="/profile" 
+                  className={({ isActive }) => 
+                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                      isActive 
+                        ? 'text-indigo-600 dark:text-indigo-400' 
+                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
+                    }`
+                  }
+                >
+                  Profile
+                </NavLink>
+                <NavLink 
+                  to="/about" 
+                  className={({ isActive }) => 
+                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                      isActive 
+                        ? 'text-indigo-600 dark:text-indigo-400' 
+                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
+                    }`
+                  }
+                >
+                  About
+                </NavLink>
+                <Button
+                  onClick={handleLogout}
+                  variant="ghost"
+                  className="px-3 py-1 text-sm"
+                >
+                  Logout
+                </Button>
+              </div>
+            </div>
+          }
+          sidebar={
+            <div className="flex flex-col h-full">
+              <nav className="flex-1 overflow-y-auto">
+                {loading ? (
+                  <div className="text-zinc-400 px-4 py-2">Loading...</div>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {conversations.map((chat) => (
+                      <li key={chat.id} className="group relative pr-4">
+                        <Link 
+                          to="/" // Always link to home
+                          className={`block w-full text-left px-4 py-3 rounded-lg transition-colors ${
+                            selectedChat === chat.id 
+                              ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" 
+                              : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                          onClick={() => setSelectedChat(chat.id)}
+                        >
+                          <div className="truncate">{chat.title}</div>
+                          <div className="text-xs text-zinc-500 truncate">
+                            {chat.created_at
+                              ? new Date(chat.created_at).toLocaleString()
+                              : ""}
+                          </div>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="iconSm"
+                          className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDeleteConversation(chat.id);
+                          }}
+                          aria-label="Delete conversation"
+                        >
+                          <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
+                        </Button>
+                      </li>
+                    ))}
+                    {conversations.length === 0 && !loading && (
+                      <li className="text-zinc-400 px-4 py-2">No conversations</li>
+                    )}
+                  </ul>
                 )}
-              </ul>
-            )}
-          </nav>
-          <Button className="mb-4 mx-2" onClick={() => setSelectedChat(null)}>
-            + New Chat
-          </Button>
-          <Link to="/profile" className="mb-4 mx-2">
-            <Button variant="outline" className="w-full">
-              Profile
-            </Button>
-          </Link>
-        </div>
-      }
-    >
-      <Routes>
+              </nav>
+              <Link to="/" className="mb-4 mx-2">
+                <Button 
+                  className="w-full"
+                  onClick={() => setSelectedChat(null)}
+                >
+                  + New Chat
+                </Button>
+              </Link>
+
+            </div>
+          }
+        >
+          <Outlet />
+        </SidebarLayout>
+      }>
         <Route
           path="/"
           element={
@@ -278,8 +322,9 @@ function App() {
           }
         />
         <Route path="/profile" element={<ProfilePage />} />
-      </Routes>
-    </SidebarLayout>
+        <Route path="/about" element={<AboutPage />} />
+      </Route>
+    </Routes>
   );
 }
 

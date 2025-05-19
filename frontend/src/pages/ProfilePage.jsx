@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { Button } from "@common/button";
+import { Textarea } from "@common/textarea";
+import { Field, Label } from "@common/fieldset";
+import { Input } from "@common/input";
+import { InfoIcon } from 'lucide-react';
 
 function ProfilePage() {
   const [profile, setProfile] = useState({ name: '', email: '', bio: '' });
@@ -75,58 +80,63 @@ function ProfilePage() {
       {successMessage && <div className="mb-4 p-3 bg-green-100 text-green-700 border border-green-400 rounded">{successMessage}</div>}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <Field>
+          <Label htmlFor="name">
             Name
-          </label>
-          <input
+          </Label>
+          <Input
             type="text"
             name="name"
             id="name"
             value={profile.name || ''}
             onChange={handleChange}
-            className="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <Field>
+          <Label htmlFor="email">
             Email (cannot be changed)
-          </label>
-          <input
+          </Label>
+          <Input
             type="email"
             name="email"
             id="email"
             value={profile.email || ''}
             readOnly
-            className="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-md shadow-sm sm:text-sm bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 cursor-not-allowed"
+            disabled
+            cursor="not-allowed"
+            className="bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 cursor-not-allowed"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="bio" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <Field>
+          <Label htmlFor="bio" className="flex items-center gap-2">
             Bio
-          </label>
-          <textarea
+            <span className="relative group inline-block">
+                <InfoIcon className="w-4 h-4 text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 cursor-none" />
+              <span className="absolute z-10 mt-2 w-64 -translate-x-1/2 rounded bg-zinc-900 px-3 py-2 text-xs text-white opacity-0 group-hover:opacity-100 transition pointer-events-none dark:bg-zinc-800 shadow-lg">
+                What you enter here will be visible to EspressoBot. EspressoBot may use this information to better understand you and provide more personalized responses.
+              </span>
+            </span>
+          </Label>
+          <Textarea
             name="bio"
             id="bio"
             rows="4"
             value={profile.bio || ''}
             onChange={handleChange}
-            className="mt-1 block w-full px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
             placeholder="Tell us a little about yourself..."
           />
-        </div>
+        </Field>
 
-        <div>
-          <button
+        <Field>
+          <Button
             type="submit"
             disabled={isLoading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
           >
             {isLoading ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
+          </Button>
+        </Field>
       </form>
     </div>
   );

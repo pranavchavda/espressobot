@@ -6,7 +6,7 @@ import { Loader2, Send, UserIcon, BotIcon } from "lucide-react"; // Removed Shop
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer"; // Assuming this path is correct
 import { Text } from "@common/text";
 import { Avatar } from "@common/avatar";
-import logo from "../../../static/shopify_assistant_logo.png";
+import logo from "../../../static/EspressoBotLogo.png";
 
 // Markdown import seems duplicated, MarkdownAsync might be what you intend to use if it's different
 // import Markdown, { MarkdownAsync } from 'react-markdown';

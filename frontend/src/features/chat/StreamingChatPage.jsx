@@ -6,7 +6,7 @@ import { Loader2, Send, UserIcon, BotIcon } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { Text } from "@common/text";
 import { Avatar } from "@common/avatar";
-import logo from "../../../static/shopify_assistant_logo.png";
+import logo from "../../../static/EspressoBotLogo.png";
 
 function StreamingChatPage({ convId, refreshConversations }) {
   const [messages, setMessages] = useState([]);
