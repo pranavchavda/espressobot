@@ -298,7 +298,7 @@ class PerplexityMCPServer:
         
         self.params = {
             "command": "npx",
-            "args": ["-y", "server-perplexity-ask"],
+            "args": ["-y", "@modelcontextprotocol/server-perplexity-ask"],
             "env": env_vars
         }
         self.cache = True
@@ -385,7 +385,7 @@ class MemoryMCPServer:
         
         self.params = {
             "command": "npx",
-            "args": ["-y", "server-memory"],
+            "args": ["-y", "@modelcontextprotocol/server-memory"],
             "env": env_vars
         }
         self.cache = True
@@ -572,7 +572,7 @@ class FetchMCPServer:
         
         self.params = {
             "command": "npx",
-            "args": ["-y", "server-fetch"],
+            "args": ["-y", "@modelcontextprotocol/server-fetch"],
             "env": env_vars
         }
         self.cache = True
@@ -772,7 +772,7 @@ class SequentialThinkingMCPServer:
         
         self.params = {
             "command": "npx",
-            "args": ["-y", "server-sequential-thinking"],
+            "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
             "env": env_vars
         }
         self.cache = True
@@ -936,7 +936,7 @@ class FilesystemMCPServer:
         # Parameters for the filesystem MCP server
         self.params = {
             "command": "npx",
-            "args": ["-y", "server-filesystem"],
+            "args": ["-y", "@modelcontextprotocol/server-filesystem"],
             "env": env_vars
         }
         self.cache = True
