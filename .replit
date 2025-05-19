@@ -69,4 +69,4 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "bash start_dev.sh"
+args = "python app.py"

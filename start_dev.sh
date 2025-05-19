@@ -7,28 +7,23 @@ PYTHON_PID=$!
 echo "Python backend started with PID: $PYTHON_PID"
 # Wait for the backend to fully initialize
 echo "Waiting for backend to initialize..."
-sleep 3
+sleep 5  # Increased wait time
+
+# Check if the server is running
+if ! curl -s http://0.0.0.0:5000 > /dev/null; then
+  echo "Warning: Backend server may not be running correctly. Continuing anyway..."
+fi
 
 # Navigate to the frontend directory
 cd frontend/
 
-# Source NVM and set Node version
-echo "Setting up Node.js environment..."
-# Assuming nvm is installed in the default location
-if [ -s "$HOME/.nvm/nvm.sh" ]; then
-  source "$HOME/.nvm/nvm.sh"  # This loads nvm
-  nvm use 22
-elif [ -s "$(brew --prefix nvm)/nvm.sh" ]; then # Check for Homebrew nvm on macOS
-    source "$(brew --prefix nvm)/nvm.sh"
-    nvm use 22
-else
-    echo "NVM script not found. Please ensure NVM is installed and configured correctly."
-    echo "Attempting to run 'npm run dev' directly..."
-fi
+# For Replit environment, don't rely on NVM
+echo "Setting up Node.js environment for Replit..."
+export NODE_ENV=development
 
 # Start frontend development server
 echo "Starting frontend development server..."
-npm run dev --port=2000
+npm run dev -- --port=2000 --host=0.0.0.0
 
 # Function to clean up background process on exit
 cleanup() {
@@ -40,6 +35,5 @@ cleanup() {
 # Trap EXIT signal to run cleanup function
 trap cleanup EXIT SIGINT SIGTERM
 
-# Wait for npm run dev to finish (which typically runs until manually stopped)
-# This 'wait' will keep the script alive. If npm dev exits, the script exits, triggering the trap.
+# Wait for npm run dev to finish
 wait $!
