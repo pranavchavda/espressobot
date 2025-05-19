@@ -18,7 +18,7 @@ from memory_service import memory_service
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server
+from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -334,6 +334,40 @@ async def fetch_json(url, options=None):
     except Exception as e:
         print(f"Error fetching JSON: {e}")
         return {"success": False, "url": url, "error": str(e)}
+        
+# Sequential Thinking functions
+async def structured_thinking(prompt, thinking_type="general", max_steps=5):
+    """Perform structured step-by-step thinking on a prompt."""
+    try:
+        if not prompt:
+            return {"success": False, "error": "Prompt is required"}
+            
+        return await thinking_mcp_server.think(prompt, thinking_type, max_steps)
+    except Exception as e:
+        print(f"Error in structured thinking: {e}")
+        return {"success": False, "error": str(e)}
+
+async def solve_problem(problem, max_steps=5):
+    """Apply problem-solving thinking to a specific problem."""
+    try:
+        if not problem:
+            return {"success": False, "error": "Problem is required"}
+            
+        return await thinking_mcp_server.solve_problem(problem, max_steps)
+    except Exception as e:
+        print(f"Error in problem solving: {e}")
+        return {"success": False, "error": str(e)}
+
+async def plan_code(coding_task, max_steps=5):
+    """Plan coding implementation with step-by-step thinking."""
+    try:
+        if not coding_task:
+            return {"success": False, "error": "Coding task is required"}
+            
+        return await thinking_mcp_server.plan_code(coding_task, max_steps)
+    except Exception as e:
+        print(f"Error in code planning: {e}")
+        return {"success": False, "error": str(e)}
 
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content."""
@@ -398,6 +432,79 @@ from open_box_listing_tool import create_open_box_listing_single
 
 # Define available tools
 TOOLS = [
+    # Sequential Thinking tools
+    {
+        "name": "structured_thinking",
+        "type": "function",
+        "function": {
+            "name": "structured_thinking",
+            "description": "Perform structured step-by-step thinking on a prompt, breaking down reasoning into clear steps with a conclusion.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The prompt or question to think about"
+                    },
+                    "thinking_type": {
+                        "type": "string",
+                        "description": "Type of thinking to apply",
+                        "enum": ["general", "problem-solving", "coding"]
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of thinking steps"
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
+    },
+    {
+        "name": "solve_problem",
+        "type": "function",
+        "function": {
+            "name": "solve_problem",
+            "description": "Apply structured problem-solving thinking to reach a solution or conclusion about a specific problem.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "problem": {
+                        "type": "string",
+                        "description": "The problem to solve"
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of thinking steps"
+                    }
+                },
+                "required": ["problem"]
+            }
+        }
+    },
+    {
+        "name": "plan_code",
+        "type": "function",
+        "function": {
+            "name": "plan_code",
+            "description": "Create a step-by-step plan for implementing code, breaking down the approach before writing actual code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "coding_task": {
+                        "type": "string",
+                        "description": "The coding task to plan"
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of planning steps"
+                    }
+                },
+                "required": ["coding_task"]
+            }
+        }
+    },
+    
     # Fetch tools
     {
         "name": "fetch_url",
@@ -965,6 +1072,26 @@ Good uses for fetch:
 - Extract pricing and competitive information
 - Retrieve documentation for reference
 
+## SEQUENTIAL THINKING SYSTEM
+
+You have access to structured thinking tools that enhance your reasoning process:
+
+1. `structured_thinking` - General step-by-step reasoning about any prompt
+2. `solve_problem` - Specialized problem-solving approach for complex issues
+3. `plan_code` - Structured planning for code implementation tasks
+
+These thinking tools formalize your <THINKING> process and provide:
+- Clear, numbered steps in your reasoning
+- Consistent problem-solving framework
+- Better organization of complex thoughts
+- Explicit conclusions based on reasoning steps
+
+Good uses for sequential thinking:
+- Breaking down complex Shopify operations
+- Planning multi-step product changes
+- Solving inventory or pricing problems
+- Designing implementation strategies for new features
+
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
 
@@ -1001,7 +1128,10 @@ END OF SYSTEM PROMPT
         "delete_user_memory": delete_user_memory,
         "fetch_url": fetch_url,
         "fetch_and_extract_text": fetch_and_extract_text,
-        "fetch_json": fetch_json
+        "fetch_json": fetch_json,
+        "structured_thinking": structured_thinking,
+        "solve_problem": solve_problem,
+        "plan_code": plan_code
     }
 
     try:
