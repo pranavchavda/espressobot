@@ -49,3 +49,28 @@ class Message(db.Model):
 
     def __repr__(self):
         return f'<Message {self.id} in Conv {self.conv_id} by {self.role}>'
+
+
+class UserMemory(db.Model):
+    """Model for storing persistent user memories.
+    
+    This backs up the in-memory MCP memory server to ensure important memories
+    are not lost if the memory server restarts. Critical memories should be saved
+    to both the memory server and this database table.
+    """
+    __tablename__ = 'user_memories'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    key = db.Column(db.String(255), nullable=False)  # Memory key
+    value = db.Column(db.Text, nullable=False)  # Memory value (stored as text/JSON)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    # Establish relationship with User model
+    user = db.relationship('User', backref=db.backref('memories', lazy=True, cascade="all, delete-orphan"))
+    
+    # Composite unique constraint to ensure each user has unique memory keys
+    __table_args__ = (db.UniqueConstraint('user_id', 'key', name='unique_user_memory_key'),)
+    
+    def __repr__(self):
+        return f'<UserMemory {self.id} for User {self.user_id}: {self.key}>'

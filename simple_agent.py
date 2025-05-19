@@ -11,11 +11,14 @@ from datetime import datetime
 import re # Import re for URL validation
 import traceback # Import traceback for error handling
 
+# Import memory service
+from memory_service import memory_service
+
 # Import SkuVault integration
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
-# Import our custom MCP server implementation
-from mcp_server import mcp_server
+# Import our custom MCP server implementations
+from mcp_server import mcp_server, memory_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -236,6 +239,55 @@ async def ask_perplexity(messages):
         print(f"Error calling Perplexity MCP: {e}")
         import traceback; traceback.print_exc()
         return {"error": str(e)}
+        
+# Memory functions
+async def store_user_memory(user_id, key, value, persist=True):
+    """Store a memory for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "error": "Missing user_id parameter"}
+            
+        return await memory_service.store_memory(user_id, key, value, persist)
+    except Exception as e:
+        print(f"Error storing user memory: {e}")
+        return {"success": False, "error": str(e)}
+
+async def retrieve_user_memory(user_id, key, default=None):
+    """Retrieve a memory for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "key": key, "value": default, "error": "Missing user_id parameter"}
+            
+        return await memory_service.retrieve_memory(user_id, key, default)
+    except Exception as e:
+        print(f"Error retrieving user memory: {e}")
+        return {"success": False, "key": key, "value": default, "error": str(e)}
+
+async def list_user_memories(user_id):
+    """List all memories for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "keys": [], "count": 0, "error": "Missing user_id parameter"}
+            
+        return await memory_service.list_memories(user_id)
+    except Exception as e:
+        print(f"Error listing user memories: {e}")
+        return {"success": False, "keys": [], "count": 0, "error": str(e)}
+
+async def delete_user_memory(user_id, key):
+    """Delete a memory for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "key": key, "error": "Missing user_id parameter"}
+            
+        return await memory_service.delete_memory(user_id, key)
+    except Exception as e:
+        print(f"Error deleting user memory: {e}")
+        return {"success": False, "key": key, "error": str(e)}
 
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content."""
@@ -299,7 +351,105 @@ async def fetch_url_with_curl(url: str):
 from open_box_listing_tool import create_open_box_listing_single
 
 # Define available tools
-TOOLS = [{
+TOOLS = [
+    # Memory tools
+    {
+        "name": "store_user_memory",
+        "type": "function",
+        "function": {
+            "name": "store_user_memory",
+            "description": "Store a memory for the current user. Memories are user-specific and persist across sessions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The memory key (e.g., 'preferences.theme', 'common_products')"
+                    },
+                    "value": {
+                        "type": "object",
+                        "description": "The value to store (can be any JSON-serializable object)"
+                    },
+                    "persist": {
+                        "type": "boolean",
+                        "description": "Whether to persist to database (default: true)"
+                    }
+                },
+                "required": ["user_id", "key", "value"]
+            }
+        }
+    },
+    {
+        "name": "retrieve_user_memory",
+        "type": "function",
+        "function": {
+            "name": "retrieve_user_memory",
+            "description": "Retrieve a memory for the current user. Returns the memory value or a default if not found.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The memory key to retrieve"
+                    },
+                    "default": {
+                        "type": "object",
+                        "description": "The default value to return if memory not found"
+                    }
+                },
+                "required": ["user_id", "key"]
+            }
+        }
+    },
+    {
+        "name": "list_user_memories",
+        "type": "function",
+        "function": {
+            "name": "list_user_memories",
+            "description": "List all memories for the current user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    }
+                },
+                "required": ["user_id"]
+            }
+        }
+    },
+    {
+        "name": "delete_user_memory",
+        "type": "function",
+        "function": {
+            "name": "delete_user_memory",
+            "description": "Delete a memory for the current user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The memory key to delete"
+                    }
+                },
+                "required": ["user_id", "key"]
+            }
+        }
+    },
+    {
     "name": "execute_python_code",
     "type": "function",
     "function": {
@@ -516,7 +666,7 @@ TOOLS = [{
 ]
 
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(prompt: str, user_name: str, user_bio: str, history: list = None, tools_override: list = None, model_override: str = None, streaming: bool = False):
+async def run_simple_agent(prompt: str, user_name: str, user_bio: str, history: list = None, tools_override: list = None, model_override: str = None, streaming: bool = False, user_id: int = None):
     # Initialize variables
     step_count = 0
     steps = []
@@ -656,6 +806,26 @@ You have access to several tools:
 Current date/time: {current_time}.
 You are currently assisting {user_name}.
 A little about {user_name}: {user_bio if user_bio else 'No bio provided.'}
+User ID: {user_id if user_id else 'Unknown'}
+
+────────────────────────────────────────
+MEMORY CAPABILITIES
+────────────────────────────────────────
+You have access to user-specific memory functions that can help you maintain context across conversations:
+
+1. `store_user_memory` - Store information about this user for future retrieval
+2. `retrieve_user_memory` - Retrieve previously stored information about this user
+3. `list_user_memories` - List all memories stored for this user
+4. `delete_user_memory` - Delete a specific memory for this user
+
+Memories are isolated by user_id, so each user has their own private memory space. Memories persist across
+conversations and sessions, allowing you to remember important user preferences and information.
+
+Good uses for memory:
+- Store user preferences (e.g., preferred product categories, shipping preferences)
+- Remember frequently accessed products or information
+- Keep track of conversation history highlights
+- Remember custom templates or formats the user prefers
 
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
@@ -686,7 +856,11 @@ END OF SYSTEM PROMPT
         "upload_to_skuvault": upload_to_skuvault,
         "upload_batch_to_skuvault": upload_batch_to_skuvault,
         "execute_python_code": execute_code,  # Correctly reference the async function to be awaited
-        "create_open_box_listing_single": create_open_box_listing_single
+        "create_open_box_listing_single": create_open_box_listing_single,
+        "store_user_memory": store_user_memory,
+        "retrieve_user_memory": retrieve_user_memory,
+        "list_user_memories": list_user_memories,
+        "delete_user_memory": delete_user_memory
     }
 
     try:

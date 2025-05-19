@@ -368,3 +368,191 @@ class PerplexityMCPServer:
             }
 
 perplexity_mcp_server = PerplexityMCPServer()
+
+class MemoryMCPServer:
+    """
+    A class to handle user-specific memory storage using the MCP memory server.
+    This provides persistent memory capabilities for the Shopify agent, with each
+    user having their own isolated memory space.
+    """
+    def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
+        # Create a copy of the current environment
+        env_vars = os.environ.copy()
+        
+        self.params = {
+            "command": "npx",
+            "args": ["-y", "server-memory"],
+            "env": env_vars
+        }
+        self.cache = True
+    
+    async def store_memory(self, user_id, key, value):
+        """
+        Store a memory for a specific user.
+        
+        Args:
+            user_id: The user's ID to namespace the memory
+            key: The memory key
+            value: The value to store
+            
+        Returns:
+            Dictionary with storage status
+        """
+        # Use user_id as part of the memory key for isolation
+        memory_key = f"user_{user_id}:{key}"
+        print(f"[MEMORY_MCP] Storing memory for user {user_id}: {key}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "store", {"key": memory_key, "value": value}
+                )
+                
+                # Convert result to dictionary for proper JSON serialization
+                result = {
+                    "success": True,
+                    "key": memory_key,
+                    "message": f"Memory stored successfully for user {user_id}"
+                }
+                
+                return result
+        except Exception as e:
+            print(f"[MEMORY_MCP] Error storing memory: {e}")
+            return {
+                "success": False,
+                "key": memory_key,
+                "message": f"Error storing memory: {str(e)}"
+            }
+    
+    async def retrieve_memory(self, user_id, key):
+        """
+        Retrieve a memory for a specific user.
+        
+        Args:
+            user_id: The user's ID to namespace the memory
+            key: The memory key to retrieve
+            
+        Returns:
+            Dictionary with the retrieved memory or error
+        """
+        memory_key = f"user_{user_id}:{key}"
+        print(f"[MEMORY_MCP] Retrieving memory for user {user_id}: {key}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "retrieve", {"key": memory_key}
+                )
+                
+                # Extract the value from the result
+                if hasattr(raw_result, "content") and raw_result.content:
+                    memory_value = raw_result.content[0].text if raw_result.content[0].text else None
+                    
+                    return {
+                        "success": True,
+                        "key": memory_key,
+                        "value": memory_value
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "key": memory_key,
+                        "message": "Memory not found",
+                        "value": None
+                    }
+        except Exception as e:
+            print(f"[MEMORY_MCP] Error retrieving memory: {e}")
+            return {
+                "success": False,
+                "key": memory_key,
+                "message": f"Error retrieving memory: {str(e)}",
+                "value": None
+            }
+    
+    async def list_memories(self, user_id):
+        """
+        List all memories for a specific user.
+        
+        Args:
+            user_id: The user's ID to namespace the memories
+            
+        Returns:
+            Dictionary with the list of memory keys for the user
+        """
+        user_prefix = f"user_{user_id}:"
+        print(f"[MEMORY_MCP] Listing memories for user {user_id}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool("list", {})
+                
+                # Extract relevant user memories
+                all_keys = []
+                if hasattr(raw_result, "content") and raw_result.content:
+                    try:
+                        content_text = raw_result.content[0].text
+                        all_keys = json.loads(content_text) if content_text else []
+                    except json.JSONDecodeError:
+                        # If not valid JSON, try parsing as a string list
+                        content_text = raw_result.content[0].text
+                        all_keys = content_text.split('\n') if content_text else []
+                
+                # Filter keys to only include those for this user
+                user_keys = [key for key in all_keys if key.startswith(user_prefix)]
+                
+                # Strip the user prefix for clarity
+                clean_keys = [key.replace(user_prefix, '') for key in user_keys]
+                
+                return {
+                    "success": True,
+                    "keys": clean_keys,
+                    "count": len(clean_keys)
+                }
+        except Exception as e:
+            print(f"[MEMORY_MCP] Error listing memories: {e}")
+            return {
+                "success": False,
+                "keys": [],
+                "message": f"Error listing memories: {str(e)}",
+                "count": 0
+            }
+    
+    async def delete_memory(self, user_id, key):
+        """
+        Delete a specific memory for a user.
+        
+        Args:
+            user_id: The user's ID to namespace the memory
+            key: The memory key to delete
+            
+        Returns:
+            Dictionary with deletion status
+        """
+        memory_key = f"user_{user_id}:{key}"
+        print(f"[MEMORY_MCP] Deleting memory for user {user_id}: {key}")
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                raw_result = await server.call_tool(
+                    "delete", {"key": memory_key}
+                )
+                
+                return {
+                    "success": True,
+                    "key": memory_key,
+                    "message": f"Memory deleted successfully for user {user_id}"
+                }
+        except Exception as e:
+            print(f"[MEMORY_MCP] Error deleting memory: {e}")
+            return {
+                "success": False,
+                "key": memory_key,
+                "message": f"Error deleting memory: {str(e)}"
+            }
+
+# Create a singleton instance
+memory_mcp_server = MemoryMCPServer()

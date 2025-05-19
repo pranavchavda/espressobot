@@ -227,7 +227,9 @@ def chat():
                 nonlocal result
                 final_output = ""
                 steps = []
-                async for chunk in run_simple_agent(data.get('message',''), history):
+                # Pass current_user.id for user-specific memory
+                user_id = current_user.id
+                async for chunk in run_simple_agent(data.get('message',''), history, user_id=user_id):
                     if chunk.get('type') == 'content':
                         if 'delta' in chunk:
                             final_output += chunk['delta']
