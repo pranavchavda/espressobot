@@ -56,23 +56,34 @@ export function SidebarLayout({ navbar, sidebar, children }) {
       <MobileSidebar open={showSidebar} close={() => setShowSidebar(false)}>
         {sidebar}
       </MobileSidebar>
+      
+      {/* --- Content Area Wrapper (including new Desktop Navbar) --- */}
+      <div className="flex flex-1 flex-col lg:pl-64"> {/* Added lg:pl-64 to account for desktop sidebar */}
+        
+        {/* Navbar on mobile (remains the same, for hamburger menu) */}
+        <header className="flex items-center px-4 lg:hidden"> {/* This header is for the hamburger + mobile title/nav */}
+          <div className="py-2.5">
+            <NavbarItem onClick={() => setShowSidebar(true)} aria-label="Open navigation">
+              <OpenMenuIcon />
+            </NavbarItem>
+          </div>
+          {/* Render the full navbar prop here for mobile */}
+          <div className="min-w-0 flex-1">{navbar}</div> 
+        </header>
 
-      {/* Navbar on mobile */}
-      <header className="flex items-center px-4 lg:hidden">
-        <div className="py-2.5">
-          <NavbarItem onClick={() => setShowSidebar(true)} aria-label="Open navigation">
-            <OpenMenuIcon />
-          </NavbarItem>
-        </div>
-        <div className="min-w-0 flex-1">{navbar}</div>
-      </header>
+        {/* Desktop Navbar (New) */}
+        <header className="hidden lg:flex items-center px-6 py-3 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700">
+          {/* This renders the navbar prop you pass from App.jsx */}
+          <div className="min-w-0 flex-1">{navbar}</div> 
+        </header>
 
-      {/* Content */}
-      <main className="flex flex-1 flex-col pb-2 lg:min-w-0 lg:pt-2 lg:pr-2 lg:pl-64 h-full overflow-hidden">
-        <div className="grow flex flex-col h-full p-6 lg:rounded-lg lg:bg-white lg:p-10 lg:shadow-xs lg:ring-1 lg:ring-zinc-950/5 dark:lg:bg-zinc-900 dark:lg:ring-white/10 overflow-hidden">
-          <div className="mx-auto flex-1 flex flex-col overflow-y-auto w-full">{children}</div>
-        </div>
-      </main>
+        {/* Main Content */}
+        <main className="flex flex-1 flex-col pb-2 lg:min-w-0 lg:pt-2 lg:pr-2 h-full overflow-hidden"> {/* Removed lg:pl-64 from here */}
+          <div className="grow flex flex-col h-full p-6 lg:rounded-lg lg:bg-white lg:p-10 lg:shadow-xs lg:ring-1 lg:ring-zinc-950/5 dark:lg:bg-zinc-900 dark:lg:ring-white/10 overflow-hidden">
+            <div className="mx-auto flex-1 flex flex-col overflow-y-auto w-full">{children}</div>
+          </div>
+        </main>
+      </div>
     </div>
   )
 }

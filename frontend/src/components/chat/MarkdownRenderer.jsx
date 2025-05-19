@@ -39,9 +39,9 @@ const SimpleCodeBlock = React.memo(({ language, children }) => {
           {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
-      <pre className="bg-zinc-800 text-zinc-200 p-1 rounded-b-lg overflow-x-auto text-sm font-mono whitespace-pre-wrap break-all">
+      <Code>
         {String(children).replace(/\n$/, "")}
-      </pre>
+      </Code>
     </div>
   );
 });
@@ -206,16 +206,37 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       ),
       // Code blocks and inline code
       code({ node, inline, className, children, ...props }) {
+        console.log("MarkdownRenderer 'code' component renderer:", {
+          inline,
+          className,
+          children: String(children).substring(0, 100),
+          nodeType: node.type,
+          tagName: node.tagName,
+          parentNode: node.parent ? node.parent.tagName : 'no parent',
+        });
+
         const match = /language-(\w+)/.exec(className || "");
         const language = match ? match[1] : "text";
-        if (inline) {
+
+        // Determine if it's truly inline
+        const isExplicitlyInline = inline === true;
+        // If inline is undefined, and there's no language class (like language-js for blocks),
+        // it's highly likely intended as inline code, especially if `node.parent` is unreliable.
+        const isHeuristicallyInline = inline === undefined && !className;
+
+        if (isExplicitlyInline || isHeuristicallyInline) {
           return (
-            <Code className="bg-zinc-100 dark:bg-zinc-700 rounded px-1.5 py-0.5 text-sm font-mono">
+            <Code
+            > {/* Pass className for styling if present */}
               {children}
             </Code>
           );
         }
-        // For block code, use SimpleCodeBlock (which handles its children as a string)
+        
+        // Otherwise, it's a block code.
+        // This covers: 
+        //   - inline === false (fenced code blocks from Markdown)
+        //   - inline === undefined AND parent IS <pre> (raw HTML code block)
         return (
           <SimpleCodeBlock language={language}>
             {String(children).replace(/\n$/, "")}
