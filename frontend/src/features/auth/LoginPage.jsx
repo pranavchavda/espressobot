@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@common/button';
 import { Text } from '@common/text';
+import logo from '../../../static/EspressoBotLogo.png';
 
 function LoginPage({ onLogin, onRegister, error, loading }) {
   const [email, setEmail] = useState('');
@@ -38,8 +39,13 @@ function LoginPage({ onLogin, onRegister, error, loading }) {
   return (
     <div className="flex items-center justify-center h-screen bg-zinc-100 dark:bg-zinc-900">
       <div className="p-8 bg-white dark:bg-zinc-800 rounded-lg shadow-xl w-full max-w-md">
+        <img 
+          src={logo}
+          alt="EspressoBot Logo" 
+          className="h-16 mx-auto"
+        />
         <Text as="h2" className="text-2xl font-bold text-center text-zinc-900 dark:text-zinc-100 mb-6">
-          {isRegisterMode ? 'Create Account' : 'Welcome Back'}
+          {isRegisterMode ? 'Create Account' : 'EspressoBot'}
         </Text>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>

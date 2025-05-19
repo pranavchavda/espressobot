@@ -61,7 +61,7 @@ export function SidebarLayout({ navbar, sidebar, children }) {
       <div className="flex flex-1 flex-col lg:pl-64"> {/* Added lg:pl-64 to account for desktop sidebar */}
         
         {/* Navbar on mobile (remains the same, for hamburger menu) */}
-        <header className="flex items-center px-4 lg:hidden"> {/* This header is for the hamburger + mobile title/nav */}
+        <header className="flex items-center px-4 lg:hidden sticky top-0 z-40 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700"> {/* This header is for the hamburger + mobile title/nav */}
           <div className="py-2.5">
             <NavbarItem onClick={() => setShowSidebar(true)} aria-label="Open navigation">
               <OpenMenuIcon />
