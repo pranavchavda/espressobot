@@ -2,11 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send, UserIcon, BotIcon } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
-import { Text } from "@common/text";
+import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
-import logo from "../../../static/shopify_assistant_logo.png";
+import logo from "../../../static/EspressoBotLogo.png";
 
 function StreamingChatPage({ convId, refreshConversations }) {
   const [messages, setMessages] = useState([]);
@@ -242,7 +242,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
   const inputRef = useRef(null);
 
   return (
-    <div className="flex flex-col h-[100vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
+    <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
       {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 max-w-3xl w-full mx-auto">
         <div className="flex flex-col gap-3">
@@ -258,7 +258,9 @@ function StreamingChatPage({ convId, refreshConversations }) {
                 className="mx-auto mt-6 mb-2 h-96 w-96 object-contain drop-shadow-lg"
                 draggable="false"
               />
-              <Text>Start a new conversation by sending a message</Text>
+              <Text>Start a new conversation by sending a message.
+                 Visit the <TextLink href="/about">About</TextLink> page for more information and to learn how to use the bot.
+              </Text>
             </div>
           ) : (
             <>
@@ -404,8 +406,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
               }
             }}
             placeholder="Type a message..."
-            className="flex-1 min-h-[60px] max-h-36 resize-y leading-tight py-2.5"
-            rows={1}
+            rows={3}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

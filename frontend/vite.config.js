@@ -35,6 +35,11 @@ export default defineConfig({
       "/chat": "http://0.0.0.0:5000",
       "/conversations": "http://0.0.0.0:5000",
       "/stream_chat": "http://0.0.0.0:5000",
+      // Add new rule for all /api routes
+      '/api': {
+        target: 'http://0.0.0.0:5000',
+        changeOrigin: true,
+      }
     },
     allowedHosts: ["localhost", ".replit.dev", ".replit.app", ".repl.co"],
   },

@@ -1,59 +1,79 @@
 import os
 import asyncio
 import json
-from flask import Flask, request, Response, stream_with_context, jsonify
-from simple_agent import run_simple_agent
-from database import get_db
+import uuid
+import datetime
+from flask import current_app, request, Response, stream_with_context, jsonify, Blueprint
+from flask_login import current_user, login_required
 
-def create_stream_blueprint(app):
-    @app.route('/stream_chat', methods=['POST'])
+# Import db from extensions module
+from extensions import db
+
+# Import models from the new models.py file
+from models import Conversation, Message, User
+
+def create_stream_blueprint(app, openai_client):
+    stream_bp = Blueprint('stream_chat', __name__)
+
+    @stream_bp.route('/stream_chat', methods=['POST'])
+    @login_required
     def stream_chat():
         data = request.json
         conv_id = data.get('conv_id')
-        message = data.get('message', '')
+        message_text = data.get('message', '')
 
-        # Insert user message into database
-        db = get_db()
+        conversation = None
+        if conv_id:
+            conversation = db.session.get(Conversation, conv_id)
+            if not conversation or conversation.user_id != current_user.id:
+                conv_id = None
+                conversation = None
+
         if not conv_id:
-            # Create new conversation
-            cur = db.execute('INSERT INTO conversations DEFAULT VALUES')
-            conv_id = cur.lastrowid
-            db.commit()
-
-            # Generate a title for the new conversation
+            title_to_set = f"Chat from {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
             try:
-                from simple_agent import client as openai_client
-                title_resp = openai_client.chat.completions.create(
-                    model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
-                    messages=[
-                        {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
-                        {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {message}"}
-                    ]
-                )
-                title = title_resp.choices[0].message.content.strip()
-            except Exception:
-                title = f"Conversation {conv_id}"
+                loop_for_title = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop_for_title)
 
-            db.execute('UPDATE conversations SET title = ? WHERE id = ?', (title, conv_id))
-            db.commit()
+                async def get_title_async():
+                    return await openai_client.chat.completions.create(
+                        model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
+                        messages=[
+                            {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
+                            {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {message_text}"}
+                        ],
+                        max_tokens=20
+                    )
 
-        # Insert user message
-        db.execute(
-            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-            (conv_id, 'user', message)
-        )
-        db.commit()
+                title_resp = loop_for_title.run_until_complete(get_title_async())
+                generated_title = title_resp.choices[0].message.content.strip()
+                if generated_title:
+                    title_to_set = generated_title
+                loop_for_title.close()
+            except Exception as e:
+                print(f"Error generating title: {e}")
+                if 'loop_for_title' in locals() and not loop_for_title.is_closed():
+                    loop_for_title.close()
 
-        # Prepare history for the agent
-        rows = db.execute(
-            'SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id',
-            (conv_id,)
-        ).fetchall()
-        history = [{'role': r['role'], 'content': r['content']} for r in rows]
+            unique_filename = f"{uuid.uuid4()}.json"
 
-        # Set up streaming response
+            conversation = Conversation(
+                user_id=current_user.id,
+                title=title_to_set,
+                filename=unique_filename
+            )
+            db.session.add(conversation)
+            db.session.commit()
+            conv_id = conversation.id
+
+        user_message = Message(conv_id=conv_id, role='user', content=message_text)
+        db.session.add(user_message)
+        db.session.commit()
+
+        messages_from_db = Message.query.filter_by(conv_id=conv_id).order_by(Message.created_at).all()
+        history = [{'role': msg.role, 'content': msg.content} for msg in messages_from_db]
+
         def generate():
-            # Initial JSON data with conversation ID
             yield f"data: {{\n"
             yield f"data: \"conv_id\": {conv_id},\n"
             yield f"data: \"streaming\": true,\n"
@@ -62,25 +82,19 @@ def create_stream_blueprint(app):
             yield f"data: \"tool_calls\": []\n"
             yield f"data: }}\n\n"
 
-            # Create async event loop for the agent
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            # Set up for incremental streaming
             full_response = ""
+            final_assistant_message_content = None
             try:
-                # Helper function to collect results from async generator
-                async def collect_async_generator(agen):
-                    results = []
-                    async for item in agen:
-                        results.append(item)
-                    return results
-                
-                # Define the async generator function
                 async def process_agent():
-                    nonlocal full_response
-                    # Run the agent with streaming=True
-                    async for chunk in run_simple_agent(message, history, streaming=True):
+                    nonlocal full_response, final_assistant_message_content
+                    from simple_agent import run_simple_agent
+                    # Get user's name and bio
+                    user_name = current_user.name
+                    user_bio = current_user.bio
+                    async for chunk in run_simple_agent(message_text, user_name, user_bio, history, streaming=True):
                         if chunk.get('type') == 'content':
                             delta = chunk.get('delta', '')
                             full_response += delta
@@ -89,40 +103,42 @@ def create_stream_blueprint(app):
                             yield f"data: \"content\": {json.dumps(full_response)}\n"
                             yield f"data: }}\n\n"
                         elif chunk.get('type') == 'tool_call':
-                            # Send tool call information
                             yield f"data: {{\n"
                             yield f"data: \"tool_call\": {json.dumps(chunk)}\n"
                             yield f"data: }}\n\n"
                         elif chunk.get('type') == 'suggestions' and chunk.get('suggestions'):
-                            # Send suggestions when available
                             yield f"data: {{\n"
                             yield f"data: \"suggestions\": {json.dumps(chunk.get('suggestions', []))}\n"
                             yield f"data: }}\n\n"
-                
-                # Use asyncio to run the async generator and yield its results
-                for chunk in loop.run_until_complete(collect_async_generator(process_agent())):
-                    yield chunk
+                        elif chunk.get('type') == 'final':
+                            final_assistant_message_content = chunk.get('content', '')
 
-                # Store the final response in the database
-                if full_response:
-                    db.execute(
-                        'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-                        (conv_id, 'assistant', full_response)
-                    )
-                    db.commit()
+                async_gen = process_agent()
+                while True:
+                    try:
+                        chunk = loop.run_until_complete(async_gen.__anext__())
+                        yield chunk
+                    except StopAsyncIteration:
+                        break
+                    except Exception as e_agen: # Catch exceptions from the async generator itself
+                        print(f"Error during async_gen iteration: {e_agen}")
+                        yield f"data: {{\"error\": {json.dumps(str(e_agen))}}}\n\n"
+                        break # Stop streaming on error within the generator
 
-                # Send completion message
+                print(f"DEBUG stream_chat.py: final_assistant_message_content BEFORE save: '{final_assistant_message_content}'") # DEBUG
+                if final_assistant_message_content:
+                    assistant_message = Message(conv_id=conv_id, role='assistant', content=final_assistant_message_content)
+                    db.session.add(assistant_message)
+                    db.session.commit()
+
                 yield f"data: {{\n"
                 yield f"data: \"done\": true\n"
                 yield f"data: }}\n\n"
-
             except Exception as e:
                 import traceback
                 error_traceback = traceback.format_exc()
                 print(f"ERROR in /stream_chat route: {str(e)}")
                 print(error_traceback)
-
-                # Send error message
                 yield f"data: {{\n"
                 yield f"data: \"error\": {json.dumps(str(e))}\n"
                 yield f"data: }}\n\n"
@@ -138,4 +154,4 @@ def create_stream_blueprint(app):
             }
         )
 
-    return app
+    return stream_bp
