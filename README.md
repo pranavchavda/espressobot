@@ -25,7 +25,9 @@ Before you begin, make sure you have:
     - Admin API Access Token (`SHOPIFY_ACCESS_TOKEN`)
     - Store URL (`SHOPIFY_SHOP_URL`)
   - Perplexity API key (`PERPLEXITY_API_KEY`)
-  - (Optional) Google OAuth credentials for task integration
+  - Google OAuth credentials for Google Tasks integration:
+    - Google Client ID (`GOOGLE_CLIENT_ID`)
+    - Google Client Secret (`GOOGLE_CLIENT_SECRET`)
 
 ## Setup Guide
 
@@ -85,6 +87,10 @@ Before you begin, make sure you have:
      SHOPIFY_SHOP_URL=your-store.myshopify.com
      SHOPIFY_API_VERSION=2025-04
      
+     # Google Tasks API Configuration
+     GOOGLE_CLIENT_ID=your_google_client_id
+     GOOGLE_CLIENT_SECRET=your_google_client_secret
+     
      # SKU Vault (optional)
      SKUVAULT_TENANT_TOKEN=your_skuvault_tenant_token
      SKUVAULT_USER_TOKEN=your_skuvault_user_token
@@ -127,7 +133,10 @@ Before you begin, make sure you have:
 ### Example Queries
 - "Show me my recent orders"
 - "What products are low in stock?"
-- "Create a new task to follow up with customers"
+- "Create a new task to follow up with customer ABC by Friday"
+- "Add a task to order more inventory for product XYZ due next week"
+- "Show me my incomplete tasks"
+- "Mark the task about customer follow-up as complete"
 - "Analyze my sales from last month"
 
 ### User Management
@@ -258,8 +267,8 @@ You can test the MCP server implementations using the provided test scripts:
 
 ## Future Enhancements
 
-- [ ] Google OAuth integration
-- [ ] Google Tasks API integration
+- [x] Google OAuth integration
+- [x] Google Tasks API integration
 - [ ] Enhanced admin dashboard
 - [ ] Multi-store support
 - [ ] Advanced analytics and reporting

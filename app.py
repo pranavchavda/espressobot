@@ -25,7 +25,7 @@ if not _in_venv():
     else:
         print("[WARNING] No venv found! Running with system Python. It is recommended to use a virtual environment in ./venv.")
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect, session, url_for
 import os
 import json
 import asyncio
@@ -36,6 +36,7 @@ from flask_login import login_user, logout_user, current_user, login_required
 # UserMixin will be in models.py with the User model
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
+import google_tasks
 
 # Import Models
 from models import User, Conversation, Message
@@ -523,6 +524,167 @@ def execute_code_endpoint():
         db.commit()
 
     return jsonify(execution_result)
+
+# --- Google Tasks Integration Routes ---
+
+@app.route('/authorize/google', methods=['GET'])
+@login_required
+def authorize_google():
+    """Start the Google OAuth flow"""
+    # Create a flow instance
+    flow = google_tasks.get_flow()
+    
+    # Generate URL for authorization request
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        prompt='consent'  # Always prompt to ensure we get refresh token
+    )
+    
+    # Store the state in the session
+    session['state'] = state
+    session['user_id'] = current_user.id
+    
+    # Redirect to the authorization URL
+    return redirect(authorization_url)
+
+@app.route('/google/callback', methods=['GET'])
+def google_auth_callback():
+    """Handle the Google OAuth callback"""
+    # Verify state parameter
+    state = session.get('state')
+    if not state or state != request.args.get('state'):
+        return jsonify({"error": "Invalid state parameter"}), 400
+    
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({"error": "No user ID in session"}), 400
+    
+    # Get the authorization flow
+    flow = google_tasks.get_flow()
+    
+    # Use the authorization code to get the credentials
+    flow.fetch_token(authorization_response=request.url)
+    credentials = flow.credentials
+    
+    # Save the credentials for this user
+    google_tasks.save_credentials(user_id, credentials)
+    
+    # Clear the session state
+    session.pop('state', None)
+    
+    # Redirect to the tasks page
+    return redirect(url_for('tasks_page'))
+
+@app.route('/api/tasks/auth_status', methods=['GET'])
+@login_required
+def check_tasks_auth():
+    """Check if the user has authorized Google Tasks"""
+    return jsonify({
+        "is_authorized": google_tasks.is_authorized(current_user.id)
+    })
+
+@app.route('/api/tasks/lists', methods=['GET'])
+@login_required
+def get_task_lists():
+    """Get all task lists for the user"""
+    if not google_tasks.is_authorized(current_user.id):
+        return jsonify({"error": "Not authorized with Google Tasks"}), 401
+    
+    task_lists = google_tasks.get_task_lists(current_user.id)
+    return jsonify(task_lists)
+
+@app.route('/api/tasks', methods=['GET'])
+@login_required
+def get_tasks():
+    """Get all tasks for a task list"""
+    if not google_tasks.is_authorized(current_user.id):
+        return jsonify({"error": "Not authorized with Google Tasks"}), 401
+    
+    tasklist_id = request.args.get('tasklist_id', '@default')
+    tasks = google_tasks.get_tasks(current_user.id, tasklist_id)
+    return jsonify(tasks)
+
+@app.route('/api/tasks', methods=['POST'])
+@login_required
+def create_task():
+    """Create a new task"""
+    if not google_tasks.is_authorized(current_user.id):
+        return jsonify({"error": "Not authorized with Google Tasks"}), 401
+    
+    data = request.json
+    title = data.get('title')
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    
+    notes = data.get('notes')
+    due = data.get('due')
+    tasklist_id = data.get('tasklist_id', '@default')
+    
+    result = google_tasks.create_task(
+        current_user.id, 
+        title, 
+        notes=notes, 
+        due=due, 
+        tasklist_id=tasklist_id
+    )
+    
+    return jsonify(result)
+
+@app.route('/api/tasks/<task_id>', methods=['PUT'])
+@login_required
+def update_task(task_id):
+    """Update an existing task"""
+    if not google_tasks.is_authorized(current_user.id):
+        return jsonify({"error": "Not authorized with Google Tasks"}), 401
+    
+    data = request.json
+    title = data.get('title')
+    notes = data.get('notes')
+    due = data.get('due')
+    status = data.get('status')
+    tasklist_id = data.get('tasklist_id', '@default')
+    
+    result = google_tasks.update_task(
+        current_user.id, 
+        task_id, 
+        title=title, 
+        notes=notes, 
+        due=due, 
+        status=status, 
+        tasklist_id=tasklist_id
+    )
+    
+    return jsonify(result)
+
+@app.route('/api/tasks/<task_id>', methods=['DELETE'])
+@login_required
+def delete_task(task_id):
+    """Delete a task"""
+    if not google_tasks.is_authorized(current_user.id):
+        return jsonify({"error": "Not authorized with Google Tasks"}), 401
+    
+    tasklist_id = request.args.get('tasklist_id', '@default')
+    result = google_tasks.delete_task(current_user.id, task_id, tasklist_id)
+    return jsonify(result)
+
+@app.route('/api/tasks/<task_id>/complete', methods=['POST'])
+@login_required
+def complete_task(task_id):
+    """Mark a task as completed"""
+    if not google_tasks.is_authorized(current_user.id):
+        return jsonify({"error": "Not authorized with Google Tasks"}), 401
+    
+    tasklist_id = request.args.get('tasklist_id', '@default')
+    result = google_tasks.complete_task(current_user.id, task_id, tasklist_id)
+    return jsonify(result)
+
+@app.route('/tasks', methods=['GET'])
+@login_required
+def tasks_page():
+    """Serve the tasks page"""
+    # This will render the React frontend, which will handle the tasks UI
+    return app.send_static_file('index.html')
 
 if __name__ == '__main__':
     # Show environment status
