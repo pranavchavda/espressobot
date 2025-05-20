@@ -6,6 +6,7 @@ import StreamingChatPage from "./features/chat/StreamingChatPage";
 import LoginPage from "./features/auth/LoginPage"; // Import LoginPage
 import ProfilePage from './pages/ProfilePage'; // Import ProfilePage
 import AboutPage from './pages/AboutPage'; // Import AboutPage
+import TasksPage from './pages/TasksPage'; // Import TasksPage
 import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
 import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
 import logo from '../static/EspressoBotLogo.png';
@@ -230,6 +231,18 @@ function App() {
                   Profile
                 </NavLink>
                 <NavLink 
+                  to="/tasks" 
+                  className={({ isActive }) => 
+                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                      isActive 
+                        ? 'text-indigo-600 dark:text-indigo-400' 
+                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
+                    }`
+                  }
+                >
+                  Tasks
+                </NavLink>
+                <NavLink 
                   to="/about" 
                   className={({ isActive }) => 
                     `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -323,6 +336,7 @@ function App() {
           }
         />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/tasks" element={<TasksPage />} />
         <Route path="/about" element={<AboutPage />} />
       </Route>
     </Routes>

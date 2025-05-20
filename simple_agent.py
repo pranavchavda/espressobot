@@ -176,20 +176,20 @@ async def introspect_admin_schema(query, filter_types=None):
     try:
         print(f"[DEBUG] Calling mcp_server.introspect_admin_schema with query: {query}")
         result = await shopify_mcp_server.introspect_admin_schema(query, filter_types)
-        
+
         # Log the returned result structure for debugging
         print(f"[DEBUG] introspect_admin_schema result type: {type(result)}")
         if isinstance(result, dict):
             content_count = len(result.get("content", []))
             print(f"[DEBUG] introspect_admin_schema result has {content_count} content items")
-            
+
             # Log the first content item (truncated)
             if content_count > 0:
                 first_item = result["content"][0]
                 text_length = len(first_item.get("text", ""))
                 print(f"[DEBUG] First content item text length: {text_length} chars")
                 print(f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}...")
-        
+
         return result
     except Exception as e:
         print(f"Error introspecting schema: {e}")
@@ -203,21 +203,21 @@ async def search_dev_docs(prompt):
     try:
         print(f"[DEBUG] Calling shopify_mcp_server.search_dev_docs with prompt: {prompt}")
         result = await shopify_mcp_server.search_dev_docs(prompt)
-        
+
         # At this point result should already be a properly serializable dictionary
         # Let's log its structure to verify
         print(f"[DEBUG] search_dev_docs result type: {type(result)}")
         if isinstance(result, dict):
             content_count = len(result.get("content", []))
             print(f"[DEBUG] search_dev_docs result has {content_count} content items")
-            
+
             # Log the first content item (truncated)
             if content_count > 0:
                 first_item = result["content"][0]
                 text_length = len(first_item.get("text", ""))
                 print(f"[DEBUG] First content item text length: {text_length} chars")
                 print(f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}...")
-        
+
         return result
     except Exception as e:
         print(f"Error calling search_dev_docs: {e}")
@@ -240,7 +240,7 @@ async def ask_perplexity(messages):
         print(f"Error calling Perplexity MCP: {e}")
         import traceback; traceback.print_exc()
         return {"error": str(e)}
-        
+
 # Memory functions
 async def store_user_memory(user_id, key, value, persist=True):
     """Store a memory for a specific user."""
@@ -248,7 +248,7 @@ async def store_user_memory(user_id, key, value, persist=True):
         # Validate user_id is present
         if not user_id:
             return {"success": False, "error": "Missing user_id parameter"}
-            
+
         return await memory_service.store_memory(user_id, key, value, persist)
     except Exception as e:
         print(f"Error storing user memory: {e}")
@@ -260,7 +260,7 @@ async def retrieve_user_memory(user_id, key, default=None):
         # Validate user_id is present
         if not user_id:
             return {"success": False, "key": key, "value": default, "error": "Missing user_id parameter"}
-            
+
         return await memory_service.retrieve_memory(user_id, key, default)
     except Exception as e:
         print(f"Error retrieving user memory: {e}")
@@ -272,7 +272,7 @@ async def list_user_memories(user_id):
         # Validate user_id is present
         if not user_id:
             return {"success": False, "keys": [], "count": 0, "error": "Missing user_id parameter"}
-            
+
         return await memory_service.list_memories(user_id)
     except Exception as e:
         print(f"Error listing user memories: {e}")
@@ -284,12 +284,12 @@ async def delete_user_memory(user_id, key):
         # Validate user_id is present
         if not user_id:
             return {"success": False, "key": key, "error": "Missing user_id parameter"}
-            
+
         return await memory_service.delete_memory(user_id, key)
     except Exception as e:
         print(f"Error deleting user memory: {e}")
         return {"success": False, "key": key, "error": str(e)}
-        
+
 # Fetch functions
 
 async def fetch_and_extract_text(url, selector=None):
@@ -297,11 +297,11 @@ async def fetch_and_extract_text(url, selector=None):
     try:
         if not url:
             return {"success": False, "error": "URL is required"}
-            
+
         # Ensure URL is properly formatted
         if not url.startswith(('http://', 'https://')):
             url = f"https://{url}"
-            
+
         return await fetch_mcp_server.fetch_and_extract_text(url, selector)
     except Exception as e:
         print(f"Error extracting text from URL: {e}")
@@ -312,23 +312,23 @@ async def fetch_json(url, options=None):
     try:
         if not url:
             return {"success": False, "error": "URL is required"}
-            
+
         # Ensure URL is properly formatted
         if not url.startswith(('http://', 'https://')):
             url = f"https://{url}"
-            
+
         return await fetch_mcp_server.fetch_json(url, options)
     except Exception as e:
         print(f"Error fetching JSON: {e}")
         return {"success": False, "url": url, "error": str(e)}
-        
+
 # Sequential Thinking functions
 async def structured_thinking(prompt, thinking_type="general", max_steps=5):
     """Perform structured step-by-step thinking on a prompt."""
     try:
         if not prompt:
             return {"success": False, "error": "Prompt is required"}
-            
+
         return await thinking_mcp_server.think(prompt, thinking_type, max_steps)
     except Exception as e:
         print(f"Error in structured thinking: {e}")
@@ -339,7 +339,7 @@ async def solve_problem(problem, max_steps=5):
     try:
         if not problem:
             return {"success": False, "error": "Problem is required"}
-            
+
         return await thinking_mcp_server.solve_problem(problem, max_steps)
     except Exception as e:
         print(f"Error in problem solving: {e}")
@@ -350,19 +350,19 @@ async def plan_code(coding_task, max_steps=5):
     try:
         if not coding_task:
             return {"success": False, "error": "Coding task is required"}
-            
+
         return await thinking_mcp_server.plan_code(coding_task, max_steps)
     except Exception as e:
         print(f"Error in code planning: {e}")
         return {"success": False, "error": str(e)}
-        
+
 # Filesystem functions
 async def read_file(path, user_id=None, encoding="utf-8"):
     """Read a file using the MCP filesystem server."""
     try:
         if not path:
             return {"success": False, "error": "Path is required"}
-            
+
         return await filesystem_mcp_server.read_file(path, user_id, encoding)
     except Exception as e:
         print(f"Error reading file: {e}")
@@ -375,7 +375,7 @@ async def write_file(path, content, user_id=None, encoding="utf-8"):
             return {"success": False, "error": "Path is required"}
         if content is None:
             return {"success": False, "error": "Content is required"}
-            
+
         return await filesystem_mcp_server.write_file(path, content, user_id, encoding)
     except Exception as e:
         print(f"Error writing file: {e}")
@@ -386,7 +386,7 @@ async def list_directory(path, user_id=None):
     try:
         if not path:
             return {"success": False, "error": "Path is required"}
-            
+
         return await filesystem_mcp_server.list_directory(path, user_id)
     except Exception as e:
         print(f"Error listing directory: {e}")
@@ -397,7 +397,7 @@ async def delete_file(path, user_id=None):
     try:
         if not path:
             return {"success": False, "error": "Path is required"}
-            
+
         return await filesystem_mcp_server.delete_file(path, user_id)
     except Exception as e:
         print(f"Error deleting file: {e}")
@@ -408,7 +408,7 @@ async def check_file_exists(path, user_id=None):
     try:
         if not path:
             return {"success": False, "error": "Path is required"}
-            
+
         return await filesystem_mcp_server.check_file_exists(path, user_id)
     except Exception as e:
         print(f"Error checking file existence: {e}")
@@ -426,7 +426,7 @@ async def get_product_copy_guidelines():
 
 # Function to upload products to SkuVault
 async def upload_to_skuvault(product_sku):
-    """Upload a product from Shopify to SkuVault using its SKU"""
+    """Upload a product to SkuVault using their API."""
     try:
         result = await upload_shopify_product_to_skuvault(product_sku)
         return result
@@ -444,6 +444,134 @@ async def upload_batch_to_skuvault(product_skus):
         error_msg = f"Error batch uploading products to SkuVault: {str(e)}"
         print(f"ERROR: {error_msg}")
         return {"success": False, "message": error_msg}
+
+# --- Google Tasks Integration ---
+async def google_tasks_check_auth(user_id):
+    """Check if the user has authorized Google Tasks."""
+    try:
+        import google_tasks
+        result = google_tasks.is_authorized(user_id)
+        return {"is_authorized": result}
+    except Exception as e:
+        print(f"Error checking Google Tasks auth: {e}")
+        return {"is_authorized": False, "error": str(e)}
+
+async def google_tasks_create_task(user_id, title, notes=None, due=None, tasklist_id=None):
+    """Create a new Google Task."""
+    try:
+        import google_tasks
+        if not google_tasks.is_authorized(user_id):
+            return {
+                "success": False, 
+                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "auth_url": "/authorize/google"
+            }
+
+        # Use default task list if not specified
+        if tasklist_id is None:
+            tasklist_id = '@default'
+
+        result = google_tasks.create_task(user_id, title, notes=notes, due=due, tasklist_id=tasklist_id)
+        if "error" in result:
+            return {"success": False, "error": result["error"]}
+        return {"success": True, "task": result}
+    except Exception as e:
+        print(f"Error creating Google Task: {e}")
+        return {"success": False, "error": str(e)}
+
+async def google_tasks_get_tasks(user_id, tasklist_id=None):
+    """Get all tasks for a user."""
+    try:
+        import google_tasks
+        if not google_tasks.is_authorized(user_id):
+            return {
+                "success": False, 
+                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "auth_url": "/authorize/google"
+            }
+
+        # Use default task list if not specified
+        if tasklist_id is None:
+            tasklist_id = '@default'
+
+        tasks = google_tasks.get_tasks(user_id, tasklist_id)
+        if isinstance(tasks, dict) and "error" in tasks:
+            return {"success": False, "error": tasks["error"]}
+        return {"success": True, "tasks": tasks}
+    except Exception as e:
+        print(f"Error getting Google Tasks: {e}")
+        return {"success": False, "error": str(e)}
+
+async def google_tasks_update_task(user_id, task_id, title=None, notes=None, due=None, status=None, tasklist_id=None):
+    """Update an existing Google Task."""
+    try:
+        import google_tasks
+        if not google_tasks.is_authorized(user_id):
+            return {
+                "success": False, 
+                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "auth_url": "/authorize/google"
+            }
+
+        # Use default task list if not specified
+        if tasklist_id is None:
+            tasklist_id = '@default'
+
+        result = google_tasks.update_task(
+            user_id, task_id, title=title, notes=notes, due=due, status=status, tasklist_id=tasklist_id
+        )
+        if "error" in result:
+            return {"success": False, "error": result["error"]}
+        return {"success": True, "task": result}
+    except Exception as e:
+        print(f"Error updating Google Task: {e}")
+        return {"success": False, "error": str(e)}
+
+async def google_tasks_complete_task(user_id, task_id, tasklist_id=None):
+    """Mark a Google Task as completed."""
+    try:
+        import google_tasks
+        if not google_tasks.is_authorized(user_id):
+            return {
+                "success": False, 
+                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "auth_url": "/authorize/google"
+            }
+
+        # Use default task list if not specified
+        if tasklist_id is None:
+            tasklist_id = '@default'
+
+        result = google_tasks.complete_task(user_id, task_id, tasklist_id)
+        if "error" in result:
+            return {"success": False, "error": result["error"]}
+        return {"success": True, "task": result}
+    except Exception as e:
+        print(f"Error completing Google Task: {e}")
+        return {"success": False, "error": str(e)}
+
+async def google_tasks_delete_task(user_id, task_id, tasklist_id=None):
+    """Delete a Google Task."""
+    try:
+        import google_tasks
+        if not google_tasks.is_authorized(user_id):
+            return {
+                "success": False, 
+                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "auth_url": "/authorize/google"
+            }
+
+        # Use default task list if not specified
+        if tasklist_id is None:
+            tasklist_id = '@default'
+
+        result = google_tasks.delete_task(user_id, task_id, tasklist_id)
+        if "error" in result:
+            return {"success": False, "error": result["error"]}
+        return {"success": True}
+    except Exception as e:
+        print(f"Error deleting Google Task: {e}")
+        return {"success": False, "error": str(e)}
 
 # Function to fetch URL content with curl
 async def fetch_url_with_curl(url: str):
@@ -600,7 +728,7 @@ TOOLS = [
             }
         }
     },
-    
+
     # Sequential Thinking tools
     {
         "name": "structured_thinking",
@@ -673,7 +801,8 @@ TOOLS = [
             }
         }
     },
-    
+
+    ```python
     # Fetch tools
     {
         "name": "fetch_and_extract_text",
@@ -719,7 +848,7 @@ TOOLS = [
             }
         }
     },
-    
+
     # Memory tools
     {
         "name": "store_user_memory",
@@ -1030,6 +1159,174 @@ TOOLS = [
                 "required": ["product_skus"]
             }
         }
+    },
+    {
+        "name": "google_tasks_check_auth",
+        "type": "function",
+        "function": {
+            "name": "google_tasks_check_auth",
+            "description": "Check if the user has authorized Google Tasks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    }
+                },
+                "required": ["user_id"]
+            }
+        }
+    },
+    {
+        "name": "google_tasks_create_task",
+        "type": "function",
+        "function": {
+            "name": "google_tasks_create_task",
+            "description": "Create a new Google Task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "The title of the task"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional notes for the task"
+                    },
+                    "due": {
+                        "type": "string",
+                        "description": "Optional due date for the task (ISO format)"
+                    },
+                    "tasklist_id": {
+                        "type": "string",
+                        "description": "Optional task list ID. Defaults to the user's default task list"
+                    }
+                },
+                "required": ["user_id", "title"]
+            }
+        }
+    },
+    {
+        "name": "google_tasks_get_tasks",
+        "type": "function",
+        "function": {
+            "name": "google_tasks_get_tasks",
+            "description": "Get all tasks for a user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "tasklist_id": {
+                        "type": "string",
+                        "description": "Optional task list ID. Defaults to the user's default task list"
+                    }
+                },
+                "required": ["user_id"]
+            }
+        }
+    },
+    {
+        "name": "google_tasks_update_task",
+        "type": "function",
+        "function": {
+            "name": "google_tasks_update_task",
+            "description": "Update an existing Google Task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "The ID of the task to update"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional new title for the task"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional new notes for the task"
+                    },
+                    "due": {
+                        "type": "string",
+                        "description": "Optional new due date for the task (ISO format)"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Optional new status for the task ('needsAction', 'completed')"
+                    },
+                    "tasklist_id": {
+                        "type": "string",
+                        "description": "Optional task list ID. Defaults to the user's default task list"
+                    }
+                },
+                "required": ["user_id", "task_id"]
+            }
+        }
+    },
+    {
+        "name": "google_tasks_complete_task",
+        "type": "function",
+        "function": {
+            "name": "google_tasks_complete_task",
+            "description": "Mark a Google Task as completed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "The ID of the task to complete"
+                    },
+                    "tasklist_id": {
+                        "type": "string",
+                        "description": "Optional task list ID. Defaults to the user's default task list"
+                    }
+                },
+                "required": ["user_id", "task_id"]
+            }
+        }
+    },
+    {
+        "name": "google_tasks_delete_task",
+        "type": "function",
+        "function": {
+            "name": "google_tasks_delete_task",
+            "description": "Delete a Google Task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "The ID of the task to delete"
+                    },
+                    "tasklist_id": {
+                        "type": "string",
+                        "description": "Optional task list ID. Defaults to the user's default task list"
+                    }
+                },
+                "required": ["user_id", "task_id"]
+            }
+        }
     }
 ]
 
@@ -1170,6 +1467,12 @@ You have access to several tools:
 8. upload_to_skuvault - Upload a product to SkuVault using their API.
 9. upload_batch_to_skuvault - Upload multiple products to SkuVault using their API.
 10. create_open_box_listing_single - Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.
+11. google_tasks_check_auth - Check if the user has authorized Google Tasks.
+12. google_tasks_create_task - Create a new Google Task.
+13. google_tasks_get_tasks - Get all tasks for a user.
+14. google_tasks_update_task - Update an existing Google Task.
+15. google_tasks_complete_task - Mark a Google Task as completed.
+16. google_tasks_delete_task - Delete a Google Task.
 
 Current date/time: {current_time}.
 You are currently assisting {user_name}.
@@ -1303,7 +1606,14 @@ END OF SYSTEM PROMPT
         "write_file": write_file,
         "list_directory": list_directory,
         "delete_file": delete_file,
-        "check_file_exists": check_file_exists
+        "check_file_exists": check_file_exists,
+        "google_tasks_check_auth": google_tasks_check_auth,
+        "google_tasks_create_task": google_tasks_create_task,
+        "google_tasks_get_tasks": google_tasks_get_tasks,
+        "google_tasks_update_task": google_tasks_update_task,
+        "google_tasks_complete_task":```python
+ google_tasks_complete_task,
+        "google_tasks_delete_task": google_tasks_delete_task
     }
 
     try:
@@ -1378,7 +1688,7 @@ END OF SYSTEM PROMPT
                             'content': current_content,
                             'tool_calls': tool_calls_buffer
                         })
-                        
+
                         # Then process the tool calls
                         for tool_call in tool_calls_buffer:
                             if tool_call['function']['name'] and tool_call['function']['arguments']:
@@ -1461,7 +1771,7 @@ END OF SYSTEM PROMPT
                             'content': current_content or "",
                             'tool_calls': response_message.tool_calls
                         })
-                        
+
                         # Then process each tool call
                         tool_calls = response_message.tool_calls
                         for tool_call in tool_calls:
@@ -1562,7 +1872,7 @@ END OF SYSTEM PROMPT
                 suggestions_list = await _generate_suggestions_async(formatted_messages, client)
             except Exception as e:
                 print(f"Error generating suggestions in streaming mode: {e}")
-        
+
         yield {
             'type': 'suggestions',
             'suggestions': suggestions_list
@@ -1590,7 +1900,7 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
         if conversation_history[i]["role"] == "assistant":
             ai_last_message_content = conversation_history[i]["content"]
             break
-    
+
     if not ai_last_message_content:
         print("No assistant message found in history, skipping suggestions.")
         return []
@@ -1602,7 +1912,7 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
         "Particularly, if the AI asks a Yes/No question, make sure a direct response is included. "
         "If a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."
     )
-    
+
     user_context_for_suggestions = f"The AI just said: \"{ai_last_message_content}\". Based on this, what could the user say next? Provide 3 distinct suggestions."
 
     suggestion_prompt_messages = [
@@ -1642,7 +1952,7 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
             hasattr(suggestion_response.choices[0], 'message') and
             hasattr(suggestion_response.choices[0].message, 'tool_calls') and
             suggestion_response.choices[0].message.tool_calls):
-            
+
             tool_call = suggestion_response.choices[0].message.tool_calls[0]
             if tool_call.function.name == "provide_suggestions":
                 arguments = json.loads(tool_call.function.arguments)
