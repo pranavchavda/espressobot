@@ -316,7 +316,7 @@ function App() {
           path="/"
           element={
             <StreamingChatPage
-              key={selectedChat}
+              key={selectedChat === null ? "new_chat_instance_key" : selectedChat}
               convId={selectedChat}
               refreshConversations={fetchConversations}
             />
