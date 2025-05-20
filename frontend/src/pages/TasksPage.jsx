@@ -1,18 +1,18 @@
-
 import React, { useState, useEffect } from "react";
 import { Button } from "@common/button";
 import { Input } from "@common/input";
 import { Textarea } from "@common/textarea";
-import { 
-  CalendarIcon, 
-  CheckIcon, 
-  Clock, 
-  PlusIcon, 
-  RefreshCw, 
-  Trash2, 
-  XCircle 
+import {
+  CalendarIcon,
+  CheckIcon,
+  Clock,
+  PlusIcon,
+  RefreshCw,
+  Trash2,
+  XCircle,
 } from "lucide-react";
-import { Text, Heading } from "@common/text";
+import { Text } from "@common/text";
+import { Heading } from "@common/heading";
 import { Badge } from "@common/badge";
 import { format, parseISO, isValid } from "date-fns";
 
@@ -68,7 +68,9 @@ function TasksPage() {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/tasks?tasklist_id=${selectedTaskList}`);
+      const response = await fetch(
+        `/api/tasks?tasklist_id=${selectedTaskList}`,
+      );
       const data = await response.json();
       if (Array.isArray(data)) {
         // Sort tasks: incomplete first, then by due date
@@ -76,12 +78,12 @@ function TasksPage() {
           // First, sort by status (needsAction before completed)
           if (a.status === "needsAction" && b.status === "completed") return -1;
           if (a.status === "completed" && b.status === "needsAction") return 1;
-          
+
           // Then sort by due date if both have one
           if (a.due && b.due) return new Date(a.due) - new Date(b.due);
           if (a.due) return -1;
           if (b.due) return 1;
-          
+
           // Default sort by title
           return a.title.localeCompare(b.title);
         });
@@ -163,9 +165,12 @@ function TasksPage() {
 
     try {
       setLoading(true);
-      const response = await fetch(`/api/tasks/${taskId}?tasklist_id=${selectedTaskList}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/tasks/${taskId}?tasklist_id=${selectedTaskList}`,
+        {
+          method: "DELETE",
+        },
+      );
 
       if (response.ok) {
         fetchTasks();
@@ -183,7 +188,7 @@ function TasksPage() {
 
   const formatDate = (dateString) => {
     if (!dateString) return "";
-    
+
     try {
       const date = parseISO(dateString);
       if (!isValid(date)) return "Invalid date";
@@ -213,8 +218,8 @@ function TasksPage() {
           <Text className="mb-6">
             You need to authorize this app to access your Google Tasks.
           </Text>
-          <Button 
-            onClick={() => window.location.href = "/authorize/google"}
+          <Button
+            onClick={() => (window.location.href = "/authorize/google")}
             className="mx-auto"
           >
             Connect Google Tasks
@@ -228,9 +233,9 @@ function TasksPage() {
     <div className="container max-w-4xl mx-auto p-4">
       <div className="flex justify-between items-center mb-6">
         <Heading level={1}>Google Tasks</Heading>
-        <Button 
-          size="sm" 
-          variant="outline" 
+        <Button
+          size="sm"
+          variant="outline"
           onClick={fetchTasks}
           className="flex items-center gap-2"
         >
@@ -242,9 +247,9 @@ function TasksPage() {
       {error && (
         <div className="bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 text-red-800 dark:text-red-200 px-4 py-3 rounded mb-4 flex items-start justify-between">
           <span>{error}</span>
-          <XCircle 
-            className="h-5 w-5 cursor-pointer" 
-            onClick={() => setError(null)} 
+          <XCircle
+            className="h-5 w-5 cursor-pointer"
+            onClick={() => setError(null)}
           />
         </div>
       )}
@@ -252,7 +257,10 @@ function TasksPage() {
       {/* Task List Selector */}
       {taskLists.length > 0 && (
         <div className="mb-6">
-          <label htmlFor="taskListSelect" className="block text-sm font-medium mb-2">
+          <label
+            htmlFor="taskListSelect"
+            className="block text-sm font-medium mb-2"
+          >
             Task List
           </label>
           <select
@@ -272,7 +280,10 @@ function TasksPage() {
       )}
 
       {/* New Task Form */}
-      <form onSubmit={handleCreateTask} className="mb-8 p-4 bg-white dark:bg-zinc-800 rounded-lg shadow-sm">
+      <form
+        onSubmit={handleCreateTask}
+        className="mb-8 p-4 bg-white dark:bg-zinc-800 rounded-lg shadow-sm"
+      >
         <div className="mb-4">
           <Input
             type="text"
@@ -293,7 +304,9 @@ function TasksPage() {
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <label htmlFor="dueDate" className="mr-2 text-sm">Due Date:</label>
+            <label htmlFor="dueDate" className="mr-2 text-sm">
+              Due Date:
+            </label>
             <Input
               id="dueDate"
               type="date"
@@ -302,8 +315,8 @@ function TasksPage() {
               className="w-32"
             />
           </div>
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             disabled={!newTask.title.trim() || loading}
             className="flex items-center gap-2"
           >
@@ -321,14 +334,16 @@ function TasksPage() {
           </div>
         ) : tasks.length === 0 ? (
           <div className="text-center py-8 bg-gray-50 dark:bg-zinc-800 rounded-lg">
-            <Text className="text-gray-500 dark:text-gray-400">No tasks found</Text>
+            <Text className="text-gray-500 dark:text-gray-400">
+              No tasks found
+            </Text>
           </div>
         ) : (
           tasks.map((task) => (
-            <div 
-              key={task.id} 
+            <div
+              key={task.id}
               className={`p-4 border rounded-lg flex items-start gap-3 ${
-                task.status === "completed" 
+                task.status === "completed"
                   ? "bg-gray-50 dark:bg-zinc-800/50 border-gray-200 dark:border-zinc-700"
                   : "bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
               }`}
@@ -340,16 +355,26 @@ function TasksPage() {
                     ? "bg-green-500 border-green-500 text-white"
                     : "border-gray-300 dark:border-gray-600"
                 } flex items-center justify-center`}
-                aria-label={task.status === "completed" ? "Mark as incomplete" : "Mark as complete"}
+                aria-label={
+                  task.status === "completed"
+                    ? "Mark as incomplete"
+                    : "Mark as complete"
+                }
               >
-                {task.status === "completed" && <CheckIcon className="h-4 w-4" />}
+                {task.status === "completed" && (
+                  <CheckIcon className="h-4 w-4" />
+                )}
               </button>
-              
+
               <div className="flex-grow min-w-0">
                 <div className="flex items-start justify-between">
-                  <h3 className={`font-medium ${
-                    task.status === "completed" ? "line-through text-gray-500 dark:text-gray-400" : ""
-                  }`}>
+                  <h3
+                    className={`font-medium ${
+                      task.status === "completed"
+                        ? "line-through text-gray-500 dark:text-gray-400"
+                        : ""
+                    }`}
+                  >
                     {task.title}
                   </h3>
                   <button
@@ -360,19 +385,25 @@ function TasksPage() {
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
-                
+
                 {task.notes && (
-                  <p className={`mt-1 text-sm ${
-                    task.status === "completed" ? "text-gray-400 dark:text-gray-500" : "text-gray-600 dark:text-gray-300"
-                  }`}>
+                  <p
+                    className={`mt-1 text-sm ${
+                      task.status === "completed"
+                        ? "text-gray-400 dark:text-gray-500"
+                        : "text-gray-600 dark:text-gray-300"
+                    }`}
+                  >
                     {task.notes}
                   </p>
                 )}
-                
+
                 {task.due && (
                   <div className="mt-2">
-                    <Badge 
-                      variant={task.status === "completed" ? "outline" : "secondary"}
+                    <Badge
+                      variant={
+                        task.status === "completed" ? "outline" : "secondary"
+                      }
                       className="flex items-center gap-1 text-xs"
                     >
                       <CalendarIcon className="h-3 w-3" />
