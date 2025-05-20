@@ -9,8 +9,8 @@ import openai
 import asyncio
 import inspect
 from datetime import datetime
-import re # Import re for URL validation
-import traceback # Import traceback for error handling
+import re  # Import re for URL validation
+import traceback  # Import traceback for error handling
 
 # Import memory service
 from memory_service import memory_service
@@ -28,6 +28,7 @@ MCP_AVAILABLE = True
 # client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 # Use AsyncOpenAI for async operations
 client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+
 
 # Function to execute GraphQL queries
 async def execute_shopify_query(query, variables=None):
@@ -67,11 +68,12 @@ async def execute_shopify_query(query, variables=None):
         # Set explicit timeout to avoid hanging and disable SSL verification
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending request to Shopify API at {endpoint}")
-            response = await client.post(
-                endpoint,
-                json={"query": query, "variables": variables},
-                headers=headers
-            )
+            response = await client.post(endpoint,
+                                         json={
+                                             "query": query,
+                                             "variables": variables
+                                         },
+                                         headers=headers)
             response.raise_for_status()
             result = response.json()
             print(f"Query result: {str(result)[:200]}...")
@@ -93,6 +95,7 @@ async def execute_shopify_query(query, variables=None):
         print(f"ERROR: {error_msg}")
         return {"errors": [{"message": error_msg}]}
 
+
 async def execute_shopify_mutation(mutation=None, variables=None, query=None):
     """Execute a Shopify GraphQL mutation with the provided variables.
     Can accept the mutation string via either 'mutation' or 'query' keyword arguments.
@@ -100,7 +103,9 @@ async def execute_shopify_mutation(mutation=None, variables=None, query=None):
     if mutation is None and query is not None:
         mutation = query
     elif mutation is None and query is None:
-        raise ValueError("No mutation string provided. Please use 'mutation' or 'query' argument.")
+        raise ValueError(
+            "No mutation string provided. Please use 'mutation' or 'query' argument."
+        )
 
     if variables is None:
         variables = {}
@@ -137,11 +142,12 @@ async def execute_shopify_mutation(mutation=None, variables=None, query=None):
         # Set explicit timeout to avoid hanging and disable SSL verification
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             print(f"Sending mutation request to Shopify API at {endpoint}")
-            response = await client.post(
-                endpoint,
-                json={"query": mutation, "variables": variables},
-                headers=headers
-            )
+            response = await client.post(endpoint,
+                                         json={
+                                             "query": mutation,
+                                             "variables": variables
+                                         },
+                                         headers=headers)
             response.raise_for_status()
             result = response.json()
             print(f"Mutation result: {str(result)[:200]}...")
@@ -163,32 +169,43 @@ async def execute_shopify_mutation(mutation=None, variables=None, query=None):
         print(f"ERROR: {error_msg}")
         return {"errors": [{"message": error_msg}]}
 
+
 # Function to get current date/time in EST
 def get_current_datetime_est():
     """Get the current date and time in EST timezone formatted for context"""
     now = datetime.now(pytz.timezone('America/New_York'))
     return now.strftime("%Y-%m-%d %H:%M:%S EST")
 
+
 async def introspect_admin_schema(query, filter_types=None):
     """Introspect the Shopify Admin API schema using the MCP server"""
     if filter_types is None:
         filter_types = ["all"]
     try:
-        print(f"[DEBUG] Calling mcp_server.introspect_admin_schema with query: {query}")
-        result = await shopify_mcp_server.introspect_admin_schema(query, filter_types)
+        print(
+            f"[DEBUG] Calling mcp_server.introspect_admin_schema with query: {query}"
+        )
+        result = await shopify_mcp_server.introspect_admin_schema(
+            query, filter_types)
 
         # Log the returned result structure for debugging
         print(f"[DEBUG] introspect_admin_schema result type: {type(result)}")
         if isinstance(result, dict):
             content_count = len(result.get("content", []))
-            print(f"[DEBUG] introspect_admin_schema result has {content_count} content items")
+            print(
+                f"[DEBUG] introspect_admin_schema result has {content_count} content items"
+            )
 
             # Log the first content item (truncated)
             if content_count > 0:
                 first_item = result["content"][0]
                 text_length = len(first_item.get("text", ""))
-                print(f"[DEBUG] First content item text length: {text_length} chars")
-                print(f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}...")
+                print(
+                    f"[DEBUG] First content item text length: {text_length} chars"
+                )
+                print(
+                    f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}..."
+                )
 
         return result
     except Exception as e:
@@ -196,12 +213,15 @@ async def introspect_admin_schema(query, filter_types=None):
         traceback.print_exc()  # Add stack trace for better debugging
         return {"errors": [{"message": str(e)}]}
 
+
 async def search_dev_docs(prompt):
     """Search Shopify developer documentation using the MCP server"""
     if not shopify_mcp_server:
         return {"error": "MCP server not available"}
     try:
-        print(f"[DEBUG] Calling shopify_mcp_server.search_dev_docs with prompt: {prompt}")
+        print(
+            f"[DEBUG] Calling shopify_mcp_server.search_dev_docs with prompt: {prompt}"
+        )
         result = await shopify_mcp_server.search_dev_docs(prompt)
 
         # At this point result should already be a properly serializable dictionary
@@ -209,37 +229,49 @@ async def search_dev_docs(prompt):
         print(f"[DEBUG] search_dev_docs result type: {type(result)}")
         if isinstance(result, dict):
             content_count = len(result.get("content", []))
-            print(f"[DEBUG] search_dev_docs result has {content_count} content items")
+            print(
+                f"[DEBUG] search_dev_docs result has {content_count} content items"
+            )
 
             # Log the first content item (truncated)
             if content_count > 0:
                 first_item = result["content"][0]
                 text_length = len(first_item.get("text", ""))
-                print(f"[DEBUG] First content item text length: {text_length} chars")
-                print(f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}...")
+                print(
+                    f"[DEBUG] First content item text length: {text_length} chars"
+                )
+                print(
+                    f"[DEBUG] First content item text excerpt: {first_item.get('text', '')[:200]}..."
+                )
 
         return result
     except Exception as e:
         print(f"Error calling search_dev_docs: {e}")
         return {"error": str(e)}
 
+
 # This duplicate function has been removed, we're using the implementation at line ~128
 
 # Function to fetch product copy guidelines
+
 
 # Helper for Perplexity MCP
 async def ask_perplexity(messages):
     from mcp_server import perplexity_mcp_server
     # Validate input
     if not messages:
-        return {"error": "perplexity_ask requires non-empty 'messages' parameter."}
+        return {
+            "error": "perplexity_ask requires non-empty 'messages' parameter."
+        }
     try:
         # The perplexity_mcp_server now returns a properly serializable dictionary
         return await perplexity_mcp_server.perplexity_ask(messages)
     except Exception as e:
         print(f"Error calling Perplexity MCP: {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
+
 
 # Memory functions
 async def store_user_memory(user_id, key, value, persist=True):
@@ -254,43 +286,67 @@ async def store_user_memory(user_id, key, value, persist=True):
         print(f"Error storing user memory: {e}")
         return {"success": False, "error": str(e)}
 
+
 async def retrieve_user_memory(user_id, key, default=None):
     """Retrieve a memory for a specific user."""
     try:
         # Validate user_id is present
         if not user_id:
-            return {"success": False, "key": key, "value": default, "error": "Missing user_id parameter"}
+            return {
+                "success": False,
+                "key": key,
+                "value": default,
+                "error": "Missing user_id parameter"
+            }
 
         return await memory_service.retrieve_memory(user_id, key, default)
     except Exception as e:
         print(f"Error retrieving user memory: {e}")
-        return {"success": False, "key": key, "value": default, "error": str(e)}
+        return {
+            "success": False,
+            "key": key,
+            "value": default,
+            "error": str(e)
+        }
+
 
 async def list_user_memories(user_id):
     """List all memories for a specific user."""
     try:
         # Validate user_id is present
         if not user_id:
-            return {"success": False, "keys": [], "count": 0, "error": "Missing user_id parameter"}
+            return {
+                "success": False,
+                "keys": [],
+                "count": 0,
+                "error": "Missing user_id parameter"
+            }
 
         return await memory_service.list_memories(user_id)
     except Exception as e:
         print(f"Error listing user memories: {e}")
         return {"success": False, "keys": [], "count": 0, "error": str(e)}
 
+
 async def delete_user_memory(user_id, key):
     """Delete a memory for a specific user."""
     try:
         # Validate user_id is present
         if not user_id:
-            return {"success": False, "key": key, "error": "Missing user_id parameter"}
+            return {
+                "success": False,
+                "key": key,
+                "error": "Missing user_id parameter"
+            }
 
         return await memory_service.delete_memory(user_id, key)
     except Exception as e:
         print(f"Error deleting user memory: {e}")
         return {"success": False, "key": key, "error": str(e)}
 
+
 # Fetch functions
+
 
 async def fetch_and_extract_text(url, selector=None):
     """Fetch a URL and extract text content, optionally filtered by a CSS selector."""
@@ -307,6 +363,7 @@ async def fetch_and_extract_text(url, selector=None):
         print(f"Error extracting text from URL: {e}")
         return {"success": False, "url": url, "error": str(e)}
 
+
 async def fetch_json(url, options=None):
     """Fetch and parse JSON content from a URL."""
     try:
@@ -322,6 +379,7 @@ async def fetch_json(url, options=None):
         print(f"Error fetching JSON: {e}")
         return {"success": False, "url": url, "error": str(e)}
 
+
 # Sequential Thinking functions
 async def structured_thinking(prompt, thinking_type="general", max_steps=5):
     """Perform structured step-by-step thinking on a prompt."""
@@ -329,10 +387,12 @@ async def structured_thinking(prompt, thinking_type="general", max_steps=5):
         if not prompt:
             return {"success": False, "error": "Prompt is required"}
 
-        return await thinking_mcp_server.think(prompt, thinking_type, max_steps)
+        return await thinking_mcp_server.think(prompt, thinking_type,
+                                               max_steps)
     except Exception as e:
         print(f"Error in structured thinking: {e}")
         return {"success": False, "error": str(e)}
+
 
 async def solve_problem(problem, max_steps=5):
     """Apply problem-solving thinking to a specific problem."""
@@ -345,6 +405,7 @@ async def solve_problem(problem, max_steps=5):
         print(f"Error in problem solving: {e}")
         return {"success": False, "error": str(e)}
 
+
 async def plan_code(coding_task, max_steps=5):
     """Plan coding implementation with step-by-step thinking."""
     try:
@@ -355,6 +416,7 @@ async def plan_code(coding_task, max_steps=5):
     except Exception as e:
         print(f"Error in code planning: {e}")
         return {"success": False, "error": str(e)}
+
 
 # Filesystem functions
 async def read_file(path, user_id=None, encoding="utf-8"):
@@ -368,6 +430,7 @@ async def read_file(path, user_id=None, encoding="utf-8"):
         print(f"Error reading file: {e}")
         return {"success": False, "path": path, "error": str(e)}
 
+
 async def write_file(path, content, user_id=None, encoding="utf-8"):
     """Write content to a file using the MCP filesystem server."""
     try:
@@ -376,10 +439,12 @@ async def write_file(path, content, user_id=None, encoding="utf-8"):
         if content is None:
             return {"success": False, "error": "Content is required"}
 
-        return await filesystem_mcp_server.write_file(path, content, user_id, encoding)
+        return await filesystem_mcp_server.write_file(path, content, user_id,
+                                                      encoding)
     except Exception as e:
         print(f"Error writing file: {e}")
         return {"success": False, "path": path, "error": str(e)}
+
 
 async def list_directory(path, user_id=None):
     """List contents of a directory using the MCP filesystem server."""
@@ -392,6 +457,7 @@ async def list_directory(path, user_id=None):
         print(f"Error listing directory: {e}")
         return {"success": False, "path": path, "error": str(e)}
 
+
 async def delete_file(path, user_id=None):
     """Delete a file using the MCP filesystem server."""
     try:
@@ -403,6 +469,7 @@ async def delete_file(path, user_id=None):
         print(f"Error deleting file: {e}")
         return {"success": False, "path": path, "error": str(e)}
 
+
 async def check_file_exists(path, user_id=None):
     """Check if a file exists using the MCP filesystem server."""
     try:
@@ -412,7 +479,13 @@ async def check_file_exists(path, user_id=None):
         return await filesystem_mcp_server.check_file_exists(path, user_id)
     except Exception as e:
         print(f"Error checking file existence: {e}")
-        return {"success": False, "path": path, "exists": False, "error": str(e)}
+        return {
+            "success": False,
+            "path": path,
+            "exists": False,
+            "error": str(e)
+        }
+
 
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content."""
@@ -423,6 +496,7 @@ async def get_product_copy_guidelines():
     except Exception as e:
         print(f"Error reading product copy guidelines: {e}")
         return {"error": str(e)}
+
 
 # Function to upload products to SkuVault
 async def upload_to_skuvault(product_sku):
@@ -435,6 +509,7 @@ async def upload_to_skuvault(product_sku):
         print(f"ERROR: {error_msg}")
         return {"success": False, "message": error_msg}
 
+
 async def upload_batch_to_skuvault(product_skus):
     """Upload multiple products from Shopify to SkuVault using their SKUs"""
     try:
@@ -444,6 +519,7 @@ async def upload_batch_to_skuvault(product_skus):
         error_msg = f"Error batch uploading products to SkuVault: {str(e)}"
         print(f"ERROR: {error_msg}")
         return {"success": False, "message": error_msg}
+
 
 # --- Google Tasks Integration ---
 async def google_tasks_check_auth(user_id):
@@ -456,14 +532,20 @@ async def google_tasks_check_auth(user_id):
         print(f"Error checking Google Tasks auth: {e}")
         return {"is_authorized": False, "error": str(e)}
 
-async def google_tasks_create_task(user_id, title, notes=None, due=None, tasklist_id=None):
+
+async def google_tasks_create_task(user_id,
+                                   title,
+                                   notes=None,
+                                   due=None,
+                                   tasklist_id=None):
     """Create a new Google Task."""
     try:
         import google_tasks
         if not google_tasks.is_authorized(user_id):
             return {
-                "success": False, 
-                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "success": False,
+                "error":
+                "Not authorized with Google Tasks. Please authorize first.",
                 "auth_url": "/authorize/google"
             }
 
@@ -471,7 +553,11 @@ async def google_tasks_create_task(user_id, title, notes=None, due=None, tasklis
         if tasklist_id is None:
             tasklist_id = '@default'
 
-        result = google_tasks.create_task(user_id, title, notes=notes, due=due, tasklist_id=tasklist_id)
+        result = google_tasks.create_task(user_id,
+                                          title,
+                                          notes=notes,
+                                          due=due,
+                                          tasklist_id=tasklist_id)
         if "error" in result:
             return {"success": False, "error": result["error"]}
         return {"success": True, "task": result}
@@ -479,14 +565,16 @@ async def google_tasks_create_task(user_id, title, notes=None, due=None, tasklis
         print(f"Error creating Google Task: {e}")
         return {"success": False, "error": str(e)}
 
+
 async def google_tasks_get_tasks(user_id, tasklist_id=None):
     """Get all tasks for a user."""
     try:
         import google_tasks
         if not google_tasks.is_authorized(user_id):
             return {
-                "success": False, 
-                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "success": False,
+                "error":
+                "Not authorized with Google Tasks. Please authorize first.",
                 "auth_url": "/authorize/google"
             }
 
@@ -502,14 +590,22 @@ async def google_tasks_get_tasks(user_id, tasklist_id=None):
         print(f"Error getting Google Tasks: {e}")
         return {"success": False, "error": str(e)}
 
-async def google_tasks_update_task(user_id, task_id, title=None, notes=None, due=None, status=None, tasklist_id=None):
+
+async def google_tasks_update_task(user_id,
+                                   task_id,
+                                   title=None,
+                                   notes=None,
+                                   due=None,
+                                   status=None,
+                                   tasklist_id=None):
     """Update an existing Google Task."""
     try:
         import google_tasks
         if not google_tasks.is_authorized(user_id):
             return {
-                "success": False, 
-                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "success": False,
+                "error":
+                "Not authorized with Google Tasks. Please authorize first.",
                 "auth_url": "/authorize/google"
             }
 
@@ -517,9 +613,13 @@ async def google_tasks_update_task(user_id, task_id, title=None, notes=None, due
         if tasklist_id is None:
             tasklist_id = '@default'
 
-        result = google_tasks.update_task(
-            user_id, task_id, title=title, notes=notes, due=due, status=status, tasklist_id=tasklist_id
-        )
+        result = google_tasks.update_task(user_id,
+                                          task_id,
+                                          title=title,
+                                          notes=notes,
+                                          due=due,
+                                          status=status,
+                                          tasklist_id=tasklist_id)
         if "error" in result:
             return {"success": False, "error": result["error"]}
         return {"success": True, "task": result}
@@ -527,14 +627,16 @@ async def google_tasks_update_task(user_id, task_id, title=None, notes=None, due
         print(f"Error updating Google Task: {e}")
         return {"success": False, "error": str(e)}
 
+
 async def google_tasks_complete_task(user_id, task_id, tasklist_id=None):
     """Mark a Google Task as completed."""
     try:
         import google_tasks
         if not google_tasks.is_authorized(user_id):
             return {
-                "success": False, 
-                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "success": False,
+                "error":
+                "Not authorized with Google Tasks. Please authorize first.",
                 "auth_url": "/authorize/google"
             }
 
@@ -550,14 +652,16 @@ async def google_tasks_complete_task(user_id, task_id, tasklist_id=None):
         print(f"Error completing Google Task: {e}")
         return {"success": False, "error": str(e)}
 
+
 async def google_tasks_delete_task(user_id, task_id, tasklist_id=None):
     """Delete a Google Task."""
     try:
         import google_tasks
         if not google_tasks.is_authorized(user_id):
             return {
-                "success": False, 
-                "error": "Not authorized with Google Tasks. Please authorize first.",
+                "success": False,
+                "error":
+                "Not authorized with Google Tasks. Please authorize first.",
                 "auth_url": "/authorize/google"
             }
 
@@ -573,6 +677,7 @@ async def google_tasks_delete_task(user_id, task_id, tasklist_id=None):
         print(f"Error deleting Google Task: {e}")
         return {"success": False, "error": str(e)}
 
+
 # Function to fetch URL content with curl
 async def fetch_url_with_curl(url: str):
     """Fetch the raw content of a public HTTP/HTTPS URL using curl. Returns up to 4000 characters."""
@@ -580,16 +685,28 @@ async def fetch_url_with_curl(url: str):
     if not url.lower().startswith(('http://', 'https://')):
         return {"error": "Only HTTP and HTTPS URLs are allowed."}
     # Block local/internal addresses
-    if re.search(r'(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)', url):
-        return {"error": "Local and internal network addresses are not allowed."}
+    if re.search(
+            r'(localhost|127\.0\.0\.1|::1|0\.0\.0\.0|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)',
+            url):
+        return {
+            "error": "Local and internal network addresses are not allowed."
+        }
     try:
         proc = await asyncio.create_subprocess_exec(
-            'curl', '-L', '--max-time', '8', '--silent', '--show-error', '--user-agent', 'ShopifyAgent/1.0', url,
+            'curl',
+            '-L',
+            '--max-time',
+            '8',
+            '--silent',
+            '--show-error',
+            '--user-agent',
+            'ShopifyAgent/1.0',
+            url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+            stderr=asyncio.subprocess.PIPE)
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(),
+                                                    timeout=10)
         except asyncio.TimeoutError:
             proc.kill()
             return {"error": "Request timed out."}
@@ -599,6 +716,7 @@ async def fetch_url_with_curl(url: str):
         return {"content": content, "truncated": len(content) == 4000}
     except Exception as e:
         return {"error": str(e)}
+
 
 # Import Open Box listing tool
 from open_box_listing_tool import create_open_box_listing_single
@@ -611,17 +729,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file from the controlled filesystem storage. Files are stored in dedicated areas for templates, exports, and user-specific files.",
+            "description":
+            "Read a file from the controlled filesystem storage. Files are stored in dedicated areas for templates, exports, and user-specific files.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
-                        "type": "string",
-                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                        "type":
+                        "string",
+                        "description":
+                        "Path to the file (can be relative to storage dir or absolute within allowed paths)"
                     },
                     "user_id": {
-                        "type": "integer",
-                        "description": "Optional user ID to scope file to user directory"
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope file to user directory"
                     },
                     "encoding": {
                         "type": "string",
@@ -637,21 +760,26 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Write content to a file in the controlled filesystem storage. Files can be stored in dedicated areas for templates, exports, and user-specific files.",
+            "description":
+            "Write content to a file in the controlled filesystem storage. Files can be stored in dedicated areas for templates, exports, and user-specific files.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
-                        "type": "string",
-                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                        "type":
+                        "string",
+                        "description":
+                        "Path to the file (can be relative to storage dir or absolute within allowed paths)"
                     },
                     "content": {
                         "type": "string",
                         "description": "Content to write to the file"
                     },
                     "user_id": {
-                        "type": "integer",
-                        "description": "Optional user ID to scope file to user directory"
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope file to user directory"
                     },
                     "encoding": {
                         "type": "string",
@@ -667,17 +795,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "list_directory",
-            "description": "List contents of a directory in the controlled filesystem storage.",
+            "description":
+            "List contents of a directory in the controlled filesystem storage.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
-                        "type": "string",
-                        "description": "Path to the directory (can be relative to storage dir or absolute within allowed paths)"
+                        "type":
+                        "string",
+                        "description":
+                        "Path to the directory (can be relative to storage dir or absolute within allowed paths)"
                     },
                     "user_id": {
-                        "type": "integer",
-                        "description": "Optional user ID to scope to user directory"
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope to user directory"
                     }
                 },
                 "required": ["path"]
@@ -689,17 +822,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "delete_file",
-            "description": "Delete a file from the controlled filesystem storage.",
+            "description":
+            "Delete a file from the controlled filesystem storage.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
-                        "type": "string",
-                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                        "type":
+                        "string",
+                        "description":
+                        "Path to the file (can be relative to storage dir or absolute within allowed paths)"
                     },
                     "user_id": {
-                        "type": "integer",
-                        "description": "Optional user ID to scope to user directory"
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope to user directory"
                     }
                 },
                 "required": ["path"]
@@ -711,17 +849,22 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "check_file_exists",
-            "description": "Check if a file exists in the controlled filesystem storage.",
+            "description":
+            "Check if a file exists in the controlled filesystem storage.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
-                        "type": "string",
-                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                        "type":
+                        "string",
+                        "description":
+                        "Path to the file (can be relative to storage dir or absolute within allowed paths)"
                     },
                     "user_id": {
-                        "type": "integer",
-                        "description": "Optional user ID to scope to user directory"
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope to user directory"
                     }
                 },
                 "required": ["path"]
@@ -735,7 +878,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "structured_thinking",
-            "description": "Perform structured step-by-step thinking on a prompt, breaking down reasoning into clear steps with a conclusion.",
+            "description":
+            "Perform structured step-by-step thinking on a prompt, breaking down reasoning into clear steps with a conclusion.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -762,7 +906,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "solve_problem",
-            "description": "Apply structured problem-solving thinking to reach a solution or conclusion about a specific problem.",
+            "description":
+            "Apply structured problem-solving thinking to reach a solution or conclusion about a specific problem.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -784,7 +929,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "plan_code",
-            "description": "Create a step-by-step plan for implementing code, breaking down the approach before writing actual code.",
+            "description":
+            "Create a step-by-step plan for implementing code, breaking down the approach before writing actual code.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -802,14 +948,14 @@ TOOLS = [
         }
     },
 
-    ```python
     # Fetch tools
     {
         "name": "fetch_and_extract_text",
         "type": "function",
         "function": {
             "name": "fetch_and_extract_text",
-            "description": "Fetch a webpage and extract the text content, removing HTML tags and formatting. Optionally filter by CSS selector.",
+            "description":
+            "Fetch a webpage and extract the text content, removing HTML tags and formatting. Optionally filter by CSS selector.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -818,8 +964,10 @@ TOOLS = [
                         "description": "The URL to fetch"
                     },
                     "selector": {
-                        "type": "string",
-                        "description": "Optional CSS selector to extract specific content (e.g., 'article', '.main-content')"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional CSS selector to extract specific content (e.g., 'article', '.main-content')"
                     }
                 },
                 "required": ["url"]
@@ -831,7 +979,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_json",
-            "description": "Fetch and parse JSON content from a URL or API endpoint.",
+            "description":
+            "Fetch and parse JSON content from a URL or API endpoint.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -840,8 +989,10 @@ TOOLS = [
                         "description": "The URL to fetch JSON from"
                     },
                     "options": {
-                        "type": "object",
-                        "description": "Optional parameters for the fetch request (headers, timeout, etc.)"
+                        "type":
+                        "object",
+                        "description":
+                        "Optional parameters for the fetch request (headers, timeout, etc.)"
                     }
                 },
                 "required": ["url"]
@@ -855,7 +1006,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "store_user_memory",
-            "description": "Store a memory for the current user. Memories are user-specific and persist across sessions.",
+            "description":
+            "Store a memory for the current user. Memories are user-specific and persist across sessions.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -864,16 +1016,22 @@ TOOLS = [
                         "description": "The user's ID"
                     },
                     "key": {
-                        "type": "string",
-                        "description": "The memory key (e.g., 'preferences.theme', 'common_products')"
+                        "type":
+                        "string",
+                        "description":
+                        "The memory key (e.g., 'preferences.theme', 'common_products')"
                     },
                     "value": {
-                        "type": "object",
-                        "description": "The value to store (can be any JSON-serializable object)"
+                        "type":
+                        "object",
+                        "description":
+                        "The value to store (can be any JSON-serializable object)"
                     },
                     "persist": {
-                        "type": "boolean",
-                        "description": "Whether to persist to database (default: true)"
+                        "type":
+                        "boolean",
+                        "description":
+                        "Whether to persist to database (default: true)"
                     }
                 },
                 "required": ["user_id", "key", "value"]
@@ -885,7 +1043,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "retrieve_user_memory",
-            "description": "Retrieve a memory for the current user. Returns the memory value or a default if not found.",
+            "description":
+            "Retrieve a memory for the current user. Returns the memory value or a default if not found.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -898,8 +1057,10 @@ TOOLS = [
                         "description": "The memory key to retrieve"
                     },
                     "default": {
-                        "type": "object",
-                        "description": "The default value to return if memory not found"
+                        "type":
+                        "object",
+                        "description":
+                        "The default value to return if memory not found"
                     }
                 },
                 "required": ["user_id", "key"]
@@ -947,54 +1108,89 @@ TOOLS = [
         }
     },
     {
-    "name": "execute_python_code",
-    "type": "function",
-    "function": {
         "name": "execute_python_code",
-        "description":
-        "Execute Python code and return the results. This allows you to perform data analysis, calculations, and generate visualizations.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type":
-                    "string",
-                    "description":
-                    "The Python code to execute. The code should be complete and executable."
-                }
-            },
-            "required": ["code"]
+        "type": "function",
+        "function": {
+            "name": "execute_python_code",
+            "description":
+            "Execute Python code and return the results. This allows you to perform data analysis, calculations, and generate visualizations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type":
+                        "string",
+                        "description":
+                        "The Python code to execute. The code should be complete and executable."
+                    }
+                },
+                "required": ["code"]
+            }
         }
-    }
-},
-
+    },
     {
         "name": "create_open_box_listing_single",
         "type": "function",
         "function": {
-        "name": "create_open_box_listing_single",
-        "description": "Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "identifier": {"type": "string", "description": "Product title / handle / numeric ID / SKU to duplicate"},
-                "serial_number": {"type": "string", "description": "Unit serial number to embed in title & description."},
-                "suffix": {"type": "string", "description": "Condition descriptor appended to the title (e.g. 'Excellent')."},
-                "price": {"type": "number", "description": "Explicit Open Box price in CAD dollars.", "default": None},
-                "discount_pct": {"type": "number", "description": "Percent discount off the product’s higher of price / compareAtPrice.", "default": None},
-                "note": {"type": "string", "description": "Optional note to prepend to the description.", "default": None}
-            },
-            "required": ["identifier", "serial_number", "suffix"]
+            "name": "create_open_box_listing_single",
+            "description":
+            "Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type":
+                        "string",
+                        "description":
+                        "Product title / handle / numeric ID / SKU to duplicate"
+                    },
+                    "serial_number": {
+                        "type":
+                        "string",
+                        "description":
+                        "Unit serial number to embed in title & description."
+                    },
+                    "suffix": {
+                        "type":
+                        "string",
+                        "description":
+                        "Condition descriptor appended to the title (e.g. 'Excellent')."
+                    },
+                    "price": {
+                        "type": "number",
+                        "description":
+                        "Explicit Open Box price in CAD dollars.",
+                        "default": None
+                    },
+                    "discount_pct": {
+                        "type": "number",
+                        "description":
+                        "Percent discount off the product’s higher of price / compareAtPrice.",
+                        "default": None
+                    },
+                    "note": {
+                        "type": "string",
+                        "description":
+                        "Optional note to prepend to the description.",
+                        "default": None
+                    }
+                },
+                "required": ["identifier", "serial_number", "suffix"]
+            }
         }
-    }
     },
     {
         "name": "get_product_copy_guidelines",
         "type": "function",
         "function": {
             "name": "get_product_copy_guidelines",
-            "description": "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.",
-            "parameters": {"type": "object", "properties": {}, "required": []}
+            "description":
+            "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
         }
     },
     {
@@ -1002,7 +1198,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_url_with_curl",
-            "description": "Fetch the raw content of a public HTTP/HTTPS URL using curl. Useful for retrieving HTML, JSON, or plain text from the web. Only use for public internet resources.",
+            "description":
+            "Fetch the raw content of a public HTTP/HTTPS URL using curl. Useful for retrieving HTML, JSON, or plain text from the web. Only use for public internet resources.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1020,7 +1217,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_shopify_query",
-            "description": "Execute a Shopify GraphQL query to fetch data from the Shopify Admin API",
+            "description":
+            "Execute a Shopify GraphQL query to fetch data from the Shopify Admin API",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1038,7 +1236,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_shopify_mutation",
-            "description": "Execute a Shopify GraphQL mutation to modify data in the Shopify Admin API",
+            "description":
+            "Execute a Shopify GraphQL mutation to modify data in the Shopify Admin API",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1060,13 +1259,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "introspect_admin_schema",
-            "description": "Introspect the Shopify Admin API GraphQL schema to get details about types, queries, and mutations",
+            "description":
+            "Introspect the Shopify Admin API GraphQL schema to get details about types, queries, and mutations",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
-                        "type": "string",
-                        "description": "Search term to filter schema elements by name (e.g., 'product', 'discountCode')"
+                        "type":
+                        "string",
+                        "description":
+                        "Search term to filter schema elements by name (e.g., 'product', 'discountCode')"
                     },
                     "filter_types": {
                         "type": "array",
@@ -1074,7 +1276,8 @@ TOOLS = [
                             "type": "string",
                             "enum": ["all", "types", "queries", "mutations"]
                         },
-                        "description": "Filter results to show specific sections"
+                        "description":
+                        "Filter results to show specific sections"
                     }
                 },
                 "required": ["query"]
@@ -1103,7 +1306,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "perplexity_ask",
-            "description": "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
+            "description":
+            "Ask Perplexity AI a question to get real-time information and analysis. Use this for current information, complex analysis, or when you need to verify or research something.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1112,8 +1316,12 @@ TOOLS = [
                         "items": {
                             "type": "object",
                             "properties": {
-                                "role": {"type": "string"},
-                                "content": {"type": "string"}
+                                "role": {
+                                    "type": "string"
+                                },
+                                "content": {
+                                    "type": "string"
+                                }
                             },
                             "required": ["role", "content"]
                         },
@@ -1134,8 +1342,10 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "product_sku": {
-                        "type": "string",
-                        "description": "The SKU of the Shopify product to upload to SkuVault"
+                        "type":
+                        "string",
+                        "description":
+                        "The SKU of the Shopify product to upload to SkuVault"
                     }
                 },
                 "required": ["product_sku"]
@@ -1147,13 +1357,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "upload_batch_to_skuvault",
-            "description": "Upload multiple products to SkuVault using their API.",
+            "description":
+            "Upload multiple products to SkuVault using their API.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "product_skus": {
-                        "type": "string",
-                        "description": "Comma-separated list of Shopify product SKUs to upload to SkuVault"
+                        "type":
+                        "string",
+                        "description":
+                        "Comma-separated list of Shopify product SKUs to upload to SkuVault"
                     }
                 },
                 "required": ["product_skus"]
@@ -1200,12 +1413,16 @@ TOOLS = [
                         "description": "Optional notes for the task"
                     },
                     "due": {
-                        "type": "string",
-                        "description": "Optional due date for the task (ISO format)"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional due date for the task (ISO format)"
                     },
                     "tasklist_id": {
-                        "type": "string",
-                        "description": "Optional task list ID. Defaults to the user's default task list"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional task list ID. Defaults to the user's default task list"
                     }
                 },
                 "required": ["user_id", "title"]
@@ -1226,8 +1443,10 @@ TOOLS = [
                         "description": "The user's ID"
                     },
                     "tasklist_id": {
-                        "type": "string",
-                        "description": "Optional task list ID. Defaults to the user's default task list"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional task list ID. Defaults to the user's default task list"
                     }
                 },
                 "required": ["user_id"]
@@ -1260,16 +1479,22 @@ TOOLS = [
                         "description": "Optional new notes for the task"
                     },
                     "due": {
-                        "type": "string",
-                        "description": "Optional new due date for the task (ISO format)"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional new due date for the task (ISO format)"
                     },
                     "status": {
-                        "type": "string",
-                        "description": "Optional new status for the task ('needsAction', 'completed')"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional new status for the task ('needsAction', 'completed')"
                     },
                     "tasklist_id": {
-                        "type": "string",
-                        "description": "Optional task list ID. Defaults to the user's default task list"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional task list ID. Defaults to the user's default task list"
                     }
                 },
                 "required": ["user_id", "task_id"]
@@ -1294,8 +1519,10 @@ TOOLS = [
                         "description": "The ID of the task to complete"
                     },
                     "tasklist_id": {
-                        "type": "string",
-                        "description": "Optional task list ID. Defaults to the user's default task list"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional task list ID. Defaults to the user's default task list"
                     }
                 },
                 "required": ["user_id", "task_id"]
@@ -1320,8 +1547,10 @@ TOOLS = [
                         "description": "The ID of the task to delete"
                     },
                     "tasklist_id": {
-                        "type": "string",
-                        "description": "Optional task list ID. Defaults to the user's default task list"
+                        "type":
+                        "string",
+                        "description":
+                        "Optional task list ID. Defaults to the user's default task list"
                     }
                 },
                 "required": ["user_id", "task_id"]
@@ -1330,8 +1559,16 @@ TOOLS = [
     }
 ]
 
+
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(prompt: str, user_name: str, user_bio: str, history: list = None, tools_override: list = None, model_override: str = None, streaming: bool = False, user_id: int = None):
+async def run_simple_agent(prompt: str,
+                           user_name: str,
+                           user_bio: str,
+                           history: list = None,
+                           tools_override: list = None,
+                           model_override: str = None,
+                           streaming: bool = False,
+                           user_id: int = None):
     # Initialize variables
     step_count = 0
     steps = []
@@ -1568,7 +1805,10 @@ END OF SYSTEM PROMPT
 """
 
     # Add system message to history
-    formatted_messages = [{"role": "system", "content": system_message}] + formatted_history
+    formatted_messages = [{
+        "role": "system",
+        "content": system_message
+    }] + formatted_history
     formatted_messages.append({"role": "user", "content": prompt})
 
     # Step logs for tracking agent progress
@@ -1591,7 +1831,8 @@ END OF SYSTEM PROMPT
         "perplexity_ask": ask_perplexity,
         "upload_to_skuvault": upload_to_skuvault,
         "upload_batch_to_skuvault": upload_batch_to_skuvault,
-        "execute_python_code": execute_code,  # Correctly reference the async function to be awaited
+        "execute_python_code":
+        execute_code,  # Correctly reference the async function to be awaited
         "create_open_box_listing_single": create_open_box_listing_single,
         "store_user_memory": store_user_memory,
         "retrieve_user_memory": retrieve_user_memory,
@@ -1611,8 +1852,7 @@ END OF SYSTEM PROMPT
         "google_tasks_create_task": google_tasks_create_task,
         "google_tasks_get_tasks": google_tasks_get_tasks,
         "google_tasks_update_task": google_tasks_update_task,
-        "google_tasks_complete_task":```python
- google_tasks_complete_task,
+        "google_tasks_complete_task": google_tasks_complete_task,
         "google_tasks_delete_task": google_tasks_delete_task
     }
 
@@ -1631,8 +1871,7 @@ END OF SYSTEM PROMPT
                         tools=TOOLS,
                         reasoning_effort="medium",
                         tool_choice="auto",
-                        stream=True
-                    )
+                        stream=True)
 
                     # Handle streaming chunks
                     current_content = ""
@@ -1646,10 +1885,7 @@ END OF SYSTEM PROMPT
                         # Process content chunks
                         if hasattr(delta, 'content') and delta.content:
                             current_content += delta.content
-                            yield {
-                                'type': 'content',
-                                'delta': delta.content
-                            }
+                            yield {'type': 'content', 'delta': delta.content}
 
                         # Process tool calls
                         if hasattr(delta, 'tool_calls') and delta.tool_calls:
@@ -1657,59 +1893,84 @@ END OF SYSTEM PROMPT
                                 # Extract and handle tool call information
                                 if tool_call.index >= len(tool_calls_buffer):
                                     tool_calls_buffer.append({
-                                        'id': tool_call.id if hasattr(tool_call, 'id') else None,
-                                        'type': 'function',
-                                        'function': {'name': '', 'arguments': ''}
+                                        'id':
+                                        tool_call.id if hasattr(
+                                            tool_call, 'id') else None,
+                                        'type':
+                                        'function',
+                                        'function': {
+                                            'name': '',
+                                            'arguments': ''
+                                        }
                                     })
 
                                 if hasattr(tool_call, 'function'):
-                                    if hasattr(tool_call.function, 'name') and tool_call.function.name:
-                                        tool_calls_buffer[tool_call.index]['function']['name'] = tool_call.function.name
+                                    if hasattr(tool_call.function, 'name'
+                                               ) and tool_call.function.name:
+                                        tool_calls_buffer[
+                                            tool_call.index]['function'][
+                                                'name'] = tool_call.function.name
                                         yield {
                                             'type': 'tool_call',
                                             'name': tool_call.function.name,
                                             'status': 'started'
                                         }
 
-                                    if hasattr(tool_call.function, 'arguments') and tool_call.function.arguments:
-                                        current_args = tool_calls_buffer[tool_call.index]['function']['arguments']
-                                        tool_calls_buffer[tool_call.index]['function']['arguments'] = current_args + tool_call.function.arguments
+                                    if hasattr(
+                                            tool_call.function, 'arguments'
+                                    ) and tool_call.function.arguments:
+                                        current_args = tool_calls_buffer[
+                                            tool_call.
+                                            index]['function']['arguments']
+                                        tool_calls_buffer[
+                                            tool_call.index]['function'][
+                                                'arguments'] = current_args + tool_call.function.arguments
 
                     # Define a response_message for the streaming case to avoid the variable reference error
-                    response_message = type('obj', (object,), {
-                        'tool_calls': tool_calls_buffer,
-                        'content': current_content
-                    })
+                    response_message = type(
+                        'obj', (object, ), {
+                            'tool_calls': tool_calls_buffer,
+                            'content': current_content
+                        })
 
                     # First, add the assistant message with tool calls
                     if tool_calls_buffer:
                         formatted_messages.append({
-                            'role': 'assistant',
-                            'content': current_content,
-                            'tool_calls': tool_calls_buffer
+                            'role':
+                            'assistant',
+                            'content':
+                            current_content,
+                            'tool_calls':
+                            tool_calls_buffer
                         })
 
                         # Then process the tool calls
                         for tool_call in tool_calls_buffer:
-                            if tool_call['function']['name'] and tool_call['function']['arguments']:
+                            if tool_call['function']['name'] and tool_call[
+                                    'function']['arguments']:
                                 try:
                                     fn_name = tool_call['function']['name']
-                                    args = json.loads(tool_call['function']['arguments'])
+                                    args = json.loads(
+                                        tool_call['function']['arguments'])
 
                                     # Add to steps
                                     steps.append({
-                                        'type': 'tool', 
+                                        'type': 'tool',
                                         'name': fn_name,
                                         'input': args
                                     })
 
                                     # Execute the tool function
                                     if fn_name in tool_functions:
-                                        function_to_call = tool_functions[fn_name]
-                                        if inspect.iscoroutinefunction(function_to_call):
-                                            tool_result = await function_to_call(**args)
+                                        function_to_call = tool_functions[
+                                            fn_name]
+                                        if inspect.iscoroutinefunction(
+                                                function_to_call):
+                                            tool_result = await function_to_call(
+                                                **args)
                                         else:
-                                            tool_result = function_to_call(**args)
+                                            tool_result = function_to_call(
+                                                **args)
 
                                         # Add result to steps
                                         steps.append({
@@ -1727,27 +1988,36 @@ END OF SYSTEM PROMPT
 
                                         # Add tool result to messages - this should come after the assistant message with tool_calls
                                         formatted_messages.append({
-                                            'role': 'tool',
-                                            'tool_call_id': tool_call.get('id', ''),
-                                            'name': fn_name,
-                                            'content': json.dumps(tool_result)
+                                            'role':
+                                            'tool',
+                                            'tool_call_id':
+                                            tool_call.get('id', ''),
+                                            'name':
+                                            fn_name,
+                                            'content':
+                                            json.dumps(tool_result)
                                         })
 
                                 except Exception as e:
                                     print(f"Error processing tool call: {e}")
-                                    yield {
-                                        'type': 'error',
-                                        'message': str(e)
-                                    }
+                                    yield {'type': 'error', 'message': str(e)}
                                     # Make sure we have an assistant message with tool_calls before adding tool response
-                                    if formatted_messages[-1]['role'] != 'assistant' or 'tool_calls' not in formatted_messages[-1]:
-                                        print("Cannot add tool response without preceding assistant message with tool_calls")
+                                    if formatted_messages[-1][
+                                            'role'] != 'assistant' or 'tool_calls' not in formatted_messages[
+                                                -1]:
+                                        print(
+                                            "Cannot add tool response without preceding assistant message with tool_calls"
+                                        )
                                     else:
                                         formatted_messages.append({
-                                            'role': 'tool',
-                                            'tool_call_id': tool_call.get('id', ''),
-                                            'name': fn_name, 
-                                            'content': f"Error: {str(e)}"
+                                            'role':
+                                            'tool',
+                                            'tool_call_id':
+                                            tool_call.get('id', ''),
+                                            'name':
+                                            fn_name,
+                                            'content':
+                                            f"Error: {str(e)}"
                                         })
 
                 else:
@@ -1767,9 +2037,12 @@ END OF SYSTEM PROMPT
                     if response_message.tool_calls:
                         # First add the assistant message with tool calls
                         formatted_messages.append({
-                            'role': 'assistant',
-                            'content': current_content or "",
-                            'tool_calls': response_message.tool_calls
+                            'role':
+                            'assistant',
+                            'content':
+                            current_content or "",
+                            'tool_calls':
+                            response_message.tool_calls
                         })
 
                         # Then process each tool call
@@ -1787,7 +2060,8 @@ END OF SYSTEM PROMPT
 
                             # Execute the tool function
                             if fn_name in tool_functions:
-                                tool_result = await tool_functions[fn_name](**args)
+                                tool_result = await tool_functions[fn_name](
+                                    **args)
 
                                 # Add result to steps
                                 steps.append({
@@ -1798,25 +2072,35 @@ END OF SYSTEM PROMPT
 
                                 # Add tool result to messages
                                 formatted_messages.append({
-                                    'role': 'tool',
-                                    'tool_call_id': tool_call.id,
-                                    'name': fn_name,
-                                    'content': json.dumps(tool_result)
+                                    'role':
+                                    'tool',
+                                    'tool_call_id':
+                                    tool_call.id,
+                                    'name':
+                                    fn_name,
+                                    'content':
+                                    json.dumps(tool_result)
                                 })
                             else:
                                 print(f"Tool {fn_name} not found")
                                 formatted_messages.append({
-                                    'role': 'tool',
-                                    'tool_call_id': tool_call.id,
-                                    'name': fn_name,
-                                    'content': f"Error: Tool {fn_name} not found"
+                                    'role':
+                                    'tool',
+                                    'tool_call_id':
+                                    tool_call.id,
+                                    'name':
+                                    fn_name,
+                                    'content':
+                                    f"Error: Tool {fn_name} not found"
                                 })
                     else:
                         print("No tool calls in response")
                         if current_content:
                             formatted_messages.append({
-                                'role': 'assistant',
-                                'content': current_content
+                                'role':
+                                'assistant',
+                                'content':
+                                current_content
                             })
 
             except Exception as e:
@@ -1849,42 +2133,39 @@ END OF SYSTEM PROMPT
 
     # Return final result (not streamed)
     if not streaming:
-        final_result = {
-            'content': final_response,
-            'steps': steps
-        }
-        yield {
-            'type': 'content',
-            'result': json.dumps(final_result)
-        }
+        final_result = {'content': final_response, 'steps': steps}
+        yield {'type': 'content', 'result': json.dumps(final_result)}
     else:
         # Yield the final content chunk so stream_chat.py can save it
         yield {
             'type': 'final',
-            'content': final_response if final_response else ""  # Ensure content is always a string
+            'content': final_response
+            if final_response else ""  # Ensure content is always a string
         }
 
         # For streaming, after all content chunks are sent, send suggestions
         suggestions_list = []
-        if final_response and not final_response.startswith("I encountered an error"):
+        if final_response and not final_response.startswith(
+                "I encountered an error"):
             try:
                 # Ensure client is passed to _generate_suggestions_async
-                suggestions_list = await _generate_suggestions_async(formatted_messages, client)
+                suggestions_list = await _generate_suggestions_async(
+                    formatted_messages, client)
             except Exception as e:
                 print(f"Error generating suggestions in streaming mode: {e}")
 
-        yield {
-            'type': 'suggestions',
-            'suggestions': suggestions_list
-        }
+        yield {'type': 'suggestions', 'suggestions': suggestions_list}
 
         # Signal end of all data for this request
-        yield {
-            'type': 'stream_end'
-        }
+        yield {'type': 'stream_end'}
+
+
 from typing import List, Dict
 
-async def _generate_suggestions_async(conversation_history: List[Dict[str, str]], openai_client: openai.AsyncOpenAI):
+
+async def _generate_suggestions_async(conversation_history: List[Dict[str,
+                                                                      str]],
+                                      openai_client: openai.AsyncOpenAI):
     """
     Generates 3 brief follow-up suggestions based on the conversation history.
     The conversation_history should include the AI's last message.
@@ -1915,15 +2196,20 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
 
     user_context_for_suggestions = f"The AI just said: \"{ai_last_message_content}\". Based on this, what could the user say next? Provide 3 distinct suggestions."
 
-    suggestion_prompt_messages = [
-        {"role": "system", "content": suggestion_prompt_system},
-        {"role": "user", "content": user_context_for_suggestions}
-    ]
+    suggestion_prompt_messages = [{
+        "role": "system",
+        "content": suggestion_prompt_system
+    }, {
+        "role": "user",
+        "content": user_context_for_suggestions
+    }]
 
     try:
-        print(f"Generating suggestions based on AI's last message: {ai_last_message_content[:100]}...")
+        print(
+            f"Generating suggestions based on AI's last message: {ai_last_message_content[:100]}..."
+        )
         suggestion_response = await openai_client.chat.completions.create(
-            model=os.environ.get("DEFAULT_MODEL", "gpt-4.1-nano"), 
+            model=os.environ.get("DEFAULT_MODEL", "gpt-4.1-nano"),
             messages=suggestion_prompt_messages,
             tools=[{
                 "type": "function",
@@ -1934,34 +2220,47 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
                         "type": "object",
                         "properties": {
                             "Suggestions": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of 3 short (2-5 words) follow-up suggestions. Each suggestion should be a complete phrase a user might say."
+                                "type":
+                                "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description":
+                                "List of 3 short (2-5 words) follow-up suggestions. Each suggestion should be a complete phrase a user might say."
                             }
                         },
                         "required": ["Suggestions"]
                     }
                 }
             }],
-            tool_choice={"type": "function", "function": {"name": "provide_suggestions"}},
+            tool_choice={
+                "type": "function",
+                "function": {
+                    "name": "provide_suggestions"
+                }
+            },
             temperature=0.7,
         )
 
-        if (hasattr(suggestion_response, 'choices') and 
-            suggestion_response.choices and 
-            hasattr(suggestion_response.choices[0], 'message') and
-            hasattr(suggestion_response.choices[0].message, 'tool_calls') and
-            suggestion_response.choices[0].message.tool_calls):
+        if (hasattr(suggestion_response, 'choices')
+                and suggestion_response.choices
+                and hasattr(suggestion_response.choices[0], 'message') and
+                hasattr(suggestion_response.choices[0].message, 'tool_calls')
+                and suggestion_response.choices[0].message.tool_calls):
 
             tool_call = suggestion_response.choices[0].message.tool_calls[0]
             if tool_call.function.name == "provide_suggestions":
                 arguments = json.loads(tool_call.function.arguments)
                 suggestions = arguments.get('Suggestions', [])
-                suggestions = [str(s) for s in suggestions[:3]] 
+                suggestions = [str(s) for s in suggestions[:3]]
                 print(f"Generated suggestions: {suggestions}")
         else:
-            print("No valid tool_calls for suggestions found in OpenAI response.")
-            if suggestion_response.choices and suggestion_response.choices[0].message and suggestion_response.choices[0].message.content:
+            print(
+                "No valid tool_calls for suggestions found in OpenAI response."
+            )
+            if suggestion_response.choices and suggestion_response.choices[
+                    0].message and suggestion_response.choices[
+                        0].message.content:
                 # Fallback attempt if model just returns content (less ideal)
                 content = suggestion_response.choices[0].message.content
                 print(f"Suggestion fallback content: {content}")
@@ -1970,12 +2269,20 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
                     parsed_suggestions = json.loads(content)
                     if isinstance(parsed_suggestions, list):
                         suggestions = [str(s) for s in parsed_suggestions[:3]]
-                    elif isinstance(parsed_suggestions, dict) and "Suggestions" in parsed_suggestions:
-                        suggestions = [str(s) for s in parsed_suggestions.get("Suggestions", [])[:3]]
+                    elif isinstance(
+                            parsed_suggestions,
+                            dict) and "Suggestions" in parsed_suggestions:
+                        suggestions = [
+                            str(s) for s in parsed_suggestions.get(
+                                "Suggestions", [])[:3]
+                        ]
                 except json.JSONDecodeError:
                     # If it's just text, try splitting by newlines, but this is often messy
                     raw_suggestions = content.split('\n')
-                    suggestions = [s.strip() for s in raw_suggestions if s.strip() and len(s.strip()) > 1 and len(s.strip()) < 30][:3]
+                    suggestions = [
+                        s.strip() for s in raw_suggestions if s.strip()
+                        and len(s.strip()) > 1 and len(s.strip()) < 30
+                    ][:3]
                     print(f"Parsed suggestions from raw text: {suggestions}")
 
     except Exception as e:
@@ -1983,6 +2290,7 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str, str]]
         traceback.print_exc()
 
     return suggestions
+
 
 # Example function to execute Python code
 async def execute_code(code):
