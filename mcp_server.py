@@ -544,7 +544,7 @@ try:
             }
             # self.cache = True # MCPServerStdio has this, set if needed after super().__init__ or directly
 
-            config_path = "/home/pranav/.codeium/windsurf/mcp_config.json"
+            config_path = "thinking.json"
             server_key = "sequential-thinking" # Key for this server in mcp_config.json
             # expected_tool_name is self.mcp_tool_name, initialized above
 
@@ -823,7 +823,7 @@ except ImportError:
             self.params = {}
             self.mcp_tool_name = ""
             self.mcp_thinking_available = False
-            config_path = "/home/pranav/.codeium/windsurf/mcp_config.json"
+            config_path = "thinking.json"
             server_key = "sequential-thinking"
             expected_tool_name = "sequential_thinking" # From the MCP server's README
 
