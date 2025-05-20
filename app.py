@@ -618,7 +618,7 @@ def execute_code_endpoint():
 # --- Google Tasks Integration Routes ---
 
 
-@app.route('/authorize/google', methods=['GET'])
+@app.route('/api/authorize/google', methods=['GET'])
 @login_required
 def authorize_google():
     """Start the Google OAuth flow"""
@@ -640,7 +640,7 @@ def authorize_google():
     return redirect(authorization_url)
 
 
-@app.route('/google/callback', methods=['GET'])
+@app.route('/api/google/callback', methods=['GET'])
 def google_auth_callback():
     """Handle the Google OAuth callback"""
     # Verify state parameter
@@ -666,7 +666,7 @@ def google_auth_callback():
     session.pop('state', None)
 
     # Redirect to the tasks page
-    return redirect(url_for('tasks_page'))
+    return redirect('/tasks')
 
 
 @app.route('/api/tasks/auth_status', methods=['GET'])
