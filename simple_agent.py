@@ -290,20 +290,6 @@ async def delete_user_memory(user_id, key):
         return {"success": False, "key": key, "error": str(e)}
         
 # Fetch functions
-async def fetch_url(url, options=None):
-    """Fetch content from a URL using the MCP fetch server."""
-    try:
-        if not url:
-            return {"success": False, "error": "URL is required"}
-            
-        # Ensure URL is properly formatted
-        if not url.startswith(('http://', 'https://')):
-            url = f"https://{url}"
-            
-        return await fetch_mcp_server.fetch_url(url, options)
-    except Exception as e:
-        print(f"Error fetching URL: {e}")
-        return {"success": False, "url": url, "error": str(e)}
 
 async def fetch_and_extract_text(url, selector=None):
     """Fetch a URL and extract text content, optionally filtered by a CSS selector."""
@@ -688,28 +674,6 @@ TOOLS = [
     },
     
     # Fetch tools
-    {
-        "name": "fetch_url",
-        "type": "function",
-        "function": {
-            "name": "fetch_url",
-            "description": "Fetch content from a URL. Provides the raw content and metadata.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch"
-                    },
-                    "options": {
-                        "type": "object",
-                        "description": "Optional parameters for the fetch request (headers, timeout, etc.)"
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    },
     {
         "name": "fetch_and_extract_text",
         "type": "function",
@@ -1237,9 +1201,8 @@ Good uses for memory:
 
 You have access to enhanced web content fetching capabilities:
 
-1. `fetch_url` - Fetch raw content and metadata from any URL
-2. `fetch_and_extract_text` - Fetch a webpage and extract clean text content (with optional CSS selector filtering)
-3. `fetch_json` - Fetch and parse JSON content from URLs and APIs
+1. `fetch_and_extract_text` - Fetch a webpage and extract clean text content (with optional CSS selector filtering)
+2. `fetch_json` - Fetch and parse JSON content from URLs and APIs
 
 These fetch tools are more robust than the basic curl function and provide:
 - Better error handling
@@ -1320,6 +1283,7 @@ END OF SYSTEM PROMPT
         "run_shopify_mutation": execute_shopify_mutation,
         "get_product_copy_guidelines": get_product_copy_guidelines,
         "fetch_url_with_curl": fetch_url_with_curl,
+        "fetch_url": fetch_and_extract_text,
         "perplexity_ask": ask_perplexity,
         "upload_to_skuvault": upload_to_skuvault,
         "upload_batch_to_skuvault": upload_batch_to_skuvault,
@@ -1329,7 +1293,6 @@ END OF SYSTEM PROMPT
         "retrieve_user_memory": retrieve_user_memory,
         "list_user_memories": list_user_memories,
         "delete_user_memory": delete_user_memory,
-        "fetch_url": fetch_url,
         "fetch_and_extract_text": fetch_and_extract_text,
         "fetch_json": fetch_json,
         "structured_thinking": structured_thinking,
