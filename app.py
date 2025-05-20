@@ -41,7 +41,7 @@ import datetime
 from models import User, Conversation, Message
 
 # Import extensions
-from extensions import db, migrate, login_manager
+from extensions import db, migrate, login_manager, verify_db_connection
 
 # Import blueprints - ensure stream_chat is imported before its blueprint is created/used
 from stream_chat import create_stream_blueprint
@@ -57,10 +57,32 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', f"sqlite:
 print(f"DEBUG: Connecting to DB: {app.config['SQLALCHEMY_DATABASE_URI']}")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Add SQLAlchemy connection pool settings for better resilience
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_recycle': 300,  # Recycle connections after 5 minutes
+    'pool_timeout': 20,   # Wait up to 20 seconds for a connection
+    'pool_pre_ping': True,  # Enable connection health checks
+    'connect_args': {
+        'sslmode': 'require',  # Require SSL but don't verify
+        'connect_timeout': 10,  # 10 second connection timeout
+    }
+}
+
 # Initialize extensions with the app object
 db.init_app(app)
 migrate.init_app(app, db) # Migrate needs db instance as well
 login_manager.init_app(app)
+
+# Verify database connection on startup
+try:
+    with app.app_context():
+        success, message = verify_db_connection()
+        if success:
+            print("✅ Database connection verified successfully")
+        else:
+            print(f"⚠️ Warning: Database connection check failed: {message}")
+except Exception as e:
+    print(f"⚠️ Warning: Error checking database connection: {e}")
 
 login_manager.login_view = None # We are an API, frontend handles login prompts
 login_manager.session_protection = "strong"
@@ -164,6 +186,15 @@ def check_auth_status():
         }), 200
     else:
         return jsonify({"isAuthenticated": False}), 401
+        
+@app.route('/api/check_db', methods=['GET'])
+def check_db_connection():
+    """Route to check database connection status"""
+    success, error_message = verify_db_connection()
+    return jsonify({
+        "success": success,
+        "message": "Database connection successful" if success else f"Database connection error: {error_message}"
+    }), 200 if success else 500
 
 # Initialize streaming endpoints
 # openai_client is imported from simple_agent earlier in the file
@@ -227,7 +258,9 @@ def chat():
                 nonlocal result
                 final_output = ""
                 steps = []
-                async for chunk in run_simple_agent(data.get('message',''), history):
+                # Pass current_user.id for user-specific memory
+                user_id = current_user.id
+                async for chunk in run_simple_agent(data.get('message',''), history, user_id=user_id):
                     if chunk.get('type') == 'content':
                         if 'delta' in chunk:
                             final_output += chunk['delta']

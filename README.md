@@ -182,6 +182,8 @@ flask-shopifybot/
 ├── .env.example         # Example environment variables
 ├── app.py               # Flask application
 ├── config.py            # Configuration settings
+├── mcp_server.py        # MCP server implementations for various services
+├── simple_memory.py     # Simple in-memory storage implementation
 ├── models.py            # Database models
 ├── requirements.txt     # Python dependencies
 └── README.md            # This file
@@ -222,6 +224,38 @@ Set these in your production environment:
 - `SECRET_KEY` (generate a strong secret key)
 - Other required API keys and credentials
 
+## Advanced Features
+
+### MCP Server Integration
+
+The application includes model-controlled program (MCP) servers for various services:
+
+- **Shopify MCP Server**: For querying the Shopify Admin API schema and documentation (uses npx @shopify/dev-mcp)
+- **Perplexity MCP Server**: For accessing Perplexity AI services (direct API implementation)
+- **Fetch MCP Server**: For web content fetching with advanced capabilities (hybrid implementation)
+- **Memory MCP Server**: For persistent user-specific memory storage (simplified implementation)
+- **Sequential Thinking MCP Server**: For structured step-by-step reasoning (hybrid implementation, attempts to use npx @modelcontextprotocol/server-sequential-thinking when available, with OpenAI API fallback)
+- **Filesystem MCP Server**: For safe file operations within designated directories (simplified implementation)
+
+These servers support two operation modes:
+1. **Full MCP mode**: Uses official MCP packages when available for optimal functionality
+2. **Simplified mode**: Falls back to direct API calls when packages aren't installed
+
+To enable full MCP functionality, uncomment and install the optional packages in requirements.txt:
+```
+# Python MCP packages
+mcp-client>=0.1.0
+mcp-server-fetch>=0.1.0
+
+# Node.js MCP packages (installed automatically with npx)
+@modelcontextprotocol/server-sequential-thinking
+```
+
+You can test the MCP server implementations using the provided test scripts:
+- `test_fetch_mcp.py`: Test the fetch server functionality
+- `test_thinking_mcp.py`: Test the sequential thinking server functionality
+- `test_mcp.py`: Test the Shopify and Perplexity MCP servers
+
 ## Future Enhancements
 
 - [ ] Google OAuth integration
@@ -229,6 +263,7 @@ Set these in your production environment:
 - [ ] Enhanced admin dashboard
 - [ ] Multi-store support
 - [ ] Advanced analytics and reporting
+- [x] MCP server integration with package support
 
 ## Support
 

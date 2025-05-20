@@ -11,11 +11,14 @@ from datetime import datetime
 import re # Import re for URL validation
 import traceback # Import traceback for error handling
 
+# Import memory service
+from memory_service import memory_service
+
 # Import SkuVault integration
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
-# Import our custom MCP server implementation
-from mcp_server import mcp_server
+# Import our custom MCP server implementations
+from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -236,6 +239,179 @@ async def ask_perplexity(messages):
         print(f"Error calling Perplexity MCP: {e}")
         import traceback; traceback.print_exc()
         return {"error": str(e)}
+        
+# Memory functions
+async def store_user_memory(user_id, key, value, persist=True):
+    """Store a memory for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "error": "Missing user_id parameter"}
+            
+        return await memory_service.store_memory(user_id, key, value, persist)
+    except Exception as e:
+        print(f"Error storing user memory: {e}")
+        return {"success": False, "error": str(e)}
+
+async def retrieve_user_memory(user_id, key, default=None):
+    """Retrieve a memory for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "key": key, "value": default, "error": "Missing user_id parameter"}
+            
+        return await memory_service.retrieve_memory(user_id, key, default)
+    except Exception as e:
+        print(f"Error retrieving user memory: {e}")
+        return {"success": False, "key": key, "value": default, "error": str(e)}
+
+async def list_user_memories(user_id):
+    """List all memories for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "keys": [], "count": 0, "error": "Missing user_id parameter"}
+            
+        return await memory_service.list_memories(user_id)
+    except Exception as e:
+        print(f"Error listing user memories: {e}")
+        return {"success": False, "keys": [], "count": 0, "error": str(e)}
+
+async def delete_user_memory(user_id, key):
+    """Delete a memory for a specific user."""
+    try:
+        # Validate user_id is present
+        if not user_id:
+            return {"success": False, "key": key, "error": "Missing user_id parameter"}
+            
+        return await memory_service.delete_memory(user_id, key)
+    except Exception as e:
+        print(f"Error deleting user memory: {e}")
+        return {"success": False, "key": key, "error": str(e)}
+        
+# Fetch functions
+
+async def fetch_and_extract_text(url, selector=None):
+    """Fetch a URL and extract text content, optionally filtered by a CSS selector."""
+    try:
+        if not url:
+            return {"success": False, "error": "URL is required"}
+            
+        # Ensure URL is properly formatted
+        if not url.startswith(('http://', 'https://')):
+            url = f"https://{url}"
+            
+        return await fetch_mcp_server.fetch_and_extract_text(url, selector)
+    except Exception as e:
+        print(f"Error extracting text from URL: {e}")
+        return {"success": False, "url": url, "error": str(e)}
+
+async def fetch_json(url, options=None):
+    """Fetch and parse JSON content from a URL."""
+    try:
+        if not url:
+            return {"success": False, "error": "URL is required"}
+            
+        # Ensure URL is properly formatted
+        if not url.startswith(('http://', 'https://')):
+            url = f"https://{url}"
+            
+        return await fetch_mcp_server.fetch_json(url, options)
+    except Exception as e:
+        print(f"Error fetching JSON: {e}")
+        return {"success": False, "url": url, "error": str(e)}
+        
+# Sequential Thinking functions
+async def structured_thinking(prompt, thinking_type="general", max_steps=5):
+    """Perform structured step-by-step thinking on a prompt."""
+    try:
+        if not prompt:
+            return {"success": False, "error": "Prompt is required"}
+            
+        return await thinking_mcp_server.think(prompt, thinking_type, max_steps)
+    except Exception as e:
+        print(f"Error in structured thinking: {e}")
+        return {"success": False, "error": str(e)}
+
+async def solve_problem(problem, max_steps=5):
+    """Apply problem-solving thinking to a specific problem."""
+    try:
+        if not problem:
+            return {"success": False, "error": "Problem is required"}
+            
+        return await thinking_mcp_server.solve_problem(problem, max_steps)
+    except Exception as e:
+        print(f"Error in problem solving: {e}")
+        return {"success": False, "error": str(e)}
+
+async def plan_code(coding_task, max_steps=5):
+    """Plan coding implementation with step-by-step thinking."""
+    try:
+        if not coding_task:
+            return {"success": False, "error": "Coding task is required"}
+            
+        return await thinking_mcp_server.plan_code(coding_task, max_steps)
+    except Exception as e:
+        print(f"Error in code planning: {e}")
+        return {"success": False, "error": str(e)}
+        
+# Filesystem functions
+async def read_file(path, user_id=None, encoding="utf-8"):
+    """Read a file using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.read_file(path, user_id, encoding)
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def write_file(path, content, user_id=None, encoding="utf-8"):
+    """Write content to a file using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+        if content is None:
+            return {"success": False, "error": "Content is required"}
+            
+        return await filesystem_mcp_server.write_file(path, content, user_id, encoding)
+    except Exception as e:
+        print(f"Error writing file: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def list_directory(path, user_id=None):
+    """List contents of a directory using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.list_directory(path, user_id)
+    except Exception as e:
+        print(f"Error listing directory: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def delete_file(path, user_id=None):
+    """Delete a file using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.delete_file(path, user_id)
+    except Exception as e:
+        print(f"Error deleting file: {e}")
+        return {"success": False, "path": path, "error": str(e)}
+
+async def check_file_exists(path, user_id=None):
+    """Check if a file exists using the MCP filesystem server."""
+    try:
+        if not path:
+            return {"success": False, "error": "Path is required"}
+            
+        return await filesystem_mcp_server.check_file_exists(path, user_id)
+    except Exception as e:
+        print(f"Error checking file existence: {e}")
+        return {"success": False, "path": path, "exists": False, "error": str(e)}
 
 async def get_product_copy_guidelines():
     """Read product_copy_guidelines.md and return its content."""
@@ -299,7 +475,348 @@ async def fetch_url_with_curl(url: str):
 from open_box_listing_tool import create_open_box_listing_single
 
 # Define available tools
-TOOLS = [{
+TOOLS = [
+    # Filesystem tools
+    {
+        "name": "read_file",
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file from the controlled filesystem storage. Files are stored in dedicated areas for templates, exports, and user-specific files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope file to user directory"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "Text encoding to use (default: utf-8)"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "name": "write_file",
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file in the controlled filesystem storage. Files can be stored in dedicated areas for templates, exports, and user-specific files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write to the file"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope file to user directory"
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "Text encoding to use (default: utf-8)"
+                    }
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "name": "list_directory",
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "List contents of a directory in the controlled filesystem storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the directory (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope to user directory"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "name": "delete_file",
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "Delete a file from the controlled filesystem storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope to user directory"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "name": "check_file_exists",
+        "type": "function",
+        "function": {
+            "name": "check_file_exists",
+            "description": "Check if a file exists in the controlled filesystem storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file (can be relative to storage dir or absolute within allowed paths)"
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "description": "Optional user ID to scope to user directory"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    
+    # Sequential Thinking tools
+    {
+        "name": "structured_thinking",
+        "type": "function",
+        "function": {
+            "name": "structured_thinking",
+            "description": "Perform structured step-by-step thinking on a prompt, breaking down reasoning into clear steps with a conclusion.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The prompt or question to think about"
+                    },
+                    "thinking_type": {
+                        "type": "string",
+                        "description": "Type of thinking to apply",
+                        "enum": ["general", "problem-solving", "coding"]
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of thinking steps"
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
+    },
+    {
+        "name": "solve_problem",
+        "type": "function",
+        "function": {
+            "name": "solve_problem",
+            "description": "Apply structured problem-solving thinking to reach a solution or conclusion about a specific problem.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "problem": {
+                        "type": "string",
+                        "description": "The problem to solve"
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of thinking steps"
+                    }
+                },
+                "required": ["problem"]
+            }
+        }
+    },
+    {
+        "name": "plan_code",
+        "type": "function",
+        "function": {
+            "name": "plan_code",
+            "description": "Create a step-by-step plan for implementing code, breaking down the approach before writing actual code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "coding_task": {
+                        "type": "string",
+                        "description": "The coding task to plan"
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "Maximum number of planning steps"
+                    }
+                },
+                "required": ["coding_task"]
+            }
+        }
+    },
+    
+    # Fetch tools
+    {
+        "name": "fetch_and_extract_text",
+        "type": "function",
+        "function": {
+            "name": "fetch_and_extract_text",
+            "description": "Fetch a webpage and extract the text content, removing HTML tags and formatting. Optionally filter by CSS selector.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch"
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector to extract specific content (e.g., 'article', '.main-content')"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "name": "fetch_json",
+        "type": "function",
+        "function": {
+            "name": "fetch_json",
+            "description": "Fetch and parse JSON content from a URL or API endpoint.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch JSON from"
+                    },
+                    "options": {
+                        "type": "object",
+                        "description": "Optional parameters for the fetch request (headers, timeout, etc.)"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    
+    # Memory tools
+    {
+        "name": "store_user_memory",
+        "type": "function",
+        "function": {
+            "name": "store_user_memory",
+            "description": "Store a memory for the current user. Memories are user-specific and persist across sessions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The memory key (e.g., 'preferences.theme', 'common_products')"
+                    },
+                    "value": {
+                        "type": "object",
+                        "description": "The value to store (can be any JSON-serializable object)"
+                    },
+                    "persist": {
+                        "type": "boolean",
+                        "description": "Whether to persist to database (default: true)"
+                    }
+                },
+                "required": ["user_id", "key", "value"]
+            }
+        }
+    },
+    {
+        "name": "retrieve_user_memory",
+        "type": "function",
+        "function": {
+            "name": "retrieve_user_memory",
+            "description": "Retrieve a memory for the current user. Returns the memory value or a default if not found.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The memory key to retrieve"
+                    },
+                    "default": {
+                        "type": "object",
+                        "description": "The default value to return if memory not found"
+                    }
+                },
+                "required": ["user_id", "key"]
+            }
+        }
+    },
+    {
+        "name": "list_user_memories",
+        "type": "function",
+        "function": {
+            "name": "list_user_memories",
+            "description": "List all memories for the current user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    }
+                },
+                "required": ["user_id"]
+            }
+        }
+    },
+    {
+        "name": "delete_user_memory",
+        "type": "function",
+        "function": {
+            "name": "delete_user_memory",
+            "description": "Delete a memory for the current user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The user's ID"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "The memory key to delete"
+                    }
+                },
+                "required": ["user_id", "key"]
+            }
+        }
+    },
+    {
     "name": "execute_python_code",
     "type": "function",
     "function": {
@@ -516,7 +1033,7 @@ TOOLS = [{
 ]
 
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(prompt: str, user_name: str, user_bio: str, history: list = None, tools_override: list = None, model_override: str = None, streaming: bool = False):
+async def run_simple_agent(prompt: str, user_name: str, user_bio: str, history: list = None, tools_override: list = None, model_override: str = None, streaming: bool = False, user_id: int = None):
     # Initialize variables
     step_count = 0
     steps = []
@@ -656,6 +1173,90 @@ You have access to several tools:
 Current date/time: {current_time}.
 You are currently assisting {user_name}.
 A little about {user_name}: {user_bio if user_bio else 'No bio provided.'}
+User ID: {user_id if user_id else 'Unknown'}
+
+────────────────────────────────────────
+ENHANCED CAPABILITIES
+────────────────────────────────────────
+
+## MEMORY SYSTEM
+
+You have access to user-specific memory functions that help maintain context across conversations:
+
+1. `store_user_memory` - Store information about this user for future retrieval
+2. `retrieve_user_memory` - Retrieve previously stored information about this user
+3. `list_user_memories` - List all memories stored for this user
+4. `delete_user_memory` - Delete a specific memory for this user
+
+Memories are isolated by user_id, so each user has their own private memory space. Memories persist across
+conversations and sessions, allowing you to remember important user preferences and information.
+
+Good uses for memory:
+- Store user preferences (e.g., preferred product categories, shipping preferences)
+- Remember frequently accessed products or information
+- Keep track of conversation history highlights
+- Remember custom templates or formats the user prefers
+
+## WEB FETCH SYSTEM
+
+You have access to enhanced web content fetching capabilities:
+
+1. `fetch_and_extract_text` - Fetch a webpage and extract clean text content (with optional CSS selector filtering)
+2. `fetch_json` - Fetch and parse JSON content from URLs and APIs
+
+These fetch tools are more robust than the basic curl function and provide:
+- Better error handling
+- HTML-to-text conversion
+- CSS selector filtering for targeted content extraction
+- Automatic JSON parsing
+- Proper headers and metadata handling
+
+Good uses for fetch:
+- Research product information from external websites
+- Access web APIs for additional data
+- Extract pricing and competitive information
+- Retrieve documentation for reference
+
+## SEQUENTIAL THINKING SYSTEM
+
+You have access to structured thinking tools that enhance your reasoning process:
+
+1. `structured_thinking` - General step-by-step reasoning about any prompt
+2. `solve_problem` - Specialized problem-solving approach for complex issues
+3. `plan_code` - Structured planning for code implementation tasks
+
+These thinking tools formalize your <THINKING> process and provide:
+- Clear, numbered steps in your reasoning
+- Consistent problem-solving framework
+- Better organization of complex thoughts
+- Explicit conclusions based on reasoning steps
+
+Good uses for sequential thinking:
+- Breaking down complex Shopify operations
+- Planning multi-step product changes
+- Solving inventory or pricing problems
+- Designing implementation strategies for new features
+
+## FILESYSTEM SYSTEM
+
+You have access to controlled filesystem operations for persistent storage:
+
+1. `read_file` - Read content from files in allowed directories
+2. `write_file` - Write content to files in allowed directories
+3. `list_directory` - List contents of directories in allowed locations
+4. `delete_file` - Remove files from allowed directories
+5. `check_file_exists` - Check if a file exists in allowed locations
+
+The filesystem is organized into dedicated areas:
+- Templates directory (`templates/`) - For reusable content templates
+- Exports directory (`exports/`) - For CSV, JSON, and other exports
+- User-specific directories (`users/<user_id>/`) - For files scoped to specific users
+
+Good uses for filesystem:
+- Saving frequently used GraphQL templates
+- Storing user-specific configuration files
+- Exporting reports and data in various formats
+- Maintaining reusable product descriptions or attributes
 
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
@@ -682,11 +1283,26 @@ END OF SYSTEM PROMPT
         "run_shopify_mutation": execute_shopify_mutation,
         "get_product_copy_guidelines": get_product_copy_guidelines,
         "fetch_url_with_curl": fetch_url_with_curl,
+        "fetch_url": fetch_and_extract_text,
         "perplexity_ask": ask_perplexity,
         "upload_to_skuvault": upload_to_skuvault,
         "upload_batch_to_skuvault": upload_batch_to_skuvault,
         "execute_python_code": execute_code,  # Correctly reference the async function to be awaited
-        "create_open_box_listing_single": create_open_box_listing_single
+        "create_open_box_listing_single": create_open_box_listing_single,
+        "store_user_memory": store_user_memory,
+        "retrieve_user_memory": retrieve_user_memory,
+        "list_user_memories": list_user_memories,
+        "delete_user_memory": delete_user_memory,
+        "fetch_and_extract_text": fetch_and_extract_text,
+        "fetch_json": fetch_json,
+        "structured_thinking": structured_thinking,
+        "solve_problem": solve_problem,
+        "plan_code": plan_code,
+        "read_file": read_file,
+        "write_file": write_file,
+        "list_directory": list_directory,
+        "delete_file": delete_file,
+        "check_file_exists": check_file_exists
     }
 
     try:
