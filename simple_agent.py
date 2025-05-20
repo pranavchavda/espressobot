@@ -7,6 +7,7 @@ import httpx
 import pytz
 import openai
 import asyncio
+import inspect
 from datetime import datetime
 import re # Import re for URL validation
 import traceback # Import traceback for error handling
@@ -1394,7 +1395,11 @@ END OF SYSTEM PROMPT
 
                                     # Execute the tool function
                                     if fn_name in tool_functions:
-                                        tool_result = await tool_functions[fn_name](**args)
+                                        function_to_call = tool_functions[fn_name]
+                                        if inspect.iscoroutinefunction(function_to_call):
+                                            tool_result = await function_to_call(**args)
+                                        else:
+                                            tool_result = function_to_call(**args)
 
                                         # Add result to steps
                                         steps.append({

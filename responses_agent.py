@@ -263,12 +263,13 @@ You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date
                     result = await batch_upload_to_skuvault(args.get("product_skus", ""))
                 elif fname == "create_open_box_listing_single":
                     from open_box_listing_tool import create_open_box_listing_single
-                    result = await create_open_box_listing_single(
+                    logging.info(f"Calling create_open_box_listing_single with args: {args}") # Log the arguments
+                    result = create_open_box_listing_single(
                         args.get("identifier", ""),
                         args.get("serial_number", ""),
                         args.get("suffix", ""),
                         args.get("price", None),
-                        args.get("discount_percentage", None),
+                        args.get("discount_pct", None),
                         args.get("note", None)
                     )
                 else:
