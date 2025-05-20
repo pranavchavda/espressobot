@@ -519,433 +519,286 @@ fetch_mcp_server = FetchMCPServer()
 
 
 # --- SequentialThinkingMCPServer ---
+# --- SequentialThinkingMCPServer ---
 try:
-    from mcp.client.stdio import StdioServerParameters, stdio_client # Already imported if FetchMCPServer's try block succeeded
-
+    # This part requires mcp.client to be available
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    
     class SequentialThinkingMCPServer:
         """
         A class to handle structured, step-by-step thinking using the
-        @modelcontextprotocol/server-sequential-thinking MCP server.
+        @modelcontextprotocol/server-sequentialthinking MCP server.
         """
         def __init__(self):
             # Ensure XDG_CONFIG_HOME is set (important for npx/npm global tools)
             if "XDG_CONFIG_HOME" not in os.environ:
                 os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
-
-            # Default initializations
-            self.mcp_tool_name = "sequential_thinking" # Default tool name, can be overridden by config
-            self.mcp_thinking_available = False # Assume not available until config validates it
-
-            # Default params for npx, can be overridden by mcp_config.json
+                
+            # Parameters for the MCP server process
             self.params = {
                 "command": "npx", 
-                "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@latest"], # Default to latest if not in config
+                "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@latest"],
                 "env": os.environ.copy()
             }
-            # self.cache = True # MCPServerStdio has this, set if needed after super().__init__ or directly
-
-            config_path = "thinking.json"
-            server_key = "sequential-thinking" # Key for this server in mcp_config.json
-            # expected_tool_name is self.mcp_tool_name, initialized above
-
+            self.cache = True
+            logger.info("SequentialThinkingMCPServer initialized with MCP support")
+            
+        async def sequential_thinking(self, prompt, thinking_type="general", max_steps=5):
+            """
+            Perform sequential thinking on a prompt using the MCP server.
+            """
+            logger.debug(f"SequentialThinkingMCPServer: Starting sequential thinking for: {prompt[:50]}...")
+            
             try:
-                if os.path.exists(config_path):
-                    with open(config_path, 'r') as f:
-                        config = json.load(f)
+                # Increase the client session timeout to 60 seconds
+                async with MCPServerStdio(
+                    params=self.params, 
+                    cache_tools_list=self.cache,
+                    client_session_timeout_seconds=60.0  # Increased from default 5.0
+                ) as server:
+                    logger.debug("SequentialThinkingMCPServer context entered. Calling tool...")    
                     
-                    if server_key in config.get("mcpServers", {}):
-                        server_config = config["mcpServers"][server_key]
-                        # Override default params if specified in config
-                        if server_config.get("command"):
-                            self.params["command"] = server_config.get("command")
-                        if server_config.get("args") is not None: # Allow empty list from config
-                            self.params["args"] = server_config.get("args")
-                        loaded_env = server_config.get("env")
-                        if isinstance(loaded_env, dict) and loaded_env: # Only use if it's a non-empty dict
-                            self.params["env"] = loaded_env
-                        # If loaded_env is {} or None, self.params["env"] (which defaults to os.environ.copy()) is preserved.
-                        
-                        # Tool name might also be configurable in mcp_config.json
-                        # For now, using the default/expected one. Update self.mcp_tool_name if needed from server_config.
-                        # self.mcp_tool_name = server_config.get("toolName", self.mcp_tool_name)
-
-                        if self.params.get("command") and self.mcp_tool_name:
-                            self.mcp_thinking_available = True
-                            logger.info(f"Primary SequentialThinkingMCPServer initialized to use MCP server '{server_key}' with tool '{self.mcp_tool_name}'. Params: {self.params}")
-                        else:
-                            logger.warning(f"Primary SequentialThinkingMCPServer: Config for '{server_key}' missing command or resulting mcp_tool_name is empty. Will use default npx if possible, or fallback to direct OpenAI.")
-                            # Attempt to use default npx params if they are valid
-                            if self.params.get("command") and self.mcp_tool_name and self.params.get("command") == "npx": 
-                                self.mcp_thinking_available = True 
-                                logger.info(f"Primary SequentialThinkingMCPServer: Using default npx for '{server_key}' as config was incomplete.")
-                            else:
-                                self.mcp_thinking_available = False # Ensure it's false if config is bad and default npx also invalid
-
-                    else:
-                        logger.warning(f"Primary SequentialThinkingMCPServer: Entry for '{server_key}' not found in {config_path}. Will use default npx if possible, or fallback to direct OpenAI.")
-                        if self.params.get("command") and self.mcp_tool_name and self.params.get("command") == "npx":
-                                self.mcp_thinking_available = True 
-                                logger.info(f"Primary SequentialThinkingMCPServer: Using default npx due to missing config key for '{server_key}'.")
-                else:
-                    logger.warning(f"Primary SequentialThinkingMCPServer: MCP config file {config_path} not found. Will use default npx if possible, or fallback to direct OpenAI.")
-                    if self.params.get("command") and self.mcp_tool_name and self.params.get("command") == "npx": 
-                                self.mcp_thinking_available = True 
-                                logger.info(f"Primary SequentialThinkingMCPServer: Using default npx due to missing config file.")
-
-            except Exception as e:
-                logger.error(f"Primary SequentialThinkingMCPServer: Error loading MCP config from {config_path}: {e}. Will use default npx if possible, or fallback to direct OpenAI.", exc_info=True)
-                if self.params.get("command") and self.mcp_tool_name and self.params.get("command") == "npx":
-                                self.mcp_thinking_available = True
-                                logger.info(f"Primary SequentialThinkingMCPServer: Using default npx after error loading config.")
-            
-            if not self.mcp_thinking_available:
-                logger.info("Primary SequentialThinkingMCPServer: MCP not configured or enabled. Fallback to direct OpenAI will be used if think() is called.")
-            # If this class inherits from MCPServerStdio, its __init__ would typically be called here, e.g.:
-            # super().__init__(params=self.params, cache=True) # Assuming self.cache is defined or default is True
-            
-        async def _run_mcp_server(self, tool_name, args):
-            """Helper method to run a tool on the Sequential Thinking MCP server"""
-            logger.debug(f"SequentialThinkingMCPServer: Attempting MCP tool '{tool_name}' with args: {args}")
-            process = None
-            try:
-                process = subprocess.Popen(
-                    [self.params["command"]] + self.params["args"],
-                    env=self.params["env"],
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False
-                )
-                mcp_stdio_params = StdioServerParameters(
-                    command=self.params["command"],
-                    args=self.params["args"],
-                    process=process
-                )
-                async with stdio_client(mcp_stdio_params) as (current_read_stream, current_write_stream):
-                    session = MCPClientSession(
-                        read_stream=current_read_stream,
-                        write_stream=current_write_stream
+                    args = {
+                        "prompt": prompt,
+                        "thinkingType": thinking_type,
+                        "maxSteps": max_steps
+                    }
+                    
+                    raw_result = await server.call_tool(
+                        "sequentialThinking", args
                     )
                     
-                    async with session as s:
-                        result = await s.call_tool(name=tool_name, arguments=args)
+                    result = {
+                        "success": True,
+                        "steps": [],
+                        "conclusion": "",
+                        "thinking_type": thinking_type
+                    }
                     
-                content = []
-                if hasattr(result, "content") and result.content:
-                    for item in result.content:
-                        if hasattr(item, "text"): content.append(item.text)
-                
-                steps, conclusion = [], ""
-                if hasattr(result, "meta") and isinstance(result.meta, dict):
-                    steps = result.meta.get("steps", [])
-                    conclusion = result.meta.get("conclusion", "")
-                elif content: # Fallback parsing if meta is not structured as expected
-                    combined_content = "\n".join(content)
-                    # (Simplified parsing, could be enhanced)
-                    step_matches = re.findall(r"Step (\d+):(.*?)(?=Step \d+:|$)", combined_content + "\n", re.DOTALL)
-                    steps = [{"number": int(num), "content": c.strip()} for num, c in step_matches]
-                    if "\n\nConclusion:" in combined_content:
-                        conclusion = combined_content.split("\n\nConclusion:", 1)[1].strip()
-
-                return {"success": True, "steps": steps, "conclusion": conclusion, "thinking_type": args.get("thinking_type", "general"), "raw_content": content}
-            except FileNotFoundError:
-                logger.warning("SequentialThinkingMCPServer: MCP server command not found. MCP thinking disabled.", exc_info=True)
-                self.mcp_thinking_available = False
-                return {"success": False, "error": "MCP server command not found"}
+                    # Extract the steps from meta
+                    if hasattr(raw_result, "meta") and isinstance(raw_result.meta, dict):
+                        steps = raw_result.meta.get("steps", [])
+                        for step in steps:
+                            if isinstance(step, dict):
+                                result["steps"].append({
+                                    "number": step.get("number", 0),
+                                    "content": step.get("content", "")
+                                })
+                        
+                        result["conclusion"] = raw_result.meta.get("conclusion", "")
+                    
+                    # Extract content text if needed
+                    if not result["steps"] and hasattr(raw_result, "content"):
+                        content_text = []
+                        for content_item in raw_result.content:
+                            if hasattr(content_item, "text"):
+                                content_text.append(content_item.text)
+                        
+                        combined_text = "\n".join(content_text)
+                        
+                        # Parse steps from text if not in meta
+                        step_pattern = re.compile(r"Step\s*(\d+)[:.]\s*(.*?)(?=Step\s*\d+[:.]|$)", re.DOTALL | re.IGNORECASE)
+                        matches = step_pattern.findall(combined_text + "\n")
+                        
+                        for num, content in matches:
+                            result["steps"].append({
+                                "number": int(num),
+                                "content": content.strip()
+                            })
+                        
+                        # Parse conclusion if not in meta
+                        if not result["conclusion"]:
+                            if "\nConclusion:" in combined_text:
+                                result["conclusion"] = combined_text.split("\nConclusion:", 1)[1].strip()
+                            elif "\n\nConclusion:" in combined_text:
+                                result["conclusion"] = combined_text.split("\n\nConclusion:", 1)[1].strip()
+                    
+                    logger.info(f"SequentialThinkingMCPServer: Generated {len(result['steps'])} steps")
+                    return result
+                    
             except Exception as e:
-                logger.error(f"[THINKING_MCP] Error running MCP server for tool '{tool_name}': {e}", exc_info=True)
-                return {"success": False, "error": str(e)}
-            finally:
-                if process and process.poll() is None:
-                    process.terminate()
-                    try: process.wait(timeout=5)
-                    except subprocess.TimeoutExpired: process.kill()
-
-        async def _think_direct(self, prompt, thinking_type="general", max_steps=5):
-            # Direct OpenAI call for thinking process, used if MCP server is unavailable or an MCP call fails.
-            # In a real scenario, you might structure this to avoid duplication.
-            logger.debug(f"[THINKING_MCP_DIRECT_FALLBACK] Using direct OpenAI for: {prompt[:50]}...")
+                logger.error(f"Error in sequential_thinking: {e}", exc_info=True)
+                return await self._fallback_thinking(prompt, thinking_type, max_steps)
+        
+        async def _fallback_thinking(self, prompt, thinking_type="general", max_steps=5):
+            """Fallback to direct OpenAI call if MCP server fails."""
+            logger.info(f"Using direct OpenAI fallback for sequential thinking: {prompt[:50]}...")
+            
             try:
                 api_key = os.environ.get("OPENAI_API_KEY")
                 if not api_key:
-                    logger.error("[THINKING_MCP_DIRECT_FALLBACK] OPENAI_API_KEY not set.")
-                    return {"success": False, "steps": [], "conclusion": "OPENAI_API_KEY not configured.", "thinking_type": thinking_type, "error": "API key missing"}
-
+                    return {
+                        "success": False,
+                        "error": "API key missing",
+                        "steps": [],
+                        "conclusion": "OPENAI_API_KEY not configured.",
+                        "thinking_type": thinking_type
+                    }
+                
                 client = openai.AsyncOpenAI(api_key=api_key)
+                
                 system_messages = {
-                    "general": f"You are a thinking assistant. Break down this problem or question into clear, step-by-step reasoning. Provide exactly {max_steps-2}-{max_steps} steps... Each step should start with 'Step X:'. End with 'Conclusion:'.",
-                    "problem-solving": f"You are a problem-solving assistant... Provide {max_steps-1}-{max_steps+1} steps... Each step 'Step X:'. End with 'Conclusion:'.",
-                    "coding": f"You are a coding assistant... Provide {max_steps-1}-{max_steps+2} steps... Each step 'Step X:'. End with 'Conclusion:'."
-                } # Truncated for brevity, use full prompts from above
+                    "general": f"You are a thinking assistant. Break down this problem or question into clear, step-by-step reasoning. Provide {max_steps-2}-{max_steps} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
+                    "problem-solving": f"You are a problem-solving assistant. Break down this problem into a clear solution approach with {max_steps-1}-{max_steps+1} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
+                    "coding": f"You are a coding assistant. Break down this coding task into a clear implementation plan with {max_steps-1}-{max_steps+2} steps. Each step should start with 'Step X:'. End with 'Conclusion:'."
+                }
+                
                 system_message = system_messages.get(thinking_type, system_messages["general"])
                 
                 response = await client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "gpt-4.1"),
-                    messages=[ {"role": "system", "content": system_message}, {"role": "user", "content": prompt}],
+                    model=os.environ.get("OPENAI_MODEL", "gpt-4"),
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": prompt}
+                    ],
                 )
+                
                 thinking_text = response.choices[0].message.content
                 
+                # Parse steps and conclusion
                 steps_text, conclusion = thinking_text, "No explicit conclusion."
                 if "\nConclusion:" in thinking_text:
-                    parts = thinking_text.split("\nConclusion:", 1); steps_text, conclusion = parts[0], parts[1].strip()
+                    parts = thinking_text.split("\nConclusion:", 1)
+                    steps_text, conclusion = parts[0], parts[1].strip()
                 elif "\n\nConclusion:" in thinking_text:
-                     parts = thinking_text.split("\n\nConclusion:", 1); steps_text, conclusion = parts[0], parts[1].strip()   
+                    parts = thinking_text.split("\n\nConclusion:", 1)
+                    steps_text, conclusion = parts[0], parts[1].strip()
                 
+                # Extract steps with regular expression
                 parsed_steps = []
                 step_pattern = re.compile(r"Step\s*(\d+)[:.]\s*(.*?)(?=Step\s*\d+[:.]|$)", re.DOTALL | re.IGNORECASE)
                 matches = step_pattern.findall(steps_text + "\n")
-                for num, content in matches: parsed_steps.append({"number": int(num), "content": content.strip()})
-
-                # Simplified parsing logic for fallback - ensure it's robust or identical to above
-                if not parsed_steps and steps_text: # Fallback parsing
-                    lines = steps_text.split('\n')
-                    current_step_num = 0; current_step_content = []
-                    for line in lines:
-                        match = re.match(r"Step\s*(\d+)[:.]?\s*(.*)", line, re.IGNORECASE)
-                        if match:
-                            if current_step_num > 0: parsed_steps.append({"number": current_step_num, "content": "\n".join(current_step_content).strip()})
-                            current_step_num = int(match.group(1)); current_step_content = [match.group(2).strip()]
-                        elif current_step_num > 0: current_step_content.append(line.strip())
-                    if current_step_num > 0: parsed_steps.append({"number": current_step_num, "content": "\n".join(current_step_content).strip()})
                 
-                return {"success": True, "steps": parsed_steps, "conclusion": conclusion, "thinking_type": thinking_type}
-            except Exception as e:
-                logger.error(f"[THINKING_MCP_DIRECT_FALLBACK] Error: {e}", exc_info=True)
-                return {"success": False, "steps": [], "conclusion": f"Error: {str(e)}", "thinking_type": thinking_type, "error": str(e)}
-
-        async def think(self, prompt, thinking_type="general", max_steps=5):
-            if self.mcp_thinking_available:
-                logger.debug(f"[THINKING_MCP] Attempting to use MCP server for: {prompt[:50]}...")
-                all_steps_content = []
-                current_thought_number = 1
-                # The initial 'thought' for the MCP server is the user's prompt.
-                # For now, we'll resend the original prompt as 'thought' for simplicity, as the server should track state by thoughtNumber.
-
-                for i_step in range(max_steps): # Loop up to max_steps as a safeguard
-                    mcp_args = {
-                        "thought": prompt, # Using the original prompt as the 'thought' context for each step
-                        "nextThoughtNeeded": True, # We always expect the server to tell us if it's done
-                        "thoughtNumber": current_thought_number,
-                        "totalThoughts": max_steps, # Informing the server of the desired length
-                        "thinking_type": thinking_type
-                        # Optional fields like isRevision, revisesThought are omitted
-                    }
-
-                    log_args_display = {key: (val[:50] + '...' if key == 'thought' and isinstance(val, str) and len(val) > 50 else val) 
-                                        for key, val in mcp_args.items()}
-                    logger.debug(f"[THINKING_MCP] Calling MCP step {current_thought_number} with args: {log_args_display}")
-                    
-                    mcp_call_result = await self._run_mcp_server(tool_name=self.mcp_tool_name, args=mcp_args)
-
-                    if not mcp_call_result.get("success"):
-                        logger.warning(f"[THINKING_MCP] MCP client-level error at step {current_thought_number}: {mcp_call_result.get('error', 'Unknown error')}. Falling back.")
-                        return await self._think_direct(prompt, thinking_type, max_steps)
-
-                    try:
-                        mcp_response_str_list = mcp_call_result.get("raw_content", [])
-                        if not isinstance(mcp_response_str_list, list):
-                             mcp_response_str_list = [str(mcp_response_str_list)]
-                        
-                        mcp_response_str = "".join(mcp_response_str_list).strip()
-
-                        if not mcp_response_str:
-                            logger.warning(f"[THINKING_MCP] MCP server returned empty content at step {current_thought_number}.")
-                            if current_thought_number == 1:
-                                return await self._think_direct(prompt, thinking_type, max_steps)
-                            else:
-                                logger.info(f"[THINKING_MCP] Treating empty content as end of process.")
-                                final_conclusion = mcp_server_output.get("conclusion") if 'mcp_server_output' in locals() else "MCP process ended with empty step."
-                                break 
-
-                        mcp_server_output = json.loads(mcp_response_str)
-                    except json.JSONDecodeError as je:
-                        logger.warning(f"[THINKING_MCP] Failed to parse JSON from MCP server at step {current_thought_number}: '{mcp_response_str}'. Error: {je}. Falling back.")
-                        return await self._think_direct(prompt, thinking_type, max_steps)
-                    except Exception as e:
-                        logger.error(f"[THINKING_MCP] Unexpected error processing MCP server output at step {current_thought_number}: {e}. Content: '{mcp_response_str}'. Falling back.", exc_info=True)
-                        return await self._think_direct(prompt, thinking_type, max_steps)
-                    
-                    current_step_thought = mcp_server_output.get("currentThought")
-                    
-                    has_error_indicator = "error" in mcp_server_output or \
-                                          any(err_kw in mcp_response_str.lower() for err_kw in ["unknown tool", "traceback", "exception", "failed"])
-
-                    if current_step_thought is None and has_error_indicator:
-                         logger.warning(f"[THINKING_MCP] MCP server response at step {current_thought_number} suggests an error: {mcp_response_str}. Falling back.")
-                         return await self._think_direct(prompt, thinking_type, max_steps)
-                    
-                    if current_step_thought is not None:
-                        all_steps_content.append({
-                            "number": mcp_server_output.get("thoughtNumber", current_thought_number), 
-                            "content": current_step_thought
-                        })
-                    
-                    final_conclusion = mcp_server_output.get("conclusion")
-
-                    if not mcp_server_output.get("nextThoughtNeeded", False):
-                        logger.info(f"[THINKING_MCP] MCP thinking completed after {current_thought_number} steps as indicated by server.")
-                        return {
-                            "success": True,
-                            "steps": all_steps_content,
-                            "conclusion": final_conclusion if final_conclusion else "MCP process completed.",
-                            "thinking_type": "mcp_sequential"
-                        }
-                    
-                    current_thought_number += 1
-                    if i_step == max_steps -1 and mcp_server_output.get("nextThoughtNeeded", False):
-                        logger.warning(f"[THINKING_MCP] Reached max_steps ({max_steps}) but MCP server indicates more thoughts are available.")
-
-                conclusion_after_loop = "MCP process reached max steps or ended."
-                if 'mcp_server_output' in locals() and mcp_server_output and mcp_server_output.get("conclusion"):
-                    conclusion_after_loop = mcp_server_output.get("conclusion")
-                elif not all_steps_content and current_thought_number > 1 :
-                     conclusion_after_loop = "MCP process ended after first step with no further content."
-
-                logger.info(f"[THINKING_MCP] MCP thinking loop finished. Collected {len(all_steps_content)} steps.")
+                for num, content in matches:
+                    parsed_steps.append({
+                        "number": int(num), 
+                        "content": content.strip()
+                    })
+                
                 return {
                     "success": True,
-                    "steps": all_steps_content,
-                    "conclusion": conclusion_after_loop,
-                    "thinking_type": "mcp_sequential_incomplete" if len(all_steps_content) < max_steps and current_thought_number > len(all_steps_content) else "mcp_sequential"
+                    "steps": parsed_steps,
+                    "conclusion": conclusion,
+                    "thinking_type": thinking_type,
+                    "is_fallback": True
                 }
-            else: # self.mcp_thinking_available is False
-                logger.debug(f"[THINKING_MCP] MCP not available/configured. Using direct OpenAI for: {prompt[:50]}...")
-                return await self._think_direct(prompt, thinking_type, max_steps)
-
+                
+            except Exception as e:
+                logger.error(f"Error in fallback thinking: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "steps": [],
+                    "conclusion": f"Error: {str(e)}",
+                    "thinking_type": thinking_type,
+                }
         
         async def solve_problem(self, problem, max_steps=5):
-            return await self.think(problem, thinking_type="problem-solving", max_steps=max_steps)
+            """Wrapper for sequential_thinking with problem-solving type"""
+            return await self.sequential_thinking(problem, thinking_type="problem-solving", max_steps=max_steps)
         
-        async def plan_code(self, coding_task, max_steps=7): # Usually needs more steps
-            return await self.think(coding_task, thinking_type="coding", max_steps=max_steps)
+        async def plan_code(self, coding_task, max_steps=7):
+            """Wrapper for sequential_thinking with coding type"""
+            return await self.sequential_thinking(coding_task, thinking_type="coding", max_steps=max_steps)
+
+        async def think(self, prompt, thinking_type="general", max_steps=5):
+            """Alias for sequential_thinking to maintain backward compatibility"""
+            return await self.sequential_thinking(prompt, thinking_type=thinking_type, max_steps=max_steps)
 
 except ImportError:
-    logger.warning("mcp.client.stdio or mcp.client.session not found for SequentialThinking. Server will use direct OpenAI calls only.")
-    class SequentialThinkingMCPServer: # Fallback class if MCP client components are missing
+    logger.warning("mcp.client.stdio or mcp.client.session not found for SequentialThinking. Using fallback implementation.")
+    
+    class SequentialThinkingMCPServer:
+        """Fallback implementation of SequentialThinkingMCPServer that uses direct OpenAI calls."""
         def __init__(self):
-            self.params = {}
-            self.mcp_tool_name = ""
-            self.mcp_thinking_available = False
-            config_path = "thinking.json"
-            server_key = "sequential-thinking"
-            expected_tool_name = "sequential_thinking" # From the MCP server's README
-
-            try:
-                if os.path.exists(config_path):
-                    with open(config_path, 'r') as f:
-                        config = json.load(f)
-                    
-                    if server_key in config.get("mcpServers", {}):
-                        server_config = config["mcpServers"][server_key]
-                        self.params["command"] = server_config.get("command")
-                        self.params["args"] = server_config.get("args", [])
-                        self.params["env"] = server_config.get("env", os.environ.copy())
-                        self.mcp_tool_name = expected_tool_name
-
-                        if self.params["command"] and self.mcp_tool_name:
-                            self.mcp_thinking_available = True
-                            logger.info(f"SequentialThinkingMCPServer initialized to use MCP server '{server_key}' with tool '{self.mcp_tool_name}'.")
-                        else:
-                            logger.warning(f"SequentialThinkingMCPServer: Missing command or tool_name for '{server_key}' in {config_path}. Falling back to direct OpenAI.")
-                    else:
-                        logger.warning(f"SequentialThinkingMCPServer: Entry for '{server_key}' not found in {config_path}. Falling back to direct OpenAI.")
-                else:
-                    logger.warning(f"SequentialThinkingMCPServer: MCP config file {config_path} not found. Falling back to direct OpenAI.")
-            except Exception as e:
-                logger.error(f"SequentialThinkingMCPServer: Error loading MCP config from {config_path}: {e}. Falling back to direct OpenAI.", exc_info=True)
+            logger.info("SequentialThinkingMCPServer initialized in fallback mode (direct OpenAI calls)")
+        
+        async def sequential_thinking(self, prompt, thinking_type="general", max_steps=5):
+            """Perform sequential thinking using direct OpenAI calls."""
+            logger.info(f"Using direct OpenAI for sequential thinking (fallback mode): {prompt[:50]}...")
             
-            if not self.mcp_thinking_available:
-                logger.info("SequentialThinkingMCPServer initialized in simplified (direct OpenAI) mode as fallback.")
-                # Re-define _think_direct, think, solve_problem, plan_code as above if needed,
-                # or simply make the main class's _think_direct the only path.
-                # For brevity, assuming the _think_direct from the try block is sufficient as the fallback.
-                # The methods will be identical to the _think_direct and its wrappers in the try block.
-                
-        async def _think_direct(self, prompt, thinking_type="general", max_steps=5):
-            # This is a duplication of the _think_direct method from the 'try' block.
-            # In a real scenario, you might structure this to avoid duplication.
-            logger.debug(f"[THINKING_MCP_DIRECT_FALLBACK] Using direct OpenAI for: {prompt[:50]}...")
             try:
                 api_key = os.environ.get("OPENAI_API_KEY")
                 if not api_key:
-                    logger.error("[THINKING_MCP_DIRECT_FALLBACK] OPENAI_API_KEY not set.")
-                    return {"success": False, "steps": [], "conclusion": "OPENAI_API_KEY not configured.", "thinking_type": thinking_type, "error": "API key missing"}
-
+                    return {
+                        "success": False,
+                        "error": "API key missing",
+                        "steps": [],
+                        "conclusion": "OPENAI_API_KEY not configured.",
+                        "thinking_type": thinking_type
+                    }
+                
                 client = openai.AsyncOpenAI(api_key=api_key)
+                
                 system_messages = {
-                    "general": f"You are a thinking assistant. Break down this problem or question into clear, step-by-step reasoning. Provide exactly {max_steps-2}-{max_steps} steps... Each step should start with 'Step X:'. End with 'Conclusion:'.",
-                    "problem-solving": f"You are a problem-solving assistant... Provide {max_steps-1}-{max_steps+1} steps... Each step 'Step X:'. End with 'Conclusion:'.",
-                    "coding": f"You are a coding assistant... Provide {max_steps-1}-{max_steps+2} steps... Each step 'Step X:'. End with 'Conclusion:'."
-                } # Truncated for brevity, use full prompts from above
+                    "general": f"You are a thinking assistant. Break down this problem or question into clear, step-by-step reasoning. Provide {max_steps-2}-{max_steps} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
+                    "problem-solving": f"You are a problem-solving assistant. Break down this problem into a clear solution approach with {max_steps-1}-{max_steps+1} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
+                    "coding": f"You are a coding assistant. Break down this coding task into a clear implementation plan with {max_steps-1}-{max_steps+2} steps. Each step should start with 'Step X:'. End with 'Conclusion:'."
+                }
+                
                 system_message = system_messages.get(thinking_type, system_messages["general"])
                 
                 response = await client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "gpt-4.1"),
-                    messages=[ {"role": "system", "content": system_message}, {"role": "user", "content": prompt}],
+                    model=os.environ.get("OPENAI_MODEL", "gpt-4"),
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": prompt}
+                    ],
                 )
+                
                 thinking_text = response.choices[0].message.content
                 
+                # Parse steps and conclusion
                 steps_text, conclusion = thinking_text, "No explicit conclusion."
                 if "\nConclusion:" in thinking_text:
-                    parts = thinking_text.split("\nConclusion:", 1); steps_text, conclusion = parts[0], parts[1].strip()
+                    parts = thinking_text.split("\nConclusion:", 1)
+                    steps_text, conclusion = parts[0], parts[1].strip()
                 elif "\n\nConclusion:" in thinking_text:
-                     parts = thinking_text.split("\n\nConclusion:", 1); steps_text, conclusion = parts[0], parts[1].strip()   
+                    parts = thinking_text.split("\n\nConclusion:", 1)
+                    steps_text, conclusion = parts[0], parts[1].strip()
                 
+                # Extract steps
                 parsed_steps = []
                 step_pattern = re.compile(r"Step\s*(\d+)[:.]\s*(.*?)(?=Step\s*\d+[:.]|$)", re.DOTALL | re.IGNORECASE)
                 matches = step_pattern.findall(steps_text + "\n")
-                for num, content in matches: parsed_steps.append({"number": int(num), "content": content.strip()})
-
-                # Simplified parsing logic for fallback - ensure it's robust or identical to above
-                if not parsed_steps and steps_text: # Fallback parsing
-                    lines = steps_text.split('\n')
-                    current_step_num = 0; current_step_content = []
-                    for line in lines:
-                        match = re.match(r"Step\s*(\d+)[:.]?\s*(.*)", line, re.IGNORECASE)
-                        if match:
-                            if current_step_num > 0: parsed_steps.append({"number": current_step_num, "content": "\n".join(current_step_content).strip()})
-                            current_step_num = int(match.group(1)); current_step_content = [match.group(2).strip()]
-                        elif current_step_num > 0: current_step_content.append(line.strip())
-                    if current_step_num > 0: parsed_steps.append({"number": current_step_num, "content": "\n".join(current_step_content).strip()})
                 
-                return {"success": True, "steps": parsed_steps, "conclusion": conclusion, "thinking_type": thinking_type}
-            except Exception as e:
-                logger.error(f"[THINKING_MCP_DIRECT_FALLBACK] Error: {e}", exc_info=True)
-                return {"success": False, "steps": [], "conclusion": f"Error: {str(e)}", "thinking_type": thinking_type, "error": str(e)}
-
-        async def think(self, prompt, thinking_type="general", max_steps=5):
-            if self.mcp_thinking_available:
-                logger.debug(f"[THINKING_MCP] Attempting to use MCP server for: {prompt[:50]}...")
-                mcp_args = {
-                    "thought": prompt,
-                    "nextThoughtNeeded": True,  # For the initial call, we always need the first thought
-                    "thoughtNumber": 1,
-                    "totalThoughts": max_steps, # Corresponds to the agent's request for complexity
-                    "thinking_type": thinking_type # Pass along for richer context if the MCP server uses it
-                    # Optional fields like isRevision, revisesThought, etc., are omitted for initial call
+                for num, content in matches:
+                    parsed_steps.append({
+                        "number": int(num), 
+                        "content": content.strip()
+                    })
+                
+                return {
+                    "success": True,
+                    "steps": parsed_steps,
+                    "conclusion": conclusion,
+                    "thinking_type": thinking_type
                 }
-                result = await self._run_mcp_server(tool_name=self.mcp_tool_name, args=mcp_args)
                 
-                if result.get("success"):
-                    # The result from _run_mcp_server should already be in the desired format.
-                    # We need to ensure its 'raw_content' doesn't indicate an internal MCP server error.
-                    raw_content_str = "".join(result.get("raw_content", []))
-                    if "Unknown tool" in raw_content_str or "error" in raw_content_str.lower(): # Check for errors from MCP server itself
-                        logger.warning(f"[THINKING_MCP] MCP server reported an issue: {raw_content_str}. Falling back to direct OpenAI.")
-                        return await self._think_direct(prompt, thinking_type, max_steps)
-                    logger.info(f"[THINKING_MCP] Successfully completed thinking via MCP. Conclusion: {result.get('conclusion', 'N/A')[:100]}...")
-                else:
-                    logger.warning(f"[THINKING_MCP] MCP thinking failed at client level: {result.get('error', 'Unknown error')}. Falling back to direct OpenAI.")
-                    return await self._think_direct(prompt, thinking_type, max_steps)
-                return result
-            else:
-                logger.debug(f"[THINKING_MCP] MCP not available/configured. Using direct OpenAI for: {prompt[:50]}...")
-                return await self._think_direct(prompt, thinking_type, max_steps)
+            except Exception as e:
+                logger.error(f"Error in sequential_thinking (fallback mode): {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "steps": [],
+                    "conclusion": f"Error: {str(e)}",
+                    "thinking_type": thinking_type
+                }
         
         async def solve_problem(self, problem, max_steps=5):
-            return await self.think(problem, thinking_type="problem-solving", max_steps=max_steps)
+            """Wrapper for sequential_thinking with problem-solving type"""
+            return await self.sequential_thinking(problem, thinking_type="problem-solving", max_steps=max_steps)
         
-        async def plan_code(self, coding_task, max_steps=7): # Usually needs more steps
-            return await self.think(coding_task, thinking_type="coding", max_steps=max_steps)
+        async def plan_code(self, coding_task, max_steps=7):
+            """Wrapper for sequential_thinking with coding type"""
+            return await self.sequential_thinking(coding_task, thinking_type="coding", max_steps=max_steps)
+            
+        async def think(self, prompt, thinking_type="general", max_steps=5):
+            """Alias for sequential_thinking to maintain backward compatibility"""
+            return await self.sequential_thinking(prompt, thinking_type=thinking_type, max_steps=max_steps)
 
 thinking_mcp_server = SequentialThinkingMCPServer()
+
 
 
 # --- FilesystemMCPServer ---
