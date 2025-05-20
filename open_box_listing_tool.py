@@ -50,6 +50,7 @@ from __future__ import annotations
 import os
 import time
 import logging
+import requests
 from typing import Dict, Optional, List
 
 # Re‑use the robust HTTP session & helpers already battle‑tested in duplicate.py
@@ -81,16 +82,23 @@ def _resolve_product_id(identifier: str) -> Optional[str]:
     if identifier.startswith("gid://"):
         return identifier.split("/")[-1]
 
-    # 3. Search by handle OR title OR variant SKU via Storefront search_query
+    # 3. Search by SKU, then by handle OR title
+    base_identifier_escaped = identifier.replace("\"", "\\\"")
+    
+    # GraphQL query structure (remains the same as original)
     query_by_title_or_handle = (
         f"query ($search:String!) {{\n  products(first: 1, query: $search) {{\n    edges {{ node {{ id handle title }} }}\n  }}\n}}"
     )
-    variables = {"search": identifier.replace("\"", "\\\"")}
+
+    # Attempt 1: SKU-specific search
     try:
+        sku_specific_search_term = f"sku:{base_identifier_escaped}"
+        variables_sku = {"search": sku_specific_search_term}
+        logging.info(f"Attempting SKU-specific search with term: \"{sku_specific_search_term}\" for identifier: \"{identifier}\"")
         resp = http.post(
             f"https://{SHOP_DOMAIN}/admin/api/{API_VERSION}/graphql.json",
             headers=HEADERS,
-            json={"query": query_by_title_or_handle, "variables": variables},
+            json={"query": query_by_title_or_handle, "variables": variables_sku},
             timeout=10,
         )
         resp.raise_for_status()
@@ -101,9 +109,45 @@ def _resolve_product_id(identifier: str) -> Optional[str]:
             .get("edges", [])
         )
         if edges:
-            return edges[0]["node"]["id"].split("/")[-1]
+            product_id = edges[0]["node"]["id"].split("/")[-1]
+            logging.info(f"SKU-specific search FOUND product ID: {product_id} for identifier: \"{identifier}\"")
+            return product_id
+        else:
+            logging.info(f"SKU-specific search for identifier: \"{identifier}\" (using term: \"{sku_specific_search_term}\") yielded no results. Falling back to general search.")
+
+    except requests.exceptions.HTTPError as http_err:
+        logging.warning(f"SKU-specific search for identifier: \"{identifier}\" (term: \"{sku_specific_search_term}\") failed with HTTPError: {http_err}. Response: {http_err.response.text if http_err.response else 'No response text'}. Falling back.")
     except Exception as e:
-        logging.error(f"Error resolving identifier '{identifier}': {e}")
+        logging.warning(f"SKU-specific search for identifier: \"{identifier}\" (term: \"{sku_specific_search_term}\") failed with an unexpected error: {e}. Falling back to general search.")
+
+    # Attempt 2: Fallback to general search (handle OR title OR general SKU match if Shopify's fuzzy search picks it up)
+    try:
+        variables_general = {"search": base_identifier_escaped} # Original search term
+        logging.info(f"Attempting general search with term: \"{base_identifier_escaped}\" for identifier: \"{identifier}\"")
+        resp = http.post(
+            f"https://{SHOP_DOMAIN}/admin/api/{API_VERSION}/graphql.json",
+            headers=HEADERS,
+            json={"query": query_by_title_or_handle, "variables": variables_general},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        edges = (
+            data.get("data", {})
+            .get("products", {})
+            .get("edges", [])
+        )
+        if edges:
+            product_id = edges[0]["node"]["id"].split("/")[-1]
+            logging.info(f"General search FOUND product ID: {product_id} for identifier: \"{identifier}\"")
+            return product_id
+        else:
+            logging.info(f"General search for identifier: \"{identifier}\" (using term: \"{base_identifier_escaped}\") also yielded no results.")
+
+    except requests.exceptions.HTTPError as http_err:
+        logging.error(f"General search for identifier: \"{identifier}\" (term: \"{base_identifier_escaped}\") failed with HTTPError: {http_err}. Response: {http_err.response.text if http_err.response else 'No response text'}.")
+    except Exception as e:
+        logging.error(f"Error resolving identifier \"{identifier}\" with general search: {e}")
     return None
 
 # ---------------------------------------------------------------------------
