@@ -18,7 +18,7 @@ from memory_service import memory_service
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
+from mcp_server import shopify_mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -174,7 +174,7 @@ async def introspect_admin_schema(query, filter_types=None):
         filter_types = ["all"]
     try:
         print(f"[DEBUG] Calling mcp_server.introspect_admin_schema with query: {query}")
-        result = await mcp_server.introspect_admin_schema(query, filter_types)
+        result = await shopify_mcp_server.introspect_admin_schema(query, filter_types)
         
         # Log the returned result structure for debugging
         print(f"[DEBUG] introspect_admin_schema result type: {type(result)}")
@@ -197,11 +197,11 @@ async def introspect_admin_schema(query, filter_types=None):
 
 async def search_dev_docs(prompt):
     """Search Shopify developer documentation using the MCP server"""
-    if not mcp_server:
+    if not shopify_mcp_server:
         return {"error": "MCP server not available"}
     try:
-        print(f"[DEBUG] Calling mcp_server.search_dev_docs with prompt: {prompt}")
-        result = await mcp_server.search_dev_docs(prompt)
+        print(f"[DEBUG] Calling shopify_mcp_server.search_dev_docs with prompt: {prompt}")
+        result = await shopify_mcp_server.search_dev_docs(prompt)
         
         # At this point result should already be a properly serializable dictionary
         # Let's log its structure to verify
