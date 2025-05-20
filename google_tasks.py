@@ -9,7 +9,10 @@ from flask import url_for, request, redirect, session
 from flask_login import current_user
 
 # Google Tasks API scopes
-SCOPES = ['https://www.googleapis.com/auth/tasks']
+SCOPES = [
+    'https://www.googleapis.com/auth/tasks',
+    'https://www.googleapis.com/auth/userinfo.email'
+]
 
 def get_credentials_path(user_id):
     """Get the path to store user's Google credentials"""
@@ -29,10 +32,15 @@ def get_flow():
         }
     }
     
+    # Ensure redirect URI is using https in production
+    redirect_uri = url_for('google_auth_callback', _external=True)
+    if not redirect_uri.startswith('https://') and not redirect_uri.startswith('http://localhost'):
+        redirect_uri = redirect_uri.replace('http://', 'https://')
+    
     return Flow.from_client_config(
         client_config, 
         scopes=SCOPES,
-        redirect_uri=url_for('google_auth_callback', _external=True)
+        redirect_uri=redirect_uri
     )
 
 def get_credentials(user_id):
