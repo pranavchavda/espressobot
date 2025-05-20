@@ -219,7 +219,7 @@ function TasksPage() {
             You need to authorize this app to access your Google Tasks.
           </Text>
           <Button
-            onClick={() => (window.location.href = "/authorize/google")}
+            onClick={() => (window.location.href = "/api/authorize/google")}
             className="mx-auto"
           >
             Connect Google Tasks
