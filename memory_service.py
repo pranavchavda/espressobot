@@ -13,7 +13,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from models import UserMemory
 from extensions import db
-from mcp_server import memory_mcp_server
+from simple_memory import memory_server as memory_mcp_server
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class MemoryService:
             value_str = value
             
         # Store in MCP memory server
-        mcp_result = await memory_mcp_server.store_memory(user_id, key, value_str)
+        mcp_result = await memory_mcp_server.store_user_memory(user_id, key, value_str)
         
         # Persist to database if requested
         db_result = {"persisted": False}
@@ -125,7 +125,7 @@ class MemoryService:
             Dict with memory value or default
         """
         # First try MCP memory server
-        mcp_result = await memory_mcp_server.retrieve_memory(user_id, key)
+        mcp_result = await memory_mcp_server.retrieve_user_memory(user_id, key, default)
         
         # If successful, return the result
         if mcp_result.get("success", False) and mcp_result.get("value") is not None:
@@ -169,7 +169,7 @@ class MemoryService:
                             parsed_value = json.loads(value)
                             
                             # Also store this back in the memory server for next time
-                            await memory_mcp_server.store_memory(user_id, key, value)
+                            await memory_mcp_server.store_user_memory(user_id, key, value)
                             
                             return {
                                 "success": True,
@@ -182,7 +182,7 @@ class MemoryService:
                             pass
                     
                     # Also store this back in the memory server for next time
-                    await memory_mcp_server.store_memory(user_id, key, value)
+                    await memory_mcp_server.store_user_memory(user_id, key, value)
                     
                     return {
                         "success": True,
@@ -234,7 +234,7 @@ class MemoryService:
             Dict with list of memory keys
         """
         # Get keys from MCP memory server
-        mcp_result = await memory_mcp_server.list_memories(user_id)
+        mcp_result = await memory_mcp_server.list_user_memories(user_id)
         mcp_keys = set(mcp_result.get("keys", []))
         
         # Get keys from database with retry logic
@@ -294,7 +294,7 @@ class MemoryService:
             Dict with operation status
         """
         # Delete from MCP memory server
-        mcp_result = await memory_mcp_server.delete_memory(user_id, key)
+        mcp_result = await memory_mcp_server.delete_user_memory(user_id, key)
         
         # Delete from database with retry logic
         db_result = {"deleted": False}

@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "Failed to parse MCP server output",
+  "source": "mcp-direct"
+}

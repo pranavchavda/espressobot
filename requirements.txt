@@ -10,3 +10,9 @@ flask-login==0.6.3
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 psycopg2-binary==2.9.10
+beautifulsoup4==4.12.2
+# Optional MCP package support
+# mcp-client>=0.1.0
+# mcp-server-fetch>=0.1.0
+# Node.js MCP packages (install with npx or npm):
+# @modelcontextprotocol/server-sequential-thinking
