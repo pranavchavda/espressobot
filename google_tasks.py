@@ -32,17 +32,8 @@ def get_flow():
         }
     }
     
-    # Get the Replit domain from environment if available
-    replit_domain = os.environ.get('REPLIT_SLUG')
-    
-    # If running on Replit, use the Replit domain for the redirect URI
-    if replit_domain:
-        redirect_uri = f"https://{replit_domain}.replit.app/api/google/callback"
-    else:
-        # For local development, use the Flask URL
-        redirect_uri = url_for('google_auth_callback', _external=True)
-        if not redirect_uri.startswith('https://') and not redirect_uri.startswith('http://localhost'):
-            redirect_uri = redirect_uri.replace('http://', 'https://')
+    # Hardcode the Replit domain
+    redirect_uri = "https://espressobot.replit.app/api/google/callback"
     
     print(f"Using redirect URI: {redirect_uri}")
     
