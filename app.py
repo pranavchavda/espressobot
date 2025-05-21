@@ -869,6 +869,24 @@ if __name__ == '__main__':
     # Show environment status
     api_key = os.environ.get('OPENAI_API_KEY')
     shopify_url = os.environ.get('SHOPIFY_SHOP_URL')
+    
+    # Set default BASE_URL if not provided
+    if 'BASE_URL' not in os.environ:
+        # For local development, use the server URL
+        is_replit = os.environ.get('REPL_ID') is not None
+        if is_replit:
+            # In Replit, use the REPL_SLUG for the URL
+            repl_slug = os.environ.get('REPL_SLUG', '')
+            repl_owner = os.environ.get('REPL_OWNER', '')
+            if repl_slug and repl_owner:
+                os.environ['BASE_URL'] = f"https://{repl_slug}.{repl_owner}.repl.co"
+            else:
+                os.environ['BASE_URL'] = ""
+        else:
+            # For local development
+            os.environ['BASE_URL'] = "http://0.0.0.0:5000"
+    
+    print(f"Base URL for file downloads: {os.environ.get('BASE_URL')}")
 
     if not api_key:
         print(
@@ -878,10 +896,6 @@ if __name__ == '__main__':
         print(
             "⚠️ Warning: SHOPIFY_SHOP_URL environment variable not set. Agent will not function properly."
         )
-
-    print(
-        f"Starting Flask application with Shopify Agent for shop: {shopify_url or 'NOT SET'}"
-    )
 
     # Run theFlask application
     app.run(debug=True, host='0.0.0.0', port=5000)
