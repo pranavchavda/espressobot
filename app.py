@@ -666,7 +666,7 @@ def google_auth_callback():
         auth_response = request.url
         if auth_response.startswith('http:'):
             auth_response = 'https:' + auth_response[5:]
-        
+
         # Handle scope mismatch by setting validate_scope to False
         # This allows the flow to continue even if Google returns different scopes
         flow.fetch_token(authorization_response=auth_response, validate_scope=False)
@@ -797,6 +797,73 @@ def tasks_page():
     # This will render the React frontend, which will handle the tasks UI
     return app.send_static_file('index.html')
 
+# Helper function to ensure user storage directories exist
+def ensure_user_storage_dirs(user_id):
+    """Create user-specific storage directories if they don't exist"""
+    if not user_id:
+        return
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    user_dir = os.path.join(base_dir, 'storage', 'users', str(user_id))
+    user_exports_dir = os.path.join(user_dir, 'exports')
+
+    # Create directories with proper permissions
+    for directory in [user_dir, user_exports_dir]:
+        if not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
+
+    return user_exports_dir
+
+@app.route('/api/exports/<path:filename>', methods=['GET'])
+@login_required
+def get_export_file(filename):
+    """Serve files from the exports directory, using user-specific directories"""
+    # Ensure we're only accessing files in the exports directory
+    if '..' in filename or filename.startswith('/'):
+        return jsonify({"error": "Invalid filename"}), 400
+
+    # Base exports directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # First check if file exists in user-specific directory
+    user_exports_dir = os.path.join(base_dir, 'storage', 'users', str(current_user.id), 'exports')
+    user_file_path = os.path.join(user_exports_dir, filename)
+
+    # If not in user directory, check the shared exports directory (for backward compatibility)
+    shared_exports_dir = os.path.join(base_dir, 'storage', 'exports')
+    shared_file_path = os.path.join(shared_exports_dir, filename)
+
+    # Determine which path to use
+    if os.path.exists(user_file_path) and os.path.isfile(user_file_path):
+        file_path = user_file_path
+    elif os.path.exists(shared_file_path) and os.path.isfile(shared_file_path):
+        file_path = shared_file_path
+    else:
+        return jsonify({"error": "File not found"}), 404
+
+    # Determine content type (optional - can be expanded)
+    content_type = 'application/octet-stream'  # default
+    if filename.endswith('.csv'):
+        content_type = 'text/csv'
+    elif filename.endswith('.json'):
+        content_type = 'application/json'
+    elif filename.endswith('.txt'):
+        content_type = 'text/plain'
+
+    # Return the file
+    with open(file_path, 'rb') as f:
+        file_data = f.read()
+
+    # Send file as response
+    from flask import send_file
+    from io import BytesIO
+    return send_file(
+        BytesIO(file_data),
+        mimetype=content_type,
+        as_attachment=True,
+        download_name=filename
+    )
+
 
 if __name__ == '__main__':
     # Show environment status
@@ -816,5 +883,5 @@ if __name__ == '__main__':
         f"Starting Flask application with Shopify Agent for shop: {shopify_url or 'NOT SET'}"
     )
 
-    # Run the Flask application
+    # Run theFlask application
     app.run(debug=True, host='0.0.0.0', port=5000)
