@@ -141,8 +141,10 @@ def create_stream_blueprint(app, openai_client):
                 error_traceback = traceback.format_exc()
                 print(f"ERROR in /stream_chat route: {str(e)}")
                 print(error_traceback)
+                # Yield the full error and traceback to the client for debugging
                 yield f"data: {{\n"
-                yield f"data: \"error\": {json.dumps(str(e))}\n"
+                yield f"data: \"error\": {json.dumps(str(e))},\n"
+                yield f"data: \"traceback\": {json.dumps(error_traceback)}\n"
                 yield f"data: }}\n\n"
             finally:
                 loop.close()

@@ -14,6 +14,7 @@ import traceback  # Import traceback for error handling
 
 # Import memory service
 from memory_service import memory_service
+from mcp_adapter import normalized_memory_call
 
 # Import SkuVault integration
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
@@ -274,14 +275,15 @@ async def ask_perplexity(messages):
 
 
 # Memory functions
-async def store_user_memory(user_id, key, value, persist=True):
+async def store_user_memory(user_id, key, value):
     """Store a memory for a specific user."""
     try:
         # Validate user_id is present
         if not user_id:
             return {"success": False, "error": "Missing user_id parameter"}
 
-        return await memory_service.store_memory(user_id, key, value, persist)
+        # The 'persist' argument is no longer passed as it's removed from memory_service.store_memory
+        return await normalized_memory_call(memory_service.store_memory, user_id, key, value)
     except Exception as e:
         print(f"Error storing user memory: {e}")
         return {"success": False, "error": str(e)}
@@ -299,7 +301,7 @@ async def retrieve_user_memory(user_id, key, default=None):
                 "error": "Missing user_id parameter"
             }
 
-        return await memory_service.retrieve_memory(user_id, key, default)
+        return await normalized_memory_call(memory_service.retrieve_memory, user_id, key, default)
     except Exception as e:
         print(f"Error retrieving user memory: {e}")
         return {
@@ -322,7 +324,7 @@ async def list_user_memories(user_id):
                 "error": "Missing user_id parameter"
             }
 
-        return await memory_service.list_memories(user_id)
+        return await normalized_memory_call(memory_service.list_memories, user_id)
     except Exception as e:
         print(f"Error listing user memories: {e}")
         return {"success": False, "keys": [], "count": 0, "error": str(e)}
@@ -339,7 +341,7 @@ async def delete_user_memory(user_id, key):
                 "error": "Missing user_id parameter"
             }
 
-        return await memory_service.delete_memory(user_id, key)
+        return await normalized_memory_call(memory_service.delete_memory, user_id, key)
     except Exception as e:
         print(f"Error deleting user memory: {e}")
         return {"success": False, "key": key, "error": str(e)}
@@ -1012,7 +1014,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "user_id": {
-                        "type": "integer",
+                        "type": "string",
                         "description": "The user's ID"
                     },
                     "key": {
@@ -1027,12 +1029,6 @@ TOOLS = [
                         "description":
                         "The value to store (can be any JSON-serializable object)"
                     },
-                    "persist": {
-                        "type":
-                        "boolean",
-                        "description":
-                        "Whether to persist to database (default: true)"
-                    }
                 },
                 "required": ["user_id", "key", "value"]
             }
@@ -1049,7 +1045,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "user_id": {
-                        "type": "integer",
+                        "type": "string",
                         "description": "The user's ID"
                     },
                     "key": {
@@ -1077,7 +1073,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "user_id": {
-                        "type": "integer",
+                        "type": "string",
                         "description": "The user's ID"
                     }
                 },
@@ -1095,7 +1091,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "user_id": {
-                        "type": "integer",
+                        "type": "string",
                         "description": "The user's ID"
                     },
                     "key": {

@@ -29,35 +29,44 @@ def get_credentials_path(user_id):
 
 def get_flow():
     """Create OAuth flow object for Google Tasks API"""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+
+    if not client_id or not client_secret:
+        raise RuntimeError("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in environment variables.")
+
     client_config = {
         "web": {
-            "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
-            "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
+            "client_id": client_id,
+            "client_secret": client_secret,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
     }
 
-    # Determine if we're in development or production
-    is_replit_env = os.environ.get('REPL_ID') is not None
-
-    if is_replit_env:
-        # Use the Replit domain in production
-        redirect_uri = "https://espressobot.replit.app/api/google/callback"
+    # Prefer FRONTEND_ORIGIN for redirect, fallback to BASE_URL, then localhost:5000
+    frontend_origin = os.environ.get("FRONTEND_ORIGIN")
+    base_url = os.environ.get("BASE_URL")
+    port = os.environ.get("PORT")
+    if frontend_origin:
+        # Remove trailing slash if present
+        frontend_origin = frontend_origin.rstrip("/")
+        redirect_uri = f"{frontend_origin}/api/google/callback"
+    elif base_url and "0.0.0.0" not in base_url:
+        # Ignore obviously invalid base urls (such as 0.0.0.0)
+        redirect_uri = f"{base_url.rstrip('/')}/api/google/callback"
+    elif port:
+        redirect_uri = f"http://localhost:{port}/api/google/callback"
     else:
-        # Use dynamic URL in development
-        redirect_uri = url_for('google_auth_callback', _external=True)
-        # If in development and using HTTP, replace with HTTPS for OAuth
-        if redirect_uri.startswith('http:'):
-            redirect_uri = 'https:' + redirect_uri[5:]
+        redirect_uri = "http://localhost:2000/api/google/callback"
 
     print(f"Using redirect URI: {redirect_uri}")
 
-    # Create flow with explicit redirect URI instead of from URL
-    flow = Flow.from_client_config(client_config,
-                                   scopes=SCOPES,
-                                   redirect_uri=redirect_uri)
-
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri=redirect_uri
+    )
     return flow
 
 

@@ -1,120 +1,98 @@
 """
 Memory service module for managing user-specific memories.
 
-This service provides an interface for storing and retrieving user memories,
-using both the MCP memory server for in-memory storage and the database
-for persistence.
+This service provides an interface for storing and retrieving user memories
+using the MCP memory server.
 """
 import json
 import logging
-import time
 from typing import Dict, Any, List, Optional, Union
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
-
-from models import UserMemory
-from extensions import db
 from simple_memory import memory_server as memory_mcp_server
 
 # Configure logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG) # Ensure DEBUG messages are processed by this logger
 
 class MemoryService:
     """
-    Service for managing user memories with both in-memory and database persistence.
+    Service for managing user memories using the MCPMemoryServer.
     """
     
     @staticmethod
-    async def store_memory(user_id: int, key: str, value: Any, persist: bool = True) -> Dict[str, Any]:
+    async def store_memory(user_id: int, key: str, value: Any) -> Dict[str, Any]:
         """
-        Store a memory for a specific user.
+        Store a memory for a specific user using the MCP memory server.
         
         Args:
             user_id: The user's ID
             key: Memory key
             value: Memory value (will be JSON serialized if not a string)
-            persist: Whether to also persist to database (default: True)
             
         Returns:
-            Dict with operation status
+            Dict with operation status from the MCP memory server.
         """
-        # Convert value to string if it's not already
-        if not isinstance(value, str):
-            try:
-                value_str = json.dumps(value)
-            except Exception as e:
-                value_str = str(value)
-                logger.warning(f"Failed to JSON serialize value for {key}, using str() instead: {e}")
+        current_value = value
+        value_type_name = type(current_value).__name__
+        logger.debug(f"MemoryService: store_memory for key '{key}', initial value type: {value_type_name}")
+
+        # Phase 1: Attempt to extract primitive string if 'current_value' is a known OpenAI SDK text object.
+        # Handles types like TextContent, TextContentBlock, Text by checking common attributes.
+        if value_type_name in ["TextContent", "TextContentBlock", "Text"]:
+            extracted_text_from_sdk_object = None
+            if hasattr(current_value, 'text'):  # Common for TextContentBlock
+                text_attr = current_value.text
+                if hasattr(text_attr, 'value') and isinstance(text_attr.value, str):
+                    extracted_text_from_sdk_object = text_attr.value
+                elif isinstance(text_attr, str):
+                    extracted_text_from_sdk_object = text_attr
+            elif hasattr(current_value, 'value') and isinstance(current_value.value, str):  # Common for Text
+                extracted_text_from_sdk_object = current_value.value
+            
+            if extracted_text_from_sdk_object is not None:
+                logger.debug(f"Extracted string '{extracted_text_from_sdk_object}' from {value_type_name} for key '{key}'")
+                current_value = extracted_text_from_sdk_object # current_value is now a string
+            else:
+                logger.warning(f"{value_type_name} for key '{key}' did not yield a primitive string via common paths. Will proceed with original object for serialization or stringification.")
+                # current_value remains the original SDK object
+
+        # Phase 2: Ensure 'final_value_as_string' is a string. This string will be passed to MCPMemoryServer.
+        final_value_as_string = None
+        if isinstance(current_value, str):
+            final_value_as_string = current_value
         else:
-            value_str = value
-            
-        # Store in MCP memory server
-        mcp_result = await memory_mcp_server.store_user_memory(user_id, key, value_str)
+            # current_value is not a string. It could be a dict/list (intended as JSON value),
+            # or an unhandled complex object (e.g., an SDK object if Phase 1 didn't convert it).
+            try:
+                # This will succeed for basic types like dict, list, int, float, bool.
+                # It will fail with TypeError for non-serializable objects like TextContent if it's still here.
+                logger.debug(f"Value for key '{key}' (type: {type(current_value).__name__}) is not a string. Attempting json.dumps to store its JSON string representation.")
+                final_value_as_string = json.dumps(current_value)
+            except TypeError as te:
+                logger.warning(f"json.dumps failed for key '{key}' (type: {type(current_value).__name__}): {te}. This usually means it's a non-JSON-serializable object. Falling back to str().")
+                logger.debug(f"REPR of object causing json.dumps failure for key '{key}': {repr(current_value)}")
+                final_value_as_string = str(current_value) # Ultimate fallback: string representation of the object.
+            except Exception as e:
+                logger.error(f"Unexpected error during json.dumps for key '{key}' (type: {type(current_value).__name__}): {e}. Falling back to str().")
+                final_value_as_string = str(current_value)
+
+        # Final check: Ensure it's unequivocally a string before sending to MCP layer.
+        if not isinstance(final_value_as_string, str):
+            logger.error(f"CRITICAL_MEMORY_SERVICE: final_value_as_string for key '{key}' is NOT a string (type: {type(final_value_as_string).__name__}) after all processing. Forcing to string. THIS IS UNEXPECTED.")
+            final_value_as_string = str(final_value_as_string)
+
+        logger.debug(f"MemoryService: final_value_as_string for key '{key}' (type: {type(final_value_as_string).__name__}) before sending to MCP: {final_value_as_string[:200]}")
         
-        # Persist to database if requested
-        db_result = {"persisted": False}
-        if persist:
-            # Add retry logic for database operations
-            max_retries = 3
-            retry_delay = 1.0  # seconds
-            
-            for attempt in range(max_retries):
-                try:
-                    # Check if memory already exists
-                    existing_memory = UserMemory.query.filter_by(
-                        user_id=user_id, key=key
-                    ).first()
-                    
-                    if existing_memory:
-                        # Update existing memory
-                        existing_memory.value = value_str
-                        db.session.commit()
-                    else:
-                        # Create new memory
-                        memory = UserMemory(
-                            user_id=user_id,
-                            key=key,
-                            value=value_str
-                        )
-                        db.session.add(memory)
-                        db.session.commit()
-                        
-                    db_result = {"persisted": True}
-                    break  # Success, exit retry loop
-                    
-                except OperationalError as e:
-                    # Database connection error
-                    logger.warning(f"Database connection error on attempt {attempt+1}/{max_retries}: {e}")
-                    if attempt < max_retries - 1:
-                        # Try to recover the session
-                        db.session.rollback()
-                        time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                    else:
-                        logger.error(f"Failed to persist memory after {max_retries} attempts: {e}")
-                        db_result = {"persisted": False, "error": str(e)}
-                        
-                except SQLAlchemyError as e:
-                    # Other SQLAlchemy errors
-                    logger.error(f"Database error: {e}")
-                    db.session.rollback()
-                    db_result = {"persisted": False, "error": str(e)}
-                    break  # Don't retry other SQLAlchemy errors
-                    
-                except Exception as e:
-                    logger.error(f"Error persisting memory to database: {e}")
-                    db_result = {"persisted": False, "error": str(e)}
-                    break  # Don't retry other errors
-                
-        return {
-            "success": mcp_result.get("success", False),
-            "key": key,
-            "persisted": db_result.get("persisted", False),
-            "message": mcp_result.get("message", "")
-        }
+        # Store in MCP memory server (which expects final_value_as_string to be a string)
+        mcp_result = await memory_mcp_server.store_user_memory(str(user_id), key, final_value_as_string)
+        
+        # Directly return the result from MCP memory server call
+        # The 'success', 'key', 'error', 'message' fields are expected from memory_mcp_server
+        return mcp_result
     
     @staticmethod
     async def retrieve_memory(user_id: int, key: str, default: Any = None) -> Dict[str, Any]:
         """
-        Retrieve a memory for a specific user.
+        Retrieve a memory for a specific user from the MCP memory server.
         
         Args:
             user_id: The user's ID
@@ -122,227 +100,92 @@ class MemoryService:
             default: Default value if memory not found
             
         Returns:
-            Dict with memory value or default
+            Dict with memory value or default, and source as 'memory_server'.
         """
-        # First try MCP memory server
-        mcp_result = await memory_mcp_server.retrieve_user_memory(user_id, key, default)
+        # Retrieve from MCP memory server
+        # Note: mcp_memory.get_user_memory does not take a 'default' argument.
+        # Default handling is managed below based on the success and value from mcp_result.
+        mcp_result = await memory_mcp_server.get_user_memory(str(user_id), key)
         
-        # If successful, return the result
-        if mcp_result.get("success", False) and mcp_result.get("value") is not None:
-            value = mcp_result.get("value")
-            # Try to parse as JSON if it looks like JSON
-            if isinstance(value, str) and value.strip().startswith(("{", "[")):
-                try:
-                    parsed_value = json.loads(value)
-                    return {
-                        "success": True,
-                        "key": key,
-                        "value": parsed_value,
-                        "source": "memory_server"
-                    }
-                except json.JSONDecodeError:
-                    # Not valid JSON, return as string
-                    pass
-                    
-            return {
-                "success": True,
-                "key": key,
-                "value": value,
-                "source": "memory_server"
-            }
+        # The mcp_result should contain 'success', 'key', 'value', and optionally 'error' or 'message'.
+        # We will add/ensure 'source' is present.
         
-        # If not in memory server, check database with retry logic
-        max_retries = 3
-        retry_delay = 1.0  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                memory = UserMemory.query.filter_by(
-                    user_id=user_id, key=key
-                ).first()
-                
-                if memory:
-                    value = memory.value
-                    # Try to parse as JSON if it looks like JSON
-                    if value.strip().startswith(("{", "[")):
-                        try:
-                            parsed_value = json.loads(value)
-                            
-                            # Also store this back in the memory server for next time
-                            await memory_mcp_server.store_user_memory(user_id, key, value)
-                            
-                            return {
-                                "success": True,
-                                "key": key,
-                                "value": parsed_value,
-                                "source": "database"
-                            }
-                        except json.JSONDecodeError:
-                            # Not valid JSON, return as string
-                            pass
-                    
-                    # Also store this back in the memory server for next time
-                    await memory_mcp_server.store_user_memory(user_id, key, value)
-                    
-                    return {
-                        "success": True,
-                        "key": key,
-                        "value": value,
-                        "source": "database"
-                    }
-                
-                # If we get here, the memory wasn't found but the query succeeded
-                break  # Exit retry loop
-                
-            except OperationalError as e:
-                # Database connection error
-                logger.warning(f"Database connection error on attempt {attempt+1}/{max_retries}: {e}")
-                if attempt < max_retries - 1:
-                    # Try to recover the session
-                    db.session.rollback()
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                else:
-                    logger.error(f"Failed to retrieve memory after {max_retries} attempts: {e}")
-                    
-            except SQLAlchemyError as e:
-                # Other SQLAlchemy errors
-                logger.error(f"Database error when retrieving memory: {e}")
-                db.session.rollback()
-                break  # Don't retry other SQLAlchemy errors
-                
-            except Exception as e:
-                logger.error(f"Error retrieving memory from database: {e}")
-                break  # Don't retry other errors
-        
-        # If not found anywhere, return default
-        return {
-            "success": False,
+        response = {
+            "success": mcp_result.get("success", False),
             "key": key,
-            "value": default,
-            "source": "default"
+            "value": mcp_result.get("value", default),
+            "source": "memory_server" # Always from memory_server now
         }
+        
+        if not response["success"]:
+            response["error"] = mcp_result.get("error") or mcp_result.get("message") or "Failed to retrieve from MCP memory server."
+            if response["value"] is default and default is None: # If it failed and value is still default (None)
+                response["source"] = "not_found"
+        elif mcp_result.get("message"):
+            response["message"] = mcp_result.get("message")
+        
+        # Attempt to parse JSON if value is a string that looks like JSON
+        value_to_check = response["value"]
+        if isinstance(value_to_check, str) and value_to_check.strip().startswith(("{", "[")):
+            try:
+                response["value"] = json.loads(value_to_check)
+            except json.JSONDecodeError:
+                # Not valid JSON, keep as string. No error needed, it's just a string value.
+                pass
+        
+        return response
     
     @staticmethod
     async def list_memories(user_id: int) -> Dict[str, Any]:
         """
-        List all memories for a user.
+        List all memories for a user from the MCP memory server.
         
         Args:
             user_id: The user's ID
             
         Returns:
-            Dict with list of memory keys
+            Dict with operation status and list of memory keys from the MCP memory server.
         """
         # Get keys from MCP memory server
-        mcp_result = await memory_mcp_server.list_user_memories(user_id)
-        mcp_keys = set(mcp_result.get("keys", []))
+        mcp_result = await memory_mcp_server.list_user_memories(str(user_id))
         
-        # Get keys from database with retry logic
-        db_keys = set()
-        max_retries = 3
-        retry_delay = 1.0  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                db_memories = UserMemory.query.filter_by(user_id=user_id).all()
-                db_keys = {memory.key for memory in db_memories}
-                break  # Success, exit retry loop
-                
-            except OperationalError as e:
-                # Database connection error
-                logger.warning(f"Database connection error on attempt {attempt+1}/{max_retries}: {e}")
-                if attempt < max_retries - 1:
-                    # Try to recover the session
-                    db.session.rollback()
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                else:
-                    logger.error(f"Failed to list memories after {max_retries} attempts: {e}")
-                    
-            except SQLAlchemyError as e:
-                # Other SQLAlchemy errors
-                logger.error(f"Database error when listing memories: {e}")
-                db.session.rollback()
-                break  # Don't retry other SQLAlchemy errors
-                
-            except Exception as e:
-                logger.error(f"Error listing memories from database: {e}")
-                break  # Don't retry other errors
-        
-        # Combine unique keys from both sources
-        all_keys = list(mcp_keys.union(db_keys))
-        
-        return {
-            "success": True,
-            "keys": all_keys,
-            "count": len(all_keys),
-            "sources": {
-                "memory_server": list(mcp_keys),
-                "database": list(db_keys)
+        # mcp_result is expected to have 'success', 'keys', and optionally 'error' or 'message'.
+        # We'll ensure the count is added.
+        if mcp_result.get("success", False):
+            keys = mcp_result.get("keys", [])
+            return {
+                "success": True,
+                "keys": keys,
+                "count": len(keys),
+                "source": "memory_server"
             }
-        }
+        else:
+            return {
+                "success": False,
+                "keys": [],
+                "count": 0,
+                "source": "memory_server",
+                "error": mcp_result.get("error") or mcp_result.get("message") or "Failed to list memories from MCP server."
+            }
     
     @staticmethod
     async def delete_memory(user_id: int, key: str) -> Dict[str, Any]:
         """
-        Delete a memory for a user.
+        Delete a memory for a user from the MCP memory server.
         
         Args:
             user_id: The user's ID
             key: Memory key to delete
             
         Returns:
-            Dict with operation status
+            Dict with operation status from the MCP memory server.
         """
         # Delete from MCP memory server
-        mcp_result = await memory_mcp_server.delete_user_memory(user_id, key)
+        mcp_result = await memory_mcp_server.delete_user_memory(str(user_id), key)
         
-        # Delete from database with retry logic
-        db_result = {"deleted": False}
-        max_retries = 3
-        retry_delay = 1.0  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                memory = UserMemory.query.filter_by(
-                    user_id=user_id, key=key
-                ).first()
-                
-                if memory:
-                    db.session.delete(memory)
-                    db.session.commit()
-                    db_result = {"deleted": True}
-                break  # Success or memory not found, exit retry loop
-                
-            except OperationalError as e:
-                # Database connection error
-                logger.warning(f"Database connection error on attempt {attempt+1}/{max_retries}: {e}")
-                if attempt < max_retries - 1:
-                    # Try to recover the session
-                    db.session.rollback()
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                else:
-                    logger.error(f"Failed to delete memory after {max_retries} attempts: {e}")
-                    db_result = {"deleted": False, "error": str(e)}
-                    
-            except SQLAlchemyError as e:
-                # Other SQLAlchemy errors
-                logger.error(f"Database error when deleting memory: {e}")
-                db.session.rollback()
-                db_result = {"deleted": False, "error": str(e)}
-                break  # Don't retry other SQLAlchemy errors
-                
-            except Exception as e:
-                logger.error(f"Error deleting memory from database: {e}")
-                db_result = {"deleted": False, "error": str(e)}
-                break  # Don't retry other errors
-        
-        return {
-            "success": mcp_result.get("success", False) or db_result.get("deleted", False),
-            "key": key,
-            "memory_server_deleted": mcp_result.get("success", False),
-            "database_deleted": db_result.get("deleted", False),
-            "message": f"Memory {key} deleted for user {user_id}"
-        }
+        # Directly return the result from MCP memory server call
+        # The 'success', 'key', 'error', 'message' fields are expected from memory_mcp_server
+        return mcp_result
 
 # Create a singleton instance
 memory_service = MemoryService()
