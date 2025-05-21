@@ -44,17 +44,14 @@ def get_flow():
         }
     }
 
-    # Prefer FRONTEND_ORIGIN for redirect, fallback to BASE_URL, then localhost:5000
+    # Prefer FRONTEND_ORIGIN for redirect, fallback to espressobot.replit.app, then localhost:5000
     frontend_origin = os.environ.get("FRONTEND_ORIGIN")
-    base_url = os.environ.get("BASE_URL")
     port = os.environ.get("PORT")
-    if frontend_origin:
-        # Remove trailing slash if present
+    if frontend_origin and "localhost" in frontend_origin:
         frontend_origin = frontend_origin.rstrip("/")
         redirect_uri = f"{frontend_origin}/api/google/callback"
-    elif base_url and "0.0.0.0" not in base_url:
-        # Ignore obviously invalid base urls (such as 0.0.0.0)
-        redirect_uri = f"{base_url.rstrip('/')}/api/google/callback"
+    elif frontend_origin:
+        redirect_uri = "https://espressobot.replit.app/api/google/callback"
     elif port:
         redirect_uri = f"http://localhost:{port}/api/google/callback"
     else:
