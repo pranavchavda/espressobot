@@ -1556,6 +1556,64 @@ TOOLS = [
                 "required": ["user_id", "task_id"]
             }
         }
+    },
+    {
+        "name": "export_file",
+        "type": "function",
+        "function": {
+            "name": "export_file",
+            "description":
+            "Save content to a file in the user's exports directory and return a download URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The content to write to the file"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "The name of the file"
+                    },
+                    "user_id": {
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope file to user directory"
+                    }
+                },
+                "required": ["content", "filename"]
+            }
+        }
+    },
+    {
+        "name": "export_binary_file",
+        "type": "function",
+        "function": {
+            "name": "export_binary_file",
+            "description":
+            "Save binary data to a file in the user's exports directory and return a download URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "binary_data": {
+                        "type": "string",
+                        "description": "The binary data to write to the file"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "The name of the file"
+                    },
+                    "user_id": {
+                        "type":
+                        "integer",
+                        "description":
+                        "Optional user ID to scope file to user directory"
+                    }
+                },
+                "required": ["binary_data", "filename"]
+            }
+        }
     }
 ]
 
@@ -1766,7 +1824,8 @@ You have access to structured thinking tools that enhance your reasoning process
 2. `solve_problem` - Specialized problem-solving approach for complex issues
 3. `plan_code` - Structured planning for code implementation tasks
 
-These thinking tools formalize your <THINKING> process and provide:
+These thinking tools formalize your <THINKING> process```python
+ and provide:
 - Clear, numbered steps in your reasoning
 - Consistent problem-solving framework
 - Better organization of complex thoughts
@@ -1853,7 +1912,9 @@ END OF SYSTEM PROMPT
         "google_tasks_get_tasks": google_tasks_get_tasks,
         "google_tasks_update_task": google_tasks_update_task,
         "google_tasks_complete_task": google_tasks_complete_task,
-        "google_tasks_delete_task": google_tasks_delete_task
+        "google_tasks_delete_task": google_tasks_delete_task,
+        "export_file": export_file,
+        "export_binary_file": export_binary_file
     }
 
     try:
@@ -2320,3 +2381,136 @@ async def execute_code(code):
         return {"result": output}
     except Exception as e:
         return {"error": str(e)}
+
+async def execute_code(code, user_id=None):
+    """
+    Run Python code in a secure restricted environment.
+
+    Args:
+        code: The Python code to execute
+        user_id: The user ID
+
+    Returns:
+        The result of execution (stdout, stderr)
+    """
+    from code_interpreter import execute_code as exec_code
+    result = exec_code(code, timeout=8)
+    return result
+
+async def export_file(content, filename, user_id=None):
+    """
+    Save content to a file in the user's exports directory and return a download URL.
+
+    Args:
+        content: The content to write to the file
+        filename: The name of the file
+        user_id: The user ID (for user-specific storage)
+
+    Returns:
+        A dictionary with the download URL
+    """
+    try:
+        # Sanitize filename to prevent directory traversal
+        safe_filename = os.path.basename(filename)
+
+        # Make sure the file has an extension
+        if '.' not in safe_filename:
+            # Default to .txt if no extension is provided
+            safe_filename += '.txt'
+
+        # Get the base directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Create user-specific directory if user_id is provided
+        if user_id:
+            user_dir = os.path.join(base_dir, 'storage', 'users', str(user_id), 'exports')
+            os.makedirs(user_dir, exist_ok=True)
+            file_path = os.path.join(user_dir, safe_filename)
+        else:
+            # Fallback to shared exports directory
+            exports_dir = os.path.join(base_dir, 'storage', 'exports')
+            os.makedirs(exports_dir, exist_ok=True)
+            file_path = os.path.join(exports_dir, safe_filename)
+
+        # Write the content to the file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        # Return the download URL
+        base_url = os.environ.get('BASE_URL', '')
+        download_url = f"{base_url}/api/exports/{safe_filename}"
+
+        return {
+            "success": True,
+            "message": f"File saved successfully as {safe_filename}",
+            "download_url": download_url,
+            "filename": safe_filename
+        }
+    except Exception as e:
+        import traceback
+        print(f"Error exporting file: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": f"Failed to export file: {str(e)}"
+        }
+
+async def export_binary_file(binary_data, filename, user_id=None):
+    """
+    Save binary data to a file in the user's exports directory and return a download URL.
+
+    Args:
+        binary_data: The binary data to write to the file (bytes)
+        filename: The name of the file
+        user_id: The user ID (for user-specific storage)
+
+    Returns:
+        A dictionary with the download URL
+    """
+    try:
+        # Ensure binary_data is bytes
+        if not isinstance(binary_data, bytes):
+            return {
+                "success": False,
+                "error": "Binary data must be bytes"
+            }
+
+        # Sanitize filename to prevent directory traversal
+        safe_filename = os.path.basename(filename)
+
+        # Get the base directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Create user-specific directory if user_id is provided
+        if user_id:
+            user_dir = os.path.join(base_dir, 'storage', 'users', str(user_id), 'exports')
+            os.makedirs(user_dir, exist_ok=True)
+            file_path = os.path.join(user_dir, safe_filename)
+        else:
+            # Fallback to shared exports directory
+            exports_dir = os.path.join(base_dir, 'storage', 'exports')
+            os.makedirs(exports_dir, exist_ok=True)
+            file_path = os.path.join(exports_dir, safe_filename)
+
+        # Write the binary data to the file
+        with open(file_path, 'wb') as f:
+            f.write(binary_data)
+
+        # Return the download URL
+        base_url = os.environ.get('BASE_URL', '')
+        download_url = f"{base_url}/api/exports/{safe_filename}"
+
+        return {
+            "success": True,
+            "message": f"Binary file saved successfully as {safe_filename}",
+            "download_url": download_url,
+            "filename": safe_filename
+        }
+    except Exception as e:
+        import traceback
+        print(f"Error exporting binary file: {str(e)}")
+        print(traceback.format_exc())
+        return {
+            "success": False,
+            "error": f"Failed to export binary file: {str(e)}"
+        }
