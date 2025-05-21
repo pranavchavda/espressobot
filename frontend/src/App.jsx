@@ -10,6 +10,7 @@ import TasksPage from './pages/TasksPage'; // Import TasksPage
 import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
 import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
 import logo from '../static/EspressoBotLogo.png';
+import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -328,11 +329,14 @@ function App() {
         <Route
           path="/"
           element={
-            <StreamingChatPage
-              key={selectedChat === null ? "new_chat_instance_key" : selectedChat}
-              convId={selectedChat}
-              refreshConversations={fetchConversations}
-            />
+            <>
+              <StreamingChatPage
+                key={selectedChat === null ? "new_chat_instance_key" : selectedChat}
+                convId={selectedChat}
+                refreshConversations={fetchConversations}
+              />
+              <PWAInstallPrompt />
+            </>
           }
         />
         <Route path="/profile" element={<ProfilePage />} />
