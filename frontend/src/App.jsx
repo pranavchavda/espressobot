@@ -119,20 +119,12 @@ function App() {
         },
         body: JSON.stringify({ email, password }),
       });
-
+      const data = await response.json();
       if (response.ok) {
-        const data = await response.json();
         setIsAuthenticated(true);
-        setAuthError(null);
-
-        // Save user info to localStorage
-        if (data.user) {
-          localStorage.setItem('userName', data.user.name || '');
-          localStorage.setItem('userEmail', data.user.email || '');
-        }
-
-        // Fetch conversations after successful login
-        fetchConversations();
+        // Optionally store user data from `data.user` into a currentUser state here
+        // e.g., setCurrentUser(data.user);
+        setSelectedChat(null); // Reset chat selection
       } else {
         setAuthError(data.error || "Login failed. Please try again.");
         setIsAuthenticated(false);
