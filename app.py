@@ -628,13 +628,17 @@ def authorize_google():
     # Generate URL for authorization request
     authorization_url, state = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes='true',
-        prompt='consent'  # Always prompt to ensure we get refresh token
+        include_granted_scopes='false',  # Don't include additional scopes
+        prompt='consent',  # Always prompt to ensure we get refresh token
+        login_hint=current_user.email if current_user.email else None
     )
 
     # Store the state in the session
     session['state'] = state
     session['user_id'] = current_user.id
+
+    print(f"Starting OAuth flow for user {current_user.id} with state {state}")
+    print(f"Redirecting to: {authorization_url}")
 
     # Redirect to the authorization URL
     return redirect(authorization_url)
@@ -646,27 +650,37 @@ def google_auth_callback():
     # Verify state parameter
     state = session.get('state')
     if not state or state != request.args.get('state'):
-        return jsonify({"error": "Invalid state parameter"}), 400
+        print(f"State mismatch: session state={state}, request state={request.args.get('state')}")
+        return jsonify({"error": "Invalid state parameter. Please try authorizing again."}), 400
 
     user_id = session.get('user_id')
     if not user_id:
-        return jsonify({"error": "No user ID in session"}), 400
+        return jsonify({"error": "No user ID in session. Please log in again."}), 400
 
-    # Get the authorization flow
-    flow = google_tasks.get_flow()
+    try:
+        # Get the authorization flow
+        flow = google_tasks.get_flow()
 
-    # Use the authorization code to get the credentials
-    flow.fetch_token(authorization_response=request.url)
-    credentials = flow.credentials
+        # Use the authorization code to get the credentials
+        # Ensure URL is secure for OAuth purposes
+        auth_response = request.url
+        if auth_response.startswith('http:'):
+            auth_response = 'https:' + auth_response[5:]
+        
+        flow.fetch_token(authorization_response=auth_response)
+        credentials = flow.credentials
 
-    # Save the credentials for this user
-    google_tasks.save_credentials(user_id, credentials)
+        # Save the credentials for this user
+        google_tasks.save_credentials(user_id, credentials)
 
-    # Clear the session state
-    session.pop('state', None)
+        # Clear the session state
+        session.pop('state', None)
 
-    # Redirect to the tasks page
-    return redirect('/tasks')
+        # Redirect to the tasks page
+        return redirect('/tasks')
+    except Exception as e:
+        print(f"Error in OAuth callback: {str(e)}")
+        return jsonify({"error": f"Authentication error: {str(e)}"}), 500
 
 
 @app.route('/api/tasks/auth_status', methods=['GET'])
