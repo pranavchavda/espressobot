@@ -16,6 +16,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
   const [activeConv, setActiveConv] = useState(convId);
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessage] = useState(null);
+  const [toolCallStatus, setToolCallStatus] = useState("");
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
 
@@ -169,6 +170,23 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             const data = JSON.parse(jsonString);
 
+            // Handle tool_call status updates
+            if (data.tool_call) {
+              const { name, status } = data.tool_call;
+              let statusMessage = `Tool ${name}: ${status}`;
+              if (status === "started") {
+                statusMessage = `Running tool: ${name}...`;
+              } else if (status === "finished" || status === "ended") {
+                statusMessage = `Tool ${name} finished.`;
+              } else if (status === "error") {
+                statusMessage = `Error with tool: ${name}.`;
+              }
+              setToolCallStatus(statusMessage);
+            } else if (data.content || data.delta) {
+              // If new content (even if empty string from delta) arrives, clear specific tool status
+              setToolCallStatus("");
+            }
+
             // Handle initial connection with conversation ID
             if (data.conv_id && !activeConv) {
               setActiveConv(data.conv_id);
@@ -231,6 +249,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       );
     } finally {
       setIsSending(false);
+      setToolCallStatus(""); // Clear tool status when streaming ends
     }
   }
 
@@ -351,7 +370,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
                       {streamingMessage.isStreaming && !streamingMessage.isError && (
                         <span className="flex items-center">
                           <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          Generating...
+                          {toolCallStatus ? toolCallStatus : "Generating..."}
                         </span>
                       )}
                       {streamingMessage.timestamp && (
