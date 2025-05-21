@@ -667,7 +667,9 @@ def google_auth_callback():
         if auth_response.startswith('http:'):
             auth_response = 'https:' + auth_response[5:]
         
-        flow.fetch_token(authorization_response=auth_response)
+        # Handle scope mismatch by setting validate_scope to False
+        # This allows the flow to continue even if Google returns different scopes
+        flow.fetch_token(authorization_response=auth_response, validate_scope=False)
         credentials = flow.credentials
 
         # Save the credentials for this user

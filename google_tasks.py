@@ -13,7 +13,8 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 # Google Tasks API scopes
 SCOPES = [
     'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/tasks'
+    'https://www.googleapis.com/auth/tasks',
+    'openid'  # Including OpenID scope which seems to be added automatically by Google OAuth
 ]
 
 
