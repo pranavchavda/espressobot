@@ -1,20 +1,21 @@
-import React, { useState, useEffect } from "react";
-import { Button } from "@common/button";
-import { Input } from "@common/input";
-import { Textarea } from "@common/textarea";
+
+import { useState, useEffect } from "react";
 import {
-  CalendarIcon,
-  CheckIcon,
-  Clock,
-  PlusIcon,
+  PlusCircle,
   RefreshCw,
-  Trash2,
   XCircle,
+  Edit,
+  Trash,
+  Calendar,
+  CheckCircle,
+  Save,
+  X,
 } from "lucide-react";
-import { Text } from "@common/text";
-import { Heading } from "@common/heading";
-import { Badge } from "@common/badge";
-import { format, parseISO, isValid } from "date-fns";
+import { Heading } from "../components/common/heading";
+import { Button } from "../components/common/button";
+import { Text } from "../components/common/text";
+import { Input } from "../components/common/input";
+import { Textarea } from "../components/common/textarea";
 
 function TasksPage() {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -24,6 +25,7 @@ function TasksPage() {
   const [selectedTaskList, setSelectedTaskList] = useState("@default");
   const [taskLists, setTaskLists] = useState([]);
   const [error, setError] = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
 
   useEffect(() => {
     checkAuthStatus();
@@ -69,27 +71,16 @@ function TasksPage() {
     try {
       setLoading(true);
       const response = await fetch(
-        `/api/tasks?tasklist_id=${selectedTaskList}`,
+        `/api/tasks?tasklist_id=${selectedTaskList}`
       );
       const data = await response.json();
       if (Array.isArray(data)) {
-        // Sort tasks: incomplete first, then by due date
-        const sortedTasks = data.sort((a, b) => {
-          // First, sort by status (needsAction before completed)
-          if (a.status === "needsAction" && b.status === "completed") return -1;
-          if (a.status === "completed" && b.status === "needsAction") return 1;
-
-          // Then sort by due date if both have one
-          if (a.due && b.due) return new Date(a.due) - new Date(b.due);
-          if (a.due) return -1;
-          if (b.due) return 1;
-
-          // Default sort by title
-          return a.title.localeCompare(b.title);
-        });
-        setTasks(sortedTasks);
+        setTasks(data);
       } else {
         console.error("Invalid tasks data:", data);
+        if (data.error) {
+          setError(data.error);
+        }
       }
     } catch (err) {
       console.error("Error fetching tasks:", err);
@@ -101,7 +92,10 @@ function TasksPage() {
 
   const handleCreateTask = async (e) => {
     e.preventDefault();
-    if (!newTask.title.trim()) return;
+    if (!newTask.title.trim()) {
+      setError("Task title is required");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -116,12 +110,12 @@ function TasksPage() {
         }),
       });
 
-      if (response.ok) {
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
         setNewTask({ title: "", notes: "", due: "" });
         fetchTasks();
-      } else {
-        const error = await response.json();
-        setError(error.error || "Failed to create task");
       }
     } catch (err) {
       console.error("Error creating task:", err);
@@ -131,35 +125,47 @@ function TasksPage() {
     }
   };
 
-  const handleCompleteTask = async (taskId) => {
+  const handleCompleteTask = async (taskId, isCompleted) => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/tasks/${taskId}/complete`, {
-        method: "POST",
+      const method = isCompleted ? "PUT" : "POST"; // PUT for updating status, POST for completing
+      const endpoint = isCompleted 
+        ? `/api/tasks/${taskId}`
+        : `/api/tasks/${taskId}/complete`;
+      
+      const body = isCompleted
+        ? JSON.stringify({ status: "needsAction", tasklist_id: selectedTaskList })
+        : null;
+      
+      const options = {
+        method,
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          tasklist_id: selectedTaskList,
-        }),
-      });
-
-      if (response.ok) {
-        fetchTasks();
+      };
+      
+      if (body) {
+        options.body = body;
+      }
+      
+      const response = await fetch(endpoint, options);
+      
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
       } else {
-        const error = await response.json();
-        setError(error.error || "Failed to complete task");
+        fetchTasks();
       }
     } catch (err) {
-      console.error("Error completing task:", err);
-      setError("Failed to complete task");
+      console.error("Error updating task status:", err);
+      setError(`Failed to ${isCompleted ? "uncheck" : "complete"} task`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteTask = async (taskId) => {
-    if (!window.confirm("Are you sure you want to delete this task?")) {
+    if (!confirm("Are you sure you want to delete this task?")) {
       return;
     }
 
@@ -169,14 +175,14 @@ function TasksPage() {
         `/api/tasks/${taskId}?tasklist_id=${selectedTaskList}`,
         {
           method: "DELETE",
-        },
+        }
       );
 
-      if (response.ok) {
-        fetchTasks();
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
       } else {
-        const error = await response.json();
-        setError(error.error || "Failed to delete task");
+        fetchTasks();
       }
     } catch (err) {
       console.error("Error deleting task:", err);
@@ -186,26 +192,59 @@ function TasksPage() {
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return "";
+  const startEditingTask = (task) => {
+    setEditingTask({
+      id: task.id,
+      title: task.title || "",
+      notes: task.notes || "",
+      due: task.due ? task.due.split('T')[0] : "",
+    });
+  };
+
+  const cancelEditingTask = () => {
+    setEditingTask(null);
+  };
+
+  const saveTaskChanges = async () => {
+    if (!editingTask || !editingTask.title.trim()) {
+      setError("Task title is required");
+      return;
+    }
 
     try {
-      const date = parseISO(dateString);
-      if (!isValid(date)) return "Invalid date";
-      return format(date, "MMM d, yyyy");
+      setLoading(true);
+      const response = await fetch(`/api/tasks/${editingTask.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: editingTask.title,
+          notes: editingTask.notes,
+          due: editingTask.due,
+          tasklist_id: selectedTaskList,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        fetchTasks();
+        setEditingTask(null);
+      }
     } catch (err) {
-      console.error("Error formatting date:", err);
-      return "Invalid date";
+      console.error("Error updating task:", err);
+      setError("Failed to update task");
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (loading && !isAuthorized) {
+  if (loading && !tasks.length) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-500" />
-          <Text>Checking Google Tasks authorization...</Text>
-        </div>
+      <div className="flex justify-center items-center h-full">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -254,22 +293,13 @@ function TasksPage() {
         </div>
       )}
 
-      {/* Task List Selector */}
-      {taskLists.length > 0 && (
-        <div className="mb-6">
-          <label
-            htmlFor="taskListSelect"
-            className="block text-sm font-medium mb-2"
-          >
-            Task List
-          </label>
+      {taskLists.length > 1 && (
+        <div className="mb-4">
           <select
-            id="taskListSelect"
             value={selectedTaskList}
             onChange={(e) => setSelectedTaskList(e.target.value)}
-            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-zinc-800 dark:border-zinc-700"
+            className="w-full p-2 border rounded dark:bg-zinc-800 dark:border-zinc-700"
           >
-            <option value="@default">Default</option>
             {taskLists.map((list) => (
               <option key={list.id} value={list.id}>
                 {list.title}
@@ -279,139 +309,146 @@ function TasksPage() {
         </div>
       )}
 
-      {/* New Task Form */}
-      <form
-        onSubmit={handleCreateTask}
-        className="mb-8 p-4 bg-white dark:bg-zinc-800 rounded-lg shadow-sm"
-      >
-        <div className="mb-4">
-          <Input
-            type="text"
-            value={newTask.title}
-            onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-            placeholder="New task title"
-            className="w-full"
-          />
-        </div>
-        <div className="mb-4">
-          <Textarea
-            value={newTask.notes}
-            onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
-            placeholder="Add notes (optional)"
-            className="w-full"
-            rows={2}
-          />
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <label htmlFor="dueDate" className="mr-2 text-sm">
-              Due Date:
-            </label>
+      <form onSubmit={handleCreateTask} className="mb-6">
+        <div className="bg-white dark:bg-zinc-800 p-4 rounded-lg shadow-sm">
+          <div className="mb-4">
             <Input
-              id="dueDate"
+              placeholder="Add a new task..."
+              value={newTask.title}
+              onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+              className="w-full"
+            />
+          </div>
+          <div className="mb-4">
+            <Textarea
+              placeholder="Add notes (optional)"
+              value={newTask.notes}
+              onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
+              className="w-full h-20"
+            />
+          </div>
+          <div className="mb-4">
+            <Input
               type="date"
               value={newTask.due}
               onChange={(e) => setNewTask({ ...newTask, due: e.target.value })}
-              className="w-32"
+              className="w-full"
             />
           </div>
           <Button
             type="submit"
-            disabled={!newTask.title.trim() || loading}
-            className="flex items-center gap-2"
+            className="w-full flex items-center justify-center gap-2"
+            disabled={loading}
           >
-            <PlusIcon className="h-4 w-4" />
+            <PlusCircle className="h-5 w-5" />
             Add Task
           </Button>
         </div>
       </form>
 
-      {/* Tasks List */}
-      <div className="space-y-4">
-        {loading ? (
-          <div className="flex justify-center p-8">
-            <RefreshCw className="h-8 w-8 animate-spin text-blue-500" />
-          </div>
-        ) : tasks.length === 0 ? (
-          <div className="text-center py-8 bg-gray-50 dark:bg-zinc-800 rounded-lg">
-            <Text className="text-gray-500 dark:text-gray-400">
-              No tasks found
-            </Text>
+      <div className="space-y-2">
+        {tasks.length === 0 ? (
+          <div className="text-center p-6 bg-white dark:bg-zinc-800 rounded-lg">
+            <Text>No tasks found. Create a new task above.</Text>
           </div>
         ) : (
           tasks.map((task) => (
             <div
               key={task.id}
-              className={`p-4 border rounded-lg flex items-start gap-3 ${
-                task.status === "completed"
-                  ? "bg-gray-50 dark:bg-zinc-800/50 border-gray-200 dark:border-zinc-700"
-                  : "bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700"
+              className={`p-4 bg-white dark:bg-zinc-800 rounded-lg shadow-sm hover:shadow-md transition-shadow ${
+                task.status === "completed" ? "opacity-70" : ""
               }`}
             >
-              <button
-                onClick={() => handleCompleteTask(task.id)}
-                className={`flex-shrink-0 h-6 w-6 mt-0.5 rounded-full border ${
-                  task.status === "completed"
-                    ? "bg-green-500 border-green-500 text-white"
-                    : "border-gray-300 dark:border-gray-600"
-                } flex items-center justify-center`}
-                aria-label={
-                  task.status === "completed"
-                    ? "Mark as incomplete"
-                    : "Mark as complete"
-                }
-              >
-                {task.status === "completed" && (
-                  <CheckIcon className="h-4 w-4" />
-                )}
-              </button>
-
-              <div className="flex-grow min-w-0">
-                <div className="flex items-start justify-between">
-                  <h3
-                    className={`font-medium ${
-                      task.status === "completed"
-                        ? "line-through text-gray-500 dark:text-gray-400"
-                        : ""
-                    }`}
-                  >
-                    {task.title}
-                  </h3>
-                  <button
-                    onClick={() => handleDeleteTask(task.id)}
-                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1"
-                    aria-label="Delete task"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {task.notes && (
-                  <p
-                    className={`mt-1 text-sm ${
-                      task.status === "completed"
-                        ? "text-gray-400 dark:text-gray-500"
-                        : "text-gray-600 dark:text-gray-300"
-                    }`}
-                  >
-                    {task.notes}
-                  </p>
-                )}
-
-                {task.due && (
-                  <div className="mt-2">
-                    <Badge
-                      variant={
-                        task.status === "completed" ? "outline" : "secondary"
-                      }
-                      className="flex items-center gap-1 text-xs"
+              {editingTask && editingTask.id === task.id ? (
+                <div className="space-y-3">
+                  <Input
+                    value={editingTask.title}
+                    onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
+                    className="w-full font-medium"
+                  />
+                  <Textarea
+                    value={editingTask.notes}
+                    onChange={(e) => setEditingTask({ ...editingTask, notes: e.target.value })}
+                    className="w-full h-20"
+                  />
+                  <Input
+                    type="date"
+                    value={editingTask.due}
+                    onChange={(e) => setEditingTask({ ...editingTask, due: e.target.value })}
+                    className="w-full"
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={cancelEditingTask}
+                      className="flex items-center gap-1"
                     >
-                      <CalendarIcon className="h-3 w-3" />
-                      {formatDate(task.due)}
-                    </Badge>
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={saveTaskChanges}
+                      className="flex items-center gap-1"
+                    >
+                      <Save className="h-4 w-4" />
+                      Save
+                    </Button>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      <button
+                        onClick={() => handleCompleteTask(task.id, task.status === "completed")}
+                        className="mt-1 flex-shrink-0"
+                      >
+                        {task.status === "completed" ? (
+                          <CheckCircle className="h-5 w-5 text-green-500" />
+                        ) : (
+                          <div className="h-5 w-5 border-2 rounded-full"></div>
+                        )}
+                      </button>
+                      <div className="flex-grow">
+                        <Text
+                          className={`font-medium ${
+                            task.status === "completed" ? "line-through" : ""
+                          }`}
+                        >
+                          {task.title}
+                        </Text>
+                        {task.notes && (
+                          <Text className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {task.notes}
+                          </Text>
+                        )}
+                        {task.due && (
+                          <div className="flex items-center text-gray-500 text-sm mt-1">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            {new Date(task.due).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => startEditingTask(task)}
+                        className="p-1 text-gray-500 hover:text-blue-500"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="p-1 text-gray-500 hover:text-red-500"
+                      >
+                        <Trash className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ))
         )}

@@ -191,6 +191,9 @@ def update_task(user_id,
         task['notes'] = notes
     if status in ['needsAction', 'completed']:
         task['status'] = status
+        # When changing status to needsAction (unchecking), we need to remove completed date
+        if status == 'needsAction' and 'completed' in task:
+            del task['completed']
 
     if due:
         # Format date as RFC 3339 timestamp
