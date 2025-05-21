@@ -32,21 +32,33 @@ def get_flow():
             "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
             "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [url_for('google_auth_callback', _external=True)]
+            "token_uri": "https://oauth2.googleapis.com/token"
         }
     }
     
-    # Hardcode the Replit domain
-    redirect_uri = "https://espressobot.replit.app/api/google/callback"
+    # Determine if we're in development or production
+    is_replit_env = os.environ.get('REPL_ID') is not None
+    
+    if is_replit_env:
+        # Use the Replit domain in production
+        redirect_uri = "https://espressobot.replit.app/api/google/callback"
+    else:
+        # Use dynamic URL in development
+        redirect_uri = url_for('google_auth_callback', _external=True)
+        # If in development and using HTTP, replace with HTTPS for OAuth
+        if redirect_uri.startswith('http:'):
+            redirect_uri = 'https:' + redirect_uri[5:]
     
     print(f"Using redirect URI: {redirect_uri}")
     
-    return Flow.from_client_config(
+    # Create flow with explicit redirect URI instead of from URL
+    flow = Flow.from_client_config(
         client_config, 
         scopes=SCOPES,
         redirect_uri=redirect_uri
     )
+    
+    return flow
 
 def get_credentials(user_id):
     """Get stored credentials for the user or return None"""
