@@ -2,6 +2,7 @@
 Simplified memory module that doesn't require external MCP dependencies.
 Provides the same interface as the MCP memory server for compatibility.
 """
+import os
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -190,5 +191,10 @@ class SimpleMemoryServer:
                 "message": f"Error deleting memory: {str(e)}"
             }
 
-# Create singleton instance
-memory_server = SimpleMemoryServer()
+MEMORY_BACKEND = os.environ.get("MEMORY_BACKEND", "simple").lower()
+
+if MEMORY_BACKEND == "mcp":
+    from mcp_memory import MCPMemoryServer
+    memory_server = MCPMemoryServer()
+else:
+    memory_server = SimpleMemoryServer()
