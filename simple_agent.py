@@ -1824,8 +1824,7 @@ You have access to structured thinking tools that enhance your reasoning process
 2. `solve_problem` - Specialized problem-solving approach for complex issues
 3. `plan_code` - Structured planning for code implementation tasks
 
-These thinking tools formalize your <THINKING> process```python
- and provide:
+These thinking tools formalize your reasoning process and provide:
 - Clear, numbered steps in your reasoning
 - Consistent problem-solving framework
 - Better organization of complex thoughts
