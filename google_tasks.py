@@ -3,10 +3,14 @@ import os
 import json
 import datetime
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import Flow, InsecureTransportError
 from googleapiclient.discovery import build
 from flask import url_for, request, redirect, session
 from flask_login import current_user
+
+# Allow OAuth over HTTP for development
+# WARNING: This should never be enabled in production
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # Google Tasks API scopes
 SCOPES = [
