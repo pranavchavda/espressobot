@@ -3,7 +3,8 @@ import os
 import json
 import datetime
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow, InsecureTransportError
+from google_auth_oauthlib.flow import Flow
+from oauthlib.oauth2.rfc6749.errors import InsecureTransportError
 from googleapiclient.discovery import build
 from flask import url_for, request, redirect, session
 from flask_login import current_user
