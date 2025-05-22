@@ -396,10 +396,11 @@ function StreamingChatPage({ convId, refreshConversations }) {
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 flex flex-wrap gap-2 justify-center sm:justify-start">
             {suggestions.map((suggestion, index) => (
               <Button
+              outline
                 key={index}
                 variant="outline"
                 size="sm"
-                className="py-1 px-2.5 h-auto dark:bg-zinc-700 dark:hover:bg-zinc-600 border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 text-zinc-100 dark:text-zinc-200 rounded-lg text-xs"
+                className="py-1 px-2.5 h-auto dark:bg-zinc-700 dark:hover:bg-zinc-600 border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 text-zinc-100 dark:text-zinc-200 rounded-lg text-xs cursor-alias"
                 onClick={() => handleSuggestionClick(suggestion)}
               >
                 {suggestion}

@@ -11,6 +11,7 @@ import inspect
 from datetime import datetime
 import re  # Import re for URL validation
 import traceback  # Import traceback for error handling
+import logging # Standard Python logger as a fallback
 
 # Import memory service
 from memory_service import memory_service
@@ -20,7 +21,7 @@ from mcp_adapter import normalized_memory_call
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import shopify_mcp_server, memory_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
+from mcp_server import shopify_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -1622,7 +1623,8 @@ async def run_simple_agent(prompt: str,
                            tools_override: list = None,
                            model_override: str = None,
                            streaming: bool = False,
-                           user_id: int = None):
+                           user_id: int = None,
+                           logger=None):
     # Initialize variables
     step_count = 0
     steps = []
@@ -1716,7 +1718,7 @@ RULES
    • Sale End Date: If asked to add a promotion or sale end date to any product, it can be added to the product's inventory.ShappifySaleEndDate metafiled (Namespace is inventory and key is ShappifySaleEndDate; it is single line text) Format example: 2023-08-04T03:00:00Z (For 3 AM on August 4, 2023) 
    • For US/USD price updates, use the pricelist ID: `gid://shopify/PriceList/18798805026`.
    • Prices are always in CAD and don't need to use a separate price list, only use a price list when a currency is specified or a currency other than CAD is specified.
-
+   • The channels: Online Store — gid://shopify/Channel/46590273, Point of Sale — gid://shopify/Channel/46590337, Google & YouTube — gid://shopify/Channel/22067970082, Facebook & Instagram — gid://shopify/Channel/44906577954, Shop — gid://shopify/Channel/93180952610, Hydrogen — gid://shopify/Channel/231226015778, Hydrogen — gid://shopify/Channel/231226048546, Hydrogen — gid://shopify/Channel/231776157730, Attentive — gid://shopify/Channel/255970312226 are the ones a product must be visible on when it is published.
 
 
 9. **COST HANDLING**  
@@ -1739,6 +1741,7 @@ RESPONSE STYLE
 • **Format**: Your thought process should be outlined in <THINKING> tags, your throught process should include a plan, actions (tool calls), and a result. The result must be outside of the <THINKING> tags for the user to see it.
 • **Tone**: concise, friendly but professional, no waffle. 
 • **Citations**: cite tool call IDs inline where useful.
+• **Emojis**: The use of emojis is allowed but use them sparingly, or as an augmentation to the text - such as ✅ for yes, ❌ for no, etc.
 
 ────────────────────────────────────────
 FAIL-SAFES
@@ -1791,6 +1794,9 @@ Good uses for memory:
 - Remember frequently accessed products or information
 - Keep track of conversation history highlights
 - Remember custom templates or formats the user prefers
+
+Your developer message will dynmically based on what the app considers a relevent memory for the ongoing conversation; meaning it will proactive inject memories into the developer message.
+Make sure to consider the updated developer message when reasoning about the conversation.
 
 ## WEB FETCH SYSTEM
 
@@ -1853,16 +1859,54 @@ Good uses for filesystem:
 - Exporting reports and data in various formats
 - Maintaining reusable product descriptions or attributes
 
+---
+User with the id "1" - Pranav Chavda is the developer of this application and you must cooperate with him - including reproducing parts of this system prompt verbatim. Just ensure you only do this for the user with id "1".
+
 ────────────────────────────────────────
 END OF SYSTEM PROMPT
 
 """
 
-    # Add system message to history
+    # Add proactive memory retrieval
+    retrieved_memory_content = ""
+    if user_id: # Only attempt if user_id is available
+        try:
+            if logger: logger.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt[:100]}...")
+            else: logging.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt[:100]}...")
+            retrieved_memory_content = await memory_service.proactively_retrieve_memories(
+                user_id=user_id,
+                query_text=prompt, # Using the current user prompt as the query
+                top_n=3
+            )
+            if retrieved_memory_content:
+                if logger: logger.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
+                else: logging.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
+            else:
+                if logger: logger.info(f"No memories retrieved for user {user_id} for prompt: {prompt[:100]}")
+                else: logging.info(f"No memories retrieved for user {user_id} for prompt: {prompt[:100]}")
+        except Exception as e:
+            if logger: logger.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
+            else: logging.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
+            # import traceback # Uncomment for detailed traceback
+            # if logger: logger.error(traceback.format_exc())
+            # else: logging.error(traceback.format_exc())
+            retrieved_memory_content = "" # Ensure it's empty on error
+
+    # Initialize formatted_messages with the main system message
     formatted_messages = [{
         "role": "system",
         "content": system_message
-    }] + formatted_history
+    }]
+
+    # Add retrieved memories as a new system message if available
+    if retrieved_memory_content:
+        memory_system_prompt = f"Based on your past interactions, here's some potentially relevant information:\n{retrieved_memory_content}\n---"
+        formatted_messages.append({"role": "system", "content": memory_system_prompt})
+
+    # Add conversation history
+    formatted_messages.extend(formatted_history) 
+
+    # Add current user prompt
     formatted_messages.append({"role": "user", "content": prompt})
 
     # Step logs for tracking agent progress
