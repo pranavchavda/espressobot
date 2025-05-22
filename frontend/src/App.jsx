@@ -8,9 +8,10 @@ import ProfilePage from './pages/ProfilePage'; // Import ProfilePage
 import AboutPage from './pages/AboutPage'; // Import AboutPage
 import TasksPage from './pages/TasksPage'; // Import TasksPage
 import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
-import { XIcon } from 'lucide-react'; // Import XIcon for the delete button
+import { Loader2Icon, LoaderPinwheelIcon, MessageSquarePlusIcon, XIcon } from 'lucide-react'; // Import XIcon for the delete button
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
+import UserProfileDropdown from './components/common/UserProfileDropdown'; // Import UserProfileDropdown
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -23,6 +24,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true); // Start with true for initial auth check
   const [authError, setAuthError] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // Added for user details
 
   // Initial check for existing backend session
   useEffect(() => {
@@ -31,14 +33,19 @@ function App() {
         const res = await fetch("/api/check_auth");
         if (res.ok) {
           const data = await res.json();
-          if (data.isAuthenticated) {
+          if (data.isAuthenticated && data.user) {
             setIsAuthenticated(true);
+            setCurrentUser(data.user); // Set current user details
+          } else {
+            setIsAuthenticated(false); // Ensure auth state is false if no user data
+            setCurrentUser(null);
           }
         }
         // If not res.ok or not data.isAuthenticated, user remains unauthenticated
       } catch (e) {
         console.error("Failed to check backend auth:", e);
         // User remains unauthenticated
+        setCurrentUser(null); // Clear user details on error
       } finally {
         setAuthLoading(false); // Finished initial auth check
       }
@@ -73,6 +80,9 @@ function App() {
   useEffect(() => {
     if (isAuthenticated && !authLoading) { // Only fetch if authenticated and initial auth check is done
       fetchConversations();
+    } else if (!isAuthenticated && !authLoading) {
+      setCurrentUser(null); // Clear user if not authenticated after initial check
+      setConversations([]); // Clear conversations if not authenticated
     }
   }, [isAuthenticated, authLoading]);
 
@@ -184,6 +194,7 @@ function App() {
       <div className="flex items-center justify-center h-screen bg-zinc-100 dark:bg-zinc-900">
         <div className="text-xl text-zinc-700 dark:text-zinc-300">
           Loading...
+          <LoaderPinwheelIcon className="animate-spin ml-2 h-5 w-5" />
         </div>
       </div>
     );
@@ -219,30 +230,7 @@ function App() {
                 </NavLink>
               </div>
               <div className="flex items-center space-x-4">
-                <NavLink 
-                  to="/profile" 
-                  className={({ isActive }) => 
-                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      isActive 
-                        ? 'text-indigo-600 dark:text-indigo-400' 
-                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
-                    }`
-                  }
-                >
-                  Profile
-                </NavLink>
-                <NavLink 
-                  to="/tasks" 
-                  className={({ isActive }) => 
-                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      isActive 
-                        ? 'text-indigo-600 dark:text-indigo-400' 
-                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
-                    }`
-                  }
-                >
-                  Tasks
-                </NavLink>
+                {/* Profile, Tasks, Logout removed, About remains */}
                 <NavLink 
                   to="/about" 
                   className={({ isActive }) => 
@@ -255,22 +243,27 @@ function App() {
                 >
                   About
                 </NavLink>
-                <Button
-                  onClick={handleLogout}
-                  variant="ghost"
-                  className="px-3 py-1 text-sm"
-                >
-                  Logout
-                </Button>
               </div>
             </div>
           }
           sidebar={
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-[93vh] sm:h-full">
+                  <Button 
+                    className="w-fit cursor-pointer mt-10"
+                    color="steel-blue"
+                    outline
+                    onClick={() => setSelectedChat(null)}
+                  >
+                    <MessageSquarePlusIcon className="h-4 w-4 mt-1" />
+                  </Button>
               <nav className="flex-1 overflow-y-auto">
                 {loading ? (
-                  <div className="text-zinc-400 px-4 py-2">Loading...</div>
+                  <div className="flex flex-col items-center justify-center py-2">
+                    <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
+                  </div>
                 ) : (
+                  <>
+
                   <ul className="flex flex-col gap-1">
                     {conversations.map((chat) => (
                       <li key={chat.id} className="group relative pr-4">
@@ -305,26 +298,27 @@ function App() {
                         </Button>
                       </li>
                     ))}
+
                     {conversations.length === 0 && !loading && (
                       <li className="text-zinc-400 px-4 py-2">No conversations</li>
                     )}
                   </ul>
+                  </>
                 )}
-              </nav>
-              <Link to="/" className="mb-4 mx-2">
-                <Button 
-                  className="w-full"
-                  onClick={() => setSelectedChat(null)}
-                >
-                  + New Chat
-                </Button>
-              </Link>
 
+              </nav>
+
+              {/* User Profile Dropdown Section */}
+              {isAuthenticated && currentUser && (
+                <UserProfileDropdown user={currentUser} onLogout={handleLogout} />
+              )}
             </div>
           }
         >
+          <div className="flex flex-col h-[86vh]">
           <Outlet />
-        </SidebarLayout>
+          </div>
+                </SidebarLayout>
       }>
         <Route
           path="/"

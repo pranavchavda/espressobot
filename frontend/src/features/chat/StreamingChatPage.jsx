@@ -384,7 +384,8 @@ function StreamingChatPage({ convId, refreshConversations }) {
               )}
             </>
           )}
-          <div ref={messagesEndRef} className="h-4" />
+          {messages.length > 0 && <div ref={messagesEndRef} className="h-4" />
+}
         </div>
       </div>
 
@@ -435,7 +436,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
           />
           <Button
             type="submit"
-            className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center"
+            className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center"
             disabled={isSending || !input.trim()}
           >
             {isSending ? (
