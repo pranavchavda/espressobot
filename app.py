@@ -29,6 +29,7 @@ if not _in_venv():
         )
 
 from flask import Flask, request, jsonify, redirect, session, url_for
+from uvicorn.middleware.wsgi import WSGIMiddleware
 import os
 import json
 import asyncio
@@ -36,8 +37,10 @@ from simple_agent import run_simple_agent, client as openai_client
 from responses_agent import run_responses_agent
 from dotenv import load_dotenv
 from flask_login import login_user, logout_user, current_user, login_required
+from memory_service import memory_service
 # UserMixin will be in models.py with the User model
 import google_tasks
+
 
 # Import Models
 from models import User, Conversation, Message
@@ -303,11 +306,39 @@ def chat():
                 nonlocal result
                 final_output = ""
                 steps = []
-                # Pass current_user.id for user-specific memory
-                user_id = current_user.id
-                async for chunk in run_simple_agent(data.get('message', ''),
-                                                    history,
-                                                    user_id=user_id):
+                user_id = str(current_user.id) # Ensure user_id is a string
+                user_message_original = data.get('message', '')
+
+                proactively_retrieved_memory_context = ""
+                try:
+                    app.logger.info(f"[CHAT_MEMORY_PROACTIVE] Attempting to retrieve memories for user {user_id} for message: '{user_message_original[:50]}...'" )
+                    # Ensure user_id is string for memory_service
+                    retrieved_memory_contents = await memory_service.proactively_retrieve_memories(
+                        user_id, 
+                        user_message_original,
+                        top_n=3 
+                    )
+                    if retrieved_memory_contents:
+                        formatted_memories = "\n".join([f"- {mem}" for mem in retrieved_memory_contents])
+                        proactively_retrieved_memory_context = (
+                            "To help you respond, here's some information from my memory that might be relevant to the current query:\n"
+                            f"{formatted_memories}\n\n"
+                            "--- User's current message ---\n"
+                        )
+                        app.logger.info(f"[CHAT_MEMORY_PROACTIVE] Retrieved {len(retrieved_memory_contents)} memories. Context length: {len(proactively_retrieved_memory_context)}")
+                    else:
+                        app.logger.info(f"[CHAT_MEMORY_PROACTIVE] No proactive memories found for user {user_id}.")
+                except Exception as e:
+                    app.logger.error(f"[CHAT_MEMORY_PROACTIVE] Error retrieving proactive memories for user {user_id}: {e}", exc_info=True)
+                
+                message_to_agent = proactively_retrieved_memory_context + user_message_original
+                
+                # Pass current_user.id (as string) for user-specific memory and agent call
+                async for chunk in run_simple_agent(
+                    message_to_agent, # Use the potentially augmented message
+                    history,
+                    user_id=user_id # user_id is already a string here
+                ):
                     if chunk.get('type') == 'content':
                         if 'delta' in chunk:
                             final_output += chunk['delta']
@@ -864,6 +895,10 @@ def get_export_file(filename):
         download_name=filename
     )
 
+
+
+# Wrap the Flask app with WSGIMiddleware to make it an ASGI application for Uvicorn
+app = WSGIMiddleware(app)
 
 if __name__ == '__main__':
     # Show environment status

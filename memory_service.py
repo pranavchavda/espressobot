@@ -7,7 +7,7 @@ using the MCP memory server.
 import json
 import logging
 from typing import Dict, Any, List, Optional, Union
-from simple_memory import memory_server as memory_mcp_server
+from mcp_memory import get_mcp_memory_server
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -83,7 +83,8 @@ class MemoryService:
         logger.debug(f"MemoryService: final_value_as_string for key '{key}' (type: {type(final_value_as_string).__name__}) before sending to MCP: {final_value_as_string[:200]}")
         
         # Store in MCP memory server (which expects final_value_as_string to be a string)
-        mcp_result = await memory_mcp_server.store_user_memory(str(user_id), key, final_value_as_string)
+        mcp_server = get_mcp_memory_server()
+        mcp_result = await mcp_server.store_user_memory(str(user_id), key, final_value_as_string)
         
         # Directly return the result from MCP memory server call
         # The 'success', 'key', 'error', 'message' fields are expected from memory_mcp_server
@@ -105,7 +106,8 @@ class MemoryService:
         # Retrieve from MCP memory server
         # Note: mcp_memory.get_user_memory does not take a 'default' argument.
         # Default handling is managed below based on the success and value from mcp_result.
-        mcp_result = await memory_mcp_server.get_user_memory(str(user_id), key)
+        mcp_server = get_mcp_memory_server()
+        mcp_result = await mcp_server.get_user_memory(str(user_id), key)
         
         # The mcp_result should contain 'success', 'key', 'value', and optionally 'error' or 'message'.
         # We will add/ensure 'source' is present.
@@ -146,28 +148,10 @@ class MemoryService:
         Returns:
             Dict with operation status and list of memory keys from the MCP memory server.
         """
-        # Get keys from MCP memory server
-        mcp_result = await memory_mcp_server.list_user_memories(str(user_id))
+        # List keys from MCP memory server
+        mcp_server = get_mcp_memory_server()
+        return await mcp_server.list_user_memories(str(user_id))
         
-        # mcp_result is expected to have 'success', 'keys', and optionally 'error' or 'message'.
-        # We'll ensure the count is added.
-        if mcp_result.get("success", False):
-            keys = mcp_result.get("keys", [])
-            return {
-                "success": True,
-                "keys": keys,
-                "count": len(keys),
-                "source": "memory_server"
-            }
-        else:
-            return {
-                "success": False,
-                "keys": [],
-                "count": 0,
-                "source": "memory_server",
-                "error": mcp_result.get("error") or mcp_result.get("message") or "Failed to list memories from MCP server."
-            }
-    
     @staticmethod
     async def delete_memory(user_id: int, key: str) -> Dict[str, Any]:
         """
@@ -181,11 +165,31 @@ class MemoryService:
             Dict with operation status from the MCP memory server.
         """
         # Delete from MCP memory server
-        mcp_result = await memory_mcp_server.delete_user_memory(str(user_id), key)
+        mcp_server = get_mcp_memory_server()
+        return await mcp_server.delete_user_memory(str(user_id), key)
+    
+    @staticmethod
+    async def proactively_retrieve_memories(user_id: int, query_text: str, top_n: int = 5) -> List[str]:
+        """
+        Proactively retrieves relevant memories for a user based on query_text.
         
-        # Directly return the result from MCP memory server call
-        # The 'success', 'key', 'error', 'message' fields are expected from memory_mcp_server
-        return mcp_result
+        Args:
+            user_id: The user's ID.
+            query_text: The text to find relevant memories for.
+            top_n: The maximum number of memories to retrieve.
+            
+        Returns:
+            A list of memory content strings.
+        """
+        logger.info(f"MemoryService: Proactively retrieving memories for user {user_id} based on query: '{query_text[:50]}...'" )
+        try:
+            mcp_server = get_mcp_memory_server()
+            retrieved_contents = await mcp_server.proactively_retrieve_memories(str(user_id), query_text, top_n)
+            logger.info(f"MemoryService: Retrieved {len(retrieved_contents)} memories proactively for user {user_id}.")
+            return retrieved_contents
+        except Exception as e:
+            logger.error(f"MemoryService: Error during proactive memory retrieval for user {user_id}: {e}", exc_info=True)
+            return [] # Return empty list on error
 
 # Create a singleton instance
 memory_service = MemoryService()
