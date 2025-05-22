@@ -492,10 +492,14 @@ function TasksPage() { // This is the start of the correct TasksPage function (l
           Refresh
         </Button>
         <Dialog open={isOpen} onClose={setIsOpen}>
+          <DialogActions>
+            <Button outline type="button" onClick={() => setIsOpen(false)}><X className="h-4 w-4" /></Button>
+          </DialogActions>
         <DialogTitle>Add Task</DialogTitle>
         <DialogDescription>
           Add a new task to your Google Tasks list.
         </DialogDescription>
+        <DialogBody>
         <form onSubmit={handleCreateTask} className="mb-6">
         <div className="bg-white dark:bg-zinc-800 p-4 rounded-lg shadow-sm">
           <div className="mb-4">
@@ -534,6 +538,7 @@ function TasksPage() { // This is the start of the correct TasksPage function (l
           </Button>
         </div>
       </form>
+      </DialogBody>
       </Dialog>
       </div>
 
