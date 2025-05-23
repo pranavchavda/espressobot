@@ -16,3 +16,4 @@ gunicorn>=22.0.0
 psycopg2-binary>=2.9.9
 mcp==1.9.1
 sentence-transformers==2.7.0
+tensorflow==1.15.5
