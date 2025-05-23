@@ -60,7 +60,7 @@ fi
 
 # Start Python backend with Uvicorn in the background
 echo "Starting Python backend with Uvicorn..."
-uvicorn app:app --host 127.0.0.1 --port 5000 --reload &
+uvicorn app:application --host 127.0.0.1 --port 5000 --reload &
 PYTHON_PID=$!
 echo "Python Uvicorn backend started with PID: $PYTHON_PID"
 

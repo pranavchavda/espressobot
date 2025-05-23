@@ -30,6 +30,7 @@ if not _in_venv():
 
 from flask import Flask, request, jsonify, redirect, session, url_for
 from uvicorn.middleware.wsgi import WSGIMiddleware
+import uvicorn
 import os
 import json
 import asyncio
@@ -898,7 +899,8 @@ def get_export_file(filename):
 
 
 # Wrap the Flask app with WSGIMiddleware to make it an ASGI application for Uvicorn
-app = WSGIMiddleware(app)
+# The original Flask 'app' instance needs to remain accessible for Flask CLI tools.
+application = WSGIMiddleware(app)
 
 if __name__ == '__main__':
     # Show environment status
@@ -932,5 +934,13 @@ if __name__ == '__main__':
             "⚠️ Warning: SHOPIFY_SHOP_URL environment variable not set. Agent will not function properly."
         )
 
-    # Run theFlask application
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Run the ASGI application with Uvicorn
+    # FLASK_DEBUG=1 will enable debug mode including hot-reloading for Uvicorn
+    debug_mode = os.environ.get('FLASK_DEBUG') == '1'
+    uvicorn.run(
+        "app:application",  # Path to the ASGI app object (app.py -> application variable)
+        host='0.0.0.0',
+        port=5000,
+        log_level="debug" if debug_mode else "info",
+        reload=debug_mode # Enable auto-reload if in debug mode
+    )
