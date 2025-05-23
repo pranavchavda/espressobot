@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 
 
 # --- Ensure running inside venv ---
@@ -34,8 +35,9 @@ import uvicorn
 import os
 import json
 import asyncio
+from datetime import datetime
 from simple_agent import run_simple_agent, client as openai_client
-from responses_agent import run_responses_agent
+from responses_agent import run_responses_agent, generate_conversation_title
 from dotenv import load_dotenv
 from flask_login import login_user, logout_user, current_user, login_required
 from memory_service import memory_service
@@ -254,40 +256,51 @@ def chat():
     data = request.json
 
     conv_id = data.get('conv_id')
-    db = get_db()
+    
+    # Handle conversation creation or retrieval
     if not conv_id:
-        cur = db.execute('INSERT INTO conversations DEFAULT VALUES')
-        conv_id = cur.lastrowid
-        db.commit()
-        # Generate a title for the new conversation
+        # Create a new conversation
         try:
-            title_resp = openai_client.chat.completions.create(
-                model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
-                messages=[{
-                    'role':
-                    'system',
-                    'content':
-                    'You are an assistant that generates concise conversation titles.'
-                }, {
-                    'role':
-                    'user',
-                    'content':
-                    f"Generate a short title (max 5 words) for a conversation starting with: {data.get('message','')}"
-                }])
-            title = title_resp.choices[0].message.content.strip()
-        except Exception:
-            title = f"Conversation {conv_id}"
-        db.execute('UPDATE conversations SET title = ? WHERE id = ?',
-                   (title, conv_id))
-        db.commit()
-    db.execute(
-        'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-        (conv_id, 'user', data.get('message', '')))
-    db.commit()
-    rows = db.execute(
-        'SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id',
-        (conv_id, )).fetchall()
-    history = [{'role': r['role'], 'content': r['content']} for r in rows]
+            # Generate a title for the new conversation using the responses API
+            # Use synchronous approach for Flask compatibility
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            title = loop.run_until_complete(generate_conversation_title(data.get('message', '')))
+            loop.close()
+        except Exception as e:
+            print(f"Error generating title with responses API: {e}")
+            # Fallback to default title if responses API fails
+            title = f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        
+        # Generate a unique filename using UUID to avoid uniqueness constraint violations
+        unique_filename = f"{uuid.uuid4()}.json"
+        
+        # Create new conversation in database with unique filename
+        new_conversation = Conversation(
+            title=title, 
+            user_id=current_user.id,
+            filename=unique_filename  # Use UUID to ensure uniqueness
+        )
+        db.session.add(new_conversation)
+        db.session.commit()
+        conv_id = new_conversation.id
+    else:
+        # Verify the conversation belongs to the current user
+        conversation = Conversation.query.filter_by(
+            id=conv_id, user_id=current_user.id).first_or_404()
+    
+    # Add user message to database - removed user_id as it's not in the Message model
+    user_message = Message(
+        conv_id=conv_id, 
+        role='user', 
+        content=data.get('message', '')
+    )
+    db.session.add(user_message)
+    db.session.commit()
+    
+    # Retrieve conversation history
+    messages = Message.query.filter_by(conv_id=conv_id).order_by(Message.created_at.asc()).all()
+    history = [{'role': msg.role, 'content': msg.content} for msg in messages]
 
     # Run the agent in an async loop
     loop = asyncio.new_event_loop()
@@ -296,49 +309,24 @@ def chat():
     # Create a task that can be cancelled
     task = None
     try:
-        print(
-            f"Processing chat request with message: {data.get('message','')[:50]}..."
-        )
-        # Run the agent and collect results (since it's an async generator)
+        print(f"Processing chat request with message: {data.get('message','')[:50]}...")
+        
+        # Run the responses agent and collect results
         result = {'steps': []}
         try:
-
             async def collect_results():
                 nonlocal result
                 final_output = ""
                 steps = []
-                user_id = str(current_user.id) # Ensure user_id is a string
-                user_message_original = data.get('message', '')
-
-                proactively_retrieved_memory_context = ""
-                try:
-                    app.logger.info(f"[CHAT_MEMORY_PROACTIVE] Attempting to retrieve memories for user {user_id} for message: '{user_message_original[:50]}...'" )
-                    # Ensure user_id is string for memory_service
-                    retrieved_memory_contents = await memory_service.proactively_retrieve_memories(
-                        user_id, 
-                        user_message_original,
-                        top_n=3 
-                    )
-                    if retrieved_memory_contents:
-                        formatted_memories = "\n".join([f"- {mem}" for mem in retrieved_memory_contents])
-                        proactively_retrieved_memory_context = (
-                            "To help you respond, here's some information from my memory that might be relevant to the current query:\n"
-                            f"{formatted_memories}\n\n"
-                            "--- User's current message ---\n"
-                        )
-                        app.logger.info(f"[CHAT_MEMORY_PROACTIVE] Retrieved {len(retrieved_memory_contents)} memories. Context length: {len(proactively_retrieved_memory_context)}")
-                    else:
-                        app.logger.info(f"[CHAT_MEMORY_PROACTIVE] No proactive memories found for user {user_id}.")
-                except Exception as e:
-                    app.logger.error(f"[CHAT_MEMORY_PROACTIVE] Error retrieving proactive memories for user {user_id}: {e}", exc_info=True)
+                user_id = str(current_user.id)  # Ensure user_id is a string
+                user_message = data.get('message', '')
+                response_id = None
                 
-                message_to_agent = proactively_retrieved_memory_context + user_message_original
-                
-                # Pass current_user.id (as string) for user-specific memory and agent call
-                async for chunk in run_simple_agent(
-                    message_to_agent, # Use the potentially augmented message
+                # Use the new responses agent implementation
+                async for chunk in run_responses_agent(
+                    user_message,
                     history,
-                    user_id=user_id # user_id is already a string here
+                    user_id=user_id
                 ):
                     if chunk.get('type') == 'content':
                         if 'delta' in chunk:
@@ -350,14 +338,18 @@ def chat():
                                     final_output = parsed['content']
                                 if 'steps' in parsed:
                                     steps = parsed['steps']
+                                if 'response_id' in parsed:
+                                    response_id = parsed['response_id']
                             except:
                                 pass
                     elif chunk.get('type') in ['tool', 'tool_result']:
                         steps.append(chunk)
+                
                 return {
                     'final_output': final_output,
                     'steps': steps,
-                    'suggestions': []
+                    'suggestions': [],
+                    'response_id': response_id
                 }
 
             task = loop.create_task(collect_results())
@@ -416,121 +408,29 @@ def chat():
         # Return the agent's response and debug info
         final_output = result.get(
             'final_output', result.get('response', 'No response available'))
-        db.execute(
-            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-            (conv_id, 'assistant', final_output))
-        db.commit()
+        
+        # Add assistant message to database - removed user_id as it's not in the Message model
+        assistant_message = Message(
+            conv_id=conv_id, 
+            role='assistant', 
+            content=final_output
+        )
+        db.session.add(assistant_message)
+        db.session.commit()
+        
         return jsonify({
             'conv_id': conv_id,
             'response': final_output,
             'steps': len(result['steps']),
             'tool_calls': tool_calls,
-            'suggestions': result.get('suggestions', [])
+            'suggestions': result.get('suggestions', []),
+            'response_id': result.get('response_id')
         })
     except Exception as e:
         # Handle any errors with detailed logging
         import traceback
         error_traceback = traceback.format_exc()
         print(f"ERROR in /chat route: {str(e)}")
-        print(error_traceback)
-
-        return jsonify({
-            'response': f"Sorry, an error occurred: {str(e)}",
-            'error': str(e)
-        }), 500
-    finally:
-        loop.close()
-
-
-@app.route('/chat_responses', methods=['POST'])
-@login_required
-def chat_responses():
-    data = request.json
-
-    conv_id = data.get('conv_id')
-    db = get_db()
-    if not conv_id:
-        # Create new conversation
-        cur = db.execute('INSERT INTO conversations DEFAULT VALUES')
-        conv_id = cur.lastrowid
-        db.commit()
-        # Generate a title for the new conversation (reuse chat for title)
-        try:
-            title_resp = openai_client.chat.completions.create(
-                model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
-                messages=[{
-                    'role':
-                    'system',
-                    'content':
-                    'You are an assistant that generates concise conversation titles.'
-                }, {
-                    'role':
-                    'user',
-                    'content':
-                    f"Generate a short title (max 5 words) for a conversation starting with: {data.get('message','')}"
-                }])
-            title = title_resp.choices[0].message.content.strip()
-        except Exception:
-            title = f"Conversation {conv_id}"
-        db.execute('UPDATE conversations SET title = ? WHERE id = ?',
-                   (title, conv_id))
-        db.commit()
-    # Insert user message
-    db.execute(
-        'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-        (conv_id, 'user', data.get('message', '')))
-    db.commit()
-    prev_response_id = data.get('prev_response_id')
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        print(
-            f"Processing chat_responses request with message: {data.get('message','')[:50]}..."
-        )
-        result = loop.run_until_complete(
-            run_responses_agent(data.get('message', ''), prev_response_id))
-
-        # Extract tool calls for debugging
-        steps_list = result.get('steps', [])
-        tool_calls = []
-        for idx, step in enumerate(steps_list):
-            if step.get('type') == 'tool':
-                name = step.get('name')
-                inp = step.get('input')
-                output_raw = None
-                # check for matching tool_result
-                if idx + 1 < len(steps_list) and steps_list[idx + 1].get(
-                        'type') == 'tool_result' and steps_list[idx + 1].get(
-                            'name') == name:
-                    output_raw = steps_list[idx + 1].get('output')
-                # ensure JSON-serializable
-                if not isinstance(
-                        output_raw,
-                    (str, int, float, bool, list, dict, type(None))):
-                    output = str(output_raw)
-                else:
-                    output = output_raw
-                tool_calls.append({
-                    'tool_name': name,
-                    'input': inp,
-                    'output': output
-                })
-
-        db.execute(
-            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-            (conv_id, 'assistant', result['final_output']))
-        db.commit()
-        return jsonify({
-            'conv_id': conv_id,
-            'response': result['final_output'],
-            'steps': len(result['steps']),
-            'tool_calls': tool_calls,
-            'response_id': result['response_id']
-        })
-    except Exception as e:
-        import traceback
-        error_traceback = traceback.format_exc()
-        print(f"ERROR in /chat_responses route: {str(e)}")
         print(error_traceback)
 
         return jsonify({
@@ -586,12 +486,6 @@ def get_conversation(conv_id):
 @app.route('/conversations/<int:conv_id>', methods=['DELETE'])
 @login_required
 def delete_conversation(conv_id):
-    # Ensure Conversation, db, current_user, and jsonify are imported/available in this scope.
-    # e.g., from models import Conversation
-    # from extensions import db
-    # from flask_login import current_user
-    # from flask import jsonify
-
     conversation = Conversation.query.filter_by(
         id=conv_id, user_id=current_user.id).first_or_404()
 
@@ -600,347 +494,31 @@ def delete_conversation(conv_id):
     db.session.delete(conversation)
     db.session.commit()
 
-    return jsonify({
-        'message':
-        f'Conversation {conv_id} and its messages deleted successfully.'
-    }), 200
+    return jsonify({"message": "Conversation deleted successfully"}), 200
 
 
-@app.route('/execute_code', methods=['POST'])
+@app.route('/conversations/<int:conv_id>/title', methods=['PUT'])
 @login_required
-def execute_code_endpoint():
+def update_conversation_title(conv_id):
+    data = request.get_json()
+    new_title = data.get('title')
 
-    # Import the code interpreter module
-    from code_interpreter import execute_code
-
-    data = request.json
-    code = data.get('code', '')
-
-    if not code:
-        return jsonify({"error": "No code provided"}), 400
-
-    # Execute the code with a timeout
-    execution_result = execute_code(code, timeout=5)
-
-    # Store the code execution in the database if requested
-    if data.get('store_in_conversation', False) and data.get('conv_id'):
-        conv_id = data.get('conv_id')
-        db = get_db()
-
-        # Store the code as a user message
-        db.execute(
-            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-            (conv_id, 'user', f"```python\n{code}\n```"))
-
-        # Store the result as an assistant message
-        output = execution_result.get('output', '')
-        error = execution_result.get('error', '')
-        result_content = f"```\n{output}\n```"
-        if error:
-            result_content += f"\n\nError:\n```\n{error}\n```"
-
-        db.execute(
-            'INSERT INTO messages (conv_id, role, content) VALUES (?, ?, ?)',
-            (conv_id, 'assistant', result_content))
-        db.commit()
-
-    return jsonify(execution_result)
-
-
-# --- Google Tasks Integration Routes ---
-
-
-@app.route('/api/authorize/google', methods=['GET'])
-@login_required
-def authorize_google():
-    """Start the Google OAuth flow"""
-    # Create a flow instance
-    flow = google_tasks.get_flow()
-
-    # Generate URL for authorization request
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='false',  # Don't include additional scopes
-        prompt='consent',  # Always prompt to ensure we get refresh token
-        login_hint=current_user.email if current_user.email else None
-    )
-
-    # Store the state in the session
-    session['state'] = state
-    session['user_id'] = current_user.id
-
-    print(f"Starting OAuth flow for user {current_user.id} with state {state}")
-    print(f"Redirecting to: {authorization_url}")
-
-    # Redirect to the authorization URL
-    return redirect(authorization_url)
-
-
-@app.route('/api/google/callback', methods=['GET'])
-def google_auth_callback():
-    """Handle the Google OAuth callback"""
-    # Verify state parameter
-    state = session.get('state')
-    if not state or state != request.args.get('state'):
-        print(f"State mismatch: session state={state}, request state={request.args.get('state')}")
-        return jsonify({"error": "Invalid state parameter. Please try authorizing again."}), 400
-
-    user_id = session.get('user_id')
-    if not user_id:
-        return jsonify({"error": "No user ID in session. Please log in again."}), 400
-
-    try:
-        # Get the authorization flow
-        flow = google_tasks.get_flow()
-
-        # Use the authorization code to get the credentials
-        # Ensure URL is secure for OAuth purposes
-        auth_response = request.url
-        if auth_response.startswith('http:'):
-            auth_response = 'https:' + auth_response[5:]
-
-        # Handle scope mismatch by setting validate_scope to False
-        # This allows the flow to continue even if Google returns different scopes
-        flow.fetch_token(authorization_response=auth_response, validate_scope=False)
-        credentials = flow.credentials
-
-        # Save the credentials for this user
-        google_tasks.save_credentials(user_id, credentials)
-
-        # Clear the session state
-        session.pop('state', None)
-
-        # Redirect to the tasks page
-        return redirect('/tasks')
-    except Exception as e:
-        print(f"Error in OAuth callback: {str(e)}")
-        return jsonify({"error": f"Authentication error: {str(e)}"}), 500
-
-
-@app.route('/api/tasks/auth_status', methods=['GET'])
-@login_required
-def check_tasks_auth():
-    """Check if the user has authorized Google Tasks"""
-    return jsonify(
-        {"is_authorized": google_tasks.is_authorized(current_user.id)})
-
-
-@app.route('/api/tasks/lists', methods=['GET'])
-@login_required
-def get_task_lists():
-    """Get all task lists for the user"""
-    if not google_tasks.is_authorized(current_user.id):
-        return jsonify({"error": "Not authorized with Google Tasks"}), 401
-
-    task_lists = google_tasks.get_task_lists(current_user.id)
-    return jsonify(task_lists)
-
-
-@app.route('/api/tasks', methods=['GET'])
-@login_required
-def get_tasks():
-    """Get all tasks for a task list"""
-    if not google_tasks.is_authorized(current_user.id):
-        return jsonify({"error": "Not authorized with Google Tasks"}), 401
-
-    tasklist_id = request.args.get('tasklist_id', '@default')
-    tasks = google_tasks.get_tasks(current_user.id, tasklist_id)
-    return jsonify(tasks)
-
-
-@app.route('/api/tasks', methods=['POST'])
-@login_required
-def create_task():
-    """Create a new task"""
-    if not google_tasks.is_authorized(current_user.id):
-        return jsonify({"error": "Not authorized with Google Tasks"}), 401
-
-    data = request.json
-    title = data.get('title')
-    if not title:
+    if not new_title:
         return jsonify({"error": "Title is required"}), 400
 
-    notes = data.get('notes')
-    due = data.get('due')
-    tasklist_id = data.get('tasklist_id', '@default')
+    conversation = Conversation.query.filter_by(
+        id=conv_id, user_id=current_user.id).first_or_404()
+    conversation.title = new_title
+    db.session.commit()
 
-    result = google_tasks.create_task(current_user.id,
-                                      title,
-                                      notes=notes,
-                                      due=due,
-                                      tasklist_id=tasklist_id)
+    return jsonify({"message": "Conversation title updated successfully"}), 200
 
-    return jsonify(result)
-
-
-@app.route('/api/tasks/<task_id>', methods=['PUT'])
-@login_required
-def update_task(task_id):
-    """Update an existing task"""
-    if not google_tasks.is_authorized(current_user.id):
-        return jsonify({"error": "Not authorized with Google Tasks"}), 401
-
-    data = request.json
-    title = data.get('title')
-    notes = data.get('notes')
-    due = data.get('due')
-    status = data.get('status')
-    tasklist_id = data.get('tasklist_id', '@default')
-
-    result = google_tasks.update_task(current_user.id,
-                                      task_id,
-                                      title=title,
-                                      notes=notes,
-                                      due=due,
-                                      status=status,
-                                      tasklist_id=tasklist_id)
-
-    return jsonify(result)
-
-
-@app.route('/api/tasks/<task_id>', methods=['DELETE'])
-@login_required
-def delete_task(task_id):
-    """Delete a task"""
-    if not google_tasks.is_authorized(current_user.id):
-        return jsonify({"error": "Not authorized with Google Tasks"}), 401
-
-    tasklist_id = request.args.get('tasklist_id', '@default')
-    result = google_tasks.delete_task(current_user.id, task_id, tasklist_id)
-    return jsonify(result)
-
-
-@app.route('/api/tasks/<task_id>/complete', methods=['POST'])
-@login_required
-def complete_task(task_id):
-    """Mark a task as completed"""
-    if not google_tasks.is_authorized(current_user.id):
-        return jsonify({"error": "Not authorized with Google Tasks"}), 401
-
-    tasklist_id = request.args.get('tasklist_id', '@default')
-    result = google_tasks.complete_task(current_user.id, task_id, tasklist_id)
-    return jsonify(result)
-
-
-@app.route('/tasks', methods=['GET'])
-@login_required
-def tasks_page():
-    """Serve the tasks page"""
-    # This will render the React frontend, which will handle the tasks UI
-    return app.send_static_file('index.html')
-
-# Helper function to ensure user storage directories exist
-def ensure_user_storage_dirs(user_id):
-    """Create user-specific storage directories if they don't exist"""
-    if not user_id:
-        return
-
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    user_dir = os.path.join(base_dir, 'storage', 'users', str(user_id))
-    user_exports_dir = os.path.join(user_dir, 'exports')
-
-    # Create directories with proper permissions
-    for directory in [user_dir, user_exports_dir]:
-        if not os.path.exists(directory):
-            os.makedirs(directory, exist_ok=True)
-
-    return user_exports_dir
-
-@app.route('/api/exports/<path:filename>', methods=['GET'])
-@login_required
-def get_export_file(filename):
-    """Serve files from the exports directory, using user-specific directories"""
-    # Ensure we're only accessing files in the exports directory
-    if '..' in filename or filename.startswith('/'):
-        return jsonify({"error": "Invalid filename"}), 400
-
-    # Base exports directory
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # First check if file exists in user-specific directory
-    user_exports_dir = os.path.join(base_dir, 'storage', 'users', str(current_user.id), 'exports')
-    user_file_path = os.path.join(user_exports_dir, filename)
-
-    # If not in user directory, check the shared exports directory (for backward compatibility)
-    shared_exports_dir = os.path.join(base_dir, 'storage', 'exports')
-    shared_file_path = os.path.join(shared_exports_dir, filename)
-
-    # Determine which path to use
-    if os.path.exists(user_file_path) and os.path.isfile(user_file_path):
-        file_path = user_file_path
-    elif os.path.exists(shared_file_path) and os.path.isfile(shared_file_path):
-        file_path = shared_file_path
-    else:
-        return jsonify({"error": "File not found"}), 404
-
-    # Determine content type (optional - can be expanded)
-    content_type = 'application/octet-stream'  # default
-    if filename.endswith('.csv'):
-        content_type = 'text/csv'
-    elif filename.endswith('.json'):
-        content_type = 'application/json'
-    elif filename.endswith('.txt'):
-        content_type = 'text/plain'
-
-    # Return the file
-    with open(file_path, 'rb') as f:
-        file_data = f.read()
-
-    # Send file as response
-    from flask import send_file
-    from io import BytesIO
-    return send_file(
-        BytesIO(file_data),
-        mimetype=content_type,
-        as_attachment=True,
-        download_name=filename
-    )
-
-
-
-# Wrap the Flask app with WSGIMiddleware to make it an ASGI application for Uvicorn
-# The original Flask 'app' instance needs to remain accessible for Flask CLI tools.
-application = WSGIMiddleware(app)
 
 if __name__ == '__main__':
-    # Show environment status
-    api_key = os.environ.get('OPENAI_API_KEY')
-    shopify_url = os.environ.get('SHOPIFY_SHOP_URL')
-    
-    # Set default BASE_URL if not provided
-    if 'BASE_URL' not in os.environ:
-        # For local development, use the server URL
-        is_replit = os.environ.get('REPL_ID') is not None
-        if is_replit:
-            # In Replit, use the REPL_SLUG for the URL
-            repl_slug = os.environ.get('REPL_SLUG', '')
-            repl_owner = os.environ.get('REPL_OWNER', '')
-            if repl_slug and repl_owner:
-                os.environ['BASE_URL'] = f"https://{repl_slug}.{repl_owner}.repl.co"
-            else:
-                os.environ['BASE_URL'] = ""
-        else:
-            # For local development
-            os.environ['BASE_URL'] = "http://0.0.0.0:5000"
-    
-    print(f"Base URL for file downloads: {os.environ.get('BASE_URL')}")
+    # Create tables if they don't exist
+    with app.app_context():
+        db.create_all()
 
-    if not api_key:
-        print(
-            "⚠️ Warning: OPENAI_API_KEY environment variable not set. Agent will not function properly."
-        )
-    if not shopify_url:
-        print(
-            "⚠️ Warning: SHOPIFY_SHOP_URL environment variable not set. Agent will not function properly."
-        )
-
-    # Run the ASGI application with Uvicorn
-    # FLASK_DEBUG=1 will enable debug mode including hot-reloading for Uvicorn
-    debug_mode = os.environ.get('FLASK_DEBUG') == '1'
-    uvicorn.run(
-        "app:application",  # Path to the ASGI app object (app.py -> application variable)
-        host='0.0.0.0',
-        port=5000,
-        log_level="debug" if debug_mode else "info",
-        reload=debug_mode # Enable auto-reload if in debug mode
-    )
+    # Run the app
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
