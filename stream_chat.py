@@ -91,9 +91,11 @@ def create_stream_blueprint(app, openai_client):
 
             full_response = ""
             final_assistant_message_content = None
+            active_tool_calls = {}
+            
             try:
                 async def process_agent():
-                    nonlocal full_response, final_assistant_message_content
+                    nonlocal full_response, final_assistant_message_content, active_tool_calls
                     # Get user's ID for user-specific memory
                     user_id = str(current_user.id)
                     
@@ -101,35 +103,86 @@ def create_stream_blueprint(app, openai_client):
                     logger.info(f"Starting responses agent for user {user_id} with message: {message_text[:50]}...")
                     
                     async for chunk in run_responses_agent(message_text, history, user_id=user_id):
+                        logger.info(f"Received chunk type: {chunk.get('type')}")
+                        
+                        # Handle different types of chunks
                         if chunk.get('type') == 'content':
                             # Handle both delta and result content types
                             if 'delta' in chunk:
                                 delta = chunk.get('delta', '')
-                                full_response += delta
-                                yield f"data: {{\n"
-                                yield f"data: \"delta\": {json.dumps(delta)},\n"
-                                yield f"data: \"content\": {json.dumps(full_response)}\n"
-                                yield f"data: }}\n\n"
+                                if delta:  # Only process non-empty deltas
+                                    full_response += delta
+                                    yield f"data: {{\n"
+                                    yield f"data: \"delta\": {json.dumps(delta)},\n"
+                                    yield f"data: \"content\": {json.dumps(full_response)}\n"
+                                    yield f"data: }}\n\n"
                             elif 'result' in chunk:
                                 try:
                                     result = json.loads(chunk['result'])
                                     if 'content' in result:
                                         final_assistant_message_content = result['content']
+                                        # Also send this as a delta to ensure UI gets it
+                                        if final_assistant_message_content and final_assistant_message_content != full_response:
+                                            yield f"data: {{\n"
+                                            yield f"data: \"delta\": {json.dumps(final_assistant_message_content)},\n"
+                                            yield f"data: \"content\": {json.dumps(final_assistant_message_content)}\n"
+                                            yield f"data: }}\n\n"
                                 except Exception as e:
                                     logger.error(f"Error parsing result: {e}")
-                        elif chunk.get('type') == 'tool':
-                            yield f"data: {{\n"
-                            yield f"data: \"tool_call\": {json.dumps(chunk)}\n"
-                            yield f"data: }}\n\n"
+                        
+                        # Handle tool calls - both standard and function call arguments delta events
+                        elif chunk.get('type') == 'tool' or 'function_call' in str(chunk.get('type', '')):
+                            # For standard tool calls
+                            if chunk.get('type') == 'tool':
+                                tool_data = {
+                                    "name": chunk.get('name', ''),
+                                    "input": chunk.get('input', {})
+                                }
+                                yield f"data: {{\n"
+                                yield f"data: \"tool_call\": {json.dumps(chunk)}\n"
+                                yield f"data: }}\n\n"
+                            
+                            # For function call arguments delta events (from ResponseFunctionCallArgumentsDeltaEvent)
+                            elif 'function_call' in str(chunk.get('type', '')):
+                                # These need special handling as they come in pieces
+                                if 'id' in chunk:
+                                    call_id = chunk.get('id')
+                                    if call_id not in active_tool_calls:
+                                        active_tool_calls[call_id] = {
+                                            "name": chunk.get('name', ''),
+                                            "arguments": ""
+                                        }
+                                    
+                                    # Accumulate arguments
+                                    if 'arguments' in chunk:
+                                        active_tool_calls[call_id]["arguments"] += chunk.get('arguments', '')
+                                    
+                                    # Send the updated tool call
+                                    tool_data = {
+                                        "id": call_id,
+                                        "name": active_tool_calls[call_id]["name"],
+                                        "input": active_tool_calls[call_id]["arguments"]
+                                    }
+                                    yield f"data: {{\n"
+                                    yield f"data: \"tool_call\": {json.dumps(tool_data)}\n"
+                                    yield f"data: }}\n\n"
+                        
+                        # Handle tool results
                         elif chunk.get('type') == 'tool_result':
-                            # Handle tool results
+                            # Send tool results to the frontend
                             yield f"data: {{\n"
                             yield f"data: \"tool_result\": {json.dumps(chunk)}\n"
                             yield f"data: }}\n\n"
+                        
+                        # Handle suggestions
                         elif chunk.get('type') == 'suggestions' and chunk.get('suggestions'):
                             yield f"data: {{\n"
                             yield f"data: \"suggestions\": {json.dumps(chunk.get('suggestions', []))}\n"
                             yield f"data: }}\n\n"
+                        
+                        # Handle any other event types by logging them
+                        else:
+                            logger.info(f"Unhandled chunk type: {chunk.get('type')}")
 
                 async_gen = process_agent()
                 while True:
@@ -143,17 +196,29 @@ def create_stream_blueprint(app, openai_client):
                         yield f"data: {{\"error\": {json.dumps(str(e_agen))}}}\n\n"
                         break # Stop streaming on error within the generator
 
-                logger.info(f"Final response content: {final_assistant_message_content[:100]}...")
+                logger.info(f"Final response content: {final_assistant_message_content[:100] if final_assistant_message_content else 'None'}...")
                 
                 # If we don't have a final message content but we have accumulated a full response,
                 # use that instead
                 if not final_assistant_message_content and full_response:
                     final_assistant_message_content = full_response
                 
+                # Clean the content to remove thinking tags
                 if final_assistant_message_content:
+                    import re
+                    # Remove <THINKING>...</THINKING> blocks
+                    final_assistant_message_content = re.sub(r'<THINKING>.*?</THINKING>', '', 
+                                                           final_assistant_message_content, 
+                                                           flags=re.DOTALL)
+                    # Remove any remaining tags
+                    final_assistant_message_content = re.sub(r'<[^>]+>', '', final_assistant_message_content)
+                    final_assistant_message_content = final_assistant_message_content.strip()
+                    
+                    # Save to database
                     assistant_message = Message(conv_id=conv_id, role='assistant', content=final_assistant_message_content)
                     db.session.add(assistant_message)
                     db.session.commit()
+                    logger.info(f"Saved assistant message to database: {final_assistant_message_content[:100]}...")
 
                 yield f"data: {{\n"
                 yield f"data: \"done\": true\n"
