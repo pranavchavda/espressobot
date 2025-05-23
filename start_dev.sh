@@ -11,7 +11,7 @@ fi
 # Start Python backend with Uvicorn in the background
 echo "Starting Python backend with Uvicorn..."
 # Using 127.0.0.1 for host, as Caddy is the entry point
-uvicorn app:application --host 127.0.0.1 --port 5000 --reload &
+uvicorn app:application --host 0.0.0.0 --port 5000 --reload &
 PYTHON_PID=$!
 echo "Python Uvicorn backend started with PID: $PYTHON_PID"
 # Wait for the backend to fully initialize
