@@ -60,13 +60,13 @@ fi
 
 # Start Python backend with Uvicorn in the background
 echo "Starting Python backend with Uvicorn..."
-uvicorn app:application --host 127.0.0.1 --port 5000 --reload &
+uvicorn app:application --host 0.0.0.0 --port 5000 --reload &
 PYTHON_PID=$!
 echo "Python Uvicorn backend started with PID: $PYTHON_PID"
 
 # Wait for the backend to fully initialize
 echo "Waiting for backend to initialize..."
-sleep 5
+sleep 15
 
 # Check if the server is running (using 127.0.0.1 as Uvicorn is now bound to it)
 if ! curl -s http://127.0.0.1:5000 > /dev/null; then
