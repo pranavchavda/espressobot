@@ -52,7 +52,7 @@ def get_flow():
         frontend_origin = frontend_origin.rstrip("/")
         redirect_uri = f"{frontend_origin}/api/google/callback"
     elif frontend_origin:
-        redirect_uri = "https://espressobot.replit.app/api/google/callback"
+        redirect_uri = "https://node.idrinkcoffee.info/api/google/callback"
     # elif port:
     #     redirect_uri = f"http://localhost:{port}/api/google/callback"
     else:
