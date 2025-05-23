@@ -34,7 +34,7 @@ FLASK_PORT="5000"
 
 # --- Prerequisites Check ---
 command -v caddy >/dev/null 2>&1 || { echo >&2 "Error: Caddy is not installed. Please install it (see https://caddyserver.com/docs/install). Aborting."; exit 1; }
-(cd "${PROJECT_DIR}" && gunicorn --workers 4 --bind "${FLASK_HOST}:${FLASK_PORT}" --log-level debug app:app) &
+(command -v gunicorn >/dev/null 2>&1 || { echo >&2 "Error: Gunicorn is not installed. Please install it (e.g., 'pip install gunicorn'). Aborting."; exit 1; }) &
 command -v npm >/dev/null 2>&1 || { echo >&2 "Error: npm is not installed. Please ensure Node.js and npm are set up correctly. Aborting."; exit 1; }
 
 # --- Step 1: Build React Frontend ---
@@ -53,7 +53,7 @@ echo ">>> Starting Flask backend with Gunicorn on ${FLASK_HOST}:${FLASK_PORT}...
 # Ensure your .env file is in the project root for Flask to pick up environment variables.
 # Adjust 'app:app' if your Flask app instance in app.py is named differently,
 # or if you use an app factory (e.g., 'app:create_app()').
-(cd "${PROJECT_DIR}" && gunicorn --workers 4 --bind "${FLASK_HOST}:${FLASK_PORT}" --log-level debug app:app) &
+(command -v gunicorn >/dev/null 2>&1 || { echo >&2 "Error: Gunicorn is not installed. Please install it (e.g., 'pip install gunicorn'). Aborting."; exit 1; }) &
 FLASK_PID=$!
 echo "Flask backend started with PID: $FLASK_PID."
 # Give Gunicorn a moment to start up

@@ -5,6 +5,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from flask import url_for
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 # Allow OAuth over HTTP for development
 # WARNING: This should never be enabled in production
@@ -80,7 +81,7 @@ def get_credentials(user_id):
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             # Refresh the token
-            creds.refresh(Request())
+            creds.refresh(GoogleAuthRequest())
             # Save refreshed credentials
             with open(creds_path, 'w') as f:
                 f.write(creds.to_json())
@@ -123,14 +124,14 @@ def get_task_lists(user_id):
         return {"error": str(e)}
 
 
-def get_tasks(user_id, tasklist_id='@default'):
+def get_tasks(user_id, tasklist_id='@default', showAssigned=True):
     """Get all tasks in a task list"""
     service = get_service(user_id)
     if not service:
         return {"error": "Not authorized"}
 
     try:
-        results = service.tasks().list(tasklist=tasklist_id).execute()
+        results = service.tasks().list(tasklist=tasklist_id, showAssigned=showAssigned).execute()
         return results.get('items', [])
     except Exception as e:
         return {"error": str(e)}

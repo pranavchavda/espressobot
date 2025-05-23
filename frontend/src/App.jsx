@@ -33,7 +33,7 @@ function App() {
         const res = await fetch("/api/check_auth");
         if (res.ok) {
           const data = await res.json();
-          if (data.isAuthenticated && data.user) {
+          if (data.isAuthenticated && data.user) { // Original logic for /api/check_auth
             setIsAuthenticated(true);
             setCurrentUser(data.user); // Set current user details
           } else {
@@ -131,14 +131,15 @@ function App() {
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
-      if (response.ok) {
+      if (response.ok && data.user) { // Check for successful response and data.user
         setIsAuthenticated(true);
-        // Optionally store user data from `data.user` into a currentUser state here
-        // e.g., setCurrentUser(data.user);
-        setSelectedChat(null); // Reset chat selection
+        setCurrentUser(data.user);    // Set current user details
+        setAuthError(null);           // Clear any previous auth errors
+        setSelectedChat(null);        // Reset chat selection
       } else {
-        setAuthError(data.error || "Login failed. Please try again.");
+        setAuthError(data.error || data.message || "Login failed. Please try again.");
         setIsAuthenticated(false);
+        setCurrentUser(null); // Ensure currentUser is cleared on failed login
       }
     } catch (e) {
       console.error("Login API call failed:", e);
