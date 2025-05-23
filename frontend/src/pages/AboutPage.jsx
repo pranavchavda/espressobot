@@ -8,7 +8,7 @@ function AboutPage() {
       
       <div className="prose dark:prose-invert max-w-none">
         <p className="text-lg mb-6">
-          EspressoBot is the specialized AI-powered assistant created for the iDrinkCoffee.com team, designed to streamline daily operations and enhance customer support by leveraging various tools and APIs. Here's how EspressoBot can empower you:
+          EspressoBot is a next-generation AI assistant for iDrinkCoffee.com, built to accelerate your workflow and boost customer support using advanced tools, APIs, and intelligent automation. Now featuring streaming chat, image understanding, Google sign-in, user-specific chat histories, and more. Here's how EspressoBot empowers you:
         </p>
 
         <div className="space-y-8">
@@ -52,6 +52,7 @@ function AboutPage() {
               <li>Utilize structured step-by-step reasoning for complex problem-solving via Sequential Thinking.</li>
               <li>Benefit from persistent memory that remembers your preferences and previous interactions.</li>
               <li>Get web content fetched and analyzed directly through our Fetch integration.</li>
+              <li><b>Understand and analyze images:</b> Upload product photos, screenshots, or diagrams for instant insights and suggestions.</li>
             </ul>
           </section>
 
@@ -98,8 +99,24 @@ function AboutPage() {
             <h3 className="text-lg font-semibold mb-2 text-green-700 dark:text-green-300">✨ New Features & Integrations</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Vision</h4>
+                <p className="text-sm mt-1">Analyze images, screenshots, and product photos for instant insights and suggestions.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Streaming Chat</h4>
+                <p className="text-sm mt-1">Enjoy real-time, token-by-token chat responses for a natural and interactive experience.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">User Authentication</h4>
+                <p className="text-sm mt-1">Sign in securely with Google. Only approved (whitelisted) team members can access the platform. Each user sees only their own chats.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Google Tasks</h4>
+                <p className="text-sm mt-1">Fetch, create, and manage your Google Tasks directly from chat <Badge color="blue\">coming soon</Badge>.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">Shopify MCP Server</h4>
-                <p className="text-sm mt-1">Let's the agent access Shopify Admin API schema and documentation directly through natural language queries.</p>
+                <p className="text-sm mt-1">Lets the agent access Shopify Admin API schema and documentation directly through natural language queries.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">Perplexity</h4>

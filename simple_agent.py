@@ -1616,7 +1616,7 @@ TOOLS = [
 
 
 # Run the Shopify agent with a custom implementation
-async def run_simple_agent(prompt: str,
+async def run_simple_agent(prompt,
                            user_name: str,
                            user_bio: str,
                            history: list = None,
@@ -1632,6 +1632,19 @@ async def run_simple_agent(prompt: str,
     if history is None:
         history = []
 
+    # Check if prompt is a multimodal content (list of content parts with text and images)
+    is_multimodal = isinstance(prompt, list)
+    has_images = is_multimodal and any(
+        content_part.get("type") == "image_url" for content_part in prompt
+    )
+
+    # If multimodal, extract text content for memory retrieval
+    prompt_text = prompt
+    if is_multimodal:
+        # Extract text from multimodal content for memory retrieval
+        text_parts = [part["text"] for part in prompt if part.get("type") == "text"]
+        prompt_text = " ".join(text_parts)
+    
     # Convert history to the format expected by OpenAI
     formatted_history = []
     for item in history:
@@ -1639,7 +1652,7 @@ async def run_simple_agent(prompt: str,
         content = item.get('content', '')
         formatted_history.append({"role": role, "content": content})
 
-    # System message with instructions
+        # System message with instructions
     current_time = get_current_datetime_est()
     shop_url = os.environ.get("SHOPIFY_SHOP_URL", "Unknown")
     system_message = f"""
@@ -1868,29 +1881,6 @@ END OF SYSTEM PROMPT
 """
 
     # Add proactive memory retrieval
-    retrieved_memory_content = ""
-    if user_id: # Only attempt if user_id is available
-        try:
-            if logger: logger.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt[:100]}...")
-            else: logging.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt[:100]}...")
-            retrieved_memory_content = await memory_service.proactively_retrieve_memories(
-                user_id=user_id,
-                query_text=prompt, # Using the current user prompt as the query
-                top_n=3
-            )
-            if retrieved_memory_content:
-                if logger: logger.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
-                else: logging.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
-            else:
-                if logger: logger.info(f"No memories retrieved for user {user_id} for prompt: {prompt[:100]}")
-                else: logging.info(f"No memories retrieved for user {user_id} for prompt: {prompt[:100]}")
-        except Exception as e:
-            if logger: logger.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
-            else: logging.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
-            # import traceback # Uncomment for detailed traceback
-            # if logger: logger.error(traceback.format_exc())
-            # else: logging.error(traceback.format_exc())
-            retrieved_memory_content = "" # Ensure it's empty on error
 
     # Initialize formatted_messages with the main system message
     formatted_messages = [{
@@ -1899,6 +1889,30 @@ END OF SYSTEM PROMPT
     }]
 
     # Add retrieved memories as a new system message if available
+    retrieved_memory_content = ""
+    if user_id: # Only attempt if user_id is available
+        try:
+            if logger: logger.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}...")
+            else: logging.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}...")
+            retrieved_memory_content = await memory_service.proactively_retrieve_memories(
+                user_id=user_id,
+                query_text=prompt_text if isinstance(prompt_text, str) else "image analysis", # Using the current user prompt as the query
+                top_n=3
+            )
+            if retrieved_memory_content:
+                if logger: logger.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
+                else: logging.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
+            else:
+                if logger: logger.info(f"No memories retrieved for user {user_id} for prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}")
+                else: logging.info(f"No memories retrieved for user {user_id} for prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}")
+        except Exception as e:
+            if logger: logger.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
+            else: logging.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
+            # import traceback # Uncomment for detailed traceback
+            # if logger: logger.error(traceback.format_exc())
+            # else: logging.error(traceback.format_exc())
+            retrieved_memory_content = "" # Ensure it's empty on error
+
     if retrieved_memory_content:
         memory_system_prompt = f"Based on your past interactions, here's some potentially relevant information:\n{retrieved_memory_content}\n---"
         formatted_messages.append({"role": "system", "content": memory_system_prompt})
@@ -1906,7 +1920,7 @@ END OF SYSTEM PROMPT
     # Add conversation history
     formatted_messages.extend(formatted_history) 
 
-    # Add current user prompt
+    # Add current user prompt - handle both text and multimodal content
     formatted_messages.append({"role": "user", "content": prompt})
 
     # Step logs for tracking agent progress
@@ -1961,16 +1975,31 @@ END OF SYSTEM PROMPT
             step_count += 1
             print(f"Running agent step {step_count}")
 
+            # Select appropriate model based on content type
+            selected_model = model_override
+            if not selected_model:
+                if has_images:
+                    selected_model = os.environ.get("VISION_MODEL", "gpt-4.1")
+                else:
+                    selected_model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+            
+            if logger:
+                logger.info(f"Using model: {selected_model}, has_images: {has_images}")
+            else:
+                logging.info(f"Using model: {selected_model}, has_images: {has_images}")
+
             # Call the model
             try:
                 if streaming:
                     # Streaming mode
                     response = await client.chat.completions.create(
-                        model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+                        model=selected_model,
                         messages=formatted_messages,
                         tools=TOOLS,
                         reasoning_effort="medium",
                         tool_choice="auto",
+                        parallel_tool_calls=True,
+                        
                         stream=True)
 
                     # Handle streaming chunks
@@ -2123,7 +2152,7 @@ END OF SYSTEM PROMPT
                 else:
                     # Non-streaming mode
                     response = client.chat.completions.create(
-                        model=os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+                        model=selected_model,
                         messages=formatted_messages,
                         tools=TOOLS,
                         tool_choice="auto",
@@ -2263,6 +2292,7 @@ END OF SYSTEM PROMPT
 from typing import List, Dict
 
 
+
 async def _generate_suggestions_async(conversation_history: List[Dict[str,
                                                                       str]],
                                       openai_client: openai.AsyncOpenAI):
@@ -2287,11 +2317,12 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str,
         return []
 
     suggestion_prompt_system = (
-        "You are a helpful assistant that generates 3 brief follow-up suggestions "
-        "based on the conversation context. Keep suggestions short (2-5 words) and relevant. "
-        "The Suggestions should be from the user's perspective as a reply to the AI's message. "
-        "Particularly, if the AI asks a Yes/No question, make sure a direct response is included. "
-        "If a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."
+            "You are an AI assistant that provides response suggestions. "
+            "Based on the last message from the main AI agent, "
+            "generate 1 to 3 concise and relevant ways the user might complete their sentence "
+            "or phrase their next immediate thought. Suggestions should be short, directly "
+            "continue or follow the user's input, and be phrased as if the user is saying them. "
+            "Focus on being helpful and predictive. Output only the suggestions."
     )
 
     user_context_for_suggestions = f"The AI just said: \"{ai_last_message_content}\". Based on this, what could the user say next? Provide 3 distinct suggestions."

@@ -2,11 +2,25 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, ImageIcon, X } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
+
+// Helper hook for debouncing
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 function StreamingChatPage({ convId, refreshConversations }) {
   const [messages, setMessages] = useState([]);
@@ -17,8 +31,13 @@ function StreamingChatPage({ convId, refreshConversations }) {
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessage] = useState(null);
   const [toolCallStatus, setToolCallStatus] = useState("");
+  const [imageAttachment, setImageAttachment] = useState(null);
+  const [imageUrl, setImageUrl] = useState("");
+  const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
+  const inputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   // Fetch messages for selected conversation
   useEffect(() => {
@@ -76,12 +95,130 @@ function StreamingChatPage({ convId, refreshConversations }) {
     };
   }, []);
 
+  // Handle image paste from clipboard
+  useEffect(() => {
+    const handlePaste = (e) => {
+      if (e.clipboardData && e.clipboardData.items) {
+        const items = e.clipboardData.items;
+        
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const blob = items[i].getAsFile();
+            handleImageAttachment(blob);
+            e.preventDefault();
+            break;
+          }
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }, []);
+
+  // Function to handle image attachments
+  const handleImageAttachment = (file) => {
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImageAttachment({
+          dataUrl: e.target.result,
+          file: file
+        });
+        setShowImageUrlInput(false);
+        setImageUrl("");
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handle image upload button click
+  const handleImageUploadClick = () => {
+    imageInputRef.current?.click();
+  };
+
+  // Remove image attachment
+  const removeImageAttachment = () => {
+    setImageAttachment(null);
+  };
+
+  // Toggle URL input visibility
+  const toggleImageUrlInput = () => {
+    setShowImageUrlInput(!showImageUrlInput);
+    if (imageAttachment) {
+      setImageAttachment(null);
+    }
+  };
+
+  // Handle URL input change
+  const handleImageUrlChange = (e) => {
+    setImageUrl(e.target.value);
+  };
+
+  // Add URL as attachment
+  const addImageUrl = () => {
+    if (imageUrl.trim()) {
+      setImageAttachment({
+        url: imageUrl.trim()
+      });
+      setShowImageUrlInput(false);
+    }
+  };
+
+  const fetchSuggestions = async (currentInput) => {
+    if (!currentInput.trim()) {
+      setSuggestions([]);
+      return;
+    }
+
+    const lastAgentMessageContent = messages
+      .filter(msg => msg.role === 'assistant' && msg.content)
+      .pop()?.content || "";
+
+    setSuggestionsLoading(true);
+    try {
+      const response = await fetch('/api/typeahead_suggestions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agent_previous_message: lastAgentMessageContent,
+          user_current_input: currentInput,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setSuggestions(data.suggestions || []);
+    } catch (error) {
+      console.error("Failed to fetch typeahead suggestions:", error);
+      setSuggestions([]);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const debouncedInput = useDebounce(input, 400);
+
+  useEffect(() => {
+    if (debouncedInput.trim()) {
+      fetchSuggestions(debouncedInput);
+    } else {
+      setSuggestions([]);
+    }
+  }, [debouncedInput]);
+
+
   // Handle sending a message with streaming response
-  async function handleSend(messageContent) {
+  const handleSend = async (messageContent = input) => {
     const textToSend =
       typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
-    if (!textToSend || isSending) return;
+    if ((!textToSend && !imageAttachment) || isSending) return;
 
     // Before sending a new message, check if we have a completed streaming message
     // If so, move it to regular messages
@@ -102,11 +239,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
       role: "user",
       content: textToSend,
       timestamp: new Date().toISOString(),
+      imageAttachment: imageAttachment,
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setIsSending(true);
-    setInput("");
+    setInput('');
     setSuggestions([]);
 
     // Initialize streaming message
@@ -127,14 +265,32 @@ function StreamingChatPage({ convId, refreshConversations }) {
       // Set up Server-Sent Events connection
       const fetchUrl = "/stream_chat";
 
+      // Prepare request data
+      const requestData = {
+        conv_id: activeConv || undefined,
+        message: textToSend,
+      };
+
+      // Add image data if present
+      if (imageAttachment) {
+        if (imageAttachment.dataUrl) {
+          requestData.image = {
+            type: "data_url",
+            data: imageAttachment.dataUrl
+          };
+        } else if (imageAttachment.url) {
+          requestData.image = {
+            type: "url",
+            url: imageAttachment.url
+          };
+        }
+      }
+
       // Use fetch POST to start the stream
       const response = await fetch(fetchUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conv_id: activeConv || undefined,
-          message: textToSend,
-        }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
@@ -258,8 +414,6 @@ function StreamingChatPage({ convId, refreshConversations }) {
     handleSend(suggestionText);
   };
 
-  const inputRef = useRef(null);
-
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
       {/* Chat messages area */}
@@ -313,6 +467,29 @@ function StreamingChatPage({ convId, refreshConversations }) {
                     }`}
                   >
                     <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
+                      {/* Show image attachment if present */}
+                      {msg.imageAttachment && (
+                        <div className="mb-3">
+                          {msg.imageAttachment.dataUrl && (
+                            <img 
+                              src={msg.imageAttachment.dataUrl} 
+                              alt="User uploaded" 
+                              className="max-h-64 rounded-lg object-contain"
+                            />
+                          )}
+                          {msg.imageAttachment.url && (
+                            <img 
+                              src={msg.imageAttachment.url} 
+                              alt="From URL" 
+                              className="max-h-64 rounded-lg object-contain"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNFRUVFRUUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM5OTk5OTkiPkltYWdlIGVycm9yPC90ZXh0Pjwvc3ZnPg==';
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
                       <MarkdownRenderer isAgent={msg.role === "assistant"}>
                         {String(msg.content || "")}
                       </MarkdownRenderer>
@@ -329,9 +506,6 @@ function StreamingChatPage({ convId, refreshConversations }) {
                           <Loader2 className="h-3 w-3 animate-spin mr-1" />
                           Processing
                         </span>
-                      )}
-                      {msg.status === "failed" && (
-                        <span className="text-red-500">Failed</span>
                       )}
                       {msg.timestamp && !msg.status && (
                         <span className="whitespace-nowrap">
@@ -384,8 +558,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
               )}
             </>
           )}
-          {messages.length > 0 && <div ref={messagesEndRef} className="h-4" />
-}
+          {messages.length > 0 && <div ref={messagesEndRef} className="h-4" />}
         </div>
       </div>
 
@@ -396,9 +569,8 @@ function StreamingChatPage({ convId, refreshConversations }) {
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 flex flex-wrap gap-2 justify-center sm:justify-start">
             {suggestions.map((suggestion, index) => (
               <Button
-              outline
+                outline
                 key={index}
-                variant="outline"
                 size="sm"
                 className="py-1 px-2.5 h-auto dark:bg-zinc-700 dark:hover:bg-zinc-600 border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 text-zinc-100 dark:text-zinc-200 rounded-lg text-xs cursor-alias"
                 onClick={() => handleSuggestionClick(suggestion)}
@@ -406,6 +578,55 @@ function StreamingChatPage({ convId, refreshConversations }) {
                 {suggestion}
               </Button>
             ))}
+          </div>
+        )}
+
+        {/* Image Preview */}
+        {imageAttachment && (
+          <div className="max-w-3xl w-full mx-auto px-4 mb-2">
+            <div className="relative inline-block">
+              {imageAttachment.dataUrl && (
+                <img 
+                  src={imageAttachment.dataUrl} 
+                  alt="Upload preview" 
+                  className="h-20 rounded border dark:border-zinc-700"
+                />
+              )}
+              {imageAttachment.url && (
+                <div className="inline-flex items-center gap-2 p-2 rounded bg-zinc-100 dark:bg-zinc-800 border dark:border-zinc-700">
+                  <ImageIcon className="h-4 w-4" />
+                  <span className="text-xs truncate max-w-[200px]">{imageAttachment.url}</span>
+                </div>
+              )}
+              <button 
+                onClick={removeImageAttachment}
+                className="absolute -top-2 -right-2 bg-zinc-200 dark:bg-zinc-700 rounded-full p-1"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* URL Input Area */}
+        {showImageUrlInput && (
+          <div className="max-w-3xl w-full mx-auto px-4 mb-2 flex gap-2">
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={handleImageUrlChange}
+              placeholder="Enter image URL"
+              className="flex-1 py-1 px-2 text-sm rounded border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800"
+            />
+            <Button 
+              size="sm" 
+              outline
+              onClick={addImageUrl}
+              disabled={!imageUrl.trim()}
+              className="py-1 px-2 h-auto"
+            >
+              Add
+            </Button>
           </div>
         )}
 
@@ -417,6 +638,23 @@ function StreamingChatPage({ convId, refreshConversations }) {
             handleSend();
           }}
         >
+          <Button
+        type="button"
+        outline
+        size="icon"
+        onClick={imageAttachment || showImageUrlInput ? toggleImageUrlInput : handleImageUploadClick}
+        className="h-9 w-9 rounded-full"
+        title={imageAttachment ? "Add from URL instead" : "Add image"}
+      >
+        <ImageIcon className="h-4 w-4" />
+      </Button>
+      <input
+              type="file"
+              ref={imageInputRef}
+              accept="image/*"
+              onChange={(e) => handleImageAttachment(e.target.files[0])}
+              className="hidden"
+            />
           <Textarea
             ref={inputRef}
             value={input}
@@ -435,18 +673,22 @@ function StreamingChatPage({ convId, refreshConversations }) {
               }
             }}
           />
-          <Button
-            type="submit"
-            className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center"
-            disabled={isSending || !input.trim()}
-          >
-            {isSending ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
-            <span className="ml-2 hidden sm:inline">Send</span>
-          </Button>
+          <div className="flex flex-col gap-2">
+
+
+            <Button
+              type="submit"
+              className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto"
+              disabled={isSending || (!input.trim() && !imageAttachment)}
+            >
+              {isSending ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
+              <span className="ml-2 hidden sm:inline">Send</span>
+            </Button>
+          </div>
         </form>
       </div>
     </div>
