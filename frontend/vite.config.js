@@ -41,7 +41,7 @@ export default defineConfig({
         changeOrigin: true,
       }
     },
-    allowedHosts: ["localhost", ".replit.dev", ".replit.app", ".repl.co"],
+    allowedHosts: ["localhost", ".replit.dev", ".replit.app", ".repl.co", ".idrinkcoffee.info", ".idrinkcoffee.com"],
   },
   resolve: {
     alias: {

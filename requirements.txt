@@ -17,3 +17,6 @@ psycopg2-binary>=2.9.9
 mcp==1.9.1
 sentence-transformers==2.7.0
 openai-agents
+fastapi>=0.104.1
+pydantic>=2.5.2
+python-multipart>=0.0.6
