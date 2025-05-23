@@ -524,4 +524,5 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=port, debug=True)
 
 # For ASGI servers (Uvicorn, Hypercorn, etc.)
-application = app
+from uvicorn.middleware.wsgi import WSGIMiddleware
+application = WSGIMiddleware(app)
