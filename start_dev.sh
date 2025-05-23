@@ -16,7 +16,7 @@ PYTHON_PID=$!
 echo "Python Uvicorn backend started with PID: $PYTHON_PID"
 # Wait for the backend to fully initialize
 echo "Waiting for backend to initialize..."
-sleep 5  # Increased wait time
+sleep 15  # Increased wait time
 
 # Check if the server is running (using 127.0.0.1 as Uvicorn is now bound to it)
 if ! curl -s http://127.0.0.1:5000 > /dev/null; then
