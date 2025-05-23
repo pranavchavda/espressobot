@@ -34,7 +34,7 @@ import uvicorn
 import os
 import json
 import asyncio
-from simple_agent import run_simple_agent, client as openai_client, generate_typeahead_suggestions
+from simple_agent import run_simple_agent, client as openai_client
 from responses_agent import run_responses_agent
 from dotenv import load_dotenv
 from flask_login import login_user, logout_user, current_user, login_required

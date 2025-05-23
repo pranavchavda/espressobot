@@ -7,6 +7,7 @@ import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
+import { Form } from "react-router-dom";
 
 // Helper hook for debouncing
 function useDebounce(value, delay) {
@@ -632,7 +633,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
         {/* Input Form */}
         <form
-          className="flex max-w-3xl w-full mx-auto gap-2 px-4 items-end"
+          className="flex max-w-3xl w-full mx-auto gap-2 px-4 items-center"
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
@@ -640,13 +641,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
         >
           <Button
         type="button"
-        outline
-        size="icon"
+        plain
         onClick={imageAttachment || showImageUrlInput ? toggleImageUrlInput : handleImageUploadClick}
         className="h-9 w-9 rounded-full"
         title={imageAttachment ? "Add from URL instead" : "Add image"}
       >
-        <ImageIcon className="h-4 w-4" />
+        <ImageIcon />
       </Button>
       <input
               type="file"
@@ -658,6 +658,9 @@ function StreamingChatPage({ convId, refreshConversations }) {
           <Textarea
             ref={inputRef}
             value={input}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={true}
             onChange={(e) => {
               setInput(e.target.value);
               if (e.target.value.trim() !== "" && suggestions.length > 0) {
