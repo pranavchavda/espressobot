@@ -3,6 +3,8 @@ import asyncio
 import json
 import uuid
 import datetime
+import base64
+import requests
 from flask import current_app, request, Response, stream_with_context, jsonify, Blueprint
 from flask_login import current_user, login_required
 
@@ -21,6 +23,7 @@ def create_stream_blueprint(app, openai_client):
         data = request.json
         conv_id = data.get('conv_id')
         message_text = data.get('message', '')
+        image_data = data.get('image')
 
         conversation = None
         if conv_id:
@@ -67,6 +70,16 @@ def create_stream_blueprint(app, openai_client):
             conv_id = conversation.id
 
         user_message = Message(conv_id=conv_id, role='user', content=message_text)
+        
+        # Store image data reference in the message metadata if present
+        if image_data:
+            # We'll store a reference to indicate there was an image attachment
+            # The actual image content is too large to efficiently store in the database
+            user_message.metadata = json.dumps({
+                'has_image': True,
+                'image_type': image_data.get('type')
+            })
+        
         db.session.add(user_message)
         db.session.commit()
 
@@ -96,7 +109,50 @@ def create_stream_blueprint(app, openai_client):
                     user_bio = current_user.bio
                     # Pass the user_id for user-specific memory
                     user_id = current_user.id
-                    async for chunk in run_simple_agent(message_text, user_name, user_bio, history, streaming=True, user_id=user_id, logger=current_app.logger):
+                    
+                    # Prepare message content based on whether an image is included
+                    if image_data:
+                        # Create a multimodal message with text and image
+                        message_content = []
+                        
+                        # Add text part
+                        message_content.append({
+                            "type": "text", 
+                            "text": message_text
+                        })
+                        
+                        # Add image part
+                        image_url = None
+                        if image_data.get('type') == 'data_url':
+                            # For data URLs, we already have the full data URL including the MIME type prefix
+                            image_url = image_data.get('data')
+                        elif image_data.get('type') == 'url':
+                            # For external URLs, we use the URL directly
+                            image_url = image_data.get('url')
+                        
+                        if image_url:
+                            message_content.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_url
+                                }
+                            })
+                        
+                        # Log that we're processing an image
+                        current_app.logger.info(f"Processing multimodal content with image")
+                    else:
+                        # Text-only message - use the text directly as simple_agent can handle both string and list inputs
+                        message_content = message_text
+                    
+                    async for chunk in run_simple_agent(
+                        message_content, 
+                        user_name, 
+                        user_bio, 
+                        history, 
+                        streaming=True, 
+                        user_id=user_id, 
+                        logger=current_app.logger):
+                            
                         if chunk.get('type') == 'content':
                             delta = chunk.get('delta', '')
                             full_response += delta

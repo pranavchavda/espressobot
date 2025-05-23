@@ -34,7 +34,7 @@ import uvicorn
 import os
 import json
 import asyncio
-from simple_agent import run_simple_agent, client as openai_client
+from simple_agent import run_simple_agent, client as openai_client, generate_typeahead_suggestions
 from responses_agent import run_responses_agent
 from dotenv import load_dotenv
 from flask_login import login_user, logout_user, current_user, login_required
@@ -540,6 +540,40 @@ def chat_responses():
     finally:
         loop.close()
 
+@app.route('/api/typeahead_suggestions', methods=['POST'])
+@login_required # Ensures only authenticated users can get suggestions
+async def typeahead_suggestions():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing JSON payload"}), 400
+
+    agent_previous_message = data.get('agent_previous_message')
+    user_current_input = data.get('user_current_input')
+
+    # Ensure both fields are present.
+    # agent_previous_message can be empty (e.g. start of conversation).
+    # user_current_input can be empty, but neither should be None.
+    if agent_previous_message is None or user_current_input is None:
+        return jsonify({"error": "Request must include 'agent_previous_message' and 'user_current_input'"}), 400
+
+    try:
+        # Since app.py routes are typically synchronous unless specifically
+        # designed for async frameworks like Quart, and Flask doesn't
+        # natively support async route handlers without extensions like Flask-Async,
+        # we might need to run the async function in a separate event loop.
+        # However, Uvicorn with WSGIMiddleware can handle some async tasks.
+        # Let's assume for now your Uvicorn setup can manage this.
+        # If not, we'd use asyncio.run() or run_in_executor.
+        suggestions = await generate_typeahead_suggestions(
+            agent_previous_message=agent_previous_message,
+            user_current_input=user_current_input
+        )
+        return jsonify({"suggestions": suggestions}), 200
+    except Exception as e:
+        app.logger.error(f"Error in /api/typeahead_suggestions: {str(e)}")
+        # import traceback # For debugging if needed
+        # app.logger.error(traceback.format_exc()) # For debugging
+        return jsonify({"error": "Failed to generate typeahead suggestions"}), 500
 
 @app.route('/conversations', methods=['GET'])
 @login_required
@@ -581,6 +615,9 @@ def get_conversation(conv_id):
         'tool_name':
         msg.tool_name
     } for msg in messages])
+
+
+
 
 
 @app.route('/conversations/<int:conv_id>', methods=['DELETE'])
