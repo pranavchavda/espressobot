@@ -1,8 +1,13 @@
+"""
+Implementation of streaming chat functionality using the OpenAI responses API.
+This module provides a Flask blueprint for streaming chat responses with the responses API.
+"""
 import os
 import asyncio
 import json
 import uuid
 import datetime
+import logging
 from flask import current_app, request, Response, stream_with_context, jsonify, Blueprint
 from flask_login import current_user, login_required
 
@@ -11,6 +16,12 @@ from extensions import db
 
 # Import models from the new models.py file
 from models import Conversation, Message, User
+
+# Import the responses agent
+from responses_agent import run_responses_agent, generate_conversation_title
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 def create_stream_blueprint(app, openai_client):
     stream_bp = Blueprint('stream_chat', __name__)
@@ -36,22 +47,15 @@ def create_stream_blueprint(app, openai_client):
                 asyncio.set_event_loop(loop_for_title)
 
                 async def get_title_async():
-                    return await openai_client.chat.completions.create(
-                        model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
-                        messages=[
-                            {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
-                            {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {message_text}"}
-                        ],
-                        max_tokens=20
-                    )
+                    # Use the responses API for title generation
+                    return await generate_conversation_title(message_text)
 
-                title_resp = loop_for_title.run_until_complete(get_title_async())
-                generated_title = title_resp.choices[0].message.content.strip()
+                generated_title = loop_for_title.run_until_complete(get_title_async())
                 if generated_title:
                     title_to_set = generated_title
                 loop_for_title.close()
             except Exception as e:
-                print(f"Error generating title: {e}")
+                logger.error(f"Error generating title: {e}")
                 if 'loop_for_title' in locals() and not loop_for_title.is_closed():
                     loop_for_title.close()
 
@@ -90,30 +94,42 @@ def create_stream_blueprint(app, openai_client):
             try:
                 async def process_agent():
                     nonlocal full_response, final_assistant_message_content
-                    from simple_agent import run_simple_agent
-                    # Get user's name and bio
-                    user_name = current_user.name
-                    user_bio = current_user.bio
-                    # Pass the user_id for user-specific memory
-                    user_id = current_user.id
-                    async for chunk in run_simple_agent(message_text, user_name, user_bio, history, streaming=True, user_id=user_id, logger=current_app.logger):
+                    # Get user's ID for user-specific memory
+                    user_id = str(current_user.id)
+                    
+                    # Use the responses agent instead of simple_agent
+                    logger.info(f"Starting responses agent for user {user_id} with message: {message_text[:50]}...")
+                    
+                    async for chunk in run_responses_agent(message_text, history, user_id=user_id):
                         if chunk.get('type') == 'content':
-                            delta = chunk.get('delta', '')
-                            full_response += delta
-                            yield f"data: {{\n"
-                            yield f"data: \"delta\": {json.dumps(delta)},\n"
-                            yield f"data: \"content\": {json.dumps(full_response)}\n"
-                            yield f"data: }}\n\n"
-                        elif chunk.get('type') == 'tool_call':
+                            # Handle both delta and result content types
+                            if 'delta' in chunk:
+                                delta = chunk.get('delta', '')
+                                full_response += delta
+                                yield f"data: {{\n"
+                                yield f"data: \"delta\": {json.dumps(delta)},\n"
+                                yield f"data: \"content\": {json.dumps(full_response)}\n"
+                                yield f"data: }}\n\n"
+                            elif 'result' in chunk:
+                                try:
+                                    result = json.loads(chunk['result'])
+                                    if 'content' in result:
+                                        final_assistant_message_content = result['content']
+                                except Exception as e:
+                                    logger.error(f"Error parsing result: {e}")
+                        elif chunk.get('type') == 'tool':
                             yield f"data: {{\n"
                             yield f"data: \"tool_call\": {json.dumps(chunk)}\n"
+                            yield f"data: }}\n\n"
+                        elif chunk.get('type') == 'tool_result':
+                            # Handle tool results
+                            yield f"data: {{\n"
+                            yield f"data: \"tool_result\": {json.dumps(chunk)}\n"
                             yield f"data: }}\n\n"
                         elif chunk.get('type') == 'suggestions' and chunk.get('suggestions'):
                             yield f"data: {{\n"
                             yield f"data: \"suggestions\": {json.dumps(chunk.get('suggestions', []))}\n"
                             yield f"data: }}\n\n"
-                        elif chunk.get('type') == 'final':
-                            final_assistant_message_content = chunk.get('content', '')
 
                 async_gen = process_agent()
                 while True:
@@ -123,11 +139,17 @@ def create_stream_blueprint(app, openai_client):
                     except StopAsyncIteration:
                         break
                     except Exception as e_agen: # Catch exceptions from the async generator itself
-                        print(f"Error during async_gen iteration: {e_agen}")
+                        logger.error(f"Error during async_gen iteration: {e_agen}")
                         yield f"data: {{\"error\": {json.dumps(str(e_agen))}}}\n\n"
                         break # Stop streaming on error within the generator
 
-                print(f"DEBUG stream_chat.py: final_assistant_message_content BEFORE save: '{final_assistant_message_content}'") # DEBUG
+                logger.info(f"Final response content: {final_assistant_message_content[:100]}...")
+                
+                # If we don't have a final message content but we have accumulated a full response,
+                # use that instead
+                if not final_assistant_message_content and full_response:
+                    final_assistant_message_content = full_response
+                
                 if final_assistant_message_content:
                     assistant_message = Message(conv_id=conv_id, role='assistant', content=final_assistant_message_content)
                     db.session.add(assistant_message)
@@ -139,8 +161,8 @@ def create_stream_blueprint(app, openai_client):
             except Exception as e:
                 import traceback
                 error_traceback = traceback.format_exc()
-                print(f"ERROR in /stream_chat route: {str(e)}")
-                print(error_traceback)
+                logger.error(f"ERROR in /stream_chat route: {str(e)}")
+                logger.error(error_traceback)
                 # Yield the full error and traceback to the client for debugging
                 yield f"data: {{\n"
                 yield f"data: \"error\": {json.dumps(str(e))},\n"
