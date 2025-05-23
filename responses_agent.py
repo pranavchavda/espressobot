@@ -302,6 +302,7 @@ You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date
             # Process the streaming response
             current_content = ""
             active_tool_calls = {}
+            tool_call_executed = False
             
             # Stream through the response events
             logger.info("Beginning to process stream chunks...")
@@ -336,6 +337,7 @@ You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date
                         arguments = json.loads(tool_call.function.arguments)
                         
                         logger.info(f"Tool call: {function_name} with args: {arguments}")
+                        tool_call_executed = True
                         
                         # Record the tool call
                         tool_call_data = {"type": "tool", "name": function_name, "input": arguments}
@@ -365,6 +367,13 @@ You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date
             # Clean up the final output (remove thinking tags)
             final_output = clean_output(current_content)
             logger.info(f"Final output: {final_output[:100]}...")
+            
+            # If a tool call was executed but no final content was received,
+            # generate a default response to ensure the UI shows something
+            if tool_call_executed and not final_output.strip():
+                final_output = "I've completed the requested operation. Is there anything else you'd like me to help with?"
+                logger.info(f"Generated default response after tool call: {final_output}")
+                yield {"type": "content", "delta": final_output}
             
             # Yield the final result
             yield {"type": "content", "result": json.dumps({
