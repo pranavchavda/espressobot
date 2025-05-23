@@ -8,6 +8,9 @@ import json
 import uuid
 import datetime
 import logging
+import time
+import traceback
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from flask import current_app, request, Response, stream_with_context, jsonify, Blueprint
 from flask_login import current_user, login_required
 
@@ -23,6 +26,53 @@ from responses_agent import run_responses_agent, generate_conversation_title
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Maximum number of retries for database operations
+MAX_DB_RETRIES = 3
+# Delay between retries (in seconds)
+RETRY_DELAY = 0.5
+
+def safe_db_commit(session, max_retries=MAX_DB_RETRIES, retry_delay=RETRY_DELAY):
+    """
+    Safely commit database changes with retry logic for handling connection issues.
+    
+    Args:
+        session: SQLAlchemy session object
+        max_retries: Maximum number of retry attempts
+        retry_delay: Delay between retries in seconds
+        
+    Returns:
+        bool: True if commit was successful, False otherwise
+    """
+    for attempt in range(max_retries):
+        try:
+            session.commit()
+            return True
+        except OperationalError as e:
+            # Handle connection-related errors
+            error_msg = str(e)
+            logger.warning(f"Database connection error on attempt {attempt+1}/{max_retries}: {error_msg}")
+            
+            if "SSL connection has been closed" in error_msg or "connection has been closed" in error_msg:
+                # Connection was closed, retry after delay
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying database commit in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    # Refresh the session to get a new connection
+                    session.rollback()
+                    continue
+            
+            # If we've exhausted retries or it's not a connection issue, re-raise
+            logger.error(f"Failed to commit after {attempt+1} attempts: {error_msg}")
+            session.rollback()
+            raise
+        except SQLAlchemyError as e:
+            # Handle other SQLAlchemy errors
+            logger.error(f"Database error: {str(e)}")
+            session.rollback()
+            raise
+    
+    return False
+
 def create_stream_blueprint(app, openai_client):
     stream_bp = Blueprint('stream_chat', __name__)
 
@@ -35,10 +85,17 @@ def create_stream_blueprint(app, openai_client):
 
         conversation = None
         if conv_id:
-            conversation = db.session.get(Conversation, conv_id)
-            if not conversation or conversation.user_id != current_user.id:
-                conv_id = None
-                conversation = None
+            try:
+                conversation = db.session.get(Conversation, conv_id)
+                if not conversation or conversation.user_id != current_user.id:
+                    conv_id = None
+                    conversation = None
+            except OperationalError as e:
+                logger.error(f"Database connection error when fetching conversation: {str(e)}")
+                # Return a friendly error response
+                return jsonify({
+                    "error": "Database connection error. Please try again."
+                }), 500
 
         if not conv_id:
             title_to_set = f"Chat from {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
@@ -61,21 +118,45 @@ def create_stream_blueprint(app, openai_client):
 
             unique_filename = f"{uuid.uuid4()}.json"
 
-            conversation = Conversation(
-                user_id=current_user.id,
-                title=title_to_set,
-                filename=unique_filename
-            )
-            db.session.add(conversation)
-            db.session.commit()
-            conv_id = conversation.id
+            try:
+                conversation = Conversation(
+                    user_id=current_user.id,
+                    title=title_to_set,
+                    filename=unique_filename
+                )
+                db.session.add(conversation)
+                if not safe_db_commit(db.session):
+                    return jsonify({
+                        "error": "Failed to create conversation due to database connection issues. Please try again."
+                    }), 500
+                conv_id = conversation.id
+            except Exception as e:
+                logger.error(f"Error creating conversation: {str(e)}")
+                return jsonify({
+                    "error": "Failed to create conversation. Please try again."
+                }), 500
 
-        user_message = Message(conv_id=conv_id, role='user', content=message_text)
-        db.session.add(user_message)
-        db.session.commit()
+        try:
+            user_message = Message(conv_id=conv_id, role='user', content=message_text)
+            db.session.add(user_message)
+            if not safe_db_commit(db.session):
+                return jsonify({
+                    "error": "Failed to save user message due to database connection issues. Please try again."
+                }), 500
+        except Exception as e:
+            logger.error(f"Error saving user message: {str(e)}")
+            return jsonify({
+                "error": "Failed to save user message. Please try again."
+            }), 500
 
-        messages_from_db = Message.query.filter_by(conv_id=conv_id).order_by(Message.created_at).all()
-        history = [{'role': msg.role, 'content': msg.content} for msg in messages_from_db]
+        try:
+            messages_from_db = Message.query.filter_by(conv_id=conv_id).order_by(Message.created_at).all()
+            history = [{'role': msg.role, 'content': msg.content} for msg in messages_from_db]
+        except Exception as e:
+            logger.error(f"Error fetching message history: {str(e)}")
+            return jsonify({
+                "error": "Failed to fetch message history. Please try again."
+            }), 500
 
         def generate():
             yield f"data: {{\n"
@@ -214,17 +295,33 @@ def create_stream_blueprint(app, openai_client):
                     final_assistant_message_content = re.sub(r'<[^>]+>', '', final_assistant_message_content)
                     final_assistant_message_content = final_assistant_message_content.strip()
                     
-                    # Save to database
-                    assistant_message = Message(conv_id=conv_id, role='assistant', content=final_assistant_message_content)
-                    db.session.add(assistant_message)
-                    db.session.commit()
-                    logger.info(f"Saved assistant message to database: {final_assistant_message_content[:100]}...")
+                    # Save to database with retry logic
+                    for retry_attempt in range(MAX_DB_RETRIES):
+                        try:
+                            # Create a new session for this operation to ensure a fresh connection
+                            assistant_message = Message(conv_id=conv_id, role='assistant', content=final_assistant_message_content)
+                            db.session.add(assistant_message)
+                            if safe_db_commit(db.session):
+                                logger.info(f"Saved assistant message to database: {final_assistant_message_content[:100]}...")
+                                break
+                        except OperationalError as e:
+                            error_msg = str(e)
+                            logger.warning(f"Database error when saving assistant message (attempt {retry_attempt+1}/{MAX_DB_RETRIES}): {error_msg}")
+                            if retry_attempt < MAX_DB_RETRIES - 1:
+                                time.sleep(RETRY_DELAY)
+                                continue
+                            else:
+                                logger.error(f"Failed to save assistant message after {MAX_DB_RETRIES} attempts")
+                                # Continue without failing the entire response
+                        except Exception as e:
+                            logger.error(f"Unexpected error saving assistant message: {str(e)}")
+                            # Continue without failing the entire response
+                            break
 
                 yield f"data: {{\n"
                 yield f"data: \"done\": true\n"
                 yield f"data: }}\n\n"
             except Exception as e:
-                import traceback
                 error_traceback = traceback.format_exc()
                 logger.error(f"ERROR in /stream_chat route: {str(e)}")
                 logger.error(error_traceback)
