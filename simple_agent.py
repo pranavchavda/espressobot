@@ -1996,10 +1996,9 @@ END OF SYSTEM PROMPT
                         model=selected_model,
                         messages=formatted_messages,
                         tools=TOOLS,
-                        reasoning_effort="medium",
+                        # reasoning_effort="medium" if selected_model.startswith("o") else None,
                         tool_choice="auto",
-                        parallel_tool_calls=True,
-                        
+                        # parallel_tool_calls=True,
                         stream=True)
 
                     # Handle streaming chunks
