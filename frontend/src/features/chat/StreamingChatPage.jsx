@@ -658,8 +658,8 @@ function StreamingChatPage({ convId, refreshConversations }) {
           <Textarea
             ref={inputRef}
             value={input}
-            autoComplete="off"
             autoCorrect="off"
+            autoComplete="new-password"
             spellCheck={true}
             onChange={(e) => {
               setInput(e.target.value);
