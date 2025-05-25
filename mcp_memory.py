@@ -18,6 +18,30 @@ from mcp.types import CallToolResult, TextContent
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def naive_linechunk(content: str, max_lines: int = 25) -> List[str]:
+    """Split content into chunks of at most max_lines lines each.
+    
+    This is a simple chunking strategy that splits content based on line count
+    without considering semantic boundaries or token limits.
+    
+    Args:
+        content: The text content to chunk
+        max_lines: Maximum number of lines per chunk
+        
+    Returns:
+        A list of content chunks
+    """
+    lines = content.splitlines()
+    chunks = []
+    
+    for i in range(0, len(lines), max_lines):
+        chunk = '\n'.join(lines[i:i + max_lines])
+        if chunk.strip():  # Only add non-empty chunks
+            chunks.append(chunk)
+            
+    return chunks
+
 # Load MCP memory server config from thinking.json if present
 THINKING_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'thinking.json')
 DEFAULT_MEMORY_PARAMS = {
@@ -92,7 +116,7 @@ class MCPMemoryServer:
                 }
             ]
         }
-        async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+        async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=60.0) as server:
             try:
                 result = await server.call_tool("add_observations", args)
                 # Convert to dict if needed
