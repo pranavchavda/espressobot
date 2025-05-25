@@ -50,7 +50,7 @@ PROJECT_ROOT = Path(__file__).parent.absolute()
 # Monkeypatch: Increase default read_timeout_seconds for all MCP tool calls.
 # ---------------------------------------------------------------------------
 
-def _patch_mcp_client_timeout(default_seconds: int = 30) -> None:
+def _patch_mcp_client_timeout(default_seconds: int = 60) -> None:
     """Monkey-patch ``ClientSession.call_tool`` to use a longer default timeout.
     The upstream ``pydantic-ai`` library does not expose an easy way to change
     the 5-second timeout that bubbles up from ``modelcontextprotocol``'s
@@ -85,7 +85,7 @@ def _patch_mcp_client_timeout(default_seconds: int = 30) -> None:
     MCPClientSession._timeout_patched = True  # type: ignore[attr-defined]
 
 # Apply the patch as soon as the module is imported.
-_patch_mcp_client_timeout(default_seconds=30)  # Increase timeout to 30 seconds
+_patch_mcp_client_timeout(default_seconds=60)  # Increase timeout to 60 seconds
 
 # Configure logging
 logging.basicConfig(
