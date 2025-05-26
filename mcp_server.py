@@ -29,7 +29,7 @@ from datetime import timedelta
 from agents.mcp.server import MCPServerStdio
 from mcp.client.session import ClientSession as MCPClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-# Note: mcp.client.stdio is imported within FetchMCPServer and SequentialThinkingMCPServer where needed
+# # Note: mcp.client.stdio is imported within FetchMCPServer and SequentialThinkingMCPServer where needed
 
 # Tool-specific or Fallback imports
 import httpx 
@@ -220,6 +220,213 @@ For quick reference, common topics include:
 
 # Create a singleton instance for Shopify MCP
 shopify_mcp_server = ShopifyMCPServer() # Renamed from mcp_server to avoid conflict if 'mcp_server' is a generic name
+
+class ShopifyFeaturesMCPServer:
+    """
+    A class to handle communication with the Shopify Feature Box MCP server.
+    This spawns an npx process running @pranavchavda/shopify-feature-box-mcp to provide
+    feature box management capabilities for Shopify product pages.
+    """
+    def __init__(self):
+        # Ensure XDG_CONFIG_HOME is set to prevent unbound variable errors
+        if "XDG_CONFIG_HOME" not in os.environ:
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        
+        # Get environment variables for Shopify API access
+        env_vars = os.environ.copy()
+        required_vars = ["SHOPIFY_ACCESS_TOKEN", "SHOPIFY_SHOP_URL"]
+        
+        for var in required_vars:
+            if not env_vars.get(var):
+                logger.warning(f"Missing environment variable: {var}")
+        
+        # Params for Shopify Feature Box MCP server
+        self.params = {
+            "command": "npx", 
+            "args": ["-y", "@pranavchavda/shopify-feature-box-mcp@1.0.5"],
+            "env": env_vars
+        }
+        self.cache = True
+    
+    async def search_products(self, query):
+        """Search for products in the Shopify store"""
+        try:
+            logger.debug(f"Starting search_products with query: {query}")
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                logger.debug(f"MCPServerStdio context entered for product search")
+                raw_result = await server.call_tool(
+                    "search_products", {"query": query}
+                )
+                
+                logger.debug(f"Raw search_products result type: {type(raw_result)}")
+                
+                result = {
+                    "meta": getattr(raw_result, "meta", None),
+                    "content": [],
+                    "isError": getattr(raw_result, "isError", False)
+                }
+                
+                if hasattr(raw_result, "content"):
+                    for content_item in raw_result.content:
+                        text_content = getattr(content_item, "text", "")
+                        logger.debug(f"Product search content item type: {getattr(content_item, 'type', None)}, length: {len(text_content)} chars")
+                        result["content"].append({
+                            "type": getattr(content_item, "type", None),
+                            "text": text_content,
+                            "annotations": getattr(content_item, "annotations", None)
+                        })
+                
+                logger.debug(f"Final search_products result content items: {len(result['content'])}")
+                return result
+        except Exception as e:
+            logger.error(f"Error in search_products: {e}", exc_info=True)
+            return {
+                "meta": None,
+                "content": [{
+                    "type": "text",
+                    "text": f"Error searching for products: {str(e)}",
+                    "annotations": None
+                }],
+                "isError": True
+            }
+    
+    async def get_product(self, product_id):
+        """Get product details and existing feature boxes"""
+        try:
+            logger.debug(f"Starting get_product with ID: {product_id}")
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                logger.debug(f"MCPServerStdio context entered for get_product")
+                raw_result = await server.call_tool(
+                    "get_product", {"productId": product_id}
+                )
+                
+                logger.debug(f"Raw get_product result type: {type(raw_result)}")
+                
+                result = {
+                    "meta": getattr(raw_result, "meta", None),
+                    "content": [],
+                    "isError": getattr(raw_result, "isError", False)
+                }
+                
+                if hasattr(raw_result, "content"):
+                    for content_item in raw_result.content:
+                        text_content = getattr(content_item, "text", "")
+                        logger.debug(f"Get product content item type: {getattr(content_item, 'type', None)}, length: {len(text_content)} chars")
+                        result["content"].append({
+                            "type": getattr(content_item, "type", None),
+                            "text": text_content,
+                            "annotations": getattr(content_item, "annotations", None)
+                        })
+                
+                logger.debug(f"Final get_product result content items: {len(result['content'])}")
+                return result
+        except Exception as e:
+            logger.error(f"Error in get_product: {e}", exc_info=True)
+            return {
+                "meta": None,
+                "content": [{
+                    "type": "text",
+                    "text": f"Error getting product details: {str(e)}",
+                    "annotations": None
+                }],
+                "isError": True
+            }
+    
+    async def list_feature_boxes(self, product_id):
+        """List all feature boxes for a product"""
+        try:
+            logger.debug(f"Starting list_feature_boxes for product ID: {product_id}")
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                logger.debug(f"MCPServerStdio context entered for list_feature_boxes")
+                raw_result = await server.call_tool(
+                    "list_feature_boxes", {"productId": product_id}
+                )
+                
+                logger.debug(f"Raw list_feature_boxes result type: {type(raw_result)}")
+                
+                result = {
+                    "meta": getattr(raw_result, "meta", None),
+                    "content": [],
+                    "isError": getattr(raw_result, "isError", False)
+                }
+                
+                if hasattr(raw_result, "content"):
+                    for content_item in raw_result.content:
+                        text_content = getattr(content_item, "text", "")
+                        logger.debug(f"Feature boxes list content item type: {getattr(content_item, 'type', None)}, length: {len(text_content)} chars")
+                        result["content"].append({
+                            "type": getattr(content_item, "type", None),
+                            "text": text_content,
+                            "annotations": getattr(content_item, "annotations", None)
+                        })
+                
+                logger.debug(f"Final list_feature_boxes result content items: {len(result['content'])}")
+                return result
+        except Exception as e:
+            logger.error(f"Error in list_feature_boxes: {e}", exc_info=True)
+            return {
+                "meta": None,
+                "content": [{
+                    "type": "text",
+                    "text": f"Error listing feature boxes: {str(e)}",
+                    "annotations": None
+                }],
+                "isError": True
+            }
+    
+    async def create_feature_box(self, product_id, title, text, image_url, handle=None):
+        """Create a feature box for a Shopify product"""
+        try:
+            logger.debug(f"Starting create_feature_box for product ID: {product_id}")
+            
+            # Prepare arguments
+            args = {
+                "productId": product_id,
+                "title": title,
+                "text": text,
+                "imageUrl": image_url
+            }
+            if handle:
+                args["handle"] = handle
+            
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+                logger.debug(f"MCPServerStdio context entered for create_feature_box")
+                raw_result = await server.call_tool("create_feature_box", args)
+                
+                logger.debug(f"Raw create_feature_box result type: {type(raw_result)}")
+                
+                result = {
+                    "meta": getattr(raw_result, "meta", None),
+                    "content": [],
+                    "isError": getattr(raw_result, "isError", False)
+                }
+                
+                if hasattr(raw_result, "content"):
+                    for content_item in raw_result.content:
+                        text_content = getattr(content_item, "text", "")
+                        logger.debug(f"Create feature box content item type: {getattr(content_item, 'type', None)}, length: {len(text_content)} chars")
+                        result["content"].append({
+                            "type": getattr(content_item, "type", None),
+                            "text": text_content,
+                            "annotations": getattr(content_item, "annotations", None)
+                        })
+                
+                logger.debug(f"Final create_feature_box result content items: {len(result['content'])}")
+                return result
+        except Exception as e:
+            logger.error(f"Error in create_feature_box: {e}", exc_info=True)
+            return {
+                "meta": None,
+                "content": [{
+                    "type": "text",
+                    "text": f"Error creating feature box: {str(e)}",
+                    "annotations": None
+                }],
+                "isError": True
+            }
+
+# Create a singleton instance for Shopify Features MCP
+shopify_features_mcp_server = ShopifyFeaturesMCPServer()
 
 class PerplexityMCPServer:
     """
@@ -447,8 +654,7 @@ try:
             if options is None: options = {}
             try:
                 headers = options.get("headers", {})
-                if "Accept" not in headers and "accept" not in headers: # Ensure we ask for JSON
-                    headers["Accept"] = "application/json"
+                if "Accept" not in headers and "accept" not in headers: headers["Accept"] = "application/json"
                 timeout = options.get("timeout", 15.0)
                 
                 async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -506,6 +712,7 @@ except ImportError:
                 headers = options.get("headers", {})
                 if "Accept" not in headers and "accept" not in headers: headers["Accept"] = "application/json"
                 timeout = options.get("timeout", 15.0)
+                
                 async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                     response = await client.get(url, headers=headers)
                     response.raise_for_status()
@@ -523,281 +730,97 @@ fetch_mcp_server = FetchMCPServer()
 try:
     # This part requires mcp.client to be available
     from mcp.client.stdio import StdioServerParameters, stdio_client
-    
-    class SequentialThinkingMCPServer:
+except ImportError as e:
+    logger.error("mcp.client.stdio or mcp.client.session not found for SequentialThinking. MCP-native sequential thinking is required.")
+    raise ImportError("MCP client libraries are required for SequentialThinkingMCPServer. No fallback is available.") from e
+
+class SequentialThinkingMCPServer:
+    """
+    A class to handle communication with the @modelcontextprotocol/server-sequential-thinking MCP server.
+    It submits one thought step at a time.
+    """
+    def __init__(self):
+
+        self.logger = logging.getLogger(__name__ + ".SequentialThinkingMCPServer") 
+
+        if "XDG_CONFIG_HOME" not in os.environ: # Important for npx/npm global tools
+            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+               
+        self.params = {
+            "command": "npx", 
+            "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@latest"],
+            "env": os.environ.copy()
+        }
+        self.cache = True # Consistent with other server configurations in your file
+        self.mcp_tool_name = "sequentialthinking" # Based on the MCP server's README
+        self.logger.info(f"SequentialThinkingMCPServer initialized to use MCP tool: '{self.mcp_tool_name}'")
+           
+    async def submit_thought_step(self, thought_arguments: dict):
         """
-        A class to handle structured, step-by-step thinking using the
-        @modelcontextprotocol/server-sequentialthinking MCP server.
+        Submits a single thought step to the Sequential Thinking MCP server.
+        'thought_arguments' should be a dictionary matching the tool's input schema.
+        e.g., {
+            "thought": "current thought", 
+            "nextThoughtNeeded": True, 
+            "thoughtNumber": 1, 
+            "totalThoughts": 5,
+            # ... other optional args from the tool's schema
+        }
         """
-        def __init__(self):
-            # Ensure XDG_CONFIG_HOME is set (important for npx/npm global tools)
-            if "XDG_CONFIG_HOME" not in os.environ:
-                os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
+        self.logger.debug(f"SequentialThinkingMCPServer: Submitting thought: {thought_arguments.get('thought', '')[:100]}...")
+           
+        try:
+            async with MCPServerStdio(
+                params=self.params, 
+                cache_tools_list=self.cache,
+                client_session_timeout_seconds=60.0 
+            ) as server:
+                # First, let's check what tools are available
+                try:
+                    available_tools = await server.list_tools()
+                    self.logger.info(f"Available tools from sequential-thinking server: {[tool.name for tool in available_tools]}")
+                except Exception as e:
+                    self.logger.warning(f"Could not list tools: {e}")
                 
-            # Parameters for the MCP server process
-            self.params = {
-                "command": "npx", 
-                "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@latest"],
-                "env": os.environ.copy()
-            }
-            self.cache = True
-            logger.info("SequentialThinkingMCPServer initialized with MCP support")
-            
-        async def sequential_thinking(self, prompt, thinking_type="general", max_steps=5):
-            """
-            Perform sequential thinking on a prompt using the MCP server.
-            """
-            logger.debug(f"SequentialThinkingMCPServer: Starting sequential thinking for: {prompt[:50]}...")
-            
-            try:
-                # Increase the client session timeout to 60 seconds
-                async with MCPServerStdio(
-                    params=self.params, 
-                    cache_tools_list=self.cache,
-                    client_session_timeout_seconds=60.0  # Increased from default 5.0
-                ) as server:
-                    logger.debug("SequentialThinkingMCPServer context entered. Calling tool...")    
-                    
-                    args = {
-                        "prompt": prompt,
-                        "thinkingType": thinking_type,
-                        "maxSteps": max_steps
-                    }
-                    
-                    raw_result = await server.call_tool(
-                        "sequentialThinking", args
-                    )
-                    
-                    result = {
-                        "success": True,
-                        "steps": [],
-                        "conclusion": "",
-                        "thinking_type": thinking_type
-                    }
-                    
-                    # Extract the steps from meta
-                    if hasattr(raw_result, "meta") and isinstance(raw_result.meta, dict):
-                        steps = raw_result.meta.get("steps", [])
-                        for step in steps:
-                            if isinstance(step, dict):
-                                result["steps"].append({
-                                    "number": step.get("number", 0),
-                                    "content": step.get("content", "")
-                                })
-                        
-                        result["conclusion"] = raw_result.meta.get("conclusion", "")
-                    
-                    # Extract content text if needed
-                    if not result["steps"] and hasattr(raw_result, "content"):
-                        content_text = []
-                        for content_item in raw_result.content:
-                            if hasattr(content_item, "text"):
-                                content_text.append(content_item.text)
-                        
-                        combined_text = "\n".join(content_text)
-                        
-                        # Parse steps from text if not in meta
-                        step_pattern = re.compile(r"Step\s*(\d+)[:.]\s*(.*?)(?=Step\s*\d+[:.]|$)", re.DOTALL | re.IGNORECASE)
-                        matches = step_pattern.findall(combined_text + "\n")
-                        
-                        for num, content in matches:
-                            result["steps"].append({
-                                "number": int(num),
-                                "content": content.strip()
-                            })
-                        
-                        # Parse conclusion if not in meta
-                        if not result["conclusion"]:
-                            if "\nConclusion:" in combined_text:
-                                result["conclusion"] = combined_text.split("\nConclusion:", 1)[1].strip()
-                            elif "\n\nConclusion:" in combined_text:
-                                result["conclusion"] = combined_text.split("\n\nConclusion:", 1)[1].strip()
-                    
-                    logger.info(f"SequentialThinkingMCPServer: Generated {len(result['steps'])} steps")
-                    return result
-                    
-            except Exception as e:
-                logger.error(f"Error in sequential_thinking: {e}", exc_info=True)
-                return await self._fallback_thinking(prompt, thinking_type, max_steps)
-        
-        async def _fallback_thinking(self, prompt, thinking_type="general", max_steps=5):
-            """Fallback to direct OpenAI call if MCP server fails."""
-            logger.info(f"Using direct OpenAI fallback for sequential thinking: {prompt[:50]}...")
-            
-            try:
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
-                    return {
-                        "success": False,
-                        "error": "API key missing",
-                        "steps": [],
-                        "conclusion": "OPENAI_API_KEY not configured.",
-                        "thinking_type": thinking_type
-                    }
-                
-                client = openai.AsyncOpenAI(api_key=api_key)
-                
-                system_messages = {
-                    "general": f"You are a thinking assistant. Break down this problem or question into clear, step-by-step reasoning. Provide {max_steps-2}-{max_steps} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
-                    "problem-solving": f"You are a problem-solving assistant. Break down this problem into a clear solution approach with {max_steps-1}-{max_steps+1} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
-                    "coding": f"You are a coding assistant. Break down this coding task into a clear implementation plan with {max_steps-1}-{max_steps+2} steps. Each step should start with 'Step X:'. End with 'Conclusion:'."
-                }
-                
-                system_message = system_messages.get(thinking_type, system_messages["general"])
-                
-                response = await client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "gpt-4"),
-                    messages=[
-                        {"role": "system", "content": system_message},
-                        {"role": "user", "content": prompt}
-                    ],
+                self.logger.debug(f"Calling MCP tool '{self.mcp_tool_name}' with args: {json.dumps(thought_arguments, indent=2)}")
+                   
+                raw_result = await server.call_tool(
+                    self.mcp_tool_name, thought_arguments
                 )
-                
-                thinking_text = response.choices[0].message.content
-                
-                # Parse steps and conclusion
-                steps_text, conclusion = thinking_text, "No explicit conclusion."
-                if "\nConclusion:" in thinking_text:
-                    parts = thinking_text.split("\nConclusion:", 1)
-                    steps_text, conclusion = parts[0], parts[1].strip()
-                elif "\n\nConclusion:" in thinking_text:
-                    parts = thinking_text.split("\n\nConclusion:", 1)
-                    steps_text, conclusion = parts[0], parts[1].strip()
-                
-                # Extract steps with regular expression
-                parsed_steps = []
-                step_pattern = re.compile(r"Step\s*(\d+)[:.]\s*(.*?)(?=Step\s*\d+[:.]|$)", re.DOTALL | re.IGNORECASE)
-                matches = step_pattern.findall(steps_text + "\n")
-                
-                for num, content in matches:
-                    parsed_steps.append({
-                        "number": int(num), 
-                        "content": content.strip()
-                    })
-                
-                return {
-                    "success": True,
-                    "steps": parsed_steps,
-                    "conclusion": conclusion,
-                    "thinking_type": thinking_type,
-                    "is_fallback": True
-                }
-                
-            except Exception as e:
-                logger.error(f"Error in fallback thinking: {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "steps": [],
-                    "conclusion": f"Error: {str(e)}",
-                    "thinking_type": thinking_type,
-                }
-        
-        async def solve_problem(self, problem, max_steps=5):
-            """Wrapper for sequential_thinking with problem-solving type"""
-            return await self.sequential_thinking(problem, thinking_type="problem-solving", max_steps=max_steps)
-        
-        async def plan_code(self, coding_task, max_steps=7):
-            """Wrapper for sequential_thinking with coding type"""
-            return await self.sequential_thinking(coding_task, thinking_type="coding", max_steps=max_steps)
+                   
+                self.logger.debug(f"Raw result from MCP tool '{self.mcp_tool_name}': {raw_result}")
 
-        async def think(self, prompt, thinking_type="general", max_steps=5):
-            """Alias for sequential_thinking to maintain backward compatibility"""
-            return await self.sequential_thinking(prompt, thinking_type=thinking_type, max_steps=max_steps)
-
-except ImportError:
-    logger.warning("mcp.client.stdio or mcp.client.session not found for SequentialThinking. Using fallback implementation.")
-    
-    class SequentialThinkingMCPServer:
-        """Fallback implementation of SequentialThinkingMCPServer that uses direct OpenAI calls."""
-        def __init__(self):
-            logger.info("SequentialThinkingMCPServer initialized in fallback mode (direct OpenAI calls)")
-        
-        async def sequential_thinking(self, prompt, thinking_type="general", max_steps=5):
-            """Perform sequential thinking using direct OpenAI calls."""
-            logger.info(f"Using direct OpenAI for sequential thinking (fallback mode): {prompt[:50]}...")
-            
-            try:
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
+                # Process the result
+                # The structure of raw_result depends on the mcp.client library and the server's response.
+                # This is a generic way to handle it; you might need to adapt it.
+                if isinstance(raw_result, dict): # If it's already a dictionary
+                    return raw_result
+                elif hasattr(raw_result, 'meta') and hasattr(raw_result, 'content'):
+                    # Attempt to construct a JSON-like response if it has common MCP attributes
+                    response_content = []
+                    if isinstance(raw_result.content, list):
+                        for item in raw_result.content:
+                            if hasattr(item, 'text'):
+                                response_content.append(item.text)
+                            else:
+                                response_content.append(str(item)) # Fallback
+                       
                     return {
-                        "success": False,
-                        "error": "API key missing",
-                        "steps": [],
-                        "conclusion": "OPENAI_API_KEY not configured.",
-                        "thinking_type": thinking_type
+                        "success": True, # Assuming success if we got this far
+                        "data_from_tool_content": " ".join(response_content),
+                        "meta": raw_result.meta
                     }
-                
-                client = openai.AsyncOpenAI(api_key=api_key)
-                
-                system_messages = {
-                    "general": f"You are a thinking assistant. Break down this problem or question into clear, step-by-step reasoning. Provide {max_steps-2}-{max_steps} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
-                    "problem-solving": f"You are a problem-solving assistant. Break down this problem into a clear solution approach with {max_steps-1}-{max_steps+1} steps. Each step should start with 'Step X:'. End with 'Conclusion:'.",
-                    "coding": f"You are a coding assistant. Break down this coding task into a clear implementation plan with {max_steps-1}-{max_steps+2} steps. Each step should start with 'Step X:'. End with 'Conclusion:'."
-                }
-                
-                system_message = system_messages.get(thinking_type, system_messages["general"])
-                
-                response = await client.chat.completions.create(
-                    model=os.environ.get("OPENAI_MODEL", "gpt-4"),
-                    messages=[
-                        {"role": "system", "content": system_message},
-                        {"role": "user", "content": prompt}
-                    ],
-                )
-                
-                thinking_text = response.choices[0].message.content
-                
-                # Parse steps and conclusion
-                steps_text, conclusion = thinking_text, "No explicit conclusion."
-                if "\nConclusion:" in thinking_text:
-                    parts = thinking_text.split("\nConclusion:", 1)
-                    steps_text, conclusion = parts[0], parts[1].strip()
-                elif "\n\nConclusion:" in thinking_text:
-                    parts = thinking_text.split("\n\nConclusion:", 1)
-                    steps_text, conclusion = parts[0], parts[1].strip()
-                
-                # Extract steps
-                parsed_steps = []
-                step_pattern = re.compile(r"Step\s*(\d+)[:.]\s*(.*?)(?=Step\s*\d+[:.]|$)", re.DOTALL | re.IGNORECASE)
-                matches = step_pattern.findall(steps_text + "\n")
-                
-                for num, content in matches:
-                    parsed_steps.append({
-                        "number": int(num), 
-                        "content": content.strip()
-                    })
-                
-                return {
-                    "success": True,
-                    "steps": parsed_steps,
-                    "conclusion": conclusion,
-                    "thinking_type": thinking_type
-                }
-                
-            except Exception as e:
-                logger.error(f"Error in sequential_thinking (fallback mode): {e}", exc_info=True)
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "steps": [],
-                    "conclusion": f"Error: {str(e)}",
-                    "thinking_type": thinking_type
-                }
-        
-        async def solve_problem(self, problem, max_steps=5):
-            """Wrapper for sequential_thinking with problem-solving type"""
-            return await self.sequential_thinking(problem, thinking_type="problem-solving", max_steps=max_steps)
-        
-        async def plan_code(self, coding_task, max_steps=7):
-            """Wrapper for sequential_thinking with coding type"""
-            return await self.sequential_thinking(coding_task, thinking_type="coding", max_steps=max_steps)
-            
-        async def think(self, prompt, thinking_type="general", max_steps=5):
-            """Alias for sequential_thinking to maintain backward compatibility"""
-            return await self.sequential_thinking(prompt, thinking_type=thinking_type, max_steps=max_steps)
+                else:
+                    # Fallback if the structure is unexpected
+                    self.logger.warning(f"Unexpected result structure from MCP tool '{self.mcp_tool_name}': {type(raw_result)}. Content: {str(raw_result)}")
+                    return {"success": False, "error": "Unexpected result structure from MCP tool.", "details": str(raw_result)}
 
-thinking_mcp_server = SequentialThinkingMCPServer()
+        except ImportError as ie:
+            self.logger.error(f"ImportError in SequentialThinkingMCPServer: {ie}. Ensure MCP client libraries are installed correctly.", exc_info=True)
+            return {"success": False, "error": f"ImportError: {ie}", "traceback": traceback.format_exc()}
+        except Exception as e:
+            self.logger.error(f"Error in submit_thought_step calling MCP tool '{self.mcp_tool_name}': {e}", exc_info=True)
+            return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 
@@ -958,10 +981,12 @@ class FilesystemMCPServer:
 
 filesystem_mcp_server = FilesystemMCPServer()
 
+thinking_mcp_server = SequentialThinkingMCPServer()
+
 # All server instances are now created:
 # shopify_mcp_server
 # perplexity_mcp_server
 # memory_mcp_server (imported instance)
 # fetch_mcp_server
-# thinking_mcp_server
+# # thinking_mcp_server
 # filesystem_mcp_server

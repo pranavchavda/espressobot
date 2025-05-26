@@ -200,7 +200,7 @@ class MCPMemoryServer:
         Retrieve a memory for a specific user using the knowledge graph MCP server (open_nodes).
         """
         args = {"names": [user_id]}
-        async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+        async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=60.0) as server:
             try:
                 result = await server.call_tool("open_nodes", args)
                 # Convert to dict if needed
@@ -290,6 +290,8 @@ class MCPMemoryServer:
                             for entity in entities:
                                 if entity.get("name") == user_id:
                                     raw_observations = entity.get("observations", [])
+                                    # Process observations: parse if string, keep if dict
+                                    # observations = [] # Already initialized
                                     for obs_item_str in raw_observations:
                                         if isinstance(obs_item_str, str):
                                             try:
@@ -487,7 +489,7 @@ class MCPMemoryServer:
 
         try:
             logger.info("MCP_POPULATE: Creating MCPServerStdio instance to call read_graph.")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=60.0) as server:
                 logger.info("MCP_POPULATE: Calling read_graph tool via MCPServerStdio instance.")
                 graph_data_response = await server.call_tool("read_graph", {})         
             
