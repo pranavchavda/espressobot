@@ -24,15 +24,25 @@ from mcp_adapter import normalized_memory_call
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import shopify_mcp_server, shopify_features_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server # NEW
+from mcp_server import shopify_mcp_server, shopify_features_mcp_server, fetch_mcp_server, filesystem_mcp_server
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
 
 # Configure OpenAI client
 # client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
-# Use AsyncOpenAI for async operations
-client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+# Use AsyncOpenAI for async operations - create new client for each request to avoid connection pool issues
+def get_openai_client():
+    # Configure httpx client with lower connection limits to reduce cleanup issues
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(60.0, read=60.0, write=30.0, connect=10.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=1)
+    )
+    return openai.AsyncOpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        timeout=httpx.Timeout(60.0, read=60.0, write=30.0, connect=10.0),
+        http_client=http_client
+    )
 
 
 # Function to execute GraphQL queries
@@ -449,65 +459,6 @@ async def fetch_json(url, options=None):
         return {"success": False, "url": url, "error": str(e)}
 
 
-# Sequential Thinking functions
-async def structured_thinking(prompt: str, thinking_type: str = "general", max_steps: int = 5):
-    """
-    Perform structured step-by-step thinking on a prompt using the Sequential Thinking MCP server.
-    
-    Args:
-        prompt: The prompt or question to think about
-        thinking_type: Type of thinking to apply ("general", "problem-solving", or "coding")
-        max_steps: Maximum number of thinking steps
-    """
-    try:
-        if not prompt or not isinstance(prompt, str):
-            logger.error("'prompt' must be a non-empty string.")
-            return {"success": False, "error": "Invalid 'prompt'. Must be a non-empty string."}
-        
-        # Start the thinking process
-        current_step = 1
-        thinking_results = []
-        
-        # Initial thought
-        thought_arguments = {
-            "thought": f"I need to think about: {prompt}. Let me approach this using {thinking_type} thinking.",
-            "nextThoughtNeeded": True,
-            "thoughtNumber": current_step,
-            "totalThoughts": max_steps
-        }
-        
-        while current_step <= max_steps:
-            logger.info(f"Thinking step {current_step}: {thought_arguments['thought'][:100]}...")
-            
-            result = await thinking_mcp_server.submit_thought_step(thought_arguments)
-            thinking_results.append(result)
-            
-            # Check if we should continue thinking
-            if not thought_arguments.get("nextThoughtNeeded", False):
-                break
-                
-            current_step += 1
-            
-            # Prepare next thought based on previous result
-            if current_step <= max_steps:
-                thought_arguments = {
-                    "thought": f"Building on my previous thoughts, let me continue analyzing this {thinking_type} problem...",
-                    "nextThoughtNeeded": current_step < max_steps,
-                    "thoughtNumber": current_step,
-                    "totalThoughts": max_steps
-                }
-        
-        return {
-            "success": True, 
-            "thinking_steps": thinking_results,
-            "total_steps": current_step - 1,
-            "prompt": prompt,
-            "thinking_type": thinking_type
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in structured_thinking function: {e}", exc_info=True)
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 # Filesystem functions
@@ -771,14 +722,72 @@ async def google_tasks_delete_task(user_id, task_id, tasklist_id=None):
 
 
 # --- Task Management Integration ---
-# Import task management system
-from task_management import task_manager
+# Import new SQLite-based task management system
+from sqlite_task_manager import sqlite_task_manager as task_manager
+from dynamic_task_generator import generate_dynamic_tasks, should_create_tasks
+
+# Global streaming context to allow task functions to yield updates
+import asyncio
+_task_update_queue = None
+_streaming_context = {"enabled": False}
+
+def _get_queue():
+    """Get or create the task update queue."""
+    global _task_update_queue
+    if _task_update_queue is None:
+        _task_update_queue = asyncio.Queue()
+    return _task_update_queue
+
+def set_streaming_context(enabled):
+    """Set the streaming context for task updates."""
+    global _task_update_queue
+    _streaming_context["enabled"] = enabled
+    if enabled:
+        # Reset the queue for a new session
+        _task_update_queue = asyncio.Queue()
+
+async def stream_task_update(user_id):
+    """Stream current task list to frontend if streaming is enabled."""
+    if _streaming_context["enabled"]:
+        try:
+            current_tasks = await task_manager.get_current_task_list(user_id)
+            if current_tasks.get("success") and current_tasks.get("task_list"):
+                tasks = current_tasks["task_list"].get("tasks", [])
+                queue = _get_queue()
+                await queue.put({
+                    'type': 'task_update',
+                    'tasks': tasks
+                })
+                print(f"Queued task update with {len(tasks)} tasks")
+        except Exception as e:
+            print(f"Error streaming task update: {e}")
+
+async def get_pending_task_updates():
+    """Get any pending task updates from the queue."""
+    updates = []
+    try:
+        queue = _get_queue()
+        while True:
+            update = queue.get_nowait()
+            updates.append(update)
+    except asyncio.QueueEmpty:
+        pass
+    return updates
 
 async def task_create_from_template(user_id, template_name, **kwargs):
     """Create a new task list from a predefined template."""
     try:
-        result = await task_manager.create_from_template(user_id, template_name, **kwargs)
-        return result
+        print(f"Template-based task creation is deprecated. Use dynamic task generation instead.")
+        # For backwards compatibility, generate dynamic tasks
+        template_message = f"Create tasks for {template_name} with parameters: {kwargs}"
+        task_result = await generate_dynamic_tasks(template_message)
+        
+        if task_result.get("success"):
+            result = await task_create_custom(user_id, task_result["title"], task_result["tasks"])
+            await stream_task_update(user_id)
+            return result
+        else:
+            return {"success": False, "error": "Failed to generate dynamic tasks"}
     except Exception as e:
         print(f"Error creating task list from template: {e}")
         return {"success": False, "error": str(e)}
@@ -795,6 +804,7 @@ async def task_create_custom(user_id, title, tasks):
                 formatted_tasks.append(task)
         
         result = await task_manager.create_task_list(user_id, title, formatted_tasks)
+        await stream_task_update(user_id)
         return result
     except Exception as e:
         print(f"Error creating custom task list: {e}")
@@ -816,6 +826,7 @@ async def task_update_status(user_id, task_id, status):
             return {"success": False, "error": "Status must be pending, in_progress, or completed"}
         
         result = await task_manager.update_task_status(user_id, task_id, status)
+        await stream_task_update(user_id)
         return result
     except Exception as e:
         print(f"Error updating task status: {e}")
@@ -828,6 +839,7 @@ async def task_add_new(user_id, content, priority="medium", parent_id=None):
             priority = "medium"
             
         result = await task_manager.add_task(user_id, content, priority, parent_id)
+        await stream_task_update(user_id)
         return result
     except Exception as e:
         print(f"Error adding new task: {e}")
@@ -841,6 +853,139 @@ async def task_get_context(user_id):
     except Exception as e:
         print(f"Error getting task context: {e}")
         return {"success": False, "context": "", "error": str(e)}
+
+def detect_task_requirement(user_message):
+    """Detect if the user message requires task creation based on keywords and patterns."""
+    task_indicators = [
+        # Product/listing operations
+        "create", "add", "new", "make", "build", "set up", "setup",
+        # Multi-step operations
+        "help me", "can you", "please", "need to", "want to",
+        # Specific complex operations
+        "product", "listing", "description", "duplicate", "copy", "update",
+        "shopify", "inventory", "price", "sku", "variant", "image",
+        # Analysis/research operations
+        "analyze", "research", "find", "search", "compare", "review",
+        # Workflow indicators
+        "step by step", "process", "workflow", "guide", "how to"
+    ]
+    
+    # Complex sentence patterns that usually require multiple steps
+    complex_patterns = [
+        "and then", "after that", "also", "additionally", "furthermore",
+        "make sure", "ensure", "verify", "check", "confirm"
+    ]
+    
+    message_lower = user_message.lower()
+    
+    # Count indicators
+    indicator_count = sum(1 for indicator in task_indicators if indicator in message_lower)
+    complex_count = sum(1 for pattern in complex_patterns if pattern in message_lower)
+    
+    # Check for question length (longer questions usually need multi-step answers)
+    word_count = len(user_message.split())
+    
+    # Scoring system
+    score = 0
+    score += indicator_count * 2  # Task indicators worth 2 points each
+    score += complex_count * 3    # Complex patterns worth 3 points each
+    score += min(word_count // 5, 5)  # Length bonus, capped at 5 points
+    
+    # Require tasks if score is 2 or higher, or if it contains specific combinations
+    requires_tasks = (
+        score >= 2 or
+        any(word in message_lower for word in ["create", "new", "add", "make", "build"]) or
+        any(word in message_lower for word in ["help", "can you", "please", "need"]) and word_count > 8 or
+        any(word in message_lower for word in ["product", "listing", "shopify", "description"])
+    )
+    
+    return requires_tasks, score
+
+async def auto_create_task_if_needed(user_id, user_message, streaming=False):
+    """Automatically create a dynamic task list using AI if the user message requires it."""
+    
+    # Use improved logic to determine if tasks are needed
+    if not should_create_tasks(user_message):
+        print(f"No tasks needed for message: {user_message[:100]}...")
+        return False
+    
+    print(f"Auto-generating dynamic tasks for: {user_message[:100]}...")
+    
+    try:
+        # Use AI to generate contextual tasks
+        task_result = await generate_dynamic_tasks(user_message)
+        
+        if not task_result.get("success"):
+            print(f"Failed to generate dynamic tasks: {task_result.get('error')}")
+            return False
+        
+        # Create the task list using the generated tasks
+        result = await task_create_custom(
+            user_id, 
+            task_result["title"], 
+            task_result["tasks"]
+        )
+        
+        print(f"Auto-created dynamic tasks: {result}")
+        print(f"Task complexity: {task_result.get('complexity', 'unknown')}")
+        
+        return result.get("success", False)
+        
+    except Exception as e:
+        print(f"Error in auto task creation: {e}")
+        return False
+
+def analyze_and_create_custom_tasks(user_message):
+    """Analyze user message and create appropriate custom tasks."""
+    message_lower = user_message.lower()
+    tasks = []
+    
+    # Product/listing related tasks
+    if any(word in message_lower for word in ["product", "listing", "create", "add", "new"]):
+        tasks.extend([
+            "Analyze the user's request and gather requirements",
+            "Search for existing similar products or information",
+            "Create or prepare the main deliverable",
+            "Review and finalize the result"
+        ])
+    
+    # Research/analysis tasks
+    elif any(word in message_lower for word in ["research", "analyze", "find", "search", "compare"]):
+        tasks.extend([
+            "Understand the research requirements",
+            "Gather relevant information from available sources",
+            "Analyze and organize the findings",
+            "Present the research results"
+        ])
+    
+    # Update/modification tasks
+    elif any(word in message_lower for word in ["update", "modify", "change", "edit", "fix"]):
+        tasks.extend([
+            "Identify what needs to be updated or modified",
+            "Gather current state and requirements",
+            "Make the necessary changes",
+            "Verify the changes are correct"
+        ])
+    
+    # Complex multi-step requests
+    elif any(phrase in message_lower for phrase in ["help me", "can you", "step by step", "guide"]):
+        tasks.extend([
+            "Break down the user's request into steps",
+            "Gather necessary information and resources",
+            "Execute the main tasks",
+            "Provide final results and next steps"
+        ])
+    
+    # Generic fallback for any complex request
+    else:
+        tasks.extend([
+            "Analyze and understand the user's request",
+            "Plan the approach and gather needed information",
+            "Execute the main task or provide the requested information",
+            "Review and finalize the response"
+        ])
+    
+    return tasks
 
 
 # Function to fetch URL content with curl
@@ -1035,37 +1180,6 @@ TOOLS = [
         }
     },
 
-    # Sequential Thinking tools
-    {
-        "name": "structured_thinking",
-        "type": "function",
-        "function": {
-            "name": "structured_thinking",
-            "description": (
-                "Perform structured step-by-step thinking on a prompt. "
-                "Specify 'thinking_type' as 'general', 'problem-solving', or 'coding' for different reasoning modes."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "The prompt or question to think about"
-                    },
-                    "thinking_type": {
-                        "type": "string",
-                        "description": "Type of thinking to apply",
-                        "enum": ["general", "problem-solving", "coding"]
-                    },
-                    "max_steps": {
-                        "type": "integer",
-                        "description": "Maximum number of thinking steps"
-                    }
-                },
-                "required": ["prompt"]
-            }
-        }
-    },
 
     # Fetch tools
     {
@@ -1867,6 +1981,8 @@ async def run_simple_agent(prompt,
 You are "EspressoBot", the production Shopify and general purpose e-commerce assistant for iDrinkCoffee.com. 
 You are an expert at executing your mission: which is to perform catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
 
+🚨🚨🚨 MANDATORY FIRST ACTION: ALWAYS call `task_read_current` as your FIRST tool call. If tasks exist, you MUST follow them step by step. DO NOT do any other work until you check for tasks! 🚨🚨🚨
+
 ────────────────────────────────────────
 FUNDAMENTAL PRINCIPLES
 ────────────────────────────────────────
@@ -1876,34 +1992,15 @@ FUNDAMENTAL PRINCIPLES
    It will be removed from the final response to the user, it will only be logged for OpenAI to evaluate your performance.
    Responses that begin without <THINKING> and </THINKING> tags will be be partially penalized in the next training iteration. This doesn't apply to O series reasoning models.
 
-1a. Sequential Thinking Tool 
-   Use this tool to structure your thought process and plan your next steps. Use it in conjunction with the task management system.
-
-       Call it with arguments like:
-        - prompt: "Analyze what the user is asking for and create a plan"
-        - thinking_type: "problem-solving" (or "general" or "coding")
-        - max_steps: 5 (optional, defaults to 5)
-    
-    Example call:
-    ```
-    prompt = "Analyze what the user is asking for and create a plan"
-    thinking_type = "problem-solving"
-    max_steps = 5
-    result = await structured_thinking(prompt, thinking_type, max_steps)
-
-    if result["success"]:
-        Input your plan for each step as suscequent actions
-
-    ```
-   
-   The tool will automatically handle the step-by-step thinking process and return when complete.
-   Only after completing your sequential thinking process should you proceed with actual actions.
-
-1b. Task Management (MANDATORY FOR COMPLEX REQUESTS):
-   For any complex multi-step request, immediately after structured thinking, you MUST create an internal task list:
-   - Use `task_create_from_template` for product creation (template: 'product_listing_creation')
-   - Use `task_create_custom` for other complex workflows
-   - This replaces any external task management - do NOT use Google Tasks for your own workflow
+1. Task Management (AUTOMATIC & MANDATORY):
+   🔥 CRITICAL: Task lists are auto-created for complex requests. You MUST use them! 🔥
+   - STEP 1: ALWAYS call `task_read_current` FIRST - before any other action
+   - STEP 2: If tasks exist, call `task_update_status(task_id, "in_progress")` when starting each task
+   - STEP 3: Work on the task content step by step  
+   - STEP 4: Call `task_update_status(task_id, "completed")` when done
+   - STEP 5: Move to next task
+   - If no tasks exist but request is complex, call `task_create_custom` to create them
+   - NEVER ignore tasks - users are watching your progress in real-time!
 
 2. Problem Solving:
    You MUST iterate and keep going until the problem is solved. You already have everything you need to solve any Shopify related problem.
@@ -2000,6 +2097,8 @@ FAIL-SAFES
 • If a mutation fails, immediately show the error message, introspect that mutation, and retry only once with corrected arguments.  
 • If still failing, summarise the blocker and ask the user how to proceed.
 
+🚨 BEFORE USING ANY OTHER TOOL: Call `task_read_current` to check for auto-created tasks! 🚨
+
 You have access to several tools:
 
 1. get_product_copy_guidelines - Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown. Always pull this up when asked to create a product.
@@ -2075,24 +2174,27 @@ Good uses for fetch:
 - Extract pricing and competitive information
 - Retrieve documentation for reference
 
-## SEQUENTIAL THINKING SYSTEM
+## TASK MANAGEMENT SYSTEM
 
-You have access to the `structured_thinking` tool, which performs step-by-step reasoning for any prompt. Use the `thinking_type` argument to specify the reasoning mode:
-- `general` for open-ended reasoning
-- `problem-solving` for complex issues
-- `coding` for planning code implementation
+You have access to built-in task management tools to organize complex workflows:
 
-This tool formalizes your reasoning process and provides:
-- Clear, numbered steps in your reasoning
-- Consistent problem-solving framework
-- Better organization of complex thoughts
-- Explicit conclusions based on reasoning steps
+- `task_create_from_template` - Create task lists from templates (e.g., 'product_listing_creation')
+- `task_create_custom` - Create custom task lists for specific workflows
+- `task_read_current` - View current active task list and progress
+- `task_update_status` - Update task status (pending, in_progress, completed)
+- `task_add_new` - Add new tasks or subtasks to current list
 
-Good uses for sequential thinking:
-- Breaking down complex Shopify operations
-- Planning multi-step product changes
-- Solving inventory or pricing problems
-- Designing implementation strategies for new features
+This system helps you:
+- Break down complex operations into manageable tasks
+- Track progress through multi-step workflows
+- Provide visibility to users on what you're working on
+- Ensure nothing is forgotten in complex processes
+
+Use task management for:
+- Product listing creation workflows
+- Complex inventory operations
+- Multi-step problem solving
+- Any workflow with 3+ distinct steps
 
 ## FILESYSTEM SYSTEM
 
@@ -2125,13 +2227,15 @@ You have access to an advanced task management system that helps you stay organi
 4. `task_update_status` - Mark tasks as pending, in_progress, or completed
 5. `task_add_new` - Add new tasks or subtasks as work evolves
 
-**MANDATORY TASK MANAGEMENT WORKFLOW:**
-For any complex multi-step request (especially product creation), you MUST:
-1. First, create a task list using `task_create_from_template` or `task_create_custom`
-2. Update task status to 'in_progress' when starting each task
-3. Mark tasks as 'completed' when finished
-4. Add new tasks/subtasks as they become apparent
-5. Always check your current task list with `task_read_current` to stay on track
+**AUTOMATIC TASK MANAGEMENT WORKFLOW:**
+The system auto-creates tasks for complex requests, but you MUST actively manage them:
+1. FIRST: Call `task_read_current` to see if tasks were auto-created for this request
+2. MANDATORY: Update task status to 'in_progress' when starting each task  
+3. MANDATORY: Mark tasks as 'completed' when finished
+4. Add new tasks/subtasks with `task_add_new` as they become apparent
+5. If no tasks exist but you identify a multi-step process, create them with `task_create_custom`
+
+**CRITICAL**: Users can see your task progress in real-time! Keep tasks updated so they know what you're working on.
 
 **IMPORTANT**: Use the internal task management system (`task_*` functions) for YOUR workflow organization. 
 Only use Google Tasks functions (`google_tasks_*`) when the USER specifically requests Google Tasks integration.
@@ -2166,24 +2270,25 @@ END OF SYSTEM PROMPT
 
 """
 
-    # Add current task context if available
+    # Add current task context if available - MANDATORY INJECTION
     task_context = ""
     if user_id:
         try:
             task_context_result = await task_get_context(user_id)
             if task_context_result.get("success") and task_context_result.get("context"):
                 task_context = task_context_result["context"]
+                print(f"DEBUG: Injecting task context into system message: {task_context[:200]}...")
         except Exception as e:
             if logger: 
                 logger.error(f"Error retrieving task context for user {user_id}: {e}")
             else: 
                 logging.error(f"Error retrieving task context for user {user_id}: {e}")
     
-    # Inject task context into system message if available
+    # FORCE inject task context into system message if available
     if task_context:
-        system_message += f"\n\n{task_context}\n"
+        system_message += f"\n\n🔥🔥🔥 YOU HAVE ACTIVE TASKS - FOLLOW THEM! 🔥🔥🔥\n{task_context}\n🚨 START WITH THESE TASKS - DO NOT IGNORE THEM! 🚨\n"
 
-    # Add proactive memory retrieval
+    # DISABLED: Proactive memory retrieval when tasks are active (causes confusion)
 
     # Initialize formatted_messages with the main system message
     formatted_messages = [{
@@ -2191,30 +2296,26 @@ END OF SYSTEM PROMPT
         "content": system_message
     }]
 
-    # Add retrieved memories as a new system message if available
+    # Only retrieve memories if NO TASKS exist to avoid confusion
     retrieved_memory_content = ""
-    if user_id: # Only attempt if user_id is available
+    if user_id and not task_context: # Only if no tasks are active
         try:
-            if logger: logger.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}...")
-            else: logging.info(f"Attempting proactive memory retrieval for user_id: {user_id} with prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}...")
+            if logger: logger.info(f"No tasks active - retrieving memories for user_id: {user_id}")
+            else: logging.info(f"No tasks active - retrieving memories for user_id: {user_id}")
             retrieved_memory_content = await memory_service.proactively_retrieve_memories(
                 user_id=user_id,
-                query_text=prompt_text if isinstance(prompt_text, str) else "image analysis", # Using the current user prompt as the query
-                top_n=3
+                query_text=prompt_text if isinstance(prompt_text, str) else "image analysis",
+                top_n=2  # Reduced to avoid overwhelming with context
             )
             if retrieved_memory_content:
                 if logger: logger.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
                 else: logging.info(f"Retrieved memories for user {user_id}: {retrieved_memory_content[:200]}...")
-            else:
-                if logger: logger.info(f"No memories retrieved for user {user_id} for prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}")
-                else: logging.info(f"No memories retrieved for user {user_id} for prompt: {prompt_text[:100] if isinstance(prompt_text, str) else 'multimodal content'}")
         except Exception as e:
-            if logger: logger.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
-            else: logging.error(f"Error during proactive memory retrieval for user {user_id}: {e}")
-            # import traceback # Uncomment for detailed traceback
-            # if logger: logger.error(traceback.format_exc())
-            # else: logging.error(traceback.format_exc())
-            retrieved_memory_content = "" # Ensure it's empty on error
+            if logger: logger.error(f"Error during memory retrieval for user {user_id}: {e}")
+            else: logging.error(f"Error during memory retrieval for user {user_id}: {e}")
+            retrieved_memory_content = ""
+    elif task_context:
+        print("DEBUG: Skipping memory retrieval - TASKS ARE ACTIVE!")
 
     if retrieved_memory_content:
         memory_system_prompt = f"Based on your past interactions, here's some potentially relevant information:\n{retrieved_memory_content}\n---"
@@ -2254,7 +2355,6 @@ END OF SYSTEM PROMPT
         "delete_user_memory": delete_user_memory,
         "fetch_and_extract_text": fetch_and_extract_text,
         "fetch_json": fetch_json,
-        "structured_thinking": structured_thinking,
         "read_file": read_file,
         "write_file": write_file,
         "list_directory": list_directory,
@@ -2281,6 +2381,13 @@ END OF SYSTEM PROMPT
         "task_get_context": task_get_context
     }
 
+    # Auto-create tasks if needed based on user request
+    if user_id and step_count == 0:  # Only on first step
+        user_message = prompt_text if isinstance(prompt_text, str) else str(prompt)
+        print(f"DEBUG: Checking if tasks needed for user {user_id}: '{user_message}'")
+        task_created = await auto_create_task_if_needed(user_id, user_message, streaming)
+        print(f"DEBUG: Task creation result: {task_created}")
+
     try:
         while step_count < max_steps:
             step_count += 1
@@ -2305,7 +2412,10 @@ END OF SYSTEM PROMPT
             # Call the model
             try:
                 if streaming:
-                    # Streaming mode
+                    # Streaming mode - enable task streaming
+                    set_streaming_context(True)
+                    
+                    client = get_openai_client()
                     response = await client.chat.completions.create(
                         model=selected_model,
                         messages=formatted_messages,
@@ -2328,6 +2438,11 @@ END OF SYSTEM PROMPT
                         if hasattr(delta, 'content') and delta.content:
                             current_content += delta.content
                             yield {'type': 'content', 'delta': delta.content}
+                            
+                        # Check for pending task updates and yield them
+                        pending_updates = await get_pending_task_updates()
+                        for update in pending_updates:
+                            yield update
 
                         # Process tool calls
                         if hasattr(delta, 'tool_calls') and delta.tool_calls:
@@ -2486,6 +2601,7 @@ END OF SYSTEM PROMPT
 
                 else:
                     # Non-streaming mode
+                    client = get_openai_client()
                     response = await client.chat.completions.create(
                         model=selected_model,
                         messages=formatted_messages,
@@ -2620,6 +2736,10 @@ END OF SYSTEM PROMPT
 
         yield {'type': 'suggestions', 'suggestions': suggestions_list}
 
+        # Disable task streaming and clear queue
+        set_streaming_context(False)
+        await get_pending_task_updates()  # Clear any remaining updates
+
         # Signal end of all data for this request
         yield {'type': 'stream_end'}
 
@@ -2697,6 +2817,7 @@ async def _generate_suggestions_async(conversation_history: List[Dict[str,
         print(
             f"Generating suggestions based on AI's last message: {ai_last_message_content[:100]}..."
         )
+        openai_client = get_openai_client()
         suggestion_response = await openai_client.chat.completions.create(
             model=os.environ.get("DEFAULT_MODEL", "gpt-4.1-nano"),
             messages=suggestion_prompt_messages,

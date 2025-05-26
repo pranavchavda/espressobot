@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 
 from embedding_service import EmbeddingService
 from vector_store import VectorStore
+from persistent_embedding_service import get_persistent_embedding_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,6 +29,7 @@ class SimpleMemoryServer:
         self.store = memory_store
         self.embedding_service = EmbeddingService()
         self.vector_store = VectorStore()
+        self.persistent_embedding_service = get_persistent_embedding_service()
         
     async def store_user_memory(self, user_id, key, value):
         """
@@ -56,7 +58,7 @@ class SimpleMemoryServer:
             # Store the memory
             self.store[user_id][key] = value
 
-            # Generate and store embedding
+            # Generate and store embedding using persistent service
             try:
                 text_to_embed = ""
                 if isinstance(value, (dict, list)):
@@ -68,12 +70,15 @@ class SimpleMemoryServer:
                     text_to_embed = str(value)
                 
                 if text_to_embed:
-                    embedding = self.embedding_service.get_embedding(text_to_embed)
+                    # Use persistent embedding service (checks cache first, then generates if needed)
+                    embedding = self.persistent_embedding_service.get_or_create_embedding(text_to_embed)
                     if embedding:
+                        # Store in both vector store (for current session) and persistent store
                         self.vector_store.add_embedding(user_id, key, embedding)
-                        logger.info(f"[MEMORY_VECTOR] Stored embedding for user {user_id}, key {key}")
+                        self.persistent_embedding_service.link_user_memory_embedding(int(user_id), key, text_to_embed)
+                        logger.info(f"[MEMORY_VECTOR] Stored persistent embedding for user {user_id}, key {key}")
                     else:
-                        logger.warning(f"[MEMORY_VECTOR] Failed to generate embedding for user {user_id}, key {key}. Vector not stored.")
+                        logger.warning(f"[MEMORY_VECTOR] Failed to generate/retrieve embedding for user {user_id}, key {key}. Vector not stored.")
                 else:
                     logger.warning(f"[MEMORY_VECTOR] Value for key {key} (user {user_id}) resulted in empty text_to_embed. Vector not stored.")
             except Exception as e_embed:
@@ -209,19 +214,27 @@ class SimpleMemoryServer:
                 del self.store[user_id][key]
                 deleted_from_store = True
             
-            # Delete corresponding embedding
+            # Delete corresponding embeddings from both stores
             if deleted_from_store: # Only attempt to delete from vector store if it was in the main store
                 try:
+                    # Delete from in-memory vector store
                     delete_success = self.vector_store.delete_embedding(user_id, key)
                     if delete_success:
                         logger.info(f"[MEMORY_VECTOR] Deleted embedding for user {user_id}, key {key}")
                     else:
                         logger.warning(f"[MEMORY_VECTOR] Failed to delete or find embedding for user {user_id}, key {key} in vector store.")
+                    
+                    # Delete from persistent store
+                    persistent_delete_success = self.persistent_embedding_service.delete_user_memory_embedding(int(user_id), key)
+                    if persistent_delete_success:
+                        logger.info(f"[MEMORY_PERSISTENT] Deleted persistent embedding link for user {user_id}, key {key}")
+                        
                 except Exception as e_embed_delete:
                     logger.error(f"[MEMORY_VECTOR] Error deleting embedding for user {user_id}, key {key}: {e_embed_delete}", exc_info=True)
             elif user_id in self.store: # Key wasn't in user's store, but user exists. Still try to cleanup vector store just in case of inconsistency.
                 logger.info(f"[MEMORY_VECTOR] Key '{key}' not found in main store for user '{user_id}'. Attempting cleanup of vector store anyway.")
                 self.vector_store.delete_embedding(user_id, key)
+                self.persistent_embedding_service.delete_user_memory_embedding(int(user_id), key)
             
             return {
                 "success": True,
@@ -240,17 +253,23 @@ class SimpleMemoryServer:
         user_id = str(user_id)
         """
         Proactively retrieves memories relevant to a query_text using vector similarity.
+        Now uses persistent embeddings for better performance.
         """
         logger.info(f"[MEMORY_PROACTIVE] Attempting to retrieve memories for user {user_id} (top_n={top_n}) based on query: '{query_text[:50]}...'" )
         retrieved_memories_content = []
         try:
-            query_embedding = self.embedding_service.get_embedding(query_text)
+            # Use persistent embedding service to get/create query embedding
+            query_embedding = self.persistent_embedding_service.get_or_create_embedding(query_text)
             if not query_embedding:
                 logger.warning(f"[MEMORY_PROACTIVE] Could not generate embedding for query: '{query_text[:50]}...'. Skipping retrieval.")
                 return []
 
-            # Find similar memory keys from the vector store
-            similar_memory_keys = self.vector_store.find_similar_embeddings(user_id, query_embedding, top_n=top_n)
+            # Find similar memory keys using persistent service (more efficient than in-memory)
+            similar_memory_keys = self.persistent_embedding_service.find_similar_user_memories(int(user_id), query_text, top_n=top_n)
+            
+            # Fallback to in-memory vector store if persistent service returns no results
+            if not similar_memory_keys:
+                similar_memory_keys = self.vector_store.find_similar_embeddings(user_id, query_embedding, top_n=top_n)
             
             if not similar_memory_keys:
                 logger.info(f"[MEMORY_PROACTIVE] No similar memory keys found for user {user_id} and query.")
@@ -280,7 +299,7 @@ class SimpleMemoryServer:
 MEMORY_BACKEND = os.environ.get("MEMORY_BACKEND", "simple").lower()
 
 if MEMORY_BACKEND == "mcp":
-    from mcp_memory import MCPMemoryServer
-    memory_server = MCPMemoryServer()
+    from mcp_memory import get_mcp_memory_server
+    memory_server = get_mcp_memory_server()
 else:
     memory_server = SimpleMemoryServer()

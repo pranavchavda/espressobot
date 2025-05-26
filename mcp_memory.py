@@ -9,6 +9,7 @@ from typing import Any, Optional, List
 from agents.mcp.server import MCPServerStdio
 from embedding_service import EmbeddingService
 from vector_store import VectorStore
+from persistent_embedding_service import get_persistent_embedding_service
 from mcp.client.stdio import StdioServerParameters
 import logging
 from typing import Any, Optional
@@ -68,11 +69,13 @@ class MCPMemoryServer:
     An MCP-backed implementation of the memory server interface.
     Communicates with the MCP memory server over stdio using MCPServerStdio.
     """
-    def __init__(self):
+    def __init__(self, flask_app=None):
         self.params = MEMORY_PARAMS
         self.cache = True  # Enable tool list caching (optional, matches other servers)
         self.embedding_service = EmbeddingService()
         self.vector_store = VectorStore()
+        self.persistent_embedding_service = get_persistent_embedding_service()
+        self.flask_app = flask_app  # Store Flask app for app context
 
         # Schedule the vector store population to run in the background
         try:
@@ -148,18 +151,17 @@ class MCPMemoryServer:
                     logger.debug(f"MCP_MEMORY_STORE: 'content' field is a single TextContent-like object. Extracting text.")
                     processed_result_dict["content"] = processed_result_dict["content"].text
                 
-                # Also add to the local vector store for proactive retrieval
+                # Also add to the local vector store for proactive retrieval using persistent embeddings
                 try:
-                    # First, generate the embedding for the memory's value
-                    embedding = self.embedding_service.get_embedding(value) # This is a synchronous call
+                    # Use persistent embedding service (checks cache first, then generates if needed)
+                    embedding = self.persistent_embedding_service.get_or_create_embedding(value)
                     if embedding:
-                        # VectorStore.add_embedding is synchronous, so no await needed if it's not an async def
-                        # Assuming VectorStore.add_embedding is synchronous based on typical vector store client libraries
-                        # If VectorStore.add_embedding IS async, it should be 'await self.vector_store.add_embedding(...)'
+                        # Add to both vector store (for current session) and persistent store
                         self.vector_store.add_embedding(user_id, key, embedding)
-                        logger.info(f"MCP_MEMORY_STORE: Successfully added embedding for memory key '{key}' for user '{user_id}' to vector store.")
+                        self.persistent_embedding_service.link_user_memory_embedding(int(user_id), key, value)
+                        logger.info(f"MCP_MEMORY_STORE: Successfully added persistent embedding for memory key '{key}' for user '{user_id}' to vector store.")
                     else:
-                        logger.error(f"MCP_MEMORY_STORE: Failed to generate embedding for key '{key}', user '{user_id}'. Not adding to vector store.")
+                        logger.error(f"MCP_MEMORY_STORE: Failed to generate/retrieve embedding for key '{key}', user '{user_id}'. Not adding to vector store.")
                 except Exception as vs_e:
                     logger.error(f"MCP_MEMORY_STORE: Error during vector store operation for key '{key}', user '{user_id}': {vs_e}")
                     # Decide if this should make the whole operation fail or just be a warning.
@@ -370,13 +372,20 @@ class MCPMemoryServer:
                 if "success" not in processed_result_dict:
                     processed_result_dict["success"] = True
 
-                # Whether MCP deletion was successful or observation wasn't found, attempt to delete from local vector store for consistency
+                # Whether MCP deletion was successful or observation wasn't found, attempt to delete from both stores for consistency
                 try:
+                    # Delete from in-memory vector store
                     delete_vec_success = self.vector_store.delete_embedding(user_id, key)
                     if delete_vec_success:
                         logger.info(f"[MCP_MEMORY_VECTOR] Deleted embedding for user {user_id}, key {key} from local vector store.")
                     else:
                         logger.info(f"[MCP_MEMORY_VECTOR] Embedding for user {user_id}, key {key} not found in local vector store or failed to delete.")
+                    
+                    # Delete from persistent store
+                    persistent_delete_success = self.persistent_embedding_service.delete_user_memory_embedding(int(user_id), key)
+                    if persistent_delete_success:
+                        logger.info(f"[MCP_MEMORY_PERSISTENT] Deleted persistent embedding link for user {user_id}, key {key}")
+                        
                 except Exception as e_vec_delete:
                     logger.error(f"[MCP_MEMORY_VECTOR] Error deleting embedding for user {user_id}, key {key} from local vector store: {e_vec_delete}", exc_info=True)
                 
@@ -443,17 +452,23 @@ class MCPMemoryServer:
         user_id = str(user_id)
         """
         Proactively retrieves memories relevant to a query_text using vector similarity.
+        Now uses persistent embeddings for better performance.
         """
         logger.info(f"[MCP_MEMORY_PROACTIVE] Attempting to retrieve memories for user {user_id} (top_n={top_n}) based on query: '{query_text[:50]}...'" )
         retrieved_memories_content = []
         try:
-            query_embedding = self.embedding_service.get_embedding(query_text)
+            # Use persistent embedding service to get/create query embedding
+            query_embedding = self.persistent_embedding_service.get_or_create_embedding(query_text)
             if not query_embedding:
                 logger.warning(f"[MCP_MEMORY_PROACTIVE] Could not generate embedding for query: '{query_text[:50]}...'. Skipping retrieval.")
                 return []
 
-            # Find similar memory keys from the vector store
-            similar_memory_keys = self.vector_store.find_similar_embeddings(user_id, query_embedding, top_n=top_n)
+            # Find similar memory keys using persistent service (more efficient than in-memory)
+            similar_memory_keys = self.persistent_embedding_service.find_similar_user_memories(int(user_id), query_text, top_n=top_n)
+            
+            # Fallback to in-memory vector store if persistent service returns no results
+            if not similar_memory_keys:
+                similar_memory_keys = self.vector_store.find_similar_embeddings(user_id, query_embedding, top_n=top_n)
             
             if not similar_memory_keys:
                 logger.info(f"[MCP_MEMORY_PROACTIVE] No similar memory keys found for user {user_id} and query.")
@@ -484,125 +499,218 @@ class MCPMemoryServer:
         """Populates the VectorStore by reading all data from the live MCP memory server via read_graph."""
         logger.info("MCP_POPULATE: Starting vector store pre-population using MCP read_graph.")
         
+        # Determine if we can use persistent embeddings
+        use_persistent_embeddings = False
+        app_context_manager = None
+        
+        if self.flask_app is not None:
+            # We have a Flask app, create app context
+            app_context_manager = self.flask_app.app_context()
+            use_persistent_embeddings = True
+            logger.info("MCP_POPULATE: Using Flask app context for persistent embeddings.")
+        else:
+            # Try to get existing Flask app context or find the Flask app
+            try:
+                from flask import has_app_context, current_app
+                if has_app_context():
+                    use_persistent_embeddings = True
+                    logger.info("MCP_POPULATE: Found existing Flask app context for persistent embeddings.")
+                else:
+                    # Try to import and find the Flask app from the main module
+                    try:
+                        import sys
+                        if 'app' in sys.modules:
+                            app_module = sys.modules['app']
+                            if hasattr(app_module, 'app'):
+                                flask_app = app_module.app
+                                app_context_manager = flask_app.app_context()
+                                use_persistent_embeddings = True
+                                logger.info("MCP_POPULATE: Found Flask app from app module - using for persistent embeddings.")
+                            else:
+                                logger.warning("MCP_POPULATE: No Flask app found in app module. Using in-memory embeddings only.")
+                        else:
+                            logger.warning("MCP_POPULATE: No app module found. Using in-memory embeddings only.")
+                    except Exception as e:
+                        logger.warning(f"MCP_POPULATE: Error finding Flask app: {e}. Using in-memory embeddings only.")
+            except ImportError:
+                logger.warning("MCP_POPULATE: Flask not available. Using in-memory embeddings only.")
+        
+        logger.info(f"MCP_POPULATE: use_persistent_embeddings = {use_persistent_embeddings}, app_context_manager = {app_context_manager is not None}, flask_app = {self.flask_app is not None}")
+        
         total_memories_processed = 0
         total_memories_embedded = 0
 
-        try:
-            logger.info("MCP_POPULATE: Creating MCPServerStdio instance to call read_graph.")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=60.0) as server:
-                logger.info("MCP_POPULATE: Calling read_graph tool via MCPServerStdio instance.")
-                graph_data_response = await server.call_tool("read_graph", {})         
+        # Define the population logic as a function that can be called with or without app context
+        async def populate_logic():
+            nonlocal total_memories_processed, total_memories_embedded
             
-            if not graph_data_response:
-                logger.error("MCP_POPULATE: Received no response or None from read_graph.")
-                return
-
-            logger.debug(f"MCP_POPULATE: Raw response from read_graph: {type(graph_data_response)}, {str(graph_data_response)[:500]}")
-
-            actual_graph_data_dict = None
-            if isinstance(graph_data_response, CallToolResult):
-                if (graph_data_response.content and 
-                    len(graph_data_response.content) > 0 and 
-                    isinstance(graph_data_response.content[0], TextContent)):
-                    json_text = graph_data_response.content[0].text
-                    try:
-                        actual_graph_data_dict = json.loads(json_text)
-                        logger.debug(f"MCP_POPULATE: Successfully parsed JSON from TextContent: {str(actual_graph_data_dict)[:500]}")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"MCP_POPULATE: Failed to parse JSON from read_graph TextContent: {e}. JSON: {json_text[:500]}")
-                        return
-                else:
-                    logger.error(f"MCP_POPULATE: read_graph CallToolResult content is not as expected or empty. Content: {graph_data_response.content}")
+            try:
+                logger.info("MCP_POPULATE: Creating MCPServerStdio instance to call read_graph.")
+                async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=60.0) as server:
+                    logger.info("MCP_POPULATE: Calling read_graph tool via MCPServerStdio instance.")
+                    graph_data_response = await server.call_tool("read_graph", {})         
+            
+                if not graph_data_response:
+                    logger.error("MCP_POPULATE: Received no response or None from read_graph.")
                     return
-            elif isinstance(graph_data_response, dict): # Fallback, less likely now
-                actual_graph_data_dict = graph_data_response
-                logger.debug(f"MCP_POPULATE: graph_data_response was already a dict: {str(actual_graph_data_dict)[:500]}")
-            else:
-                logger.error(f"MCP_POPULATE: graph_data_response is not a CallToolResult or dict. Type: {type(graph_data_response)}")
-                return
 
-            if not actual_graph_data_dict:
-                 logger.error("MCP_POPULATE: Could not derive actual graph data dictionary from response.")
-                 return
-            
-            entities_list = actual_graph_data_dict.get("entities")
+                logger.debug(f"MCP_POPULATE: Raw response from read_graph: {type(graph_data_response)}, {str(graph_data_response)[:500]}")
 
-            if not isinstance(entities_list, list):
-                logger.info(f"MCP_POPULATE: 'entities' field is not a list or not found in parsed data. Parsed data: {str(actual_graph_data_dict)[:500]}")
-                entities_list = [] 
-            
-            if not entities_list:
-                logger.info(f"MCP_POPULATE: No entities found in the graph data list.")
-            else:
-                logger.info(f"MCP_POPULATE: Found {len(entities_list)} entities in the MCP graph list.")
-                for entity_data_dict in entities_list:
-                    if not isinstance(entity_data_dict, dict):
-                        logger.warning(f"MCP_POPULATE: Entity data item is not a dictionary. Skipping. Data: {entity_data_dict}")
-                        continue
-                    
-                    user_id = entity_data_dict.get("name")
-                    entity_type = entity_data_dict.get("entityType")
+                actual_graph_data_dict = None
+                if isinstance(graph_data_response, CallToolResult):
+                    if (graph_data_response.content and 
+                        len(graph_data_response.content) > 0 and 
+                        isinstance(graph_data_response.content[0], TextContent)):
+                        json_text = graph_data_response.content[0].text
+                        try:
+                            actual_graph_data_dict = json.loads(json_text)
+                            logger.debug(f"MCP_POPULATE: Successfully parsed JSON from TextContent: {str(actual_graph_data_dict)[:500]}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"MCP_POPULATE: Failed to parse JSON from read_graph TextContent: {e}. JSON: {json_text[:500]}")
+                            return
+                    else:
+                        logger.error(f"MCP_POPULATE: read_graph CallToolResult content is not as expected or empty. Content: {graph_data_response.content}")
+                        return
+                elif isinstance(graph_data_response, dict): # Fallback, less likely now
+                    actual_graph_data_dict = graph_data_response
+                    logger.debug(f"MCP_POPULATE: graph_data_response was already a dict: {str(actual_graph_data_dict)[:500]}")
+                else:
+                    logger.error(f"MCP_POPULATE: graph_data_response is not a CallToolResult or dict. Type: {type(graph_data_response)}")
+                    return
 
-                    if not user_id or entity_type != "user": # Ensure it's a user entity
-                        logger.warning(f"MCP_POPULATE: Skipping entity with missing name or non-user type. Name: {user_id}, Type: {entity_type}")
-                        continue
-                    
-                    observations = entity_data_dict.get("observations", [])
-                    if not isinstance(observations, list): # Observations should be a list
-                        logger.warning(f"MCP_POPULATE: Observations for user '{user_id}' is not a list. Skipping. Observations: {observations}")
-                        continue
+                if not actual_graph_data_dict:
+                     logger.error("MCP_POPULATE: Could not derive actual graph data dictionary from response.")
+                     return
+                
+                entities_list = actual_graph_data_dict.get("entities")
 
-                    if not observations:
-                        logger.info(f"MCP_POPULATE: No observations (memories) found for user_id: {user_id}.")
-                        continue
-                    
-                    logger.info(f"MCP_POPULATE: Processing {len(observations)} observations for user_id: {user_id}.")
-                    for obs_item in observations:  # Renamed to generic obs_item
-                        total_memories_processed += 1
-                        memory_dict_parsed = None
-                        
-                        if isinstance(obs_item, str):
-                            try:
-                                memory_dict_parsed = json.loads(obs_item)
-                            except json.JSONDecodeError as jde:
-                                logger.error(f"MCP_POPULATE: Failed to parse observation JSON string for user '{user_id}'. Error: {jde}. Observation string: '{obs_item}'")
-                                continue # Skip this malformed observation
-                        elif isinstance(obs_item, dict):
-                            memory_dict_parsed = obs_item # It's already a dictionary
-                        else:
-                            logger.warning(f"MCP_POPULATE: Observation for user '{user_id}' is neither a string nor a dict. Type: {type(obs_item)}, Value: {str(obs_item)[:100]}. Skipping.")
+                if not isinstance(entities_list, list):
+                    logger.info(f"MCP_POPULATE: 'entities' field is not a list or not found in parsed data. Parsed data: {str(actual_graph_data_dict)[:500]}")
+                    entities_list = [] 
+                
+                if not entities_list:
+                    logger.info(f"MCP_POPULATE: No entities found in the graph data list.")
+                else:
+                    logger.info(f"MCP_POPULATE: Found {len(entities_list)} entities in the MCP graph list.")
+                    for entity_data_dict in entities_list:
+                        if not isinstance(entity_data_dict, dict):
+                            logger.warning(f"MCP_POPULATE: Entity data item is not a dictionary. Skipping. Data: {entity_data_dict}")
                             continue
                         
-                        # Now memory_dict_parsed should be a dictionary
-                        key = memory_dict_parsed.get("key")
-                        value = memory_dict_parsed.get("value")
+                        user_id = entity_data_dict.get("name")
+                        entity_type = entity_data_dict.get("entityType")
 
-                        if key is None or value is None:
-                            logger.warning(f"MCP_POPULATE: Parsed observation for user '{user_id}' is missing key or value. Parsed dict: {memory_dict_parsed}")
+                        if not user_id or entity_type != "user": # Ensure it's a user entity
+                            logger.warning(f"MCP_POPULATE: Skipping entity with missing name or non-user type. Name: {user_id}, Type: {entity_type}")
                             continue
                         
-                        embedding_value_str = str(value) # Ensure value is string for embedding
-                        embedding = self.embedding_service.get_embedding(embedding_value_str)
-                        if embedding:
-                            self.vector_store.add_embedding(user_id, key, embedding)
-                            total_memories_embedded += 1
-                            logger.debug(f"MCP_POPULATE: Successfully pre-populated embedding for user '{user_id}', key '{key}'.")
+                        observations = entity_data_dict.get("observations", [])
+                        if not isinstance(observations, list): # Observations should be a list
+                            logger.warning(f"MCP_POPULATE: Observations for user '{user_id}' is not a list. Skipping. Observations: {observations}")
+                            continue
+
+                        if not observations:
+                            logger.info(f"MCP_POPULATE: No observations (memories) found for user_id: {user_id}.")
+                            continue
+                        
+                        logger.info(f"MCP_POPULATE: Processing {len(observations)} observations for user_id: {user_id}.")
+                        
+                        # Parse all observations first
+                        parsed_observations = []
+                        for obs_item in observations:
+                            total_memories_processed += 1
+                            memory_dict_parsed = None
+                            
+                            if isinstance(obs_item, str):
+                                try:
+                                    memory_dict_parsed = json.loads(obs_item)
+                                except json.JSONDecodeError as jde:
+                                    logger.error(f"MCP_POPULATE: Failed to parse observation JSON string for user '{user_id}'. Error: {jde}. Observation string: '{obs_item}'")
+                                    continue # Skip this malformed observation
+                            elif isinstance(obs_item, dict):
+                                memory_dict_parsed = obs_item # It's already a dictionary
+                            else:
+                                logger.warning(f"MCP_POPULATE: Observation for user '{user_id}' is neither a string nor a dict. Type: {type(obs_item)}, Value: {str(obs_item)[:100]}. Skipping.")
+                                continue
+                            
+                            # Now memory_dict_parsed should be a dictionary
+                            key = memory_dict_parsed.get("key")
+                            value = memory_dict_parsed.get("value")
+
+                            if key is None or value is None:
+                                logger.warning(f"MCP_POPULATE: Parsed observation for user '{user_id}' is missing key or value. Parsed dict: {memory_dict_parsed}")
+                                continue
+                            
+                            embedding_value_str = str(value) # Ensure value is string for embedding
+                            parsed_observations.append((key, embedding_value_str))
+                        
+                        if not parsed_observations:
+                            logger.info(f"MCP_POPULATE: No valid observations to process for user_id: {user_id}.")
+                            continue
+                            
+                        if use_persistent_embeddings:
+                            logger.info(f"MCP_POPULATE: Using PERSISTENT embeddings for user '{user_id}' - batch processing {len(parsed_observations)} memories")
+                            
+                            # Batch retrieve all embeddings at once
+                            text_hashes = [self.persistent_embedding_service._hash_text(text) for _, text in parsed_observations]
+                            cached_embeddings = self.persistent_embedding_service.get_multiple_cached_embeddings(text_hashes)
+                            
+                            # Process each observation
+                            for i, (key, embedding_value_str) in enumerate(parsed_observations):
+                                text_hash = text_hashes[i]
+                                
+                                if text_hash in cached_embeddings:
+                                    # Found cached embedding - use it
+                                    embedding = cached_embeddings[text_hash]
+                                    self.vector_store.add_embedding(user_id, key, embedding)
+                                    total_memories_embedded += 1
+                                    logger.debug(f"MCP_POPULATE: Used cached embedding for user '{user_id}', key '{key}'.")
+                                else:
+                                    # Generate new embedding and cache it
+                                    embedding = self.persistent_embedding_service.get_or_create_embedding(embedding_value_str)
+                                    if embedding:
+                                        # Add to in-memory vector store for current session
+                                        self.vector_store.add_embedding(user_id, key, embedding)
+                                        # Link to persistent store (if not already linked)
+                                        self.persistent_embedding_service.link_user_memory_embedding(int(user_id), key, embedding_value_str)
+                                        total_memories_embedded += 1
+                                        logger.info(f"MCP_POPULATE: Generated and cached new embedding for user '{user_id}', key '{key}'.")
+                                    else:
+                                        logger.warning(f"MCP_POPULATE: Failed to generate/retrieve persistent embedding for user '{user_id}', key '{key}' (value: '{embedding_value_str[:50]}...').")
                         else:
-                            logger.warning(f"MCP_POPULATE: Failed to generate embedding for user '{user_id}', key '{key}' (value: '{embedding_value_str[:50]}...').")
+                            logger.info(f"MCP_POPULATE: Using IN-MEMORY embeddings for user '{user_id}' (persistent disabled)")
+                            # Fallback to in-memory embeddings only
+                            for key, embedding_value_str in parsed_observations:
+                                embedding = self.embedding_service.get_embedding(embedding_value_str)
+                                if embedding:
+                                    self.vector_store.add_embedding(user_id, key, embedding)
+                                    total_memories_embedded += 1
+                                    logger.debug(f"MCP_POPULATE: Successfully pre-populated in-memory embedding for user '{user_id}', key '{key}'.")
+                                else:
+                                    logger.warning(f"MCP_POPULATE: Failed to generate in-memory embedding for user '{user_id}', key '{key}' (value: '{embedding_value_str[:50]}...').")
+            
+            except AttributeError as ae: # Catch attribute errors specifically if they still occur
+                logger.error(f"MCP_POPULATE: AttributeError during pre-population: {ae}. This might indicate an unexpected object structure.", exc_info=True)
+            except Exception as e:
+                logger.error(f"MCP_POPULATE: An unexpected error occurred during the pre-population process: {e}", exc_info=True)
         
-        except AttributeError as ae: # Catch attribute errors specifically if they still occur
-            logger.error(f"MCP_POPULATE: AttributeError during pre-population: {ae}. This might indicate an unexpected object structure.", exc_info=True)
-        except Exception as e:
-            logger.error(f"MCP_POPULATE: An unexpected error occurred during the pre-population process: {e}", exc_info=True)
+        # Execute the population logic with or without app context
+        if app_context_manager is not None:
+            # Use the app context manager
+            with app_context_manager:
+                await populate_logic()
+        else:
+            # Execute without app context (will use in-memory embeddings only)
+            await populate_logic()
         
         logger.info(f"MCP_POPULATE: VectorStore pre-population via read_graph attempt complete. Processed: {total_memories_processed}, Embedded: {total_memories_embedded}.")
 
 _mcp_memory_server_instance: Optional[MCPMemoryServer] = None
 
-def get_mcp_memory_server() -> MCPMemoryServer:
+def get_mcp_memory_server(flask_app=None) -> MCPMemoryServer:
     """Returns a singleton instance of MCPMemoryServer."""
     global _mcp_memory_server_instance
     if _mcp_memory_server_instance is None:
         logger.info("Creating new MCPMemoryServer instance.")
-        _mcp_memory_server_instance = MCPMemoryServer()
+        _mcp_memory_server_instance = MCPMemoryServer(flask_app=flask_app)
     return _mcp_memory_server_instance

@@ -135,6 +135,44 @@ TASK_TEMPLATES = {
                 ]
             }
         ]
+    },
+    "product_variant_duplication": {
+        "name": "Product Variant Duplication: {product_name}",
+        "tasks": [
+            {
+                "content": "Get product id of the source product",
+                "subtasks": [
+                    "Search for the source product in Shopify",
+                    "Get the product id of the source product"
+                ]
+            },
+            {
+                "content": "Determine changes needed for the new variant",
+                "subtasks": [
+                    "Determine newTitle",
+                    "Determine whether to include Images",
+                    "newStatus will alwasys be DRAFT"
+                ]
+            },
+            {
+                "content": "Duplicate the product",
+                "subtasks": [
+                    "Note to use the Open Box creation tool ONLY if the product is an open box listing and not a variant or other kind of duplication task",
+                    "Use the Shopify API to duplicate the product using DuplicateProduct($productId:ID!,$newTitle:String!,$includeImages:Boolean,$newStatus:ProductStatus){productDuplicate(productId:$productId,newTitle:$newTitle,includeImages:$includeImages,newStatus:$newStatus){newProduct{id title vendor productType variants(first:1){nodes{id title}}}imageJob{id done}userErrors{field message}}}",
+                    "note the new product id",
+                    "Note the variant id of the first variant of the new product"
+                ]
+            },
+            {
+                "content": "Make the ncessary updates",
+                "subtasks": [
+                    "Update the price",
+                    "Update the SKU",
+                    "Update the Cost",
+                    "Update the Image if provided"
+                ]
+            }
+        ]
     }
 }
 

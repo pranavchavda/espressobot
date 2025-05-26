@@ -83,7 +83,12 @@ class MemoryService:
         logger.debug(f"MemoryService: final_value_as_string for key '{key}' (type: {type(final_value_as_string).__name__}) before sending to MCP: {final_value_as_string[:200]}")
         
         # Store in MCP memory server (which expects final_value_as_string to be a string)
-        mcp_server = get_mcp_memory_server()
+        # Try to pass current Flask app if available
+        try:
+            from flask import current_app
+            mcp_server = get_mcp_memory_server(flask_app=current_app)
+        except:
+            mcp_server = get_mcp_memory_server()
         mcp_result = await mcp_server.store_user_memory(str(user_id), key, final_value_as_string)
         
         # Directly return the result from MCP memory server call
@@ -106,7 +111,11 @@ class MemoryService:
         # Retrieve from MCP memory server
         # Note: mcp_memory.get_user_memory does not take a 'default' argument.
         # Default handling is managed below based on the success and value from mcp_result.
-        mcp_server = get_mcp_memory_server()
+        try:
+            from flask import current_app
+            mcp_server = get_mcp_memory_server(flask_app=current_app)
+        except:
+            mcp_server = get_mcp_memory_server()
         mcp_result = await mcp_server.get_user_memory(str(user_id), key)
         
         # The mcp_result should contain 'success', 'key', 'value', and optionally 'error' or 'message'.
@@ -149,7 +158,11 @@ class MemoryService:
             Dict with operation status and list of memory keys from the MCP memory server.
         """
         # List keys from MCP memory server
-        mcp_server = get_mcp_memory_server()
+        try:
+            from flask import current_app
+            mcp_server = get_mcp_memory_server(flask_app=current_app)
+        except:
+            mcp_server = get_mcp_memory_server()
         return await mcp_server.list_user_memories(str(user_id))
         
     @staticmethod
@@ -165,7 +178,11 @@ class MemoryService:
             Dict with operation status from the MCP memory server.
         """
         # Delete from MCP memory server
-        mcp_server = get_mcp_memory_server()
+        try:
+            from flask import current_app
+            mcp_server = get_mcp_memory_server(flask_app=current_app)
+        except:
+            mcp_server = get_mcp_memory_server()
         return await mcp_server.delete_user_memory(str(user_id), key)
     
     @staticmethod
@@ -183,7 +200,11 @@ class MemoryService:
         """
         logger.info(f"MemoryService: Proactively retrieving memories for user {user_id} based on query: '{query_text[:50]}...'" )
         try:
-            mcp_server = get_mcp_memory_server()
+            try:
+                from flask import current_app
+                mcp_server = get_mcp_memory_server(flask_app=current_app)
+            except:
+                mcp_server = get_mcp_memory_server()
             retrieved_contents = await mcp_server.proactively_retrieve_memories(str(user_id), query_text, top_n)
             logger.info(f"MemoryService: Retrieved {len(retrieved_contents)} memories proactively for user {user_id}.")
             return retrieved_contents

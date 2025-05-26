@@ -74,3 +74,38 @@ class UserMemory(db.Model):
     
     def __repr__(self):
         return f'<UserMemory {self.id} for User {self.user_id}: {self.key}>'
+
+
+class EmbeddingCache(db.Model):
+    """Model for caching embeddings to avoid regeneration on startup."""
+    __tablename__ = 'embedding_cache'
+    id = db.Column(db.Integer, primary_key=True)
+    text_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)  # SHA256 hash
+    text_content = db.Column(db.Text, nullable=False)  # Original text for debugging
+    embedding_data = db.Column(db.LargeBinary, nullable=False)  # Pickled embedding vector
+    model_name = db.Column(db.String(100), nullable=False)  # Model used to generate embedding
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    last_accessed = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<EmbeddingCache {self.text_hash[:8]}... model={self.model_name}>'
+
+
+class UserMemoryEmbedding(db.Model):
+    """Model linking user memories to their cached embeddings."""
+    __tablename__ = 'user_memory_embeddings'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    memory_key = db.Column(db.String(255), nullable=False)
+    embedding_cache_id = db.Column(db.Integer, db.ForeignKey('embedding_cache.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    user = db.relationship('User', backref=db.backref('memory_embeddings', lazy=True, cascade="all, delete-orphan"))
+    embedding_cache = db.relationship('EmbeddingCache', backref='user_memories')
+    
+    # Composite unique constraint
+    __table_args__ = (db.UniqueConstraint('user_id', 'memory_key', name='unique_user_memory_embedding'),)
+    
+    def __repr__(self):
+        return f'<UserMemoryEmbedding User {self.user_id}: {self.memory_key}>'
