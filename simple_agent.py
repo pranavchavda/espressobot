@@ -13,6 +13,9 @@ import re  # Import re for URL validation
 import traceback  # Import traceback for error handling
 import logging # Standard Python logger as a fallback
 
+# Set up logger for this module
+logger = logging.getLogger(__name__)
+
 # Import memory service
 from memory_service import memory_service
 from mcp_adapter import normalized_memory_call
@@ -21,7 +24,7 @@ from mcp_adapter import normalized_memory_call
 from skuvault_tools import upload_shopify_product_to_skuvault, batch_upload_to_skuvault
 
 # Import our custom MCP server implementations
-from mcp_server import shopify_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server
+from mcp_server import shopify_mcp_server, shopify_features_mcp_server, fetch_mcp_server, thinking_mcp_server, filesystem_mcp_server # NEW
 
 # Indicate that MCP is available through our custom implementation
 MCP_AVAILABLE = True
@@ -275,6 +278,69 @@ async def ask_perplexity(messages):
         return {"error": str(e)}
 
 
+# Shopify Feature Box MCP functions
+async def search_products(query):
+    """Search for products in the Shopify store"""
+    if not shopify_features_mcp_server:
+        return {"error": "Shopify Features MCP server not available"}
+    try:
+        print(f"[DEBUG] Calling shopify_features_mcp_server.search_products with query: {query}")
+        result = await shopify_features_mcp_server.search_products(query)
+        print(f"[DEBUG] search_products result type: {type(result)}")
+        return result
+    except Exception as e:
+        print(f"Error calling search_products: {e}")
+        return {"error": str(e)}
+
+
+async def get_product(product_id):
+    """Get product details and existing feature boxes"""
+    if not shopify_features_mcp_server:
+        return {"error": "Shopify Features MCP server not available"}
+    try:
+        print(f"[DEBUG] Calling shopify_features_mcp_server.get_product with ID: {product_id}")
+        result = await shopify_features_mcp_server.get_product(product_id)
+        print(f"[DEBUG] get_product result type: {type(result)}")
+        return result
+    except Exception as e:
+        print(f"Error calling get_product: {e}")
+        return {"error": str(e)}
+
+
+async def list_feature_boxes(product_id):
+    """List all feature boxes for a product"""
+    if not shopify_features_mcp_server:
+        return {"error": "Shopify Features MCP server not available"}
+    try:
+        print(f"[DEBUG] Calling shopify_features_mcp_server.list_feature_boxes for product ID: {product_id}")
+        result = await shopify_features_mcp_server.list_feature_boxes(product_id)
+        print(f"[DEBUG] list_feature_boxes result type: {type(result)}")
+        return result
+    except Exception as e:
+        print(f"Error calling list_feature_boxes: {e}")
+        return {"error": str(e)}
+
+
+async def create_feature_box(product_id, title, text, image_url, handle=None):
+    """Create a feature box for a Shopify product"""
+    if not shopify_features_mcp_server:
+        return {"error": "Shopify Features MCP server not available"}
+    try:
+        print(f"[DEBUG] Calling shopify_features_mcp_server.create_feature_box for product ID: {product_id}")
+        result = await shopify_features_mcp_server.create_feature_box(
+            product_id=product_id,
+            title=title,
+            text=text,
+            image_url=image_url,
+            handle=handle
+        )
+        print(f"[DEBUG] create_feature_box result type: {type(result)}")
+        return result
+    except Exception as e:
+        print(f"Error calling create_feature_box: {e}")
+        return {"error": str(e)}
+
+
 # Memory functions
 async def store_user_memory(user_id, key, value):
     """Store a memory for a specific user."""
@@ -384,41 +450,64 @@ async def fetch_json(url, options=None):
 
 
 # Sequential Thinking functions
-async def structured_thinking(prompt, thinking_type="general", max_steps=5):
-    """Perform structured step-by-step thinking on a prompt."""
+async def structured_thinking(prompt: str, thinking_type: str = "general", max_steps: int = 5):
+    """
+    Perform structured step-by-step thinking on a prompt using the Sequential Thinking MCP server.
+    
+    Args:
+        prompt: The prompt or question to think about
+        thinking_type: Type of thinking to apply ("general", "problem-solving", or "coding")
+        max_steps: Maximum number of thinking steps
+    """
     try:
-        if not prompt:
-            return {"success": False, "error": "Prompt is required"}
-
-        return await thinking_mcp_server.think(prompt, thinking_type,
-                                               max_steps)
+        if not prompt or not isinstance(prompt, str):
+            logger.error("'prompt' must be a non-empty string.")
+            return {"success": False, "error": "Invalid 'prompt'. Must be a non-empty string."}
+        
+        # Start the thinking process
+        current_step = 1
+        thinking_results = []
+        
+        # Initial thought
+        thought_arguments = {
+            "thought": f"I need to think about: {prompt}. Let me approach this using {thinking_type} thinking.",
+            "nextThoughtNeeded": True,
+            "thoughtNumber": current_step,
+            "totalThoughts": max_steps
+        }
+        
+        while current_step <= max_steps:
+            logger.info(f"Thinking step {current_step}: {thought_arguments['thought'][:100]}...")
+            
+            result = await thinking_mcp_server.submit_thought_step(thought_arguments)
+            thinking_results.append(result)
+            
+            # Check if we should continue thinking
+            if not thought_arguments.get("nextThoughtNeeded", False):
+                break
+                
+            current_step += 1
+            
+            # Prepare next thought based on previous result
+            if current_step <= max_steps:
+                thought_arguments = {
+                    "thought": f"Building on my previous thoughts, let me continue analyzing this {thinking_type} problem...",
+                    "nextThoughtNeeded": current_step < max_steps,
+                    "thoughtNumber": current_step,
+                    "totalThoughts": max_steps
+                }
+        
+        return {
+            "success": True, 
+            "thinking_steps": thinking_results,
+            "total_steps": current_step - 1,
+            "prompt": prompt,
+            "thinking_type": thinking_type
+        }
+        
     except Exception as e:
-        print(f"Error in structured thinking: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def solve_problem(problem, max_steps=5):
-    """Apply problem-solving thinking to a specific problem."""
-    try:
-        if not problem:
-            return {"success": False, "error": "Problem is required"}
-
-        return await thinking_mcp_server.solve_problem(problem, max_steps)
-    except Exception as e:
-        print(f"Error in problem solving: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def plan_code(coding_task, max_steps=5):
-    """Plan coding implementation with step-by-step thinking."""
-    try:
-        if not coding_task:
-            return {"success": False, "error": "Coding task is required"}
-
-        return await thinking_mcp_server.plan_code(coding_task, max_steps)
-    except Exception as e:
-        print(f"Error in code planning: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Error in structured_thinking function: {e}", exc_info=True)
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 # Filesystem functions
@@ -744,10 +833,8 @@ TOOLS = [
                         "Path to the file (can be relative to storage dir or absolute within allowed paths)"
                     },
                     "user_id": {
-                        "type":
-                        "integer",
-                        "description":
-                        "Optional user ID to scope file to user directory"
+                        "type": "integer",
+                        "description": "Optional user ID to scope file to user directory"
                     },
                     "encoding": {
                         "type": "string",
@@ -881,8 +968,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "structured_thinking",
-            "description":
-            "Perform structured step-by-step thinking on a prompt, breaking down reasoning into clear steps with a conclusion.",
+            "description": (
+                "Perform structured step-by-step thinking on a prompt. "
+                "Specify 'thinking_type' as 'general', 'problem-solving', or 'coding' for different reasoning modes."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -901,52 +990,6 @@ TOOLS = [
                     }
                 },
                 "required": ["prompt"]
-            }
-        }
-    },
-    {
-        "name": "solve_problem",
-        "type": "function",
-        "function": {
-            "name": "solve_problem",
-            "description":
-            "Apply structured problem-solving thinking to reach a solution or conclusion about a specific problem.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "problem": {
-                        "type": "string",
-                        "description": "The problem to solve"
-                    },
-                    "max_steps": {
-                        "type": "integer",
-                        "description": "Maximum number of thinking steps"
-                    }
-                },
-                "required": ["problem"]
-            }
-        }
-    },
-    {
-        "name": "plan_code",
-        "type": "function",
-        "function": {
-            "name": "plan_code",
-            "description":
-            "Create a step-by-step plan for implementing code, breaking down the approach before writing actual code.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "coding_task": {
-                        "type": "string",
-                        "description": "The coding task to plan"
-                    },
-                    "max_steps": {
-                        "type": "integer",
-                        "description": "Maximum number of planning steps"
-                    }
-                },
-                "required": ["coding_task"]
             }
         }
     },
@@ -1015,8 +1058,10 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "user_id": {
-                        "type": "string",
-                        "description": "The user's ID"
+                        "type":
+                        "string",
+                        "description":
+                        "The user's ID"
                     },
                     "key": {
                         "type":
@@ -1182,7 +1227,7 @@ TOOLS = [
         "function": {
             "name": "get_product_copy_guidelines",
             "description":
-            "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown.",
+            "Return the latest product copywriting and metafield guidelines for iDrinkCoffee.com as Markdown. Always pull this up when asked to create a product.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -1611,6 +1656,95 @@ TOOLS = [
                 "required": ["binary_data", "filename"]
             }
         }
+    },
+    # Shopify Feature Box tools
+    {
+        "name": "search_products",
+        "type": "function",
+        "function": {
+            "name": "search_products",
+            "description": "Search for products in the Shopify store",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query for products"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "name": "get_product",
+        "type": "function",
+        "function": {
+            "name": "get_product",
+            "description": "Get product details and existing feature boxes",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Shopify product ID"
+                    }
+                },
+                "required": ["product_id"]
+            }
+        }
+    },
+    {
+        "name": "list_feature_boxes",
+        "type": "function",
+        "function": {
+            "name": "list_feature_boxes",
+            "description": "List all feature boxes for a product",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Shopify product ID"
+                    }
+                },
+                "required": ["product_id"]
+            }
+        }
+    },
+    {
+        "name": "create_feature_box",
+        "type": "function",
+        "function": {
+            "name": "create_feature_box",
+            "description": "Create a feature box for a Shopify product",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "string",
+                        "description": "Shopify product ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Feature title"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Feature description"
+                    },
+                    "image_url": {
+                        "type": "string",
+                        "description": "URL of the feature image"
+                    },
+                    "handle": {
+                        "type": "string",
+                        "description": "Optional custom handle"
+                    }
+                },
+                "required": ["product_id", "title", "text", "image_url"]
+            }
+        }
     }
 ]
 
@@ -1668,6 +1802,18 @@ FUNDAMENTAL PRINCIPLES
    You are encouraged to use this feature to explain your reasoning and thought process to yourself, and to plan your next steps. Use this feature liberally. 
    It will be removed from the final response to the user, it will only be logged for OpenAI to evaluate your performance.
    Responses that begin without <THINKING> and </THINKING> tags will be be partially penalized in the next training iteration. This doesn't apply to O series reasoning models.
+
+1a. Sequential Thinking Tool (MANDATORY FIRST STEP):
+   Before taking ANY action on a user request, you MUST use the 'structured_thinking' function to develop a comprehensive plan.
+   This tool helps you think through problems step-by-step in a structured way. 
+   
+   IMPORTANT: You must call this tool for EVERY user request, no exceptions. Call it with arguments like:
+   - prompt: "Analyze what the user is asking for and create a plan"
+   - thinking_type: "problem-solving" (or "general" or "coding")
+   - max_steps: 5 (optional, defaults to 5)
+   
+   The tool will automatically handle the step-by-step thinking process and return when complete.
+   Only after completing your sequential thinking process should you proceed with actual actions.
 
 2. Problem Solving:
    You MUST iterate and keep going until the problem is solved.You already have everything you need to solve any Shopify related problem.
@@ -1828,13 +1974,12 @@ Good uses for fetch:
 
 ## SEQUENTIAL THINKING SYSTEM
 
-You have access to structured thinking tools that enhance your reasoning process:
+You have access to the `structured_thinking` tool, which performs step-by-step reasoning for any prompt. Use the `thinking_type` argument to specify the reasoning mode:
+- `general` for open-ended reasoning
+- `problem-solving` for complex issues
+- `coding` for planning code implementation
 
-1. `structured_thinking` - General step-by-step reasoning about any prompt
-2. `solve_problem` - Specialized problem-solving approach for complex issues
-3. `plan_code` - Structured planning for code implementation tasks
-
-These thinking tools formalize your reasoning process and provide:
+This tool formalizes your reasoning process and provides:
 - Clear, numbered steps in your reasoning
 - Consistent problem-solving framework
 - Better organization of complex thoughts
@@ -1943,8 +2088,7 @@ END OF SYSTEM PROMPT
         "perplexity_ask": ask_perplexity,
         "upload_to_skuvault": upload_to_skuvault,
         "upload_batch_to_skuvault": upload_batch_to_skuvault,
-        "execute_python_code":
-        execute_code,  # Correctly reference the async function to be awaited
+        "execute_python_code": execute_code,
         "create_open_box_listing_single": create_open_box_listing_single,
         "store_user_memory": store_user_memory,
         "retrieve_user_memory": retrieve_user_memory,
@@ -1953,8 +2097,6 @@ END OF SYSTEM PROMPT
         "fetch_and_extract_text": fetch_and_extract_text,
         "fetch_json": fetch_json,
         "structured_thinking": structured_thinking,
-        "solve_problem": solve_problem,
-        "plan_code": plan_code,
         "read_file": read_file,
         "write_file": write_file,
         "list_directory": list_directory,
@@ -1967,13 +2109,20 @@ END OF SYSTEM PROMPT
         "google_tasks_complete_task": google_tasks_complete_task,
         "google_tasks_delete_task": google_tasks_delete_task,
         "export_file": export_file,
-        "export_binary_file": export_binary_file
+        "export_binary_file": export_binary_file,
+        "search_products": search_products,
+        "get_product": get_product,
+        "list_feature_boxes": list_feature_boxes,
+        "create_feature_box": create_feature_box
     }
 
     try:
         while step_count < max_steps:
             step_count += 1
             print(f"Running agent step {step_count}")
+
+            # Debug conversation history before API call
+            debug_conversation_history(formatted_messages, step_count)
 
             # Select appropriate model based on content type
             selected_model = model_override
@@ -2023,7 +2172,7 @@ END OF SYSTEM PROMPT
                                     tool_calls_buffer.append({
                                         'id':
                                         tool_call.id if hasattr(
-                                            tool_call, 'id') else None,
+                                            tool_call, 'id') and tool_call.id else None,
                                         'type':
                                         'function',
                                         'function': {
@@ -2031,6 +2180,11 @@ END OF SYSTEM PROMPT
                                             'arguments': ''
                                         }
                                     })
+
+                                # Update the tool call id if it wasn't set before and we now have it
+                                if (hasattr(tool_call, 'id') and tool_call.id and 
+                                    tool_calls_buffer[tool_call.index]['id'] is None):
+                                    tool_calls_buffer[tool_call.index]['id'] = tool_call.id
 
                                 if hasattr(tool_call, 'function'):
                                     if hasattr(tool_call.function, 'name'
@@ -2053,7 +2207,6 @@ END OF SYSTEM PROMPT
                                         tool_calls_buffer[
                                             tool_call.index]['function'][
                                                 'arguments'] = current_args + tool_call.function.arguments
-
                     # Define a response_message for the streaming case to avoid the variable reference error
                     response_message = type(
                         'obj', (object, ), {
@@ -2119,11 +2272,29 @@ END OF SYSTEM PROMPT
                                             'role':
                                             'tool',
                                             'tool_call_id':
-                                            tool_call.get('id', ''),
+                                            tool_call['id'] or 'unknown',  # Use the stored ID from the buffer
                                             'name':
                                             fn_name,
                                             'content':
                                             json.dumps(tool_result)
+                                        })
+
+                                    else:
+                                        # Tool function not found
+                                        error_msg = f"Tool {fn_name} not found"
+                                        print(error_msg)
+                                        yield {'type': 'error', 'message': error_msg}
+                                        
+                                        # Add tool result to messages for unknown tool
+                                        formatted_messages.append({
+                                            'role':
+                                            'tool',
+                                            'tool_call_id':
+                                            tool_call['id'] or 'unknown',
+                                            'name':
+                                            fn_name,
+                                            'content':
+                                            f"Error: Tool {fn_name} not found"
                                         })
 
                                 except Exception as e:
@@ -2141,7 +2312,7 @@ END OF SYSTEM PROMPT
                                             'role':
                                             'tool',
                                             'tool_call_id':
-                                            tool_call.get('id', ''),
+                                            tool_call['id'] or 'unknown',  # Use the stored ID from the buffer
                                             'name':
                                             fn_name,
                                             'content':
@@ -2150,7 +2321,7 @@ END OF SYSTEM PROMPT
 
                 else:
                     # Non-streaming mode
-                    response = client.chat.completions.create(
+                    response = await client.chat.completions.create(
                         model=selected_model,
                         messages=formatted_messages,
                         tools=TOOLS,
@@ -2290,6 +2461,29 @@ END OF SYSTEM PROMPT
 
 from typing import List, Dict
 
+
+def debug_conversation_history(formatted_messages, step_count):
+    """Debug helper to print conversation history"""
+    print(f"\n=== CONVERSATION HISTORY DEBUG (Step {step_count}) ===")
+    for i, msg in enumerate(formatted_messages):
+        role = msg.get('role', 'unknown')
+        content = msg.get('content', '')
+        tool_calls = msg.get('tool_calls', [])
+        tool_call_id = msg.get('tool_call_id', '')
+        
+        print(f"Message {i}: role={role}")
+        if content:
+            print(f"  content: {content[:100]}{'...' if len(content) > 100 else ''}")
+        if tool_calls:
+            print(f"  tool_calls: {len(tool_calls)} calls")
+            for j, tc in enumerate(tool_calls):
+                if isinstance(tc, dict):
+                    print(f"    {j}: id={tc.get('id', 'NO_ID')}, name={tc.get('function', {}).get('name', 'NO_NAME')}")
+                else:
+                    print(f"    {j}: id={getattr(tc, 'id', 'NO_ID')}, name={getattr(tc.function, 'name', 'NO_NAME')}")
+        if tool_call_id:
+            print(f"  tool_call_id: {tool_call_id}")
+    print("=== END CONVERSATION HISTORY DEBUG ===\n")
 
 
 async def _generate_suggestions_async(conversation_history: List[Dict[str,

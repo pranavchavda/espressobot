@@ -261,7 +261,7 @@ These metafields extend the product data model. Each metafield is defined by a `
   - `featruresjson` in `content` (typo)
   - `featuresjson` in `content`
 - **Type:** JSON (stringified)
-- Schema: `{ key, namespace, value }` where `value` is a JSON string, e.g. `[{"title": "Feature 1", "description": "Desc", "icon": "url"}]`
+- Schema: `{ key, namespace, value }` where `value` is a JSON string, e.g. `{"features":[{"copy": "Feature 1"}]}`
 - **Purpose:** List of product features, shown in feature boxes.
 
 #### 7. **Buy Box Content**
@@ -273,7 +273,7 @@ These metafields extend the product data model. Each metafield is defined by a `
 #### 8. **FAQs**
 - Key/Namespace: `content` in `faq`
 - **Type:** String (HTML, Markdown, or JSON)
-- Schema: `{ key, namespace, value }`
+- Schema: `{ key, namespace, value }` where `value` is a JSON string, e.g. `{"faqs":[{"question": "Question 1", "answer": "Answer 1"}]} `
 - **Purpose:** Frequently asked questions for the product.
 
 #### 9. **Video**
