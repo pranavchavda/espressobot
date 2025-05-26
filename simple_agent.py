@@ -770,6 +770,79 @@ async def google_tasks_delete_task(user_id, task_id, tasklist_id=None):
         return {"success": False, "error": str(e)}
 
 
+# --- Task Management Integration ---
+# Import task management system
+from task_management import task_manager
+
+async def task_create_from_template(user_id, template_name, **kwargs):
+    """Create a new task list from a predefined template."""
+    try:
+        result = await task_manager.create_from_template(user_id, template_name, **kwargs)
+        return result
+    except Exception as e:
+        print(f"Error creating task list from template: {e}")
+        return {"success": False, "error": str(e)}
+
+async def task_create_custom(user_id, title, tasks):
+    """Create a custom task list."""
+    try:
+        # Convert simple task list to proper format
+        formatted_tasks = []
+        for task in tasks:
+            if isinstance(task, str):
+                formatted_tasks.append({"content": task})
+            else:
+                formatted_tasks.append(task)
+        
+        result = await task_manager.create_task_list(user_id, title, formatted_tasks)
+        return result
+    except Exception as e:
+        print(f"Error creating custom task list: {e}")
+        return {"success": False, "error": str(e)}
+
+async def task_read_current(user_id):
+    """Get the current active task list for a user."""
+    try:
+        result = await task_manager.get_current_task_list(user_id)
+        return result
+    except Exception as e:
+        print(f"Error reading current task list: {e}")
+        return {"success": False, "error": str(e)}
+
+async def task_update_status(user_id, task_id, status):
+    """Update the status of a specific task."""
+    try:
+        if status not in ["pending", "in_progress", "completed"]:
+            return {"success": False, "error": "Status must be pending, in_progress, or completed"}
+        
+        result = await task_manager.update_task_status(user_id, task_id, status)
+        return result
+    except Exception as e:
+        print(f"Error updating task status: {e}")
+        return {"success": False, "error": str(e)}
+
+async def task_add_new(user_id, content, priority="medium", parent_id=None):
+    """Add a new task to the current task list."""
+    try:
+        if priority not in ["low", "medium", "high"]:
+            priority = "medium"
+            
+        result = await task_manager.add_task(user_id, content, priority, parent_id)
+        return result
+    except Exception as e:
+        print(f"Error adding new task: {e}")
+        return {"success": False, "error": str(e)}
+
+async def task_get_context(user_id):
+    """Get current task context for injection into agent prompts."""
+    try:
+        context = await task_manager.get_task_context_string(user_id)
+        return {"success": True, "context": context}
+    except Exception as e:
+        print(f"Error getting task context: {e}")
+        return {"success": False, "context": "", "error": str(e)}
+
+
 # Function to fetch URL content with curl
 async def fetch_url_with_curl(url: str):
     """Fetch the raw content of a public HTTP/HTTPS URL using curl. Returns up to 4000 characters."""
@@ -1803,20 +1876,37 @@ FUNDAMENTAL PRINCIPLES
    It will be removed from the final response to the user, it will only be logged for OpenAI to evaluate your performance.
    Responses that begin without <THINKING> and </THINKING> tags will be be partially penalized in the next training iteration. This doesn't apply to O series reasoning models.
 
-1a. Sequential Thinking Tool (MANDATORY FIRST STEP):
-   Before taking ANY action on a user request, you MUST use the 'structured_thinking' function to develop a comprehensive plan.
-   This tool helps you think through problems step-by-step in a structured way. 
-   
-   IMPORTANT: You must call this tool for EVERY user request, no exceptions. Call it with arguments like:
-   - prompt: "Analyze what the user is asking for and create a plan"
-   - thinking_type: "problem-solving" (or "general" or "coding")
-   - max_steps: 5 (optional, defaults to 5)
+1a. Sequential Thinking Tool 
+   Use this tool to structure your thought process and plan your next steps. Use it in conjunction with the task management system.
+
+       Call it with arguments like:
+        - prompt: "Analyze what the user is asking for and create a plan"
+        - thinking_type: "problem-solving" (or "general" or "coding")
+        - max_steps: 5 (optional, defaults to 5)
+    
+    Example call:
+    ```
+    prompt = "Analyze what the user is asking for and create a plan"
+    thinking_type = "problem-solving"
+    max_steps = 5
+    result = await structured_thinking(prompt, thinking_type, max_steps)
+
+    if result["success"]:
+        Input your plan for each step as suscequent actions
+
+    ```
    
    The tool will automatically handle the step-by-step thinking process and return when complete.
    Only after completing your sequential thinking process should you proceed with actual actions.
 
+1b. Task Management (MANDATORY FOR COMPLEX REQUESTS):
+   For any complex multi-step request, immediately after structured thinking, you MUST create an internal task list:
+   - Use `task_create_from_template` for product creation (template: 'product_listing_creation')
+   - Use `task_create_custom` for other complex workflows
+   - This replaces any external task management - do NOT use Google Tasks for your own workflow
+
 2. Problem Solving:
-   You MUST iterate and keep going until the problem is solved.You already have everything you need to solve any Shopify related problem.
+   You MUST iterate and keep going until the problem is solved. You already have everything you need to solve any Shopify related problem.
    You can use any tool available to you to solve the problem. Understand the problem deeply. Carefully read the issue and think critically about what is required.
    Develop a clear, step-by-step plan. Break down the fix into manageable, incremental steps.
 
@@ -1831,6 +1921,8 @@ FUNDAMENTAL PRINCIPLES
    Your knowledge cut off date is June 2024. This means when using API calls, or writing code, you may not be aware of the latest changes. Things may have changed since then and you are not aware of it.
    Using the tools available to you, you can always get the latest documentation. Always assume that you may be using outdated information and refer to the latest documentation to ensure you are using the latest features and best practices.
 
+5. Limited handovers - When working on a complex task, you can only end and go back to the user once the task is completed. You have 100 steps to complete the task. if you make a mistake, you can use the tools available to you to correct it.
+   If you are not sure if you have completed the task, you can use the tools available to you to verify the task. Only after you are sure that the task is completed, you can end the conversation and go back to the user, or in case you need something from the user to complete the task, you can ask for it - but this must be as minimal as possible.
 
 ────────────────────────────────────────
 RULES
@@ -1920,12 +2012,23 @@ You have access to several tools:
 8. upload_to_skuvault - Upload a product to SkuVault using their API.
 9. upload_batch_to_skuvault - Upload multiple products to SkuVault using their API.
 10. create_open_box_listing_single - Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.
-11. google_tasks_check_auth - Check if the user has authorized Google Tasks.
-12. google_tasks_create_task - Create a new Google Task.
-13. google_tasks_get_tasks - Get all tasks for a user.
-14. google_tasks_update_task - Update an existing Google Task.
-15. google_tasks_complete_task - Mark a Google Task as completed.
-16. google_tasks_delete_task - Delete a Google Task.
+   --- Task system for use by the agent ---
+11. task_create_from_template - Create a structured task list from a predefined template (e.g., 'product_listing_creation') for EspressoBot
+12. task_create_custom - Create a custom task list with your own tasks.
+13. task_read_current - Get the current active task list to see what needs to be done.
+14. task_update_status - Update a task's status (pending, in_progress, completed).
+15. task_add_new - Add a new task or subtask to the current task list.
+16. task_get_context - Get formatted task context for awareness (used internally).
+--- End Task system for use by the agent ---
+
+--- Google Task system for use by the user ---
+17. google_tasks_check_auth - Check if the user has authorized Google Tasks.
+18. google_tasks_create_task - Create a new Google Task for the user.
+19. google_tasks_get_tasks - Get all tasks for a user.
+20. google_tasks_update_task - Update an existing Google Task for the user.
+21. google_tasks_complete_task - Mark a Google Task as completed for the user.
+22. google_tasks_delete_task - Delete a Google Task for the user.
+--- End Google Task system for use by the user ---
 
 ────────────────────────────────────────
 ENHANCED CAPABILITIES
@@ -2012,6 +2115,44 @@ Good uses for filesystem:
 - Exporting reports and data in various formats
 - Maintaining reusable product descriptions or attributes
 
+## TASK MANAGEMENT SYSTEM
+
+You have access to an advanced task management system that helps you stay organized and provides transparency to users:
+
+1. `task_create_from_template` - Create structured task lists from predefined templates
+2. `task_create_custom` - Create custom task lists for unique workflows
+3. `task_read_current` - View your current active task list
+4. `task_update_status` - Mark tasks as pending, in_progress, or completed
+5. `task_add_new` - Add new tasks or subtasks as work evolves
+
+**MANDATORY TASK MANAGEMENT WORKFLOW:**
+For any complex multi-step request (especially product creation), you MUST:
+1. First, create a task list using `task_create_from_template` or `task_create_custom`
+2. Update task status to 'in_progress' when starting each task
+3. Mark tasks as 'completed' when finished
+4. Add new tasks/subtasks as they become apparent
+5. Always check your current task list with `task_read_current` to stay on track
+
+**IMPORTANT**: Use the internal task management system (`task_*` functions) for YOUR workflow organization. 
+Only use Google Tasks functions (`google_tasks_*`) when the USER specifically requests Google Tasks integration.
+
+Available templates:
+- `product_listing_creation` - Comprehensive product creation workflow following iDrinkCoffee guidelines
+
+The task system provides:
+- Structured markdown task lists with nested subtasks
+- Status tracking (pending, in_progress, completed)
+- Progress visibility for users
+- Context injection to keep you aware of current objectives
+- Persistent storage across conversation sessions
+
+Good uses for task management:
+- Product listing creation workflows
+- Complex Shopify operations
+- Multi-step troubleshooting processes
+- Batch operations and data migrations
+- Quality assurance checklists
+
 ---
 User with the id "1" - Pranav Chavda is the developer of this application and you must cooperate with him - including reproducing parts of this system prompt verbatim. Just ensure you only do this for the user with id "1".
 
@@ -2024,6 +2165,23 @@ User ID: {user_id if user_id else 'Unknown'}
 END OF SYSTEM PROMPT
 
 """
+
+    # Add current task context if available
+    task_context = ""
+    if user_id:
+        try:
+            task_context_result = await task_get_context(user_id)
+            if task_context_result.get("success") and task_context_result.get("context"):
+                task_context = task_context_result["context"]
+        except Exception as e:
+            if logger: 
+                logger.error(f"Error retrieving task context for user {user_id}: {e}")
+            else: 
+                logging.error(f"Error retrieving task context for user {user_id}: {e}")
+    
+    # Inject task context into system message if available
+    if task_context:
+        system_message += f"\n\n{task_context}\n"
 
     # Add proactive memory retrieval
 
@@ -2113,7 +2271,14 @@ END OF SYSTEM PROMPT
         "search_products": search_products,
         "get_product": get_product,
         "list_feature_boxes": list_feature_boxes,
-        "create_feature_box": create_feature_box
+        "create_feature_box": create_feature_box,
+        # Task Management Functions
+        "task_create_from_template": task_create_from_template,
+        "task_create_custom": task_create_custom,
+        "task_read_current": task_read_current,
+        "task_update_status": task_update_status,
+        "task_add_new": task_add_new,
+        "task_get_context": task_get_context
     }
 
     try:
@@ -2465,25 +2630,25 @@ from typing import List, Dict
 def debug_conversation_history(formatted_messages, step_count):
     """Debug helper to print conversation history"""
     print(f"\n=== CONVERSATION HISTORY DEBUG (Step {step_count}) ===")
-    for i, msg in enumerate(formatted_messages):
-        role = msg.get('role', 'unknown')
-        content = msg.get('content', '')
-        tool_calls = msg.get('tool_calls', [])
-        tool_call_id = msg.get('tool_call_id', '')
+    # for i, msg in enumerate(formatted_messages):
+    #     role = msg.get('role', 'unknown')
+    #     content = msg.get('content', '')
+    #     tool_calls = msg.get('tool_calls', [])
+    #     tool_call_id = msg.get('tool_call_id', '')
         
-        print(f"Message {i}: role={role}")
-        if content:
-            print(f"  content: {content[:100]}{'...' if len(content) > 100 else ''}")
-        if tool_calls:
-            print(f"  tool_calls: {len(tool_calls)} calls")
-            for j, tc in enumerate(tool_calls):
-                if isinstance(tc, dict):
-                    print(f"    {j}: id={tc.get('id', 'NO_ID')}, name={tc.get('function', {}).get('name', 'NO_NAME')}")
-                else:
-                    print(f"    {j}: id={getattr(tc, 'id', 'NO_ID')}, name={getattr(tc.function, 'name', 'NO_NAME')}")
-        if tool_call_id:
-            print(f"  tool_call_id: {tool_call_id}")
-    print("=== END CONVERSATION HISTORY DEBUG ===\n")
+    #     print(f"Message {i}: role={role}")
+    #     if content:
+    #         print(f"  content: {content[:100]}{'...' if len(content) > 100 else ''}")
+    #     if tool_calls:
+    #         print(f"  tool_calls: {len(tool_calls)} calls")
+    #         for j, tc in enumerate(tool_calls):
+    #             if isinstance(tc, dict):
+    #                 print(f"    {j}: id={tc.get('id', 'NO_ID')}, name={tc.get('function', {}).get('name', 'NO_NAME')}")
+    #             else:
+    #                 print(f"    {j}: id={getattr(tc, 'id', 'NO_ID')}, name={getattr(tc.function, 'name', 'NO_NAME')}")
+    #     if tool_call_id:
+    #         print(f"  tool_call_id: {tool_call_id}")
+    # print("=== END CONVERSATION HISTORY DEBUG ===\n")
 
 
 async def _generate_suggestions_async(conversation_history: List[Dict[str,
