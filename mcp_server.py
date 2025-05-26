@@ -29,7 +29,7 @@ from datetime import timedelta
 from agents.mcp.server import MCPServerStdio
 from mcp.client.session import ClientSession as MCPClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-# # Note: mcp.client.stdio is imported within FetchMCPServer and SequentialThinkingMCPServer where needed
+# # Note: mcp.client.stdio is imported within FetchMCPServer where needed
 
 # Tool-specific or Fallback imports
 import httpx 
@@ -725,102 +725,6 @@ except ImportError:
 fetch_mcp_server = FetchMCPServer()
 
 
-# --- SequentialThinkingMCPServer ---
-# --- SequentialThinkingMCPServer ---
-try:
-    # This part requires mcp.client to be available
-    from mcp.client.stdio import StdioServerParameters, stdio_client
-except ImportError as e:
-    logger.error("mcp.client.stdio or mcp.client.session not found for SequentialThinking. MCP-native sequential thinking is required.")
-    raise ImportError("MCP client libraries are required for SequentialThinkingMCPServer. No fallback is available.") from e
-
-class SequentialThinkingMCPServer:
-    """
-    A class to handle communication with the @modelcontextprotocol/server-sequential-thinking MCP server.
-    It submits one thought step at a time.
-    """
-    def __init__(self):
-
-        self.logger = logging.getLogger(__name__ + ".SequentialThinkingMCPServer") 
-
-        if "XDG_CONFIG_HOME" not in os.environ: # Important for npx/npm global tools
-            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
-               
-        self.params = {
-            "command": "npx", 
-            "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@latest"],
-            "env": os.environ.copy()
-        }
-        self.cache = True # Consistent with other server configurations in your file
-        self.mcp_tool_name = "sequentialthinking" # Based on the MCP server's README
-        self.logger.info(f"SequentialThinkingMCPServer initialized to use MCP tool: '{self.mcp_tool_name}'")
-           
-    async def submit_thought_step(self, thought_arguments: dict):
-        """
-        Submits a single thought step to the Sequential Thinking MCP server.
-        'thought_arguments' should be a dictionary matching the tool's input schema.
-        e.g., {
-            "thought": "current thought", 
-            "nextThoughtNeeded": True, 
-            "thoughtNumber": 1, 
-            "totalThoughts": 5,
-            # ... other optional args from the tool's schema
-        }
-        """
-        self.logger.debug(f"SequentialThinkingMCPServer: Submitting thought: {thought_arguments.get('thought', '')[:100]}...")
-           
-        try:
-            async with MCPServerStdio(
-                params=self.params, 
-                cache_tools_list=self.cache,
-                client_session_timeout_seconds=60.0 
-            ) as server:
-                # First, let's check what tools are available
-                try:
-                    available_tools = await server.list_tools()
-                    self.logger.info(f"Available tools from sequential-thinking server: {[tool.name for tool in available_tools]}")
-                except Exception as e:
-                    self.logger.warning(f"Could not list tools: {e}")
-                
-                self.logger.debug(f"Calling MCP tool '{self.mcp_tool_name}' with args: {json.dumps(thought_arguments, indent=2)}")
-                   
-                raw_result = await server.call_tool(
-                    self.mcp_tool_name, thought_arguments
-                )
-                   
-                self.logger.debug(f"Raw result from MCP tool '{self.mcp_tool_name}': {raw_result}")
-
-                # Process the result
-                # The structure of raw_result depends on the mcp.client library and the server's response.
-                # This is a generic way to handle it; you might need to adapt it.
-                if isinstance(raw_result, dict): # If it's already a dictionary
-                    return raw_result
-                elif hasattr(raw_result, 'meta') and hasattr(raw_result, 'content'):
-                    # Attempt to construct a JSON-like response if it has common MCP attributes
-                    response_content = []
-                    if isinstance(raw_result.content, list):
-                        for item in raw_result.content:
-                            if hasattr(item, 'text'):
-                                response_content.append(item.text)
-                            else:
-                                response_content.append(str(item)) # Fallback
-                       
-                    return {
-                        "success": True, # Assuming success if we got this far
-                        "data_from_tool_content": " ".join(response_content),
-                        "meta": raw_result.meta
-                    }
-                else:
-                    # Fallback if the structure is unexpected
-                    self.logger.warning(f"Unexpected result structure from MCP tool '{self.mcp_tool_name}': {type(raw_result)}. Content: {str(raw_result)}")
-                    return {"success": False, "error": "Unexpected result structure from MCP tool.", "details": str(raw_result)}
-
-        except ImportError as ie:
-            self.logger.error(f"ImportError in SequentialThinkingMCPServer: {ie}. Ensure MCP client libraries are installed correctly.", exc_info=True)
-            return {"success": False, "error": f"ImportError: {ie}", "traceback": traceback.format_exc()}
-        except Exception as e:
-            self.logger.error(f"Error in submit_thought_step calling MCP tool '{self.mcp_tool_name}': {e}", exc_info=True)
-            return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 
@@ -981,12 +885,10 @@ class FilesystemMCPServer:
 
 filesystem_mcp_server = FilesystemMCPServer()
 
-thinking_mcp_server = SequentialThinkingMCPServer()
 
 # All server instances are now created:
 # shopify_mcp_server
-# perplexity_mcp_server
+# perplexity_mcp_server  
 # memory_mcp_server (imported instance)
 # fetch_mcp_server
-# # thinking_mcp_server
 # filesystem_mcp_server

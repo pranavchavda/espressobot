@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 
 # Reuse helpers and client from simple_agent
 from simple_agent import (
-    client,
+    get_openai_client,
     execute_shopify_query,
     execute_shopify_mutation,
     introspect_admin_schema,
@@ -180,7 +180,9 @@ You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date
     final_output = ""
     while step_count < max_steps:
         step_count += 1
-        response = client.responses.create(
+        import openai
+        sync_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+        response = sync_client.responses.create(
             model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
             input=input_items,
             instructions=system_message,
@@ -290,7 +292,8 @@ You are a helpful Shopify assistant for the shop: iDrinkCoffee.com. Current date
     try:
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
-        suggestion_response = client.chat.completions.create(
+        client = get_openai_client()
+        suggestion_response = await client.chat.completions.create(
             model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that generates 3 brief follow-up suggestions based on the conversation context. Keep suggestions short (2-5 words) and relevant. The Suggestions should be from the user's perspective as a reply to the AI's message. Particularly, if the AI asks a Yes/No question, make sure a direct response is included. if a plausible answer is 'ok', or 'go ahead', or 'proceed' and so on, include that for sure."},

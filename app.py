@@ -34,7 +34,8 @@ import uvicorn
 import os
 import json
 import asyncio
-from simple_agent import run_simple_agent, client as openai_client
+from simple_agent import run_simple_agent
+import openai
 from responses_agent import run_responses_agent
 from dotenv import load_dotenv
 from flask_login import login_user, logout_user, current_user, login_required
@@ -238,7 +239,7 @@ def check_db_connection():
 
 
 # Initialize streaming endpoints
-# openai_client is imported from simple_agent earlier in the file
+openai_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 stream_bp = create_stream_blueprint(
     app, openai_client)  # Pass app and openai_client
 app.register_blueprint(stream_bp)  # Register the blueprint
@@ -261,8 +262,9 @@ def chat():
         db.commit()
         # Generate a title for the new conversation
         try:
+            openai_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
             title_resp = openai_client.chat.completions.create(
-                model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
+                model='gpt-4.1-nano',
                 messages=[{
                     'role':
                     'system',
@@ -456,8 +458,9 @@ def chat_responses():
         db.commit()
         # Generate a title for the new conversation (reuse chat for title)
         try:
+            openai_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
             title_resp = openai_client.chat.completions.create(
-                model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
+                model='gpt-4.1-nano',
                 messages=[{
                     'role':
                     'system',
@@ -539,6 +542,26 @@ def chat_responses():
         }), 500
     finally:
         loop.close()
+
+@app.route('/api/interrupt', methods=['POST'])
+@login_required
+def interrupt_agent():
+    """Interrupt an ongoing agent task."""
+    try:
+        data = request.get_json()
+        conv_id = data.get('conv_id')
+        
+        # For now, we just acknowledge the interrupt
+        # The actual interruption happens client-side by canceling the reader
+        return jsonify({
+            'success': True,
+            'message': 'Interrupt signal sent'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/typeahead_suggestions', methods=['POST'])
 @login_required # Ensures only authenticated users can get suggestions

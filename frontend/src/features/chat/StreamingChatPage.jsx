@@ -4,6 +4,7 @@ import { Button } from "@common/button";
 import { format } from "date-fns";
 import { Loader2, Send, ImageIcon, X } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
+import { TaskProgress } from "@components/chat/TaskProgress";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
@@ -32,11 +33,13 @@ function StreamingChatPage({ convId, refreshConversations }) {
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessage] = useState(null);
   const [toolCallStatus, setToolCallStatus] = useState("");
+  const [currentTasks, setCurrentTasks] = useState([]);
   const [imageAttachment, setImageAttachment] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
+  const readerRef = useRef(null);
   const inputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -87,11 +90,42 @@ function StreamingChatPage({ convId, refreshConversations }) {
     }
   };
 
+  // Interrupt function to stop ongoing agent tasks
+  const handleInterrupt = async () => {
+    if (readerRef.current) {
+      try {
+        await readerRef.current.cancel();
+        readerRef.current = null;
+      } catch (error) {
+        console.log("Reader already closed");
+      }
+    }
+    
+    setIsSending(false);
+    setStreamingMessage(null);
+    setCurrentTasks([]);
+    setToolCallStatus("");
+    
+    // Optionally send an interrupt signal to the backend
+    try {
+      await fetch('/api/interrupt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conv_id: activeConv })
+      });
+    } catch (error) {
+      console.log("Failed to send interrupt signal:", error);
+    }
+  };
+
   // Clean up event source on unmount
   useEffect(() => {
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+      }
+      if (readerRef.current) {
+        readerRef.current.cancel();
       }
     };
   }, []);
@@ -178,7 +212,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       .filter(msg => msg.role === 'assistant' && msg.content)
       .pop()?.content || "";
 
-    setSuggestionsLoading(true);
+    // setSuggestionsLoading(true);
     try {
       const response = await fetch('/api/typeahead_suggestions', {
         method: 'POST',
@@ -199,7 +233,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       console.error("Failed to fetch typeahead suggestions:", error);
       setSuggestions([]);
     } finally {
-      setSuggestionsLoading(false);
+      // setSuggestionsLoading(false);
     }
   };
 
@@ -300,6 +334,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
       // Get the response as a ReadableStream
       const reader = response.body.getReader();
+      readerRef.current = reader;
       const decoder = new TextDecoder();
       let eventData = "";
 
@@ -358,6 +393,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
               }));
             }
 
+            // Handle task updates
+            if (data.type === 'task_update' && data.tasks) {
+              console.log('Received task update:', data.tasks);
+              setCurrentTasks(data.tasks);
+            }
+
             // Handle suggestions
             if (data.suggestions && Array.isArray(data.suggestions)) {
               setSuggestions(data.suggestions);
@@ -365,6 +406,9 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle completion
             if (data.done) {
+              // Clear tasks when streaming is complete
+              setCurrentTasks([]);
+              
               // Important: Don't clear streamingMessage immediately
               // Instead, mark it as complete but keep displaying it
               setStreamingMessage(prev => {
@@ -407,6 +451,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
     } finally {
       setIsSending(false);
       setToolCallStatus(""); // Clear tool status when streaming ends
+      readerRef.current = null; // Clear reader reference
     }
   }
 
@@ -517,6 +562,15 @@ function StreamingChatPage({ convId, refreshConversations }) {
                   </div>
                 </div>
               ))}
+
+              {/* Task Progress Display */}
+              {currentTasks.length > 0 && (
+                <TaskProgress 
+                  tasks={currentTasks} 
+                  onInterrupt={handleInterrupt}
+                  isStreaming={isSending}
+                />
+              )}
 
               {/* Render streaming message if present */}
               {streamingMessage && (
