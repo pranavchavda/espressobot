@@ -395,7 +395,6 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle task updates
             if (data.type === 'task_update' && data.tasks) {
-              console.log('Received task update:', data.tasks);
               setCurrentTasks(data.tasks);
             }
 
