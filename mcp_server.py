@@ -16,9 +16,12 @@ Example optional packages in requirements.txt:
 The simplified implementations don't require external MCP dependencies but may have limited functionality.
 """
 import os
+from dotenv import load_dotenv
+load_dotenv() # Load environment variables at the very beginning
 import asyncio
 import json
 import logging
+from typing import List, Optional, Dict, Any # For type hinting
 import tempfile
 import subprocess
 from pathlib import Path
@@ -228,31 +231,34 @@ class ShopifyFeaturesMCPServer:
     feature box management capabilities for Shopify product pages.
     """
     def __init__(self):
-        # Ensure XDG_CONFIG_HOME is set to prevent unbound variable errors
-        if "XDG_CONFIG_HOME" not in os.environ:
-            os.environ["XDG_CONFIG_HOME"] = os.path.expanduser("~/.config")
-        
-        # Get environment variables for Shopify API access
-        env_vars = os.environ.copy()
-        required_vars = ["SHOPIFY_ACCESS_TOKEN", "SHOPIFY_SHOP_URL"]
-        
-        for var in required_vars:
-            if not env_vars.get(var):
-                logger.warning(f"Missing environment variable: {var}")
-        
-        # Params for Shopify Feature Box MCP server
+        # Check environment variables
+        access_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
+        shop_url = os.getenv('SHOPIFY_SHOP_URL')
+        print(f"[DEBUG ShopifyFeaturesMCPServer.__init__] Python sees SHOPIFY_ACCESS_TOKEN: '{access_token}'")
+        print(f"[DEBUG ShopifyFeaturesMCPServer.__init__] Python sees SHOPIFY_SHOP_URL: '{shop_url}'")
+
+        # Pass environment variables to subprocess
+        subprocess_env = os.environ.copy()
+        subprocess_env.update({
+            'SHOPIFY_ACCESS_TOKEN': access_token or '',
+            'SHOPIFY_SHOP_URL': shop_url or '',
+            'XDG_CONFIG_HOME': os.path.expanduser('~/.config'),
+        })
+        print(f"[DEBUG ShopifyFeaturesMCPServer.__init__] Python sees XDG_CONFIG_HOME for subprocess: '{subprocess_env['XDG_CONFIG_HOME']}'")
+
         self.params = {
-            "command": "npx", 
-            "args": ["-y", "@pranavchavda/shopify-feature-box-mcp@1.0.5"],
-            "env": env_vars
+            "command": "npx",
+            "args": ["@pranavchavda/shopify-feature-box-mcp@1.0.5"],
+            "env": subprocess_env
         }
-        self.cache = True
+        self.cache = False
+        self.default_timeout = 120.0  # Increase to 2 minutes
     
     async def search_products(self, query):
         """Search for products in the Shopify store"""
         try:
             logger.debug(f"Starting search_products with query: {query}")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
                 logger.debug(f"MCPServerStdio context entered for product search")
                 raw_result = await server.call_tool(
                     "search_products", {"query": query}
@@ -294,7 +300,7 @@ class ShopifyFeaturesMCPServer:
         """Get product details and existing feature boxes"""
         try:
             logger.debug(f"Starting get_product with ID: {product_id}")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
                 logger.debug(f"MCPServerStdio context entered for get_product")
                 raw_result = await server.call_tool(
                     "get_product", {"productId": product_id}
@@ -336,7 +342,7 @@ class ShopifyFeaturesMCPServer:
         """List all feature boxes for a product"""
         try:
             logger.debug(f"Starting list_feature_boxes for product ID: {product_id}")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
                 logger.debug(f"MCPServerStdio context entered for list_feature_boxes")
                 raw_result = await server.call_tool(
                     "list_feature_boxes", {"productId": product_id}
@@ -379,7 +385,6 @@ class ShopifyFeaturesMCPServer:
         try:
             logger.debug(f"Starting create_feature_box for product ID: {product_id}")
             
-            # Prepare arguments
             args = {
                 "productId": product_id,
                 "title": title,
@@ -389,7 +394,7 @@ class ShopifyFeaturesMCPServer:
             if handle:
                 args["handle"] = handle
             
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache) as server:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
                 logger.debug(f"MCPServerStdio context entered for create_feature_box")
                 raw_result = await server.call_tool("create_feature_box", args)
                 
@@ -423,6 +428,134 @@ class ShopifyFeaturesMCPServer:
                     "annotations": None
                 }],
                 "isError": True
+            }
+
+    async def product_create(self, title: str, vendor: str, productType: str, bodyHtml: str, tags: List[str], variantPrice: str, variantSku: str, handle: Optional[str] = None, options: Optional[List[str]] = None, buyboxContent: Optional[str] = None, faqsJson: Optional[str] = None, techSpecsJson: Optional[str] = None, seasonality: Optional[bool] = None, variantCost: Optional[str] = None, variantPreviewName: Optional[str] = None, variantWeight: Optional[float] = None):
+        """Create a new Shopify product."""
+        try:
+            logger.debug(f"Starting product_create for title: {title}")
+            
+            arguments = {
+                "title": title,
+                "vendor": vendor,
+                "productType": productType,
+                "bodyHtml": bodyHtml,
+                "tags": tags,
+                "variantPrice": variantPrice,
+                "variantSku": variantSku,
+            }
+            if handle is not None:
+                arguments["handle"] = handle
+            if options is not None:
+                arguments["options"] = options
+            if buyboxContent is not None:
+                arguments["buyboxContent"] = buyboxContent
+            if faqsJson is not None:
+                arguments["faqsJson"] = faqsJson
+            if techSpecsJson is not None:
+                arguments["techSpecsJson"] = techSpecsJson
+            if seasonality is not None:
+                arguments["seasonality"] = seasonality
+            if variantCost is not None:
+                arguments["variantCost"] = variantCost
+            if variantPreviewName is not None:
+                arguments["variantPreviewName"] = variantPreviewName
+            if variantWeight is not None:
+                arguments["variantWeight"] = variantWeight
+            
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
+                logger.debug(f"MCPServerStdio context entered for product_create")
+                raw_result = await server.call_tool("product_create", arguments)
+                
+                logger.debug(f"Raw product_create result type: {type(raw_result)}")
+                
+                # Process result with consistent structure
+                if hasattr(raw_result, 'dict') and callable(raw_result.dict):
+                    processed_result = raw_result.dict()
+                elif hasattr(raw_result, '__dict__'):
+                    processed_result = raw_result.__dict__
+                else:
+                    processed_result = raw_result
+                
+                logger.debug(f"Final product_create result structure: {type(processed_result)}")
+                return processed_result
+        except Exception as e:
+            logger.error(f"Error in product_create: {e}", exc_info=True)
+            return {
+                "error": f"Failed to create product: {str(e)}"
+            }
+    
+    async def product_tags_add(self, productId: str, tags: List[str]):
+        """Add tags to a Shopify product."""
+        logger.info(f"ShopifyFeaturesMCPServer: Calling product_tags_add for productId: {productId}")
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
+                logger.debug(f"ShopifyFeaturesMCPServer: MCPServerStdio context entered for product_tags_add.")
+                result = await server.call_tool("product_tags_add", {"productId": productId, "tags": tags})
+                logger.debug(f"ShopifyFeaturesMCPServer: product_tags_add MCP call raw result: {result}")
+                if hasattr(result, 'dict') and callable(result.dict):
+                    return result.dict()
+                elif hasattr(result, '__dict__'):
+                    return result.__dict__
+                return result
+        except Exception as e:
+            logger.error(f"Error in ShopifyFeaturesMCPServer.product_tags_add: {e}", exc_info=True)
+            return {
+                "error": f"Failed to add tags to product {productId}: {str(e)}"
+            }
+
+    async def product_tags_remove(self, productId: str, tags: List[str]):
+        """Remove tags from a Shopify product."""
+        logger.info(f"ShopifyFeaturesMCPServer: Calling product_tags_remove for productId: {productId}")
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
+                logger.debug(f"ShopifyFeaturesMCPServer: MCPServerStdio context entered for product_tags_remove.")
+                result = await server.call_tool("product_tags_remove", {"productId": productId, "tags": tags})
+                logger.debug(f"ShopifyFeaturesMCPServer: product_tags_remove MCP call raw result: {result}")
+                if hasattr(result, 'dict') and callable(result.dict):
+                    return result.dict()
+                elif hasattr(result, '__dict__'):
+                    return result.__dict__
+                return result
+        except Exception as e:
+            logger.error(f"Error in ShopifyFeaturesMCPServer.product_tags_remove: {e}", exc_info=True)
+            return {
+                "error": f"Failed to remove tags from product {productId}: {str(e)}"
+            }
+
+    async def product_update(self, variantId: str, title: Optional[str] = None, vendor: Optional[str] = None, productType: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, price: Optional[str] = None, compareAtPrice: Optional[str] = None, cost: Optional[str] = None, sku: Optional[str] = None, barcode: Optional[str] = None, weight: Optional[float] = None, seoTitle: Optional[str] = None, seoDescription: Optional[str] = None):
+        """Update a Shopify product variant."""
+        logger.info(f"ShopifyFeaturesMCPServer: Calling product_update for variantId: {variantId}")
+        
+        arguments = {"variantId": variantId}
+        if title is not None: arguments["title"] = title
+        if vendor is not None: arguments["vendor"] = vendor
+        if productType is not None: arguments["productType"] = productType
+        if description is not None: arguments["description"] = description
+        if status is not None: arguments["status"] = status
+        if price is not None: arguments["price"] = price
+        if compareAtPrice is not None: arguments["compareAtPrice"] = compareAtPrice
+        if cost is not None: arguments["cost"] = cost
+        if sku is not None: arguments["sku"] = sku
+        if barcode is not None: arguments["barcode"] = barcode
+        if weight is not None: arguments["weight"] = weight
+        if seoTitle is not None: arguments["seoTitle"] = seoTitle
+        if seoDescription is not None: arguments["seoDescription"] = seoDescription
+        
+        try:
+            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
+                logger.debug(f"ShopifyFeaturesMCPServer: MCPServerStdio context entered for product_update.")
+                result = await server.call_tool("product_update", arguments)
+                logger.debug(f"ShopifyFeaturesMCPServer: product_update MCP call raw result: {result}")
+                if hasattr(result, 'dict') and callable(result.dict):
+                    return result.dict()
+                elif hasattr(result, '__dict__'):
+                    return result.__dict__
+                return result
+        except Exception as e:
+            logger.error(f"Error in ShopifyFeaturesMCPServer.product_update: {e}", exc_info=True)
+            return {
+                "error": f"Failed to update product variant {variantId}: {str(e)}"
             }
 
 # Create a singleton instance for Shopify Features MCP
@@ -681,7 +814,6 @@ except ImportError:
             return await self._fetch_and_extract_text_simplified(url, selector)
 
         async def _fetch_and_extract_text_simplified(self, url, selector=None):
-            # Duplicated from above for standalone use if import fails
             try:
                 async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                     response = await client.get(url)
@@ -706,7 +838,6 @@ except ImportError:
             return await self._fetch_json_simplified(url, options)
 
         async def _fetch_json_simplified(self, url, options=None):
-            # Duplicated from above
             if options is None: options = {}
             try:
                 headers = options.get("headers", {})
@@ -722,11 +853,8 @@ except ImportError:
                 logger.error(f"[FETCH_MCP_SIMPLIFIED_ONLY] Error fetching JSON: {e}", exc_info=True)
                 return {"success": False, "url": url, "error": str(e), "json": None, "status": 0}
 
+# Create an instance of FetchMCPServer
 fetch_mcp_server = FetchMCPServer()
-
-
-
-
 
 # --- FilesystemMCPServer ---
 class FilesystemMCPServer:
