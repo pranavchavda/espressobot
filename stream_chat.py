@@ -35,28 +35,25 @@ def create_stream_blueprint(app, openai_client):
         if not conv_id:
             title_to_set = f"Chat from {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
             try:
-                loop_for_title = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop_for_title)
-
-                async def get_title_async():
-                    return await openai_client.chat.completions.create(
-                        model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
-                        messages=[
-                            {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
-                            {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {message_text}"}
-                        ],
-                        max_tokens=20
-                    )
-
-                title_resp = loop_for_title.run_until_complete(get_title_async())
+                print(f"DEBUG: Generating title with model: {os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano')}")
+                title_resp = openai_client.chat.completions.create(
+                    model=os.environ.get('DEFAULT_MODEL', 'gpt-4.1-nano'),
+                    messages=[
+                        {'role': 'system', 'content': 'You are an assistant that generates concise conversation titles.'},
+                        {'role': 'user', 'content': f"Generate a short title (max 5 words) for a conversation starting with: {message_text}"}
+                    ],
+                    max_tokens=20
+                )
                 generated_title = title_resp.choices[0].message.content.strip()
+                print(f"DEBUG: Generated title: '{generated_title}'")
                 if generated_title:
                     title_to_set = generated_title
-                loop_for_title.close()
+                    print(f"DEBUG: Title set to: '{title_to_set}'")
             except Exception as e:
+                import traceback
                 print(f"Error generating title: {e}")
-                if 'loop_for_title' in locals() and not loop_for_title.is_closed():
-                    loop_for_title.close()
+                print(f"Title generation traceback: {traceback.format_exc()}")
+                current_app.logger.error(f"Title generation failed: {e}")
 
             unique_filename = f"{uuid.uuid4()}.json"
 
