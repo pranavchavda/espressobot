@@ -248,7 +248,7 @@ class ShopifyFeaturesMCPServer:
 
         self.params = {
             "command": "npx",
-            "args": ["@pranavchavda/shopify-feature-box-mcp@1.0.5"],
+            "args": ["@pranavchavda/shopify-feature-box-mcp"],
             "env": subprocess_env
         }
         self.cache = False

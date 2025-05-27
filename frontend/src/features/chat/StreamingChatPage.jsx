@@ -361,6 +361,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
               .join("");
 
             const data = JSON.parse(jsonString);
+            console.log("Received data:", data);
 
             // Handle tool_call status updates
             if (data.tool_call) {
@@ -563,13 +564,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
               ))}
 
               {/* Task Progress Display */}
-              {currentTasks.length > 0 && (
                 <TaskProgress 
                   tasks={currentTasks} 
                   onInterrupt={handleInterrupt}
                   isStreaming={isSending}
                 />
-              )}
+
 
               {/* Render streaming message if present */}
               {streamingMessage && (

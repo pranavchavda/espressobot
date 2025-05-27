@@ -28,6 +28,7 @@ class SQLiteTaskManager:
     def _init_db(self):
         """Initialize the SQLite database with required tables."""
         with sqlite3.connect(self.db_path) as conn:
+            # Create base tables if they don't exist yet
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS task_lists (
                     id TEXT PRIMARY KEY,
@@ -56,8 +57,23 @@ class SQLiteTaskManager:
                 )
             ''')
             
+            # Check if conversation_id column exists, add it if it doesn't
+            cursor = conn.execute("PRAGMA table_info(task_lists)")
+            columns = [info[1] for info in cursor.fetchall()]
+            if 'conversation_id' not in columns:
+                print("Adding conversation_id column to task_lists table...")
+                conn.execute('''
+                    ALTER TABLE task_lists 
+                    ADD COLUMN conversation_id INTEGER
+                ''')
+            
+            # Create indices after ensuring the columns exist
             conn.execute('''
                 CREATE INDEX IF NOT EXISTS idx_task_lists_user_id ON task_lists (user_id)
+            ''')
+            
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_task_lists_conversation_id ON task_lists (conversation_id)
             ''')
             
             conn.execute('''
@@ -66,7 +82,7 @@ class SQLiteTaskManager:
             
             conn.commit()
     
-    async def create_task_list(self, user_id: int, title: str, tasks: List[Dict], template_name: str = None) -> Dict[str, Any]:
+    async def create_task_list(self, user_id: int, title: str, tasks: List[Dict], template_name: str = None, conversation_id: int = None) -> Dict[str, Any]:
         """Create a new task list with tasks."""
         task_list_id = str(uuid.uuid4())
         
@@ -74,16 +90,25 @@ class SQLiteTaskManager:
             with sqlite3.connect(self.db_path) as conn:
                 # Create task list
                 conn.execute('''
-                    INSERT INTO task_lists (id, user_id, title, template_name)
-                    VALUES (?, ?, ?, ?)
-                ''', (task_list_id, user_id, title, template_name))
+                    INSERT INTO task_lists (id, user_id, conversation_id, title, template_name)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (task_list_id, user_id, conversation_id, title, template_name))
                 
-                # Clear any existing active task lists for this user
-                conn.execute('''
-                    UPDATE task_lists 
-                    SET status = 'completed' 
-                    WHERE user_id = ? AND id != ? AND status = 'active'
-                ''', (user_id, task_list_id))
+                # Clear any existing active task lists for this user and conversation
+                if conversation_id is not None:
+                    # If conversation_id is provided, only deactivate tasks in that conversation
+                    conn.execute('''
+                        UPDATE task_lists 
+                        SET status = 'completed' 
+                        WHERE user_id = ? AND conversation_id = ? AND id != ? AND status = 'active'
+                    ''', (user_id, conversation_id, task_list_id))
+                else:
+                    # If no conversation_id, fall back to just user_id (backward compatibility)
+                    conn.execute('''
+                        UPDATE task_lists 
+                        SET status = 'completed' 
+                        WHERE user_id = ? AND id != ? AND status = 'active'
+                    ''', (user_id, task_list_id))
                 
                 # Create tasks
                 for i, task in enumerate(tasks):
@@ -113,19 +138,29 @@ class SQLiteTaskManager:
             logger.error(f"Error creating task list: {e}")
             return {"success": False, "error": str(e)}
     
-    async def get_current_task_list(self, user_id: int) -> Dict[str, Any]:
+    async def get_current_task_list(self, user_id: int, conversation_id: int = None) -> Dict[str, Any]:
         """Get the current active task list for a user."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 
-                # Get active task list
-                cursor = conn.execute('''
-                    SELECT * FROM task_lists 
-                    WHERE user_id = ? AND status = 'active'
-                    ORDER BY created_at DESC 
-                    LIMIT 1
-                ''', (user_id,))
+                # Get active task list based on user_id and optional conversation_id
+                if conversation_id is not None:
+                    # If conversation_id is provided, get task list specific to that conversation
+                    cursor = conn.execute('''
+                        SELECT * FROM task_lists 
+                        WHERE user_id = ? AND conversation_id = ? AND status = 'active'
+                        ORDER BY created_at DESC 
+                        LIMIT 1
+                    ''', (user_id, conversation_id))
+                else:
+                    # If no conversation_id, get most recent active task list for user
+                    cursor = conn.execute('''
+                        SELECT * FROM task_lists 
+                        WHERE user_id = ? AND status = 'active'
+                        ORDER BY created_at DESC 
+                        LIMIT 1
+                    ''', (user_id,))
                 
                 task_list_row = cursor.fetchone()
                 if not task_list_row:
@@ -158,17 +193,27 @@ class SQLiteTaskManager:
             logger.error(f"Error getting current task list: {e}")
             return {"success": False, "error": str(e)}
     
-    async def update_task_status(self, user_id: int, task_id: str, status: str) -> Dict[str, Any]:
+    async def update_task_status(self, user_id: int, task_id: str, status: str, conversation_id: int = None) -> Dict[str, Any]:
         """Update the status of a specific task."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute('''
-                    UPDATE tasks 
-                    SET status = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ? AND task_list_id IN (
-                        SELECT id FROM task_lists WHERE user_id = ?
-                    )
-                ''', (status, task_id, user_id))
+                # Include conversation_id in the filter if provided
+                if conversation_id is not None:
+                    cursor = conn.execute('''
+                        UPDATE tasks 
+                        SET status = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND task_list_id IN (
+                            SELECT id FROM task_lists WHERE user_id = ? AND conversation_id = ?
+                        )
+                    ''', (status, task_id, user_id, conversation_id))
+                else:
+                    cursor = conn.execute('''
+                        UPDATE tasks 
+                        SET status = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND task_list_id IN (
+                            SELECT id FROM task_lists WHERE user_id = ?
+                        )
+                    ''', (status, task_id, user_id))
                 
                 if cursor.rowcount == 0:
                     return {"success": False, "error": "Task not found"}
@@ -180,17 +225,25 @@ class SQLiteTaskManager:
             logger.error(f"Error updating task status: {e}")
             return {"success": False, "error": str(e)}
     
-    async def add_task(self, user_id: int, content: str, priority: str = "medium", parent_id: str = None) -> Dict[str, Any]:
+    async def add_task(self, user_id: int, content: str, priority: str = "medium", parent_id: str = None, conversation_id: int = None) -> Dict[str, Any]:
         """Add a new task to the current task list."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                # Get current task list
-                cursor = conn.execute('''
-                    SELECT id FROM task_lists 
-                    WHERE user_id = ? AND status = 'active'
-                    ORDER BY created_at DESC 
-                    LIMIT 1
-                ''', (user_id,))
+                # Get current task list, filtering by conversation_id if provided
+                if conversation_id is not None:
+                    cursor = conn.execute('''
+                        SELECT id FROM task_lists 
+                        WHERE user_id = ? AND conversation_id = ? AND status = 'active'
+                        ORDER BY created_at DESC 
+                        LIMIT 1
+                    ''', (user_id, conversation_id))
+                else:
+                    cursor = conn.execute('''
+                        SELECT id FROM task_lists 
+                        WHERE user_id = ? AND status = 'active'
+                        ORDER BY created_at DESC 
+                        LIMIT 1
+                    ''', (user_id,))
                 
                 task_list_row = cursor.fetchone()
                 if not task_list_row:
@@ -219,10 +272,10 @@ class SQLiteTaskManager:
             logger.error(f"Error adding task: {e}")
             return {"success": False, "error": str(e)}
     
-    async def get_task_context_string(self, user_id: int) -> str:
+    async def get_task_context_string(self, user_id: int, conversation_id: int = None) -> str:
         """Get formatted task context for injection into agent prompts."""
         try:
-            result = await self.get_current_task_list(user_id)
+            result = await self.get_current_task_list(user_id, conversation_id)
             if not result.get("success") or not result.get("task_list"):
                 return ""
             
