@@ -202,50 +202,50 @@ function StreamingChatPage({ convId, refreshConversations }) {
     }
   };
 
-  const fetchSuggestions = async (currentInput) => {
-    if (!currentInput.trim()) {
-      setSuggestions([]);
-      return;
-    }
+  // const fetchSuggestions = async (currentInput) => {
+  //   if (!currentInput.trim()) {
+  //     setSuggestions([]);
+  //     return;
+  //   }
 
-    const lastAgentMessageContent = messages
-      .filter(msg => msg.role === 'assistant' && msg.content)
-      .pop()?.content || "";
+  //   const lastAgentMessageContent = messages
+  //     .filter(msg => msg.role === 'assistant' && msg.content)
+  //     .pop()?.content || "";
 
-    // setSuggestionsLoading(true);
-    try {
-      const response = await fetch('/api/typeahead_suggestions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agent_previous_message: lastAgentMessageContent,
-          user_current_input: currentInput,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setSuggestions(data.suggestions || []);
-    } catch (error) {
-      console.error("Failed to fetch typeahead suggestions:", error);
-      setSuggestions([]);
-    } finally {
-      // setSuggestionsLoading(false);
-    }
-  };
+  //   // setSuggestionsLoading(true);
+  //   try {
+  //     const response = await fetch('/api/typeahead_suggestions', {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify({
+  //         agent_previous_message: lastAgentMessageContent,
+  //         user_current_input: currentInput,
+  //       }),
+  //     });
+  //     if (!response.ok) {
+  //       throw new Error(`HTTP error! status: ${response.status}`);
+  //     }
+  //     const data = await response.json();
+  //     setSuggestions(data.suggestions || []);
+  //   } catch (error) {
+  //     console.error("Failed to fetch typeahead suggestions:", error);
+  //     setSuggestions([]);
+  //   } finally {
+  //     // setSuggestionsLoading(false);
+  //   }
+  // };
 
-  const debouncedInput = useDebounce(input, 400);
+  // const debouncedInput = useDebounce(input, 400);
 
-  useEffect(() => {
-    if (debouncedInput.trim()) {
-      fetchSuggestions(debouncedInput);
-    } else {
-      setSuggestions([]);
-    }
-  }, [debouncedInput]);
+  // useEffect(() => {
+  //   if (debouncedInput.trim()) {
+  //     fetchSuggestions(debouncedInput);
+  //   } else {
+  //     setSuggestions([]);
+  //   }
+  // }, [debouncedInput]);
 
 
   // Handle sending a message with streaming response
