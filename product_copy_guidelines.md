@@ -6,7 +6,8 @@
 
 - **Act human:** Write naturally and engagingly.
 - **Be accurate:** Double-check all information before including it.
-- **Follow instructions closely:** Adhere to the structure and formatting below.- **Canadaian English:** Use Canadian English instead of American English.
+- **Follow instructions closely:** Adhere to the structure and formatting below.
+- **Canadaian English:** Use Canadian English instead of American English.
 
 ## 1. Gather Product Information
 
@@ -191,19 +192,79 @@ For Notes, use # in lieu of commas. the #s will be rendered as commas. The notes
 - **Status:** Always set to `DRAFT`.
 - **Required Fields:** `title`, `body_html`, `vendor`, `product_type`, `tags`, `variants.price`, `variants.sku`
 - **Image Alt Text:** Use relevant product feature or name.
+- **Use MCP Tools:** When creating products, use `product_create()` with all metafields and tags instead of multiple GraphQL mutations. This ensures consistency and handles edge cases better.
 
 ## 6. Important Reminders
 
 - **Cost of Goods (COGS):** Include the product cost for COGS calculations (if not provided, ask the user before creating the product).
 - **Inventory Tracking:** Enable inventory tracking and set to "deny" for "Continue Selling" when out of stock.
 - **Inventory Weight:** Set the inventory weight to the weight of the product in grams for Shopify.
+- **Feature Boxes:** After creating a product, consider adding 2-4 feature boxes using `create_feature_box()` to highlight key benefits on the product page.
 
 ## 7. Exceptions
 
 - For accessories, coffee and cleaning products, you can skip the Buy Box, FAQs, Tech Specs, and Features sections. Focus on a detailed overview (`body_html`).
 
----
+## 8. Product Creation Workflow Using MCP Tools
 
+1. **Search First:** Use `search_products(title_or_sku)` to check if a similar product exists
+2. **Create Product:** Use `product_create()` with all necessary fields:
+   - title, vendor, productType, bodyHtml
+   - tags (all required tags from sections above)
+   - variantPrice, variantSku
+   - Optional: handle, buyboxContent, faqsJson, techSpecsJson, variantCost, variantWeight
+3. **Add Feature Boxes:** Use `create_feature_box(product_id, title, text, image_url)` to add visual highlights
+4. **Manage Tags:** Use `product_tags_add()` or `product_tags_remove()` for any tag adjustments
+5. **Update if Needed:** Use `product_update()` for any modifications
+
+## 9. Important notes for variant cost and sku
+
+Shopify Product Guide Addendum: Managing Variant Cost
+How to Update the Variant Cost in Shopify (2025+)
+As of 2025-04 and later Shopify API versions:
+
+The variant’s “cost” (COGS/unit cost) is managed on the Inventory Item, not the Product or Variant directly.
+Use the inventoryItemUpdate GraphQL mutation to update the cost of any variant.
+The correct mutation and structure is:
+```
+mutation {
+  inventoryItemUpdate(
+    id: "gid://shopify/InventoryItem/xxxxxxx",   # InventoryItem GID for the variant
+    input: {
+      cost: "YOUR_COST_VALUE"                   # Use a string representing the currency amount
+    }
+  ) {
+    inventoryItem {
+      id
+      unitCost {
+        amount
+        currencyCode
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+```
+**Steps**:
+
+Fetch the variant’s InventoryItem ID (each variant has one).
+Use inventoryItemUpdate to set cost.
+Always input cost as a string (e.g., "54.99").
+Setting SKU and price is done via productVariantsBulkUpdate.
+Cost is updatable via productVariantsBulkUpdate only via InventoryItem. You can also use inventoryItemUpdate to update the cost of a variant.
+ALL SHOPIFY REST endpoints are deprecated; always use GraphQL.
+Best Practice:
+Always verify fields supported by your current Shopify Admin API version when automating product or inventory management. Refer to official Shopify GraphQL docs via available tools/MCP.
+
+ALWAYS 
+- Use the correct mutation for the data you wish to update.
+- Always verify with the current API documentation if you have issues.
+- Use the Introspetion tool and perplexity ask tool for help, if you make mistakes, get help, don't guess, or ask the user to do it or suggest alternatives.
+
+---
 ## Anatomy of a Product (iDrinkCoffee)
 
 A product in the iDrinkCoffee system is a Shopify product entity that is extensively enriched with custom metafields, tags, and references. These augmentations support advanced merchandising, dynamic UI, and business-specific workflows. The following describes the key fields and, in particular, the custom metafields that are central to iDrinkCoffee’s product model.
