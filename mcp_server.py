@@ -229,43 +229,88 @@ class ShopifyFeaturesMCPServer:
     A class to handle communication with the Shopify Feature Box MCP server.
     This spawns an npx process running @pranavchavda/shopify-feature-box-mcp to provide
     feature box management capabilities for Shopify product pages.
+    
+    Implements a singleton pattern to ensure only one instance is created and
+    includes retry logic to handle initialization failures.
     """
+    _instance = None
+    _initialized = False
+    _server = None  # Cached server connection
+    _initialization_lock = asyncio.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ShopifyFeaturesMCPServer, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
+        if self._initialized:
+            return
+            
         # Check environment variables
         access_token = os.getenv('SHOPIFY_ACCESS_TOKEN')
         shop_url = os.getenv('SHOPIFY_SHOP_URL')
-        print(f"[DEBUG ShopifyFeaturesMCPServer.__init__] Python sees SHOPIFY_ACCESS_TOKEN: '{access_token}'")
-        print(f"[DEBUG ShopifyFeaturesMCPServer.__init__] Python sees SHOPIFY_SHOP_URL: '{shop_url}'")
-
+        logger.info(f"ShopifyFeaturesMCPServer initializing with shop URL: {shop_url}")
+        
         # Pass environment variables to subprocess
         subprocess_env = os.environ.copy()
         subprocess_env.update({
             'SHOPIFY_ACCESS_TOKEN': access_token or '',
             'SHOPIFY_SHOP_URL': shop_url or '',
             'XDG_CONFIG_HOME': os.path.expanduser('~/.config'),
+            'NODE_VERSION': '22',  # Ensure Node.js version is set
+            'PATH': subprocess_env.get('PATH', '')  # Ensure PATH is included
         })
-        print(f"[DEBUG ShopifyFeaturesMCPServer.__init__] Python sees XDG_CONFIG_HOME for subprocess: '{subprocess_env['XDG_CONFIG_HOME']}'")
+        logger.debug(f"Using XDG_CONFIG_HOME: '{subprocess_env['XDG_CONFIG_HOME']}'")
+        logger.debug(f"Using NODE_VERSION: '{subprocess_env['NODE_VERSION']}'")
 
         self.params = {
             "command": "npx",
-            "args": ["@pranavchavda/shopify-feature-box-mcp"],
+            "args": ["-y", "@pranavchavda/shopify-feature-box-mcp@1.0.11"],  # Add -y flag and version
             "env": subprocess_env
         }
         self.cache = False
-        self.default_timeout = 120.0  # Increase to 2 minutes
+        self.default_timeout = 180.0  # 3 minutes for initialization
+        self.max_retries = 2  # Number of retries for operations
+        self._initialized = True
+    
+    async def _get_server(self):
+        """Get a server connection, creating a new one if necessary."""
+        async with self._initialization_lock:  # Prevent multiple simultaneous initializations
+            if self._server is not None:
+                return self._server
+                
+            try:
+                logger.info("Initializing new MCP server connection")
+                server = MCPServerStdio(
+                    params=self.params, 
+                    cache_tools_list=self.cache, 
+                    client_session_timeout_seconds=self.default_timeout
+                )
+                await server.connect()
+                self._server = server
+                logger.info("MCP server connection established successfully")
+                return server
+            except Exception as e:
+                logger.error(f"Error initializing MCP server: {e}")
+                self._server = None
+                raise
     
     async def search_products(self, query):
-        """Search for products in the Shopify store"""
-        try:
-            logger.debug(f"Starting search_products with query: {query}")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
-                logger.debug(f"MCPServerStdio context entered for product search")
-                raw_result = await server.call_tool(
-                    "search_products", {"query": query}
-                )
+        """Search for products in the Shopify store with retry logic"""
+        for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
+            try:
+                logger.debug(f"Starting search_products with query: {query} (attempt {attempt+1}/{self.max_retries+1})")
                 
+                # Get a server connection (cached or new)
+                server = await self._get_server()
+                
+                # Call the tool
+                raw_result = await server.call_tool("search_products", {"query": query})
                 logger.debug(f"Raw search_products result type: {type(raw_result)}")
                 
+                # Process the result
                 result = {
                     "meta": getattr(raw_result, "meta", None),
                     "content": [],
@@ -284,30 +329,42 @@ class ShopifyFeaturesMCPServer:
                 
                 logger.debug(f"Final search_products result content items: {len(result['content'])}")
                 return result
-        except Exception as e:
-            logger.error(f"Error in search_products: {e}", exc_info=True)
-            return {
-                "meta": None,
-                "content": [{
-                    "type": "text",
-                    "text": f"Error searching for products: {str(e)}",
-                    "annotations": None
-                }],
-                "isError": True
-            }
+                
+            except Exception as e:
+                logger.error(f"Error in search_products (attempt {attempt+1}/{self.max_retries+1}): {e}")
+                self._server = None  # Reset the server connection on error
+                
+                # If we have retries left, wait briefly and try again
+                if attempt < self.max_retries:
+                    wait_time = (attempt + 1) * 2  # Progressive backoff: 2s, 4s
+                    logger.info(f"Retrying search_products in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    # Return error response on final attempt
+                    return {
+                        "meta": None,
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error searching for products after {self.max_retries+1} attempts: {str(e)}",
+                            "annotations": None
+                        }],
+                        "isError": True
+                    }
     
     async def get_product(self, product_id):
-        """Get product details and existing feature boxes"""
-        try:
-            logger.debug(f"Starting get_product with ID: {product_id}")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
-                logger.debug(f"MCPServerStdio context entered for get_product")
-                raw_result = await server.call_tool(
-                    "get_product", {"productId": product_id}
-                )
+        """Get product details and existing feature boxes with retry logic"""
+        for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
+            try:
+                logger.debug(f"Starting get_product with ID: {product_id} (attempt {attempt+1}/{self.max_retries+1})")
                 
+                # Get a server connection (cached or new)
+                server = await self._get_server()
+                
+                # Call the tool
+                raw_result = await server.call_tool("get_product", {"productId": product_id})
                 logger.debug(f"Raw get_product result type: {type(raw_result)}")
                 
+                # Process the result
                 result = {
                     "meta": getattr(raw_result, "meta", None),
                     "content": [],
@@ -326,30 +383,42 @@ class ShopifyFeaturesMCPServer:
                 
                 logger.debug(f"Final get_product result content items: {len(result['content'])}")
                 return result
-        except Exception as e:
-            logger.error(f"Error in get_product: {e}", exc_info=True)
-            return {
-                "meta": None,
-                "content": [{
-                    "type": "text",
-                    "text": f"Error getting product details: {str(e)}",
-                    "annotations": None
-                }],
-                "isError": True
-            }
+                
+            except Exception as e:
+                logger.error(f"Error in get_product (attempt {attempt+1}/{self.max_retries+1}): {e}")
+                self._server = None  # Reset the server connection on error
+                
+                # If we have retries left, wait briefly and try again
+                if attempt < self.max_retries:
+                    wait_time = (attempt + 1) * 2  # Progressive backoff: 2s, 4s
+                    logger.info(f"Retrying get_product in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    # Return error response on final attempt
+                    return {
+                        "meta": None,
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error getting product details after {self.max_retries+1} attempts: {str(e)}",
+                            "annotations": None
+                        }],
+                        "isError": True
+                    }
     
     async def list_feature_boxes(self, product_id):
-        """List all feature boxes for a product"""
-        try:
-            logger.debug(f"Starting list_feature_boxes for product ID: {product_id}")
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
-                logger.debug(f"MCPServerStdio context entered for list_feature_boxes")
-                raw_result = await server.call_tool(
-                    "list_feature_boxes", {"productId": product_id}
-                )
+        """List all feature boxes for a product with retry logic"""
+        for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
+            try:
+                logger.debug(f"Starting list_feature_boxes for product ID: {product_id} (attempt {attempt+1}/{self.max_retries+1})")
                 
+                # Get a server connection (cached or new)
+                server = await self._get_server()
+                
+                # Call the tool
+                raw_result = await server.call_tool("list_feature_boxes", {"productId": product_id})
                 logger.debug(f"Raw list_feature_boxes result type: {type(raw_result)}")
                 
+                # Process the result
                 result = {
                     "meta": getattr(raw_result, "meta", None),
                     "content": [],
@@ -368,38 +437,57 @@ class ShopifyFeaturesMCPServer:
                 
                 logger.debug(f"Final list_feature_boxes result content items: {len(result['content'])}")
                 return result
-        except Exception as e:
-            logger.error(f"Error in list_feature_boxes: {e}", exc_info=True)
-            return {
-                "meta": None,
-                "content": [{
-                    "type": "text",
-                    "text": f"Error listing feature boxes: {str(e)}",
-                    "annotations": None
-                }],
-                "isError": True
-            }
-    
-    async def create_feature_box(self, product_id, title, text, image_url, handle=None):
-        """Create a feature box for a Shopify product"""
-        try:
-            logger.debug(f"Starting create_feature_box for product ID: {product_id}")
-            
-            args = {
-                "productId": product_id,
-                "title": title,
-                "text": text,
-                "imageUrl": image_url
-            }
-            if handle:
-                args["handle"] = handle
-            
-            async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
-                logger.debug(f"MCPServerStdio context entered for create_feature_box")
-                raw_result = await server.call_tool("create_feature_box", args)
                 
+            except Exception as e:
+                logger.error(f"Error in list_feature_boxes (attempt {attempt+1}/{self.max_retries+1}): {e}")
+                self._server = None  # Reset the server connection on error
+                
+                # If we have retries left, wait briefly and try again
+                if attempt < self.max_retries:
+                    wait_time = (attempt + 1) * 2  # Progressive backoff: 2s, 4s
+                    logger.info(f"Retrying list_feature_boxes in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    # Return error response on final attempt
+                    return {
+                        "meta": None,
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error listing feature boxes after {self.max_retries+1} attempts: {str(e)}",
+                            "annotations": None
+                        }],
+                        "isError": True
+                    }
+    
+    async def create_feature_box(self, product_id, title, text, image_url=None, handle=None):
+        """Create a feature box for a Shopify product with retry logic"""
+        for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
+            try:
+                logger.debug(f"Starting create_feature_box for product ID: {product_id}, title: {title} (attempt {attempt+1}/{self.max_retries+1})")
+                
+                # Prepare arguments
+                arguments = {
+                    "productId": product_id,
+                    "title": title,
+                    "text": text
+                }
+                
+                if image_url:
+                    arguments["imageUrl"] = image_url
+                
+                if handle:
+                    arguments["handle"] = handle
+                
+                logger.debug(f"create_feature_box arguments: {arguments}")
+                
+                # Get a server connection (cached or new)
+                server = await self._get_server()
+                
+                # Call the tool
+                raw_result = await server.call_tool("create_feature_box", arguments)
                 logger.debug(f"Raw create_feature_box result type: {type(raw_result)}")
                 
+                # Process the result
                 result = {
                     "meta": getattr(raw_result, "meta", None),
                     "content": [],
@@ -409,7 +497,7 @@ class ShopifyFeaturesMCPServer:
                 if hasattr(raw_result, "content"):
                     for content_item in raw_result.content:
                         text_content = getattr(content_item, "text", "")
-                        logger.debug(f"Create feature box content item type: {getattr(content_item, 'type', None)}, length: {len(text_content)} chars")
+                        logger.debug(f"Feature box creation content item type: {getattr(content_item, 'type', None)}, length: {len(text_content)} chars")
                         result["content"].append({
                             "type": getattr(content_item, "type", None),
                             "text": text_content,
@@ -418,17 +506,27 @@ class ShopifyFeaturesMCPServer:
                 
                 logger.debug(f"Final create_feature_box result content items: {len(result['content'])}")
                 return result
-        except Exception as e:
-            logger.error(f"Error in create_feature_box: {e}", exc_info=True)
-            return {
-                "meta": None,
-                "content": [{
-                    "type": "text",
-                    "text": f"Error creating feature box: {str(e)}",
-                    "annotations": None
-                }],
-                "isError": True
-            }
+                
+            except Exception as e:
+                logger.error(f"Error in create_feature_box (attempt {attempt+1}/{self.max_retries+1}): {e}")
+                self._server = None  # Reset the server connection on error
+                
+                # If we have retries left, wait briefly and try again
+                if attempt < self.max_retries:
+                    wait_time = (attempt + 1) * 2  # Progressive backoff: 2s, 4s
+                    logger.info(f"Retrying create_feature_box in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    # Return error response on final attempt
+                    return {
+                        "meta": None,
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error creating feature box after {self.max_retries+1} attempts: {str(e)}",
+                            "annotations": None
+                        }],
+                        "isError": True
+                    }
 
     async def product_create(self, title: str, vendor: str, productType: str, bodyHtml: str, tags: List[str], variantPrice: str, variantSku: str, handle: Optional[str] = None, options: Optional[List[str]] = None, buyboxContent: Optional[str] = None, faqsJson: Optional[str] = None, techSpecsJson: Optional[str] = None, seasonality: Optional[bool] = None, variantCost: Optional[str] = None, variantPreviewName: Optional[str] = None, variantWeight: Optional[float] = None):
         """Create a new Shopify product."""

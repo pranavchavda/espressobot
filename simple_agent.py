@@ -2725,42 +2725,55 @@ END OF SYSTEM PROMPT
 
                                     # Execute the tool function
                                     if fn_name in tool_functions:
-                                        function_to_call = tool_functions[
-                                            fn_name]
-                                        if inspect.iscoroutinefunction(
-                                                function_to_call):
-                                            tool_result = await function_to_call(
-                                                **args)
-                                        else:
-                                            tool_result = function_to_call(
-                                                **args)
-
-                                        # Add result to steps
-                                        steps.append({
-                                            'type': 'tool_result',
-                                            'name': fn_name,
-                                            'output': tool_result
-                                        })
-
-                                        # Yield the tool result to client
-                                        yield {
-                                            'type': 'tool_result',
-                                            'name': fn_name,
-                                            'result': json.dumps(tool_result)
-                                        }
-
-                                        # Add tool result to messages - this should come after the assistant message with tool_calls
-                                        formatted_messages.append({
-                                            'role':
-                                            'tool',
-                                            'tool_call_id':
-                                            tool_call['id'] or 'unknown',  # Use the stored ID from the buffer
-                                            'name':
-                                            fn_name,
-                                            'content':
-                                            json.dumps(tool_result)
-                                        })
-
+                                        try:
+                                            function_to_call = tool_functions[
+                                                fn_name]
+                                            if inspect.iscoroutinefunction(
+                                                    function_to_call):
+                                                tool_result = await function_to_call(
+                                                    **args)
+                                            else:
+                                                tool_result = function_to_call(
+                                                    **args)
+    
+                                            # Add result to steps
+                                            steps.append({
+                                                'type': 'tool_result',
+                                                'name': fn_name,
+                                                'output': tool_result
+                                            })
+    
+                                            # Yield the tool result to client
+                                            yield {
+                                                'type': 'tool_result',
+                                                'name': fn_name,
+                                                'result': json.dumps(tool_result)
+                                            }
+    
+                                            # Add tool result to messages - this should come after the assistant message with tool_calls
+                                            formatted_messages.append({
+                                                'role':
+                                                'tool',
+                                                'tool_call_id':
+                                                tool_call['id'] or 'unknown',  # Use the stored ID from the buffer
+                                                'name':
+                                                fn_name,
+                                                'content':
+                                                json.dumps(tool_result)
+                                            })
+                                        except Exception as tool_error:
+                                            # Handle errors during tool execution
+                                            error_msg = f"Error executing tool {fn_name}: {str(tool_error)}"
+                                            print(error_msg)
+                                            yield {'type': 'error', 'message': error_msg}
+                                            
+                                            # Always add a tool response message even when the tool fails
+                                            formatted_messages.append({
+                                                'role': 'tool',
+                                                'tool_call_id': tool_call['id'] or 'unknown',
+                                                'name': fn_name,
+                                                'content': f"Error: {str(tool_error)}"
+                                            })
                                     else:
                                         # Tool function not found
                                         error_msg = f"Tool {fn_name} not found"
@@ -2782,24 +2795,16 @@ END OF SYSTEM PROMPT
                                 except Exception as e:
                                     print(f"Error processing tool call: {e}")
                                     yield {'type': 'error', 'message': str(e)}
-                                    # Make sure we have an assistant message with tool_calls before adding tool response
-                                    if formatted_messages[-1][
-                                            'role'] != 'assistant' or 'tool_calls' not in formatted_messages[
-                                                -1]:
-                                        print(
-                                            "Cannot add tool response without preceding assistant message with tool_calls"
-                                        )
-                                    else:
-                                        formatted_messages.append({
-                                            'role':
-                                            'tool',
-                                            'tool_call_id':
-                                            tool_call['id'] or 'unknown',  # Use the stored ID from the buffer
-                                            'name':
-                                            fn_name,
-                                            'content':
-                                            f"Error: {str(e)}"
-                                        })
+                                    
+                                    # Always add a tool response message for this tool call
+                                    # This is critical to prevent the OpenAI API error:
+                                    # "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'"
+                                    formatted_messages.append({
+                                        'role': 'tool',
+                                        'tool_call_id': tool_call['id'] or 'unknown',  # Use the stored ID from the buffer
+                                        'name': fn_name if 'fn_name' in locals() else 'unknown_tool',
+                                        'content': f"Error processing tool call: {str(e)}"
+                                    })
 
                 else:
                     # Non-streaming mode
