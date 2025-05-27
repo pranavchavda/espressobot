@@ -816,8 +816,12 @@ def set_streaming_context(enabled):
     global _task_update_queue
     _streaming_context["enabled"] = enabled
     if enabled:
-        # Reset the queue for a new session
-        _task_update_queue = asyncio.Queue()
+        # Only create queue if it doesn't exist yet
+        if _task_update_queue is None:
+            _task_update_queue = asyncio.Queue()
+    else:
+        # Clear queue when disabling
+        _task_update_queue = None
 
 async def stream_task_update(user_id):
     """Stream current task list to frontend if streaming is enabled."""
@@ -827,11 +831,11 @@ async def stream_task_update(user_id):
             if current_tasks.get("success") and current_tasks.get("task_list"):
                 tasks = current_tasks["task_list"].get("tasks", [])
                 queue = _get_queue()
-                await queue.put({
+                update_data = {
                     'type': 'task_update',
                     'tasks': tasks
-                })
-                print(f"Queued task update with {len(tasks)} tasks")
+                }
+                await queue.put(update_data)
         except Exception as e:
             print(f"Error streaming task update: {e}")
 
@@ -890,6 +894,26 @@ async def task_read_current(user_id):
         return result
     except Exception as e:
         print(f"Error reading current task list: {e}")
+        return {"success": False, "error": str(e)}
+
+async def task_clear_all(user_id):
+    """Clear all active tasks for a user - used when starting fresh conversations."""
+    try:
+        import sqlite3
+        # Mark all active task lists as completed
+        with sqlite3.connect(task_manager.db_path) as conn:
+            conn.execute('''
+                UPDATE task_lists 
+                SET status = 'completed' 
+                WHERE user_id = ? AND status = 'active'
+            ''', (user_id,))
+            conn.commit()
+        
+        print(f"Cleared all active tasks for user {user_id}")
+        await stream_task_update(user_id)  # Stream the empty task list
+        return {"success": True}
+    except Exception as e:
+        print(f"Error clearing tasks: {e}")
         return {"success": False, "error": str(e)}
 
 async def task_update_status(user_id, task_id, status):
@@ -2144,7 +2168,10 @@ async def run_simple_agent(prompt,
 You are "EspressoBot", the production Shopify and general purpose e-commerce assistant for iDrinkCoffee.com. 
 You are an expert at executing your mission: which is to perform catalog and storefront tasks flawlessly, quickly, and with zero guesswork.
 
-🚨🚨🚨 MANDATORY FIRST ACTION: ALWAYS call `task_read_current` as your FIRST tool call. If tasks exist, you MUST follow them step by step. DO NOT do any other work until you check for tasks! 🚨🚨🚨
+🚨🚨🚨 MANDATORY FIRST ACTION: ALWAYS call `task_read_current` as your FIRST tool call. 
+- If tasks exist AND they relate to the current user request, follow them step by step. 
+- If tasks exist but are unrelated to a completely different new request, call `task_clear_all` to clear old tasks first.
+- DO NOT follow unrelated old tasks when the user has moved to a completely different request! 🚨🚨🚨
 
 ────────────────────────────────────────
 FUNDAMENTAL PRINCIPLES
@@ -2188,7 +2215,7 @@ FUNDAMENTAL PRINCIPLES
 RULES
 ────────────────────────────────────────
 1. **INTROSPECT FIRST**  
-   • Before every new field/mutation/query you haven’t already verified this session, call `introspect_admin_schema` and cache the result in memory.  
+   • When doing graphQL queries or mutations, (unless using a custom tool such as product_create or product_update), Before every new field/mutation/query you haven’t already verified this session, call `introspect_admin_schema` and cache the result in memory.  
    • If after introspecting, you execute a mutation or query and the results are not as intended or if there is an error, call `search_dev_docs` to find the mutation/query, if that doesn't help, call `perplexity_ask` to find the mutation/query.
    • NEVER suggest a mutation that is absent from the schema for the API version ($SHOPIFY_API_VERSION) and that the user should use the UI or the REST API to perform the action.
 
@@ -2278,9 +2305,10 @@ You have access to several tools:
 11. task_create_from_template - Create a structured task list from a predefined template (e.g., 'product_listing_creation') for EspressoBot
 12. task_create_custom - Create a custom task list with your own tasks.
 13. task_read_current - Get the current active task list to see what needs to be done.
-14. task_update_status - Update a task's status (pending, in_progress, completed).
-15. task_add_new - Add a new task or subtask to the current task list.
-16. task_get_context - Get formatted task context for awareness (used internally).
+14. task_clear_all - Clear all active tasks when starting a completely new, unrelated request.
+15. task_update_status - Update a task's status (pending, in_progress, completed).
+16. task_add_new - Add a new task or subtask to the current task list.
+17. task_get_context - Get formatted task context for awareness (used internally).
 --- End Task system for use by the agent ---
 
 --- Google Task system for use by the user ---
@@ -2344,6 +2372,7 @@ You have access to built-in task management tools to organize complex workflows:
 - `task_create_from_template` - Create task lists from templates (e.g., 'product_listing_creation')
 - `task_create_custom` - Create custom task lists for specific workflows
 - `task_read_current` - View current active task list and progress
+- `task_clear_all` - Clear all active tasks when starting completely new, unrelated work
 - `task_update_status` - Update task status (pending, in_progress, completed)
 - `task_add_new` - Add new tasks or subtasks to current list
 
@@ -2387,8 +2416,9 @@ You have access to an advanced task management system that helps you stay organi
 1. `task_create_from_template` - Create structured task lists from predefined templates
 2. `task_create_custom` - Create custom task lists for unique workflows
 3. `task_read_current` - View your current active task list
-4. `task_update_status` - Mark tasks as pending, in_progress, or completed
-5. `task_add_new` - Add new tasks or subtasks as work evolves
+4. `task_clear_all` - Clear all active tasks when switching to completely unrelated work
+5. `task_update_status` - Mark tasks as pending, in_progress, or completed
+6. `task_add_new` - Add new tasks or subtasks as work evolves
 
 **AUTOMATIC TASK MANAGEMENT WORKFLOW:**
 The system auto-creates tasks for complex requests, but you MUST actively manage them:
@@ -2543,6 +2573,7 @@ END OF SYSTEM PROMPT
         "task_create_from_template": task_create_from_template,
         "task_create_custom": task_create_custom,
         "task_read_current": task_read_current,
+        "task_clear_all": task_clear_all,
         "task_update_status": task_update_status,
         "task_add_new": task_add_new,
         "task_get_context": task_get_context
@@ -2550,10 +2581,12 @@ END OF SYSTEM PROMPT
 
     # Auto-create tasks if needed based on user request
     if user_id and step_count == 0:  # Only on first step
+        # Enable streaming context early if we're in streaming mode
+        if streaming:
+            set_streaming_context(True)
+            
         user_message = prompt_text if isinstance(prompt_text, str) else str(prompt)
-        print(f"DEBUG: Checking if tasks needed for user {user_id}: '{user_message}'")
         task_created = await auto_create_task_if_needed(user_id, user_message, streaming)
-        print(f"DEBUG: Task creation result: {task_created}")
 
     try:
         while step_count < max_steps:
@@ -2579,9 +2612,7 @@ END OF SYSTEM PROMPT
             # Call the model
             try:
                 if streaming:
-                    # Streaming mode - enable task streaming
-                    set_streaming_context(True)
-                    
+                    # Streaming mode - context already enabled earlier
                     client = get_openai_client()
                     response = await client.chat.completions.create(
                         model=selected_model,
@@ -2596,6 +2627,11 @@ END OF SYSTEM PROMPT
                     current_content = ""
                     tool_calls_buffer = []
                     steps = []
+                    
+                    # Send initial task updates if any are queued
+                    initial_updates = await get_pending_task_updates()
+                    for update in initial_updates:
+                        yield update
 
                     # For OpenAI SDK v1.x, we need to iterate over the async stream with async for
                     async for chunk in response:

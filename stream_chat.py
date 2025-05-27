@@ -165,6 +165,11 @@ def create_stream_blueprint(app, openai_client):
                             yield f"data: {{\n"
                             yield f"data: \"suggestions\": {json.dumps(chunk.get('suggestions', []))}\n"
                             yield f"data: }}\n\n"
+                        elif chunk.get('type') == 'task_update':
+                            yield f"data: {{\n"
+                            yield f"data: \"type\": \"task_update\",\n"
+                            yield f"data: \"tasks\": {json.dumps(chunk.get('tasks', []))}\n"
+                            yield f"data: }}\n\n"
                         elif chunk.get('type') == 'final':
                             final_assistant_message_content = chunk.get('content', '')
 
