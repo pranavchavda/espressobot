@@ -4,8 +4,13 @@ import { Button } from "@common/button";
 import { Text } from "@common/text";
 import { Badge } from "@common/badge";
 
-export function TaskProgress({ tasks, onInterrupt, isStreaming }) {
-  if (!tasks || tasks.length === 0) {
+export function TaskProgress({ tasks, onInterrupt, isStreaming, conversationId }) {
+  // Filter tasks by conversation_id if both are provided
+  const filteredTasks = conversationId && tasks ? 
+    tasks.filter(task => !task.conversation_id || task.conversation_id === conversationId) : 
+    tasks;
+  
+  if (!filteredTasks || filteredTasks.length === 0) {
     return null;
   }
 
@@ -39,8 +44,8 @@ export function TaskProgress({ tasks, onInterrupt, isStreaming }) {
     }
   };
 
-  const completedTasks = tasks.filter(task => task.status === "completed").length;
-  const totalTasks = tasks.length;
+  const completedTasks = filteredTasks.filter(task => task.status === "completed").length;
+  const totalTasks = filteredTasks.length;
   const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
 
   return (
@@ -78,7 +83,7 @@ export function TaskProgress({ tasks, onInterrupt, isStreaming }) {
 
       {/* Task list */}
       <div className="space-y-2">
-        {tasks.map((task, index) => (
+        {filteredTasks.map((task, index) => (
           <div key={task.id || index} className="flex items-start gap-2">
             {getStatusIcon(task.status)}
             <div className="flex-1 min-w-0">

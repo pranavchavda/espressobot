@@ -801,43 +801,86 @@ from dynamic_task_generator import generate_dynamic_tasks, should_create_tasks
 
 # Global streaming context to allow task functions to yield updates
 import asyncio
-_task_update_queue = None
-_streaming_context = {"enabled": False}
+
+# Streaming task updates mechanism
+_streaming_context = {
+    "enabled": False,
+    "queue": None,
+    "last_update": {},  # Track last update time per user/conversation pair
+    "throttle_ms": 1000  # Minimum milliseconds between updates for same user/conversation
+}
 
 def _get_queue():
     """Get or create the task update queue."""
-    global _task_update_queue
-    if _task_update_queue is None:
-        _task_update_queue = asyncio.Queue()
-    return _task_update_queue
+    global _streaming_context
+    if _streaming_context["queue"] is None:
+        _streaming_context["queue"] = asyncio.Queue()
+    return _streaming_context["queue"]
 
 def set_streaming_context(enabled):
     """Set the streaming context for task updates."""
-    global _task_update_queue
     _streaming_context["enabled"] = enabled
     if enabled:
         # Only create queue if it doesn't exist yet
-        if _task_update_queue is None:
-            _task_update_queue = asyncio.Queue()
+        if _streaming_context["queue"] is None:
+            _streaming_context["queue"] = asyncio.Queue()
     else:
         # Clear queue when disabling
-        _task_update_queue = None
+        _streaming_context["queue"] = None
 
-async def stream_task_update(user_id):
+async def stream_task_update(user_id, conversation_id=None):
     """Stream current task list to frontend if streaming is enabled."""
-    if _streaming_context["enabled"]:
-        try:
-            current_tasks = await task_manager.get_current_task_list(user_id)
-            if current_tasks.get("success") and current_tasks.get("task_list"):
-                tasks = current_tasks["task_list"].get("tasks", [])
-                queue = _get_queue()
-                update_data = {
-                    'type': 'task_update',
-                    'tasks': tasks
-                }
-                await queue.put(update_data)
-        except Exception as e:
-            print(f"Error streaming task update: {e}")
+    if not _streaming_context["enabled"]:
+        return
+    
+    try:
+        # Create a unique key for this user/conversation pair
+        update_key = f"{user_id}:{conversation_id}"
+        
+        # Check if we're sending updates too frequently
+        current_time = int(datetime.now().timestamp() * 1000)  # current time in milliseconds
+        last_update_time = _streaming_context["last_update"].get(update_key, 0)
+        time_since_last_update = current_time - last_update_time
+        
+        # If it's been less than the throttle time, skip this update
+        if time_since_last_update < _streaming_context["throttle_ms"]:
+            # print(f"Throttling task update for {update_key}, last update was {time_since_last_update}ms ago")
+            return
+        
+        # Update the last update time for this user/conversation
+        _streaming_context["last_update"][update_key] = current_time
+        
+        # Get task list from the database
+        current_tasks = await task_manager.get_current_task_list(user_id, conversation_id)
+        queue = _get_queue()
+        
+        if current_tasks.get("success") and current_tasks.get("task_list"):
+            tasks = current_tasks["task_list"].get("tasks", [])
+            update_data = {
+                'type': 'task_update',
+                'tasks': tasks,
+                'conversation_id': conversation_id
+            }
+        else:
+            # Send an empty task list if no active task list is found
+            # This ensures the TaskProgress component gets updated with empty state
+            update_data = {
+                'type': 'task_update',
+                'tasks': [],
+                'conversation_id': conversation_id
+            }
+        
+        # Always send an update, even if tasks list is empty
+        # This ensures the frontend knows the current state
+        await queue.put(update_data)
+        
+        # Log the task update for debugging
+        task_count = len(update_data.get('tasks', []))
+        conv_info = f"conversation {conversation_id}" if conversation_id else "all conversations"
+        print(f"Task update streamed: {task_count} tasks for user {user_id} in {conv_info}")
+        
+    except Exception as e:
+        print(f"Error streaming task update: {e}")
 
 async def get_pending_task_updates():
     """Get any pending task updates from the queue."""
@@ -851,7 +894,7 @@ async def get_pending_task_updates():
         pass
     return updates
 
-async def task_create_from_template(user_id, template_name, **kwargs):
+async def task_create_from_template(user_id, template_name, conversation_id=None, **kwargs):
     """Create a new task list from a predefined template."""
     try:
         print(f"Template-based task creation is deprecated. Use dynamic task generation instead.")
@@ -860,8 +903,8 @@ async def task_create_from_template(user_id, template_name, **kwargs):
         task_result = await generate_dynamic_tasks(template_message)
         
         if task_result.get("success"):
-            result = await task_create_custom(user_id, task_result["title"], task_result["tasks"])
-            await stream_task_update(user_id)
+            result = await task_create_custom(user_id, task_result["title"], task_result["tasks"], conversation_id)
+            await stream_task_update(user_id, conversation_id)
             return result
         else:
             return {"success": False, "error": "Failed to generate dynamic tasks"}
@@ -869,7 +912,7 @@ async def task_create_from_template(user_id, template_name, **kwargs):
         print(f"Error creating task list from template: {e}")
         return {"success": False, "error": str(e)}
 
-async def task_create_custom(user_id, title, tasks):
+async def task_create_custom(user_id, title, tasks, conversation_id=None):
     """Create a custom task list."""
     try:
         # Convert simple task list to proper format
@@ -880,8 +923,8 @@ async def task_create_custom(user_id, title, tasks):
             else:
                 formatted_tasks.append(task)
         
-        result = await task_manager.create_task_list(user_id, title, formatted_tasks)
-        await stream_task_update(user_id)
+        result = await task_manager.create_task_list(user_id, title, formatted_tasks, conversation_id=conversation_id)
+        await stream_task_update(user_id, conversation_id)
         return result
     except Exception as e:
         print(f"Error creating custom task list: {e}")
@@ -916,36 +959,36 @@ async def task_clear_all(user_id):
         print(f"Error clearing tasks: {e}")
         return {"success": False, "error": str(e)}
 
-async def task_update_status(user_id, task_id, status):
+async def task_update_status(user_id, task_id, status, conversation_id=None):
     """Update the status of a specific task."""
     try:
         if status not in ["pending", "in_progress", "completed"]:
             return {"success": False, "error": "Status must be pending, in_progress, or completed"}
         
-        result = await task_manager.update_task_status(user_id, task_id, status)
-        await stream_task_update(user_id)
+        result = await task_manager.update_task_status(user_id, task_id, status, conversation_id)
+        await stream_task_update(user_id, conversation_id)
         return result
     except Exception as e:
         print(f"Error updating task status: {e}")
         return {"success": False, "error": str(e)}
 
-async def task_add_new(user_id, content, priority="medium", parent_id=None):
+async def task_add_new(user_id, content, priority="medium", parent_id=None, conversation_id=None):
     """Add a new task to the current task list."""
     try:
         if priority not in ["low", "medium", "high"]:
             priority = "medium"
             
-        result = await task_manager.add_task(user_id, content, priority, parent_id)
-        await stream_task_update(user_id)
+        result = await task_manager.add_task(user_id, content, priority, parent_id, conversation_id)
+        await stream_task_update(user_id, conversation_id)
         return result
     except Exception as e:
         print(f"Error adding new task: {e}")
         return {"success": False, "error": str(e)}
 
-async def task_get_context(user_id):
+async def task_get_context(user_id, conversation_id=None):
     """Get current task context for injection into agent prompts."""
     try:
-        context = await task_manager.get_task_context_string(user_id)
+        context = await task_manager.get_task_context_string(user_id, conversation_id)
         return {"success": True, "context": context}
     except Exception as e:
         print(f"Error getting task context: {e}")
@@ -998,7 +1041,7 @@ def detect_task_requirement(user_message):
     
     return requires_tasks, score
 
-async def auto_create_task_if_needed(user_id, user_message, streaming=False):
+async def auto_create_task_if_needed(user_id, user_message, streaming=False, conversation_id=None):
     """Automatically create a dynamic task list using AI if the user message requires it."""
     
     # Use improved logic to determine if tasks are needed
@@ -1020,10 +1063,12 @@ async def auto_create_task_if_needed(user_id, user_message, streaming=False):
         result = await task_create_custom(
             user_id, 
             task_result["title"], 
-            task_result["tasks"]
+            task_result["tasks"],
+            conversation_id
         )
         
-        print(f"Auto-created dynamic tasks: {result}")
+        conv_info = f" for conversation {conversation_id}" if conversation_id else ""
+        print(f"Auto-created dynamic tasks{conv_info}: {result}")
         print(f"Task complexity: {task_result.get('complexity', 'unknown')}")
         
         return result.get("success", False)
@@ -2136,6 +2181,11 @@ async def run_simple_agent(prompt,
     # Initialize variables
     step_count = 0
     steps = []
+    
+    # Initialize streaming context if in streaming mode
+    if streaming:
+        # This ensures the queue is created and the streaming context is properly initialized
+        set_streaming_context(True)
 
     if history is None:
         history = []
@@ -2302,8 +2352,8 @@ You have access to several tools:
 9. upload_batch_to_skuvault - Upload multiple products to SkuVault using their API.
 10. create_open_box_listing_single - Duplicate a single product as an Open Box listing. The caller must supply a product identifier (title, handle, ID or SKU), the unit’s serial number, a condition suffix (e.g. 'Excellent', 'Scratch & Dent'), **and** either an explicit price or a discount percentage.
    --- Task system for use by the agent ---
-11. task_create_from_template - Create a structured task list from a predefined template (e.g., 'product_listing_creation') for EspressoBot
-12. task_create_custom - Create a custom task list with your own tasks.
+11. task_create_from_template - Create task lists from templates (e.g., 'product_listing_creation') for EspressoBot
+12. task_create_custom - Create custom task lists for specific workflows
 13. task_read_current - Get the current active task list to see what needs to be done.
 14. task_clear_all - Clear all active tasks when starting a completely new, unrelated request.
 15. task_update_status - Update a task's status (pending, in_progress, completed).
@@ -2383,67 +2433,6 @@ This system helps you:
 - Ensure nothing is forgotten in complex processes
 
 Use task management for:
-- Product listing creation workflows
-- Complex inventory operations
-- Multi-step problem solving
-- Any workflow with 3+ distinct steps
-
-## FILESYSTEM SYSTEM
-
-You have access to controlled filesystem operations for persistent storage:
-
-1. `read_file` - Read content from files in allowed directories
-2. `write_file` - Write content to files in allowed directories
-3. `list_directory` - List contents of directories in allowed locations
-4. `delete_file` - Remove files from allowed directories
-5. `check_file_exists` - Check if a file exists in allowed locations
-
-The filesystem is organized into dedicated areas:
-- Templates directory (`templates/`) - For reusable content templates
-- Exports directory (`exports/`) - For CSV, JSON, and other exports
-- User-specific directories (`users/<user_id>/`) - For files scoped to specific users
-
-Good uses for filesystem:
-- Saving frequently used GraphQL templates
-- Storing user-specific configuration files
-- Exporting reports and data in various formats
-- Maintaining reusable product descriptions or attributes
-
-## TASK MANAGEMENT SYSTEM
-
-You have access to an advanced task management system that helps you stay organized and provides transparency to users:
-
-1. `task_create_from_template` - Create structured task lists from predefined templates
-2. `task_create_custom` - Create custom task lists for unique workflows
-3. `task_read_current` - View your current active task list
-4. `task_clear_all` - Clear all active tasks when switching to completely unrelated work
-5. `task_update_status` - Mark tasks as pending, in_progress, or completed
-6. `task_add_new` - Add new tasks or subtasks as work evolves
-
-**AUTOMATIC TASK MANAGEMENT WORKFLOW:**
-The system auto-creates tasks for complex requests, but you MUST actively manage them:
-1. FIRST: Call `task_read_current` to see if tasks were auto-created for this request
-2. MANDATORY: Update task status to 'in_progress' when starting each task  
-3. MANDATORY: Mark tasks as 'completed' when finished
-4. Add new tasks/subtasks with `task_add_new` as they become apparent
-5. If no tasks exist but you identify a multi-step process, create them with `task_create_custom`
-
-**CRITICAL**: Users can see your task progress in real-time! Keep tasks updated so they know what you're working on.
-
-**IMPORTANT**: Use the internal task management system (`task_*` functions) for YOUR workflow organization. 
-Only use Google Tasks functions (`google_tasks_*`) when the USER specifically requests Google Tasks integration.
-
-Available templates:
-- `product_listing_creation` - Comprehensive product creation workflow following iDrinkCoffee guidelines
-
-The task system provides:
-- Structured markdown task lists with nested subtasks
-- Status tracking (pending, in_progress, completed)
-- Progress visibility for users
-- Context injection to keep you aware of current objectives
-- Persistent storage across conversation sessions
-
-Good uses for task management:
 - Product listing creation workflows
 - Complex Shopify operations
 - Multi-step troubleshooting processes
@@ -2586,7 +2575,17 @@ END OF SYSTEM PROMPT
             set_streaming_context(True)
             
         user_message = prompt_text if isinstance(prompt_text, str) else str(prompt)
-        task_created = await auto_create_task_if_needed(user_id, user_message, streaming)
+        
+        # Get conversation_id from history if available
+        conversation_id = None
+        if history and isinstance(history, list) and len(history) > 0:
+            for msg in history:
+                if isinstance(msg, dict) and msg.get('conv_id'):
+                    conversation_id = msg.get('conv_id')
+                    break
+        
+        # Create tasks associated with this conversation
+        task_created = await auto_create_task_if_needed(user_id, user_message, streaming, conversation_id)
 
     try:
         while step_count < max_steps:
