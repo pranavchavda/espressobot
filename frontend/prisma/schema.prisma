@@ -1,0 +1,100 @@
+// frontend/prisma/schema.prisma
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  // Assumes prisma commands are run from 'frontend/' or that the path is adjusted during build.
+  // Standard practice is to have schema in 'prisma' folder and run commands from parent of 'prisma'
+  output   = "../node_modules/.prisma/client"
+}
+
+model User {
+  id                Int      @id @default(autoincrement())
+  email             String   @unique
+  password_hash     String
+  name              String?
+  bio               String?
+  is_whitelisted    Boolean  @default(false)
+  created_at        DateTime @default(now())
+
+  conversations   Conversation[]        @relation("UserConversations")
+  userMemories    UserMemory[]          @relation("UserMemories")
+  userMemoryEmbeddings UserMemoryEmbedding[] @relation("UserMemoryEmbeddings") // Changed relation name for clarity
+
+  @@index([email])
+}
+
+model Conversation {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  title       String   // Default (current time string) needs to be handled at application level
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  filename    String   @unique
+
+  user        User     @relation("UserConversations", fields: [user_id], references: [id], onDelete: Cascade)
+  messages    Message[] @relation("ConversationMessages")
+
+  @@index([user_id])
+}
+
+model Message {
+  id            Int      @id @default(autoincrement())
+  conv_id       Int
+  role          String   // e.g., 'user', 'assistant', 'system', 'tool'
+  content       String
+  tool_call_id  String?
+  tool_name     String?
+  created_at    DateTime @default(now())
+
+  conversation  Conversation @relation("ConversationMessages", fields: [conv_id], references: [id], onDelete: Cascade)
+
+  @@index([conv_id])
+}
+
+model UserMemory {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  key         String
+  value       String   // JSON stored as string
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  user        User     @relation("UserMemories", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, key])
+  @@index([user_id])
+}
+
+model EmbeddingCache {
+  id                  Int      @id @default(autoincrement())
+  text_hash           String   @unique // SHA256 hash
+  text_content        String
+  embedding_data      Bytes    // Prisma Bytes maps to bytea in PostgreSQL
+  model_name          String
+  created_at          DateTime @default(now())
+  last_accessed       DateTime @default(now()) // Updated by application logic
+
+  userMemoryEmbeddings UserMemoryEmbedding[] @relation("EmbeddingCacheToUserMemoryEmbeddings")
+
+  @@index([text_hash])
+}
+
+model UserMemoryEmbedding {
+  id                  Int      @id @default(autoincrement())
+  user_id             Int
+  memory_key          String
+  embedding_cache_id  Int
+  created_at          DateTime @default(now())
+
+  user                User            @relation("UserMemoryEmbeddings", fields: [user_id], references: [id], onDelete: Cascade)
+  embeddingCache      EmbeddingCache  @relation("EmbeddingCacheToUserMemoryEmbeddings", fields: [embedding_cache_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, memory_key])
+  @@index([user_id])
+  @@index([embedding_cache_id])
+}
