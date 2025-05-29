@@ -1,52 +1,65 @@
 """
-Adapter layer for normalizing responses from the memory MCP server to ensure consistent agent behavior.
+Compatibility module for MCP adapter.
+Redirects to the new services implementation.
 """
-import asyncio
-from typing import Any, Callable, Awaitable, Dict
+# This file provides compatibility with the old MCP adapter interface
+# It's not needed for the new services architecture but is kept for backward compatibility
 
-# Utility: Normalize memory MCP server responses to a standard format
-async def normalized_memory_call(method: Callable[..., Awaitable[Any]], *args, **kwargs) -> Dict:
+# Import all services from the compatibility layer
+from services.compatibility import (
+    memory_server,
+    fetch_mcp_server,
+    shopify_mcp_server,
+    thinking_mcp_server,
+    filesystem_mcp_server
+)
+
+# Provide the same interface as the original module
+def get_mcp_adapter(adapter_type, *args, **kwargs):
     """
-    Calls the given memory MCP server method, normalizing the result to always provide a 'content' field like other MCPs.
+    Get an MCP adapter instance of the specified type.
+    Redirects to the appropriate service in the compatibility layer.
     """
-    try:
-        result = await method(*args, **kwargs)
-    except Exception as e:
-        return {
-            "content": [{
-                "type": "text",
-                "text": f"Memory MCP error: {str(e)}"
-            }],
-            "isError": True
-        }
+    if adapter_type == "memory":
+        return memory_server
+    elif adapter_type == "fetch":
+        return fetch_mcp_server
+    elif adapter_type == "shopify":
+        return shopify_mcp_server
+    elif adapter_type == "thinking":
+        return thinking_mcp_server
+    elif adapter_type == "filesystem":
+        return filesystem_mcp_server
+    else:
+        raise ValueError(f"Unknown MCP adapter type: {adapter_type}")
 
-    # If already in the expected format, return as-is
-    if isinstance(result, dict) and "content" in result:
-        return result
-
-    # If it's a known memory MCP structure with 'success' and 'error'
-    if isinstance(result, dict):
-        if not result.get("success", True):
-            text = result.get("error") or "Unknown memory MCP error."
-            return {
-                "content": [{"type": "text", "text": text}],
-                "isError": True
-            }
-        # If it's a memory value
-        if "value" in result:
-            return {
-                "content": [{"type": "text", "text": str(result["value"])}],
-                "isError": False
-            }
-        # If it's a list of keys or similar
-        if "keys" in result:
-            text = ", ".join(result["keys"])
-            return {
-                "content": [{"type": "text", "text": text}],
-                "isError": False
-            }
-    # Fallback: dump the result as text
-    return {
-        "content": [{"type": "text", "text": str(result)}],
-        "isError": False
-    }
+# Add the missing normalized_memory_call function
+def normalized_memory_call(user_id, key, value=None, operation="get"):
+    """
+    Normalized interface for memory operations.
+    
+    Args:
+        user_id: User identifier
+        key: Memory key
+        value: Optional value for store operations
+        operation: Operation type (get, store, delete, list)
+        
+    Returns:
+        Operation result
+    """
+    import asyncio
+    
+    async def _async_memory_call():
+        if operation == "get":
+            return await memory_server.retrieve_memory(user_id, key)
+        elif operation == "store":
+            return await memory_server.store_memory(user_id, key, value)
+        elif operation == "delete":
+            return await memory_server.delete_memory(user_id, key)
+        elif operation == "list":
+            return await memory_server.list_memories(user_id)
+        else:
+            raise ValueError(f"Unknown memory operation: {operation}")
+    
+    # Run the async function in the event loop
+    return asyncio.run(_async_memory_call())
