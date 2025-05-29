@@ -1,10 +1,12 @@
 """
-Compatibility layer for MCP server integration.
-Provides adapters to maintain compatibility with existing MCP server code.
-"""
-import asyncio
-from typing import Any, Dict, Optional, List, Callable, Awaitable
+Compatibility layer for MCP servers to maintain API compatibility with the original implementation.
 
+This module provides adapter classes that wrap the direct service implementations
+to maintain the same API as the original MCP servers.
+"""
+from typing import Dict, Any, List, Optional
+
+from services.base_service import BaseService
 from services.memory_service import memory_service
 from services.fetch_service import fetch_service
 from services.shopify_service import shopify_service
@@ -18,17 +20,21 @@ class MemoryServiceAdapter:
     def __init__(self):
         self.service = memory_service
     
-    async def store_memory(self, user_id: str, key: str, value: Any) -> Dict[str, Any]:
-        """Store a memory for a specific user."""
-        return await self.service.store_memory(user_id, key, value)
+    async def add_memory(self, user_id: str, memory: Dict[str, Any]) -> Dict[str, Any]:
+        """Add a new memory for a specific user."""
+        return await self.service.add_memory(user_id, memory)
     
-    async def retrieve_memory(self, user_id: str, key: str) -> Dict[str, Any]:
-        """Retrieve a memory for a specific user."""
-        return await self.service.retrieve_memory(user_id, key)
+    async def get_memory(self, user_id: str, memory_id: str) -> Dict[str, Any]:
+        """Get a specific memory for a user."""
+        return await self.service.get_memory(user_id, memory_id)
     
-    async def delete_memory(self, user_id: str, key: str) -> Dict[str, Any]:
-        """Delete a memory for a specific user."""
-        return await self.service.delete_memory(user_id, key)
+    async def update_memory(self, user_id: str, memory_id: str, memory: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a specific memory for a user."""
+        return await self.service.update_memory(user_id, memory_id, memory)
+    
+    async def delete_memory(self, user_id: str, memory_id: str) -> Dict[str, Any]:
+        """Delete a specific memory for a user."""
+        return await self.service.delete_memory(user_id, memory_id)
     
     async def list_memories(self, user_id: str) -> Dict[str, Any]:
         """List all memories for a specific user."""
@@ -71,6 +77,10 @@ class ShopifyServiceAdapter:
     async def get_products(self, limit: int = 10, cursor: Optional[str] = None) -> Dict[str, Any]:
         """Get products from the Shopify store."""
         return await self.service.get_products(limit, cursor)
+    
+    async def get_product(self, product_id: str) -> Dict[str, Any]:
+        """Get a specific product by ID from the Shopify store."""
+        return await self.service.get_product(product_id)
     
     async def get_orders(self, limit: int = 10, cursor: Optional[str] = None) -> Dict[str, Any]:
         """Get orders from the Shopify store."""
@@ -135,6 +145,7 @@ class FilesystemServiceAdapter:
 # Create adapter instances
 memory_server = MemoryServiceAdapter()
 fetch_mcp_server = FetchServiceAdapter()
-shopify_mcp_server = ShopifyServiceAdapter()
+shopify_mcp_server = ShopifyServiceAdapter()  # For original code compatibility
+shopify_features_mcp_server = ShopifyServiceAdapter()  # For original code compatibility
 thinking_mcp_server = ThinkingServiceAdapter()
 filesystem_mcp_server = FilesystemServiceAdapter()
