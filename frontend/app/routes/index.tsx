@@ -23,14 +23,14 @@ export default function IndexRoute() {
   // Placeholder for selectedChat state - this will need proper state management in Remix
   const selectedChatId = null; // Or get from URL params, or a global state solution for Remix
 
-  // Placeholder for refreshConversations - this will be tied to Remix data revalidation
-  const refreshConversations = () => console.log("Placeholder: refreshConversations called");
+  // refreshConversations prop is no longer needed as navigation handles list updates.
+  // const refreshConversations = () => console.log("Placeholder: refreshConversations called");
 
   return (
     <StreamingChatPage
       key={selectedChatId === null ? "new_chat_instance_key" : selectedChatId}
       convId={selectedChatId}
-      refreshConversations={refreshConversations}
+      // refreshConversations={refreshConversations} // Removed
       // userId={userId} // StreamingChatPage might need userId directly or via context
     />
   );

@@ -1,4 +1,10 @@
-import { json, ActionFunctionArgs } from '@remix-run/node';
+import {
+  json,
+  ActionFunctionArgs,
+  unstable_parseMultipartFormData,
+  unstable_createMemoryUploadHandler,
+  // NodeOnDiskFile, // If using a disk handler
+} from '@remix-run/node'; // Or your specific runtime package
 import { prisma } from '../lib/db.server';
 import { requireUserId } from '../lib/auth.server';
 import { Conversation, Message } from '@prisma/client'; // Import types
@@ -14,19 +20,44 @@ function generateConversationTitle(firstMessage: string): string {
 export async function action({ request }: ActionFunctionArgs) {
   const userId = await requireUserId(request);
 
-  if (request.method !== 'POST') {
-    return json({ message: 'Method not allowed' }, { status: 405 });
-  }
+  // if (request.method !== 'POST') { // This check is usually not needed as Remix routes typically handle specific methods
+  //   return json({ message: 'Method not allowed' }, { status: 405 });
+  // }
 
-  const formData = await request.formData();
-  const userMessageContent = formData.get('message');
-  const convIdString = formData.get('conv_id'); // Can be null or string
+  const uploadHandler = unstable_createMemoryUploadHandler({
+    maxPartSize: 20 * 1024 * 1024, // 20MB limit for files in memory
+    // filter: ({ contentType }) => contentType.startsWith("image/"), // Optional: only allow images
+  });
 
-  if (typeof userMessageContent !== 'string' || userMessageContent.trim().length === 0) {
-    return json({ error: 'Message content is required' }, { status: 400 });
-  }
+  // let processedImageUrl: string | null = null; // Placeholder for conceptual image URL processing
 
-  let conversationId: number;
+  try {
+    const formData = await unstable_parseMultipartFormData(request, uploadHandler);
+
+    const userMessageContentField = formData.get('message');
+    const convIdStringField = formData.get('conv_id');
+    const imageFile = formData.get('image_file') as File; // Type assertion for memory handler
+    const imageUrlString = formData.get('image_url') as string;
+
+    const userMessageContent = typeof userMessageContentField === 'string' ? userMessageContentField : '';
+    const convIdString = typeof convIdStringField === 'string' ? convIdStringField : null;
+    
+    // Validate that either message content or an image is present
+    if (userMessageContent.trim().length === 0 && (!imageFile || imageFile.size === 0) && (!imageUrlString || imageUrlString.trim().length === 0)) {
+      return json({ error: 'Message content or an image is required' }, { status: 400 });
+    }
+
+    if (imageFile && imageFile.size > 0) {
+      console.log('Received image file in api.chat:', imageFile.name, imageFile.type, imageFile.size);
+      // In a real app, you'd upload this to storage and get a URL.
+      // For now, just acknowledge it.
+      // processedImageUrl = `user_uploaded_files/${imageFile.name}`; // Placeholder
+    } else if (imageUrlString && typeof imageUrlString === 'string' && imageUrlString.trim().length > 0) {
+      console.log('Received image URL in api.chat:', imageUrlString);
+      // processedImageUrl = imageUrlString;
+    }
+
+    let conversationId: number;
   let conversation: Conversation | null = null;
 
   if (convIdString && typeof convIdString === 'string') {
@@ -76,29 +107,33 @@ export async function action({ request }: ActionFunctionArgs) {
     },
   });
 
-  // --- Placeholder for AI Agent Logic ---
-  const assistantResponseContent = "This is a placeholder response from the assistant. AI logic will be implemented later.";
-  const steps: any[] = [{ type: 'placeholder', detail: 'AI agent processing not yet implemented.' }];
-  const tool_calls: any[] = [];
-  const suggestions: string[] = ["Suggestion 1 (placeholder)", "Suggestion 2 (placeholder)"];
+  // --- Placeholder for AI Agent Logic (if any part runs before streaming) ---
+  const tool_calls: any[] = []; 
+  const suggestions: string[] = ["Suggestion 1 (placeholder)", "Suggestion 2 (placeholder)"]; 
   // --- End Placeholder ---
 
-  // Store the assistant's message
-  await prisma.message.create({
-    data: {
-      conv_id: conversationId,
-      role: 'assistant',
-      content: assistantResponseContent,
-    },
-  });
+  // DO NOT Store the assistant's message here.
+  // This will be handled by api.chat.stream.ts after the stream completes.
+  // await prisma.message.create({
+  //   data: {
+  //     conv_id: conversationId,
+  //     role: 'assistant',
+  //     content: assistantResponseContent, // This is removed
+  //   },
+  // });
 
   return json({
     conv_id: conversationId,
-    response: assistantResponseContent,
-    steps: steps.length, // Or actual steps array
-    tool_calls: tool_calls,
-    suggestions: suggestions,
+    tool_calls: tool_calls, 
+    suggestions: suggestions, 
   });
+
+  } catch (error: any) { // Ensure 'error' is typed if accessing properties like error.message
+    console.error("Error processing chat form data:", error);
+    // Check if it's a known error type or just a generic message
+    const errorMessage = error.message || 'Failed to process request.';
+    return json({ error: errorMessage }, { status: 500 });
+  }
 }
 
 // No default export needed for a resource route that only has an action.

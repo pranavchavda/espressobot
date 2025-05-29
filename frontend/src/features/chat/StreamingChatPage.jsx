@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useFetcher, useNavigate } from '@remix-run/react'; // Added useNavigate
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
@@ -8,9 +9,10 @@ import { TaskProgress } from "@components/chat/TaskProgress";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
-import { Form } from "react-router-dom";
+// Form from react-router-dom is not needed for Remix fetcher based submission
+// import { Form } from "react-router-dom"; 
 
-// Helper hook for debouncing
+// Helper hook for debouncing (can be kept if typeahead suggestions are re-enabled later)
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -24,61 +26,43 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-function StreamingChatPage({ convId, refreshConversations }) {
-  const [messages, setMessages] = useState([]);
+// refreshConversations prop has been removed from here as per previous steps.
+function StreamingChatPage({ convId, initialMessages = [] }) { 
+  const fetcher = useFetcher();
+  const navigate = useNavigate(); 
+  const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [activeConv, setActiveConv] = useState(convId);
+  // const [loading, setLoading] = useState(false); // Old loading state, fetcher handles its own
+  const [activeConv, setActiveConv] = useState(convId); // Can be null for new chats
   const [suggestions, setSuggestions] = useState([]);
-  const [streamingMessage, setStreamingMessage] = useState(null);
+  const [streamingMessage, setStreamingMessage] = useState(null); // Restored for actual streaming
   const [toolCallStatus, setToolCallStatus] = useState("");
   const [currentTasks, setCurrentTasks] = useState([]);
   const [imageAttachment, setImageAttachment] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const messagesEndRef = useRef(null);
-  const eventSourceRef = useRef(null);
-  const readerRef = useRef(null);
+  const eventSourceRef = useRef(null); // For EventSource streaming
   const inputRef = useRef(null);
-  const imageInputRef = useRef(null);
+  const imageInputRef = useRef(null); // For file input dialog
 
-  // Fetch messages for selected conversation
+  // Update messages and activeConv when props change (e.g., new conversation selected)
   useEffect(() => {
-    if (!convId) {
-      setMessages([]);
+    setMessages(initialMessages || []);
+    setActiveConv(convId);
+    // Reset suggestions or load them if they are part of initialMessages
+    const lastMessage = initialMessages?.[initialMessages.length - 1];
+    if (lastMessage?.role === 'assistant' && lastMessage.suggestions) {
+      setSuggestions(lastMessage.suggestions);
+    } else {
       setSuggestions([]);
-      setActiveConv(null);
-      return;
     }
-    setLoading(true);
-    fetch(`/conversations/${convId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setMessages(data);
-        setActiveConv(convId);
-        const lastMessage = data[data.length - 1];
-        if (
-          lastMessage &&
-          lastMessage.role === "assistant" &&
-          lastMessage.suggestions
-        ) {
-          setSuggestions(lastMessage.suggestions);
-        } else {
-          setSuggestions([]);
-        }
-      })
-      .catch(() => {
-        setMessages([]);
-        setSuggestions([]);
-      })
-      .finally(() => setLoading(false));
-  }, [convId]);
+  }, [convId, initialMessages]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingMessage]);
+  }, [messages]); // Removed streamingMessage from deps for now
 
   // Format timestamp to readable format
   const formatTimestamp = (timestamp) => {
@@ -92,43 +76,46 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
   // Interrupt function to stop ongoing agent tasks
   const handleInterrupt = async () => {
-    if (readerRef.current) {
-      try {
-        await readerRef.current.cancel();
-        readerRef.current = null;
-      } catch (error) {
-        console.log("Reader already closed");
-      }
-    }
+    // This function might need to be adapted if fetcher supports cancellation,
+    // or if a separate interrupt mechanism is implemented for Remix actions.
+    // For now, it might primarily clear local UI state.
+    // if (readerRef.current) { // Old stream reader
+    //   try {
+    //     await readerRef.current.cancel();
+    //     readerRef.current = null;
+    //   } catch (error) {
+    //     console.log("Reader already closed");
+    //   }
+    // }
     
-    setIsSending(false);
-    setStreamingMessage(null);
+    // setIsSending(false); // Now derived from fetcher.state
+    setStreamingMessage(null); // Clear any residual streaming UI
     setCurrentTasks([]);
     setToolCallStatus("");
     
-    // Optionally send an interrupt signal to the backend
-    try {
-      await fetch('/api/interrupt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conv_id: activeConv })
-      });
-    } catch (error) {
-      console.log("Failed to send interrupt signal:", error);
-    }
+    // Optionally send an interrupt signal to the backend (if backend supports it for non-streaming actions)
+    // This part is less relevant for non-streaming actions.
+    // try {
+    //   await fetch('/api/interrupt', { // This endpoint would need to exist in Remix
+    //     method: 'POST',
+    //     headers: { 'Content-Type': 'application/json' },
+    //     body: JSON.stringify({ conv_id: activeConv })
+    //   });
+    // } catch (error) {
+    //   console.log("Failed to send interrupt signal:", error);
+    // }
+    console.warn("Interrupt for non-streaming actions needs review.");
   };
 
-  // Clean up event source on unmount
+  // Clean up event source on unmount or when conversation changes
   useEffect(() => {
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
-      }
-      if (readerRef.current) {
-        readerRef.current.cancel();
+        eventSourceRef.current = null;
       }
     };
-  }, []);
+  }, [activeConv]); // Also close if activeConv changes, to prevent streaming to wrong convo
 
   // Handle image paste from clipboard
   useEffect(() => {
@@ -248,229 +235,165 @@ function StreamingChatPage({ convId, refreshConversations }) {
   // }, [debouncedInput]);
 
 
-  // Handle sending a message with streaming response
+  // Handle sending a message (initiates non-streaming POST to /api/chat, then potentially streaming)
   const handleSend = async (messageContent = input) => {
-    const textToSend =
-      typeof messageContent === "string" ? messageContent.trim() : input.trim();
+    const textToSend = typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
-    if ((!textToSend && !imageAttachment) || isSending) return;
+    if (!textToSend && !imageAttachment) return;
+    if (fetcher.state !== 'idle') return;
 
-    // Before sending a new message, check if we have a completed streaming message
-    // If so, move it to regular messages
-    if (streamingMessage?.isComplete) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          role: "assistant",
-          content: streamingMessage.content,
-          timestamp: streamingMessage.timestamp,
-        }
-      ]);
+    // Finalize any previous streaming message before sending a new one
+    if (streamingMessage) {
+      setMessages(prev => [...prev, { ...streamingMessage, isStreaming: false, id: streamingMessage.id || `streaming-complete-${Date.now()}`}]);
+      setStreamingMessage(null);
     }
-
-    // Add user message to the conversation
-    const userMessage = {
-      role: "user",
-      content: textToSend,
-      timestamp: new Date().toISOString(),
-      imageAttachment: imageAttachment,
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setIsSending(true);
-    setInput('');
-    setSuggestions([]);
-
-    // Initialize streaming message
-    setStreamingMessage({
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      isStreaming: true,
-      isComplete: false, // Add this flag to track completion state
-    });
-
-    // Close any existing SSE connection
+    // Close any active EventSource connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    
+    // Optimistically add user's message
+    const userMessage = {
+      id: `temp-user-${Date.now()}`,
+      role: "user",
+      content: textToSend,
+      createdAt: new Date().toISOString(),
+      // imageAttachment: imageAttachment, // Image handling deferred for now
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Prepare FormData for fetcher to submit to /api/chat
+    const formData = new FormData();
+    formData.append('message', textToSend);
+    if (activeConv) { // activeConv here is the convId from prop
+      formData.append('conv_id', activeConv.toString());
     }
 
-    try {
-      // Set up Server-Sent Events connection
-      const fetchUrl = "/stream_chat";
-
-      // Prepare request data
-      const requestData = {
-        conv_id: activeConv || undefined,
-        message: textToSend,
-      };
-
-      // Add image data if present
-      if (imageAttachment) {
-        if (imageAttachment.dataUrl) {
-          requestData.image = {
-            type: "data_url",
-            data: imageAttachment.dataUrl
-          };
-        } else if (imageAttachment.url) {
-          requestData.image = {
-            type: "url",
-            url: imageAttachment.url
-          };
-        }
-      }
-
-      // Use fetch POST to start the stream
-      const response = await fetch(fetchUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Get the response as a ReadableStream
-      const reader = response.body.getReader();
-      readerRef.current = reader;
-      const decoder = new TextDecoder();
-      let eventData = "";
-
-      // Process the stream
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        eventData += chunk;
-
-        // Process any complete SSE messages
-        const messages = eventData.split(/\n\n/);
-        eventData = messages.pop() || ""; // Keep the last incomplete chunk for next iteration
-
-        for (const message of messages) {
-          if (!message.trim() || !message.startsWith("data:")) continue;
-
-          try {
-            // Extract and parse the JSON data
-            const jsonString = message.split(/\n/)
-              .filter(line => line.startsWith("data:"))
-              .map(line => line.slice(5).trim())
-              .join("");
-
-            const data = JSON.parse(jsonString);
-            console.log("Received data:", data);
-
-            // Handle tool_call status updates
-            if (data.tool_call) {
-              const { name, status } = data.tool_call;
-              let statusMessage = `Tool ${name}: ${status}`;
-              if (status === "started") {
-                statusMessage = `Running tool: ${name}...`;
-              } else if (status === "finished" || status === "ended") {
-                statusMessage = `Tool ${name} finished.`;
-              } else if (status === "error") {
-                statusMessage = `Error with tool: ${name}.`;
-              }
-              setToolCallStatus(statusMessage);
-            } else if (data.content || data.delta) {
-              // If new content (even if empty string from delta) arrives, clear specific tool status
-              setToolCallStatus("");
-            }
-
-            // Handle initial connection with conversation ID
-            if (data.conv_id && !activeConv) {
-              setActiveConv(data.conv_id);
-              refreshConversations && refreshConversations();
-            }
-
-            // Handle content updates
-            if (data.delta || data.content) {
-              setStreamingMessage(prev => ({
-                ...prev,
-                content: data.content || (prev?.content + (data.delta || "")),
-              }));
-            }
-
-            // Handle task updates
-            if (data.type === 'task_update' && data.tasks) {
-              setCurrentTasks(data.tasks);
-            }
-
-            // Handle suggestions
-            if (data.suggestions && Array.isArray(data.suggestions)) {
-              setSuggestions(data.suggestions);
-            }
-
-            // Handle completion
-            if (data.done) {
-              // Clear tasks when streaming is complete
-              setCurrentTasks([]);
-              
-              // Important: Don't clear streamingMessage immediately
-              // Instead, mark it as complete but keep displaying it
-              setStreamingMessage(prev => {
-                if (!prev) return null;
-                return {
-                  ...prev,
-                  isComplete: true, // Mark as complete but don't remove
-                  isStreaming: false, // No longer streaming
-                };
-              });
-              
-              // We no longer add to messages array here
-              // The streaming message will stay visible and 
-              // be "locked in place" since it's marked complete
-              
-              break;
-            }
-
-            // Handle errors
-            if (data.error) {
-              console.error("Stream error:", data.error);
-              setStreamingMessage(prev => ({
-                ...prev,
-                content: `Error: ${data.error}`,
-                isError: true,
-              }));
-            }
-          } catch (e) {
-            console.error("Error parsing SSE message:", e, message);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Failed to send message or process stream:", e);
-
-      // Update streaming message with error
-      setStreamingMessage(prev => 
-        prev ? { ...prev, content: `Error: ${e.message}`, isError: true } : null
-      );
-    } finally {
-      setIsSending(false);
-      setToolCallStatus(""); // Clear tool status when streaming ends
-      readerRef.current = null; // Clear reader reference
+    if (imageAttachment) {
+      console.warn("Image attachment sending via /api/chat is deferred.");
     }
-  }
+    
+    if (imageAttachment) {
+      if (imageAttachment.file) { // Prioritize file if both somehow exist
+        formData.append('image_file', imageAttachment.file, imageAttachment.file.name);
+        console.log("Image file prepared for FormData:", imageAttachment.file.name);
+      } else if (imageAttachment.url) {
+        formData.append('image_url', imageAttachment.url);
+        console.log("Image URL prepared for FormData:", imageAttachment.url);
+      }
+      // Clearing imageAttachment is handled in the useEffect for fetcher.data
+    }
+    
+    // Submit to /api/chat. This action will save the user message and
+    // return conv_id, which then triggers the EventSource connection.
+    fetcher.submit(formData, { method: 'post', action: '/api/chat', encType: 'multipart/form-data' });
+
+    setInput('');
+    setSuggestions([]);
+    // Image state can be cleared here or after fetcher.data confirms processing.
+    // Let's clear it after fetcher.data in the effect below.
+  };
+
+  // Effect to handle fetcher data (response from /api/chat) AND initiate streaming
+  useEffect(() => {
+    if (fetcher.data && fetcher.state === 'idle') {
+      const { conv_id: returnedConvId, suggestions: newSuggestions } = fetcher.data;
+      // Note: We IGNORE `fetcher.data.response` from /api/chat because streaming will provide it.
+      
+      const wasNewChatInitiation = !activeConv; // Was this component loaded for a new chat?
+      let navigatedToNewChat = false;
+
+      if (returnedConvId && returnedConvId !== activeConv) {
+        setActiveConv(returnedConvId); // Update activeConv state immediately
+        if (wasNewChatInitiation) {
+          navigate(`/c/${returnedConvId}`);
+          navigatedToNewChat = true; // Flag that navigation has occurred for a new chat
+        }
+      }
+      
+      const currentConvIdForStream = returnedConvId || activeConv;
+
+      if (newSuggestions) {
+        setSuggestions(newSuggestions);
+      }
+      
+      setImageAttachment(null);
+      setImageUrl("");
+      setShowImageUrlInput(false);
+      
+      // Only start EventSource if we haven't just navigated away for a new chat,
+      // or if the stream is for the ID we are now on (even if navigated).
+      // If navigatedToNewChat is true, this component instance might be about to unmount
+      // or its props will re-align. The EventSource should ideally be for the *new* page context.
+      // However, the current logic will set up EventSource using currentConvIdForStream,
+      // which should be correct even after navigation, as activeConv is updated.
+      // The main concern is starting an EventSource for a component instance that's being replaced.
+      // If navigation is quick, this instance might not even finish setting up the stream.
+      // For simplicity, we proceed if currentConvIdForStream is valid.
+      // The cleanup effect for activeConv changing should handle stale EventSources.
+
+      if (currentConvIdForStream) {
+        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+        const userMessageContentForStream = lastUserMessage?.content || '';
+
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+        }
+        
+        const streamUrl = `/api/chat.stream?conv_id=${currentConvIdForStream}&message=${encodeURIComponent(userMessageContentForStream)}`;
+        eventSourceRef.current = new EventSource(streamUrl);
+        
+        setStreamingMessage({ 
+          id: 'streaming-msg-' + Date.now(), 
+          role: 'assistant', 
+          content: '', 
+          createdAt: new Date().toISOString(), 
+          isStreaming: true, 
+          isError: false 
+        });
+
+        eventSourceRef.current.onopen = () => {
+          console.log("EventSource connected for streaming.");
+        };
+
+        eventSourceRef.current.onmessage = (event) => {
+          setStreamingMessage(prev => {
+            if (!prev || !prev.isStreaming) return prev; 
+            return { ...prev, content: prev.content + event.data };
+          });
+        };
+
+        eventSourceRef.current.onerror = () => {
+          console.error("EventSource error.");
+          setStreamingMessage(prev => {
+            if (!prev) return null;
+            return { ...prev, isStreaming: false, isError: true, content: prev.content + "\n\nError: Could not stream full response." };
+          });
+          if (eventSourceRef.current) eventSourceRef.current.close();
+        };
+      }
+    }
+  }, [fetcher.data, fetcher.state, activeConv, messages, navigate]);
+
+  // isSending should reflect both fetcher activity AND active streaming
+  const isSending = fetcher.state === 'submitting' || fetcher.state === 'loading' || (streamingMessage?.isStreaming || false);
 
   // Handle clicking a suggestion
   const handleSuggestionClick = (suggestionText) => {
-    handleSend(suggestionText);
+    setInput(suggestionText); // Set input to suggestion
+    handleSend(suggestionText); // Send immediately
   };
+
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
       {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 max-w-3xl w-full mx-auto">
         <div className="flex flex-col gap-3">
-          {loading ? (
-            <div className="flex justify-center items-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-zinc-500"></div>
-            </div>
-          ) : messages.length === 0 && !streamingMessage ? (
-            <div className="flex flex-col items-center justify-center text-center text-zinc-500 mt-12">
+          {/* Old loading spinner is removed. UI reflects `isSending` for input disabling. */}
+          {messages.length === 0 && !streamingMessage && !isSending ? (
+             <div className="flex flex-col items-center justify-center text-center text-zinc-500 mt-12">
               <img
                 src={logo}
                 alt="Espresso Bot Logo"
@@ -482,136 +405,115 @@ function StreamingChatPage({ convId, refreshConversations }) {
               </Text>
             </div>
           ) : (
-            <>
-              {/* Render all messages */}
-              {messages.map((msg, i) => (
-                <div
-                  key={msg.id || i}
-                  className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-                >
-                  <div className="flex-shrink-0">
-                    {msg.role === "user" ? (
-                      <Avatar
-                        className="size-8 bg-gray-100 dark:bg-zinc-700"
-                        initials="Me"
-                        alt="User"
-                      />
-                    ) : (
-                      <Avatar
-                        className="size-8 bg-blue-100 dark:bg-blue-900/30"
-                        alt="ShopifyBot"
-                        initials="🤖"
-                      />
-                    )}
-                  </div>
-
-                  <div
-                    className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
-                      msg.role === "user"
-                        ? "bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none"
-                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
-                    }`}
-                  >
-                    <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
-                      {/* Show image attachment if present */}
-                      {msg.imageAttachment && (
-                        <div className="mb-3">
-                          {msg.imageAttachment.dataUrl && (
-                            <img 
-                              src={msg.imageAttachment.dataUrl} 
-                              alt="User uploaded" 
-                              className="max-h-64 rounded-lg object-contain"
-                            />
-                          )}
-                          {msg.imageAttachment.url && (
-                            <img 
-                              src={msg.imageAttachment.url} 
-                              alt="From URL" 
-                              className="max-h-64 rounded-lg object-contain"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNFRUVFRUUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM5OTk5OTkiPkltYWdlIGVycm9yPC90ZXh0Pjwvc3ZnPg==';
-                              }}
-                            />
-                          )}
-                        </div>
-                      )}
-                      <MarkdownRenderer isAgent={msg.role === "assistant"}>
-                        {String(msg.content || "")}
-                      </MarkdownRenderer>
-                    </div>
-                    <div
-                      className={`text-xs mt-2 flex items-center justify-end gap-2 ${
-                        msg.role === "user"
-                          ? "text-gray-400 dark:text-gray-500"
-                          : "text-zinc-500 dark:text-zinc-400"
-                      }`}
-                    >
-                      {msg.status === "sending" && (
-                        <span className="flex items-center">
-                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          Processing
-                        </span>
-                      )}
-                      {msg.timestamp && !msg.status && (
-                        <span className="whitespace-nowrap">
-                          {formatTimestamp(msg.timestamp)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* Task Progress Display */}
-                <TaskProgress 
-                  tasks={currentTasks} 
-                  onInterrupt={handleInterrupt}
-                  isStreaming={isSending}
-                />
-
-
-              {/* Render streaming message if present */}
-              {streamingMessage && (
-                <div className="flex items-start gap-2">
-                  <div className="flex-shrink-0">
+            messages.map((msg, i) => (
+              <div
+                key={msg.id || i} // Use msg.id if available (from DB), else index for optimistic
+                className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+              >
+                <div className="flex-shrink-0">
+                  {msg.role === "user" ? (
+                    <Avatar
+                      className="size-8 bg-gray-100 dark:bg-zinc-700"
+                      initials="Me"
+                      alt="User"
+                    />
+                  ) : (
                     <Avatar
                       className="size-8 bg-blue-100 dark:bg-blue-900/30"
-                      alt="ShopifyBot"
+                      alt="EspressoBot" // Consistent naming
                       initials="🤖"
                     />
-                  </div>
+                  )}
+                </div>
 
-                  <div 
-                    className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
-                    data-state={streamingMessage.isComplete ? "complete" : "streaming"}
+                <div
+                  className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
+                    msg.role === "user"
+                      ? "bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none"
+                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+                  }`}
+                >
+                  <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
+                    {/* Image display logic can remain for optimistic user messages */}
+                    {msg.imageAttachment && (
+                      <div className="mb-3">
+                        {msg.imageAttachment.dataUrl && (
+                          <img 
+                            src={msg.imageAttachment.dataUrl} 
+                            alt="User uploaded" 
+                            className="max-h-64 rounded-lg object-contain"
+                          />
+                        )}
+                        {/* URL image display can also remain if needed */}
+                      </div>
+                    )}
+                    <MarkdownRenderer isAgent={msg.role === "assistant"}>
+                      {String(msg.content || "")}
+                    </MarkdownRenderer>
+                  </div>
+                  <div
+                    className={`text-xs mt-2 flex items-center justify-end gap-2 ${
+                      msg.role === "user"
+                        ? "text-gray-400 dark:text-gray-500"
+                        : "text-zinc-500 dark:text-zinc-400"
+                    }`}
                   >
-                    <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
-                      <MarkdownRenderer isAgent={true}>
-                        {streamingMessage.content || ""}
-                      </MarkdownRenderer>
-                      {streamingMessage.isStreaming && !streamingMessage.isError && (
-                        <span className="inline-block ml-1 w-2 h-4 bg-current animate-pulse" />
-                      )}
-                    </div>
-                    <div className="text-xs mt-2 flex items-center justify-end gap-2 text-zinc-500 dark:text-zinc-400">
-                      {streamingMessage.isStreaming && !streamingMessage.isError && (
-                        <span className="flex items-center">
-                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          {toolCallStatus ? toolCallStatus : "Generating..."}
-                        </span>
-                      )}
-                      {streamingMessage.timestamp && (
-                        <span className="whitespace-nowrap">
-                          {formatTimestamp(streamingMessage.timestamp)}
-                        </span>
-                      )}
-                    </div>
+                    {/* msg.status is not used with fetcher, optimistic updates are immediate */}
+                    {msg.createdAt && ( 
+                      <span className="whitespace-nowrap">
+                        {formatTimestamp(msg.createdAt)} 
+                      </span>
+                    )}
                   </div>
                 </div>
-              )}
-            </>
+              </div>
+            ))
           )}
+          {/* Task Progress Display can be kept if non-streaming response might include tasks */}
+          <TaskProgress 
+            tasks={currentTasks} 
+            onInterrupt={handleInterrupt}
+            isStreaming={isSending} 
+          />
+
+          {/* Render streaming message if present */}
+          {streamingMessage && (
+            <div className="flex items-start gap-2">
+              <div className="flex-shrink-0">
+                <Avatar
+                  className="size-8 bg-blue-100 dark:bg-blue-900/30"
+                  alt="EspressoBot"
+                  initials="🤖"
+                />
+              </div>
+              <div 
+                className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+              >
+                <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
+                  <MarkdownRenderer isAgent={true}>
+                    {streamingMessage.content || ""}
+                  </MarkdownRenderer>
+                  {streamingMessage.isStreaming && !streamingMessage.isError && (
+                    <span className="inline-block ml-1 w-2 h-4 bg-current animate-pulse" />
+                  )}
+                </div>
+                <div className="text-xs mt-2 flex items-center justify-end gap-2 text-zinc-500 dark:text-zinc-400">
+                  {streamingMessage.isStreaming && !streamingMessage.isError && (
+                    <span className="flex items-center">
+                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      {toolCallStatus ? toolCallStatus : "Generating..."}
+                    </span>
+                  )}
+                  {streamingMessage.createdAt && (
+                    <span className="whitespace-nowrap">
+                      {formatTimestamp(streamingMessage.createdAt)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {messages.length > 0 && <div ref={messagesEndRef} className="h-4" />}
         </div>
       </div>
@@ -628,6 +530,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
                 size="sm"
                 className="py-1 px-2.5 h-auto dark:bg-zinc-700 dark:hover:bg-zinc-600 border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 text-zinc-100 dark:text-zinc-200 rounded-lg text-xs cursor-alias"
                 onClick={() => handleSuggestionClick(suggestion)}
+                disabled={isSending} // Disable suggestions while sending
               >
                 {suggestion}
               </Button>

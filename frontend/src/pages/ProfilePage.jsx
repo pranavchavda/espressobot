@@ -1,110 +1,74 @@
 import React, { useState, useEffect } from 'react';
+import { Form, useActionData, useNavigation } from '@remix-run/react';
 import { Button } from "@common/button";
 import { Textarea } from "@common/textarea";
 import { Field, Label } from "@common/fieldset";
 import { Input } from "@common/input";
 import { InfoIcon } from 'lucide-react';
 
-function ProfilePage() {
-  const [profile, setProfile] = useState({ name: '', email: '', bio: '' });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState('');
+function ProfilePage({ user }) { // User prop from Remix loader
+  const actionData = useActionData();
+  const navigation = useNavigation();
 
+  const [name, setName] = useState(user?.name || '');
+  const [bio, setBio] = useState(user?.bio || '');
+
+  // Update state if user prop changes (e.g., after successful save and re-load)
   useEffect(() => {
-    const fetchProfile = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch('/api/profile');
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        setProfile(data);
-      } catch (e) {
-        console.error("Failed to fetch profile:", e);
-        setError('Failed to load profile data. Please try again later.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchProfile();
-  }, []);
+    setName(user?.name || '');
+    setBio(user?.bio || '');
+  }, [user]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setProfile(prevProfile => ({
-      ...prevProfile,
-      [name]: value
-    }));
-  };
+  const isSaving = 
+    navigation.state === 'submitting' &&
+    navigation.formMethod === 'PUT' &&
+    navigation.formAction.endsWith('/api/profile');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    setSuccessMessage('');
-    try {
-      const response = await fetch('/api/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: profile.name, bio: profile.bio }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setSuccessMessage(data.message || 'Profile updated successfully!');
-      // Optionally re-fetch profile or assume backend reflects changes
-    } catch (e) {
-      console.error("Failed to update profile:", e);
-      setError(e.message || 'Failed to update profile. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Display general messages (success or top-level errors)
+  const generalMessage = actionData?.message;
+  const generalError = actionData?.errors && typeof actionData.errors === 'string' ? actionData.errors : null;
 
-  if (isLoading && !profile.email) { // Show full page loader only on initial load
-    return <div className="p-4 text-center">Loading profile...</div>;
-  }
 
   return (
     <div className="container mx-auto p-4 max-w-lg">
       <h1 className="text-2xl font-semibold mb-6 text-zinc-800 dark:text-zinc-200">Your Profile</h1>
       
-      {error && <div className="mb-4 p-3 bg-red-100 text-red-700 border border-red-400 rounded">{error}</div>}
-      {successMessage && <div className="mb-4 p-3 bg-green-100 text-green-700 border border-green-400 rounded">{successMessage}</div>}
+      {generalMessage && !generalError && (
+        <div className="mb-4 p-3 bg-green-100 text-green-700 border border-green-400 rounded">
+          {generalMessage}
+        </div>
+      )}
+      {generalError && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 border border-red-400 rounded">
+          {generalError}
+        </div>
+      )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <Form method="put" action="/api/profile" className="space-y-6">
         <Field>
-          <Label htmlFor="name">
-            Name
-          </Label>
+          <Label htmlFor="name">Name</Label>
           <Input
             type="text"
             name="name"
             id="name"
-            value={profile.name || ''}
-            onChange={handleChange}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={isSaving}
           />
+          {actionData?.errors?.name && (
+            <p className="text-red-500 text-xs mt-1">{actionData.errors.name}</p>
+          )}
         </Field>
 
         <Field>
-          <Label htmlFor="email">
-            Email (cannot be changed)
-          </Label>
+          <Label htmlFor="email">Email (cannot be changed)</Label>
           <Input
             type="email"
-            name="email"
-            id="email"
-            value={profile.email || ''}
+            name="email_display" // Name changed to avoid submission
+            id="email_display"
+            value={user?.email || ''}
             readOnly
-            disabled
-            cursor="not-allowed"
+            disabled // Always disabled
             className="bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 cursor-not-allowed"
           />
         </Field>
@@ -113,7 +77,7 @@ function ProfilePage() {
           <Label htmlFor="bio" className="flex items-center gap-2">
             Bio
             <span className="relative group inline-block">
-                <InfoIcon className="w-4 h-4 text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 cursor-none" />
+              <InfoIcon className="w-4 h-4 text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 cursor-none" />
               <span className="absolute z-10 mt-2 w-64 -translate-x-1/2 rounded bg-zinc-900 px-3 py-2 text-xs text-white opacity-0 group-hover:opacity-100 transition pointer-events-none dark:bg-zinc-800 shadow-lg">
                 What you enter here will be visible to EspressoBot. EspressoBot may use this information to better understand you and provide more personalized responses.
               </span>
@@ -123,21 +87,22 @@ function ProfilePage() {
             name="bio"
             id="bio"
             rows="4"
-            value={profile.bio || ''}
-            onChange={handleChange}
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
             placeholder="Tell us a little about yourself..."
+            disabled={isSaving}
           />
+          {actionData?.errors?.bio && (
+            <p className="text-red-500 text-xs mt-1">{actionData.errors.bio}</p>
+          )}
         </Field>
 
         <Field>
-          <Button
-            type="submit"
-            disabled={isLoading}
-          >
-            {isLoading ? 'Saving...' : 'Save Changes'}
+          <Button type="submit" disabled={isSaving}>
+            {isSaving ? 'Saving...' : 'Save Changes'}
           </Button>
         </Field>
-      </form>
+      </Form>
     </div>
   );
 }

@@ -20,27 +20,28 @@ import { Textarea } from "../components/common/textarea";
 import { Badge } from "../components/common/badge";
 import { Dialog, DialogActions, DialogBody, DialogDescription, DialogTitle } from '../components/common/dialog'
 
-function TasksPage() { // This is the start of the correct TasksPage function (line 365)
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [tasks, setTasks] = useState([]);
+function TasksPage({ tasksData }) { // This is the start of the correct TasksPage function (line 365)
+  // Initialize state from tasksData prop
+  const [isAuthorized, setIsAuthorized] = useState(tasksData?.isGoogleAuthAuthorized || false);
+  const [loading, setLoading] = useState(false); // Initial data load is handled by Remix loader
+  const [tasks, setTasks] = useState(tasksData?.tasks || []);
   const [newTask, setNewTask] = useState({ title: "", notes: "", due: "" });
-  const [selectedTaskList, setSelectedTaskList] = useState("@default");
-  const [taskLists, setTaskLists] = useState([]);
+  const [selectedTaskList, setSelectedTaskList] = useState("@default"); // Or derive from tasksData if available
+  const [taskLists, setTaskLists] = useState(tasksData?.taskLists || []);
   const [error, setError] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
   let [isOpen, setIsOpen] = useState(false)
 
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
+  // useEffect(() => {
+  //   checkAuthStatus(); // Initial auth check removed, comes from loader
+  // }, []);
 
-  useEffect(() => {
-    if (isAuthorized) {
-      fetchTaskLists();
-      fetchTasks();
-    }
-  }, [isAuthorized, selectedTaskList]);
+  // useEffect(() => {
+  //   if (isAuthorized) { // Initial data fetch removed, comes from loader
+  //     fetchTaskLists();
+  //     fetchTasks();
+  //   }
+  // }, [isAuthorized, selectedTaskList]); // Keep if selectedTaskList can change and trigger re-fetch
 
   const checkAuthStatus = async () => {
     try {
@@ -52,11 +53,12 @@ function TasksPage() { // This is the start of the correct TasksPage function (l
       console.error("Error checking auth status:", err);
       setError("Failed to check Google Tasks authorization");
     } finally {
-      setLoading(false);
+      // setLoading(false); // setLoading is now false initially
     }
   };
 
   const fetchTaskLists = async () => {
+    // This function will be used for re-fetching if needed, not initial load.
     try {
       const response = await fetch("/api/tasks/lists");
       const data = await response.json();
@@ -72,8 +74,9 @@ function TasksPage() { // This is the start of the correct TasksPage function (l
   };
 
   const fetchTasks = async () => {
+    // This function will be used for re-fetching if needed, not initial load.
     try {
-      setLoading(true);
+      setLoading(true); // Set loading true for re-fetches
       const response = await fetch(
         `/api/tasks?tasklist_id=${selectedTaskList}`
       );

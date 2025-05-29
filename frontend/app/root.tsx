@@ -10,11 +10,13 @@ import {
   Form // For logout
 } from '@remix-run/react';
 
-import { getCurrentUser } from './lib/auth.server'; // Assuming auth.server.ts is in app/lib/
-import { SidebarLayout } from '../src/components/common/sidebar-layout'; // Path to existing component
-import UserProfileDropdown from '../src/components/common/UserProfileDropdown'; // Path to existing component
-import { NavLink } from 'react-router-dom'; // For navbar links
-import logo from '../src/static/EspressoBotLogo.png'; // Path to logo
+import { getCurrentUser } from './lib/auth.server';
+import { prisma } from './lib/db.server'; // For fetching conversations
+import { SidebarLayout } from '../src/components/common/sidebar-layout';
+import UserProfileDropdown from '../src/components/common/UserProfileDropdown';
+import { NavLink } from '@remix-run/react'; // Corrected import for NavLink in Remix context
+import logo from '../src/static/EspressoBotLogo.png';
+import { PWAInstallPrompt } from '../src/components/common/PWAInstallPrompt.jsx'; // Import PWAInstallPrompt
 // Import global styles if you have them, e.g., from index.css
 // For Vite, styles are usually imported in main.jsx, ensure they are applied globally.
 // For Remix, you might link them in the Links function or import directly in root.
@@ -28,12 +30,19 @@ export const meta: MetaFunction = () => ([ // Updated syntax for Remix v2+
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const user = await getCurrentUser(request);
-  // Return user and ENV vars needed by client (if any, carefully chosen)
-  return json({ user }); 
+  if (user) {
+    const conversations = await prisma.conversation.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, title: true, createdAt: true },
+    });
+    return json({ user, conversations });
+  }
+  return json({ user: null, conversations: [] }); 
 }
 
 export default function App() {
-  const { user } = useLoaderData<typeof loader>();
+  const { user, conversations } = useLoaderData<typeof loader>();
 
   // Simplified navbar for now
   const navbarContent = (
@@ -74,12 +83,51 @@ export default function App() {
   // Simplified sidebar content for now
   // Conversation list and "new chat" button will be added back progressively
   const sidebarContent = user ? (
-    <div className="flex flex-col h-[93vh] sm:h-full">
-      <p className="p-4 text-zinc-400">Conversations (coming soon)</p>
-      <div className="mt-auto"> {/* Pushes UserProfileDropdown to the bottom */}
-        <UserProfileDropdown user={user} onLogout={() => { /* Logout handled by Form */ }} />
-         {/* Actual logout will be a Remix Form pointing to /logout action */}
-        <Form method="post" action="/logout" className="p-4">
+    <div className="flex flex-col h-full"> {/* Use h-full for flex container */}
+      <div className="p-4">
+        <NavLink 
+          to="/" 
+          className="block w-full text-center px-4 py-2 text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 mb-4"
+        >
+          New Chat
+        </NavLink>
+      </div>
+      <div className="flex-grow overflow-y-auto px-2 space-y-1"> {/* Scrollable conversation list */}
+        {conversations.length === 0 ? (
+          <p className="p-4 text-zinc-400 text-sm">No conversations yet.</p>
+        ) : (
+          conversations.map(chat => (
+            <div key={chat.id} className="group flex items-center justify-between p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800">
+              <NavLink 
+                to={`/c/${chat.id}`} 
+                className={({ isActive }) => 
+                  `flex-grow text-sm truncate ${isActive ? 'text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-zinc-700 dark:text-zinc-300'}`
+                }
+                title={chat.title}
+              >
+                {chat.title}
+                 {/* Optional: Display date in a subtle way */}
+                 {/* <span className="text-xs text-zinc-400 ml-2">{new Date(chat.createdAt).toLocaleDateString()}</span> */}
+              </NavLink>
+              <Form method="delete" action={`/conversations/${chat.id}`} onSubmit={(event) => { if(!confirm('Are you sure you want to delete this conversation?')) event.preventDefault(); }}>
+                <button 
+                  type="submit" 
+                  className="ml-2 p-1 text-zinc-400 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Delete conversation"
+                >
+                  {/* Using a simple X for now, replace with an icon later */}
+                  X 
+                </button>
+              </Form>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="mt-auto border-t border-zinc-200 dark:border-zinc-700"> {/* Pushes UserProfileDropdown and Logout to the bottom */}
+        <div className="p-2"> {/* Reduced padding for UserProfileDropdown container */}
+          <UserProfileDropdown user={user} onLogout={() => { /* Logout handled by Form */ }} />
+        </div>
+        <Form method="post" action="/logout" className="p-4 pt-0"> {/* Reduced top padding for logout form */}
           <button type="submit" className="w-full text-left px-3 py-2 text-sm font-medium rounded-md text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800">
             Logout
           </button>
@@ -113,6 +161,7 @@ export default function App() {
             <Outlet /> {/* For /login, /register routes */}
           </div>
         )}
+        <PWAInstallPrompt /> {/* Add the component here */}
         <ScrollRestoration />
         <Scripts />
         <LiveReload />
