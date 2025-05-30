@@ -267,7 +267,7 @@ class ShopifyFeaturesMCPServer:
 
         self.params = {
             "command": "npx",
-            "args": ["-y", "@pranavchavda/shopify-feature-box-mcp@1.0.11"],  # Add -y flag and version
+            "args": ["-y", "@pranavchavda/shopify-feature-box-mcp@1.0.15"],  # Pin to specific version 1.0.5
             "env": subprocess_env
         }
         self.cache = False
@@ -351,17 +351,17 @@ class ShopifyFeaturesMCPServer:
                         "isError": True
                     }
     
-    async def get_product(self, product_id):
+    async def get_product(self, productId):
         """Get product details and existing feature boxes with retry logic"""
         for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
             try:
-                logger.debug(f"Starting get_product with ID: {product_id} (attempt {attempt+1}/{self.max_retries+1})")
+                logger.debug(f"Starting get_product with ID: {productId} (attempt {attempt+1}/{self.max_retries+1})")
                 
                 # Get a server connection (cached or new)
                 server = await self._get_server()
                 
                 # Call the tool
-                raw_result = await server.call_tool("get_product", {"productId": product_id})
+                raw_result = await server.call_tool("get_product", {"productId": productId})
                 logger.debug(f"Raw get_product result type: {type(raw_result)}")
                 
                 # Process the result
@@ -405,17 +405,17 @@ class ShopifyFeaturesMCPServer:
                         "isError": True
                     }
     
-    async def list_feature_boxes(self, product_id):
+    async def list_feature_boxes(self, productId):
         """List all feature boxes for a product with retry logic"""
         for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
             try:
-                logger.debug(f"Starting list_feature_boxes for product ID: {product_id} (attempt {attempt+1}/{self.max_retries+1})")
+                logger.debug(f"Starting list_feature_boxes for product ID: {productId} (attempt {attempt+1}/{self.max_retries+1})")
                 
                 # Get a server connection (cached or new)
                 server = await self._get_server()
                 
                 # Call the tool
-                raw_result = await server.call_tool("list_feature_boxes", {"productId": product_id})
+                raw_result = await server.call_tool("list_feature_boxes", {"productId": productId})
                 logger.debug(f"Raw list_feature_boxes result type: {type(raw_result)}")
                 
                 # Process the result
@@ -459,15 +459,15 @@ class ShopifyFeaturesMCPServer:
                         "isError": True
                     }
     
-    async def create_feature_box(self, product_id, title, text, image_url=None, handle=None):
+    async def create_feature_box(self, productId, title, text, image_url=None, handle=None):
         """Create a feature box for a Shopify product with retry logic"""
         for attempt in range(self.max_retries + 1):  # +1 for the initial attempt
             try:
-                logger.debug(f"Starting create_feature_box for product ID: {product_id}, title: {title} (attempt {attempt+1}/{self.max_retries+1})")
+                logger.debug(f"Starting create_feature_box for product ID: {productId}, title: {title} (attempt {attempt+1}/{self.max_retries+1})")
                 
                 # Prepare arguments
                 arguments = {
-                    "productId": product_id,
+                    "productId": productId,
                     "title": title,
                     "text": text
                 }
@@ -621,15 +621,28 @@ class ShopifyFeaturesMCPServer:
                 "error": f"Failed to remove tags from product {productId}: {str(e)}"
             }
 
-    async def product_update(self, variantId: str, title: Optional[str] = None, vendor: Optional[str] = None, productType: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, price: Optional[str] = None, compareAtPrice: Optional[str] = None, cost: Optional[str] = None, sku: Optional[str] = None, barcode: Optional[str] = None, weight: Optional[float] = None, seoTitle: Optional[str] = None, seoDescription: Optional[str] = None):
-        """Update a Shopify product variant."""
-        logger.info(f"ShopifyFeaturesMCPServer: Calling product_update for variantId: {variantId}")
+    async def product_update(self, productId: str, variantId: str = None, title: Optional[str] = None, vendor: Optional[str] = None, productType: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, price: Optional[str] = None, compareAtPrice: Optional[str] = None, cost: Optional[str] = None, sku: Optional[str] = None, barcode: Optional[str] = None, weight: Optional[float] = None, seoTitle: Optional[str] = None, seoDescription: Optional[str] = None, collectionsToJoin: Optional[List[str]] = None, collectionsToLeave: Optional[List[str]] = None, options: Optional[List[str]] = None, images: Optional[List[Dict]] = None):
+        """Update a Shopify product and/or variant."""
+        logger.info(f"ShopifyFeaturesMCPServer: Calling product_update for productId: {productId}, variantId: {variantId}")
         
-        arguments = {"variantId": variantId}
+        # Include both camelCase and snake_case versions of productId to handle potential mismatches
+        arguments = {
+            "productId": productId,
+            "product_id": productId,  # Add snake_case version
+        }
+        
+        # Only add variantId if provided (in v1.0.15, it might be optional)
+        if variantId is not None:
+            arguments["variantId"] = variantId
+            arguments["variant_id"] = variantId  # Add snake_case version too
+        
+        # Add all other parameters if provided
         if title is not None: arguments["title"] = title
         if vendor is not None: arguments["vendor"] = vendor
         if productType is not None: arguments["productType"] = productType
-        if description is not None: arguments["description"] = description
+        if description is not None: 
+            arguments["description"] = description
+            arguments["bodyHtml"] = description  # Add possible alternative name
         if status is not None: arguments["status"] = status
         if price is not None: arguments["price"] = price
         if compareAtPrice is not None: arguments["compareAtPrice"] = compareAtPrice
@@ -640,9 +653,16 @@ class ShopifyFeaturesMCPServer:
         if seoTitle is not None: arguments["seoTitle"] = seoTitle
         if seoDescription is not None: arguments["seoDescription"] = seoDescription
         
+        # Handle additional parameters added in newer versions
+        if collectionsToJoin is not None: arguments["collectionsToJoin"] = collectionsToJoin
+        if collectionsToLeave is not None: arguments["collectionsToLeave"] = collectionsToLeave
+        if options is not None: arguments["options"] = options
+        if images is not None: arguments["images"] = images
+        
         try:
             async with MCPServerStdio(params=self.params, cache_tools_list=self.cache, client_session_timeout_seconds=self.default_timeout) as server:
                 logger.debug(f"ShopifyFeaturesMCPServer: MCPServerStdio context entered for product_update.")
+                logger.debug(f"Sending arguments to MCP: {arguments}")
                 result = await server.call_tool("product_update", arguments)
                 logger.debug(f"ShopifyFeaturesMCPServer: product_update MCP call raw result: {result}")
                 if hasattr(result, 'dict') and callable(result.dict):
@@ -997,10 +1017,6 @@ class FilesystemMCPServer:
             else: # Path is users/somefile.txt, not specific to a user via user_id param
                  base = self.users_dir # Resolved to general users folder
                  path_str = path_str[len("users/"):]
-
-        elif user_id: # Path is relative to a specific user's directory
-            base = os.path.join(self.users_dir, str(user_id))
-            os.makedirs(base, exist_ok=True) # Ensure user's specific dir exists
         
         # Create absolute path and normalize it (e.g., collapses redundant separators)
         abs_path = os.path.normpath(os.path.join(base, path_str))

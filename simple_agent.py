@@ -404,24 +404,31 @@ async def product_tags_remove(productId: str, tags: List[str]):
         return {"error": f"An unexpected error occurred while removing tags from product {productId}: {str(e)}"}
 
 
-async def product_update(variantId: str, title: Optional[str] = None, vendor: Optional[str] = None, productType: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, price: Optional[str] = None, compareAtPrice: Optional[str] = None, cost: Optional[str] = None, sku: Optional[str] = None, barcode: Optional[str] = None, weight: Optional[float] = None, seoTitle: Optional[str] = None, seoDescription: Optional[str] = None):
-    """Update a Shopify product variant with new details using ShopifyFeatures MCP."""
-    logger.info(f"Calling ShopifyFeatures MCP: product_update for variant {variantId}")
+async def product_update(productId: str, variantId: str = None, title: Optional[str] = None, vendor: Optional[str] = None, 
+                       productType: Optional[str] = None, description: Optional[str] = None, status: Optional[str] = None, 
+                       price: Optional[str] = None, compareAtPrice: Optional[str] = None, cost: Optional[str] = None, 
+                       sku: Optional[str] = None, barcode: Optional[str] = None, weight: Optional[float] = None, 
+                       seoTitle: Optional[str] = None, seoDescription: Optional[str] = None,
+                       collectionsToJoin: Optional[List[str]] = None, collectionsToLeave: Optional[List[str]] = None,
+                       options: Optional[List[str]] = None, images: Optional[List[Dict]] = None):
+    """Update a Shopify product and/or variant with new details using ShopifyFeatures MCP."""
+    logger.info(f"Calling ShopifyFeatures MCP: product_update for productId {productId}, variantId {variantId}")
     if not shopify_features_mcp_server:
         logger.error("Shopify Features MCP server not available for product_update")
         return {"error": "Shopify Features MCP server not available"}
     try:
         result = await shopify_features_mcp_server.product_update(
-            variantId=variantId, title=title, vendor=vendor, productType=productType,
+            productId=productId, variantId=variantId, title=title, vendor=vendor, productType=productType,
             description=description, status=status, price=price, compareAtPrice=compareAtPrice,
             cost=cost, sku=sku, barcode=barcode, weight=weight, seoTitle=seoTitle,
-            seoDescription=seoDescription
+            seoDescription=seoDescription, collectionsToJoin=collectionsToJoin, 
+            collectionsToLeave=collectionsToLeave, options=options, images=images
         )
         logger.debug(f"product_update MCP call result: {result}")
         return result
     except Exception as e:
-        logger.error(f"Error in product_update (MCP call) for variant {variantId}: {str(e)}", exc_info=True)
-        return {"error": f"An unexpected error occurred while updating variant {variantId}: {str(e)}"}
+        logger.error(f"Error in product_update (MCP call) for product {productId}, variant {variantId}: {str(e)}", exc_info=True)
+        return {"error": f"An unexpected error occurred while updating product: {str(e)}"}
 
 
 # Memory functions
@@ -2032,12 +2039,12 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {
+                    "productId": {
                         "type": "string",
                         "description": "Shopify product ID"
                     }
                 },
-                "required": ["product_id"]
+                "required": ["productId"]
             }
         }
     },
@@ -2050,7 +2057,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {
+                    "productId": {
                         "type": "string",
                         "description": "Shopify product ID"
                     },
@@ -2071,7 +2078,7 @@ TOOLS = [
                         "description": "Optional custom handle"
                     }
                 },
-                "required": ["product_id", "title", "text", "image_url"]
+                "required": ["productId", "title", "text", "imageUrl"]
             }
         }
     },
@@ -2086,22 +2093,22 @@ TOOLS = [
                 "properties": {
                     "title": {"type": "string", "description": "Product title/name"},
                     "vendor": {"type": "string", "description": "Brand/manufacturer name"},
-                    "product_type": {"type": "string", "description": "Product category type"},
-                    "body_html": {"type": "string", "description": "Product description HTML"},
+                    "productType": {"type": "string", "description": "Product category type"},
+                    "bodyHtml": {"type": "string", "description": "Product description HTML"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Array of product tags"},
-                    "variant_price": {"type": "string", "description": "Variant price"},
-                    "variant_sku": {"type": "string", "description": "Variant SKU"},
-                    "buybox_content": {"type": "string", "description": "Optional buy box content"},
-                    "faqs_json": {"type": "string", "description": "Optional FAQs JSON string"},
+                    "variantPrice": {"type": "string", "description": "Variant price"},
+                    "variantSku": {"type": "string", "description": "Variant SKU"},
+                    "buyboxContent": {"type": "string", "description": "Optional buy box content"},
+                    "faqsJson": {"type": "string", "description": "Optional FAQs JSON string"},
                     "handle": {"type": "string", "description": "Optional URL handle (auto-generated if not provided)"},
                     "options": {"type": "array", "items": {"type": "string"}, "description": "Product options (e.g., [\"Size\", \"Color\"], default: [\"Title\"])"},
                     "seasonality": {"type": "boolean", "description": "Optional seasonality flag for coffee products"},
-                    "tech_specs_json": {"type": "string", "description": "Optional tech specs JSON string"},
-                    "variant_cost": {"type": "string", "description": "Optional variant cost for COGS"},
-                    "variant_preview_name": {"type": "string", "description": "Optional variant preview name"},
-                    "variant_weight": {"type": "number", "description": "Optional variant weight in grams"}
+                    "techSpecsJson": {"type": "string", "description": "Optional tech specs JSON string"},
+                    "variantCost": {"type": "string", "description": "Optional variant cost for COGS"},
+                    "variantPreviewName": {"type": "string", "description": "Optional variant preview name"},
+                    "variantWeight": {"type": "number", "description": "Optional variant weight in grams"}
                 },
-                "required": ["title", "vendor", "product_type", "body_html", "tags", "variant_price", "variant_sku"]
+                "required": ["title", "vendor", "productType", "bodyHtml", "tags", "variantPrice", "variantSku"]
             }
         }
     },
@@ -2114,10 +2121,10 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "string", "description": "Shopify product ID"},
+                    "productId": {"type": "string", "description": "Shopify product ID"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Array of tags to add"}
                 },
-                "required": ["product_id", "tags"]
+                "required": ["productId", "tags"]
             }
         }
     },
@@ -2130,10 +2137,10 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "string", "description": "Shopify product ID"},
+                    "productId": {"type": "string", "description": "Shopify product ID"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Array of tags to remove"}
                 },
-                "required": ["product_id", "tags"]
+                "required": ["productId", "tags"]
             }
         }
     },
@@ -2146,22 +2153,23 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "variant_id": {"type": "string", "description": "Shopify product variant ID"},
+                    "productId": {"type": "string", "description": "Shopify product ID"},
+                    "variantId": {"type": "string", "description": "Shopify product variant ID"},
                     "barcode": {"type": "string", "description": "Optional barcode for the variant"},
-                    "compare_at_price": {"type": "string", "description": "Optional compare at price (MSRP) for the variant"},
+                    "compareAtPrice": {"type": "string", "description": "Optional compare at price (MSRP) for the variant"},
                     "cost": {"type": "string", "description": "Optional cost per item for the variant"},
                     "description": {"type": "string", "description": "Optional description/body HTML for the product"},
                     "price": {"type": "string", "description": "Optional price for the variant"},
-                    "product_type": {"type": "string", "description": "Optional product type"},
-                    "seo_description": {"type": "string", "description": "Optional SEO description"},
-                    "seo_title": {"type": "string", "description": "Optional SEO title"},
+                    "productType": {"type": "string", "description": "Optional product type"},
+                    "seoDescription": {"type": "string", "description": "Optional SEO description"},
+                    "seoTitle": {"type": "string", "description": "Optional SEO title"},
                     "sku": {"type": "string", "description": "Optional SKU for the variant"},
                     "status": {"type": "string", "enum": ["ACTIVE", "ARCHIVED", "DRAFT"], "description": "Optional product status"},
                     "title": {"type": "string", "description": "Optional title for the product"},
                     "vendor": {"type": "string", "description": "Optional vendor name"},
                     "weight": {"type": "number", "description": "Optional weight for the variant in grams"}
                 },
-                "required": ["variant_id"]
+                "required": ["productId", "variantId"]
             }
         }
     }
