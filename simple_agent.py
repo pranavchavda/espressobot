@@ -849,33 +849,84 @@ async def stream_task_update(user_id, conversation_id=None):
         last_update_time = _streaming_context["last_update"].get(update_key, 0)
         time_since_last_update = current_time - last_update_time
         
-        # If it's been less than the throttle time, skip this update
-        if time_since_last_update < _streaming_context["throttle_ms"]:
-            # print(f"Throttling task update for {update_key}, last update was {time_since_last_update}ms ago")
+        # Throttle updates to prevent overwhelming the frontend
+        # Only send an update if it's been at least X milliseconds since the last one
+        # However, always allow the first update to pass through to ensure UI appears quickly
+        if time_since_last_update < _streaming_context["throttle_ms"] and update_key in _streaming_context["last_update"]:
             return
         
-        # Update the last update time for this user/conversation
+        # Update the last update time
         _streaming_context["last_update"][update_key] = current_time
         
-        # Get task list from the database
-        current_tasks = await task_manager.get_current_task_list(user_id, conversation_id)
+        # Get the current task list
+        result = await task_manager.get_current_task_list(user_id, conversation_id)
+        
+        # Create the queue if it doesn't exist
         queue = _get_queue()
         
-        if current_tasks.get("success") and current_tasks.get("task_list"):
-            tasks = current_tasks["task_list"].get("tasks", [])
-            update_data = {
-                'type': 'task_update',
-                'tasks': tasks,
-                'conversation_id': conversation_id
-            }
-        else:
-            # Send an empty task list if no active task list is found
-            # This ensures the TaskProgress component gets updated with empty state
-            update_data = {
-                'type': 'task_update',
-                'tasks': [],
-                'conversation_id': conversation_id
-            }
+        # Prepare data to send to frontend
+        update_data = {
+            'type': 'task_update',
+            'tasks': [],
+            'conversation_id': conversation_id
+        }
+        
+        # Include tasks if available
+        if result.get("success") and result.get("task_list"):
+            task_list = result["task_list"]
+            
+            # Convert tasks to a frontend-friendly format
+            tasks = []
+            for task in task_list.get("tasks", []):
+                # Map SQLite task status to frontend status
+                status = task.get("status", "pending")
+                
+                # Properly map statuses
+                if status == "done" or status == "completed":
+                    status = "completed"
+                    active = False
+                elif status == "in_progress":
+                    active = True
+                else:  # pending or any other status
+                    status = "pending"
+                    active = True
+                
+                tasks.append({
+                    "id": task.get("id"),
+                    "text": task.get("content"),
+                    "status": status,
+                    "active": active,
+                    "conversation_id": conversation_id
+                })
+            
+            update_data["tasks"] = tasks
+            update_data["task_list_id"] = task_list.get("id")
+            update_data["task_list_title"] = task_list.get("title")
+        
+            # Also fetch and include persisted tasks for this conversation
+            try:
+                with sqlite3.connect(task_manager.db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.execute('''
+                        SELECT * FROM persisted_tasks 
+                        WHERE conversation_id = ? AND user_id = ?
+                        ORDER BY created_at
+                    ''', (conversation_id, user_id))
+                    
+                    persisted_tasks = [dict(row) for row in cursor.fetchall()]
+                    
+                    # Merge persisted tasks with current tasks
+                    for task in persisted_tasks:
+                        if not any(t.get("id") == task["id"] for t in tasks):
+                            tasks.append({
+                                "id": task.get("id"),
+                                "text": task.get("text"),
+                                "status": "completed",
+                                "active": False,
+                                "conversation_id": conversation_id
+                            })
+            except Exception as e:
+                print(f"Error fetching persisted tasks: {e}")
         
         # Always send an update, even if tasks list is empty
         # This ensures the frontend knows the current state
@@ -940,10 +991,12 @@ async def task_create_custom(user_id, title, tasks, conversation_id=None):
 async def task_read_current(user_id):
     """Get the current active task list for a user."""
     try:
-        result = await task_manager.get_current_task_list(user_id)
+        # Use SQLite task manager to get tasks directly from the database
+        result = await task_manager.get_current_task_list(user_id) 
+        logger.info(f"Retrieved tasks for user {user_id} from SQLite database: {result}")
         return result
     except Exception as e:
-        print(f"Error reading current task list: {e}")
+        logger.error(f"Error reading current task list from SQLite: {e}")
         return {"success": False, "error": str(e)}
 
 async def task_clear_all(user_id):
@@ -972,8 +1025,31 @@ async def task_update_status(user_id, task_id, status, conversation_id=None):
         if status not in ["pending", "in_progress", "completed"]:
             return {"success": False, "error": "Status must be pending, in_progress, or completed"}
         
-        result = await task_manager.update_task_status(user_id, task_id, status, conversation_id)
-        await stream_task_update(user_id, conversation_id)
+        # Convert 'completed' to 'done' for SQLite task manager
+        sqlite_status = 'done' if status == 'completed' else status
+        
+        # Update the task status in the database
+        result = await task_manager.update_task_status(user_id, task_id, sqlite_status, conversation_id)
+        
+        # Force an immediate task update stream by temporarily disabling throttling
+        print(f"Task {task_id} status updated to {status}, streaming update to UI")
+        
+        # Get current throttle setting
+        original_throttle = _streaming_context["throttle_ms"]
+        try:
+            # Temporarily set throttle to 0 to ensure immediate update
+            _streaming_context["throttle_ms"] = 0
+            # Clear last update time to bypass throttling check
+            update_key = f"{user_id}:{conversation_id}"
+            if update_key in _streaming_context["last_update"]:
+                del _streaming_context["last_update"][update_key]
+                
+            # Send the update
+            await stream_task_update(user_id, conversation_id)
+        finally:
+            # Restore original throttle setting
+            _streaming_context["throttle_ms"] = original_throttle
+        
         return result
     except Exception as e:
         print(f"Error updating task status: {e}")
@@ -2185,6 +2261,8 @@ async def run_simple_agent(prompt,
                            model_override: str = None,
                            streaming: bool = False,
                            user_id: int = None,
+                           is_interruption: bool = False,
+                           system_message: dict = None,
                            logger=None):
     # Initialize variables
     step_count = 0
@@ -2375,6 +2453,13 @@ RULES
     • Always fetch the latest copy guide via `get_product_copy_guidelines`; do not rewrite it.  
     • If new permanent additions are provided by the user, store them as an addendum section via `run_shopify_mutation` on the metafield holding guidelines.
 
+12. **TOOL CALL PRIVACY**  
+    • Tool calls (functions, API calls, or non-natural language actions) must never be displayed in user-facing responses.  
+    • Execute all tool calls silently in the background; only present results or relevant summaries.  
+    • Document function/tool usage in <THINKING></THINKING> tags, not in user messages.  
+    • Always perform a QA pre-check: "Have I displayed any tool or function call in the response?"  
+    • When uncertain about leaking tool calls, err on the side of executing silently with a follow-up summary.
+
 ────────────────────────────────────────
 RESPONSE STYLE
 ────────────────────────────────────────
@@ -2522,13 +2607,22 @@ END OF SYSTEM PROMPT
     if task_context:
         system_message += f"\n\n🔥🔥🔥 YOU HAVE ACTIVE TASKS - FOLLOW THEM! 🔥🔥🔥\n{task_context}\n🚨 START WITH THESE TASKS - DO NOT IGNORE THEM! 🚨\n"
 
-    # DISABLED: Proactive memory retrieval when tasks are active (causes confusion)
-
     # Initialize formatted_messages with the main system message
-    formatted_messages = [{
-        "role": "system",
-        "content": system_message
-    }]
+    formatted_messages = [
+        {
+            "role": "system",
+            "content": system_message
+        }
+    ]
+    
+    # If this is an interruption, add the interruption system message after the main system message
+    if is_interruption and system_message:
+        formatted_messages.append({
+            "role": "system",
+            "content": "The user has interrupted your current process with this message. "
+                       "Pause your current task, address their message, and then decide whether "
+                       "to continue your previous task or follow new instructions."
+        })
 
     # Only retrieve memories if NO TASKS exist to avoid confusion
     retrieved_memory_content = ""

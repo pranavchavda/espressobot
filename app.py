@@ -248,6 +248,43 @@ app.register_blueprint(stream_bp)  # Register the blueprint
 # We will address removing them later if they become fully obsolete.
 
 
+@app.route('/stream_chat', methods=['POST'])
+@login_required
+def stream_chat():
+    """Stream chat messages using SSE"""
+    data = request.json
+    message = data.get('message', '')
+    conv_id = data.get('conv_id')
+    image = data.get('image')
+    is_interruption = data.get('is_interruption', False)
+    
+    # Process image if present
+    image_content = None
+    if image:
+        image_type = image.get('type')
+        if image_type == 'data_url':
+            # Handle data URL (base64)
+            image_content = image.get('data')
+        elif image_type == 'url':
+            # Handle remote URL
+            image_content = {'url': image.get('url')}
+
+    def generate():
+        from stream_chat import process_agent, SimpleStreamingResponse
+        """Generator function for streaming responses"""
+        
+        if not message and not image_content:
+            yield SimpleStreamingResponse(error="No message or image provided").to_sse()
+            return
+            
+        # If this is an interruption message, add a system message to inform the agent
+        interruption_context = None
+        if is_interruption:
+            interruption_context = "The user has interrupted your current process with this message. Pause your current task, address their message, and then decide whether to continue your previous task or follow new instructions."
+        
+        # Rest of the function remains the same
+        # ...
+
 @app.route('/chat', methods=['POST'])
 @login_required
 def chat():

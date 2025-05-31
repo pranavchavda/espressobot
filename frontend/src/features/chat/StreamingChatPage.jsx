@@ -29,6 +29,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isInterrupted, setIsInterrupted] = useState(false);
   const [activeConv, setActiveConv] = useState(convId);
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessage] = useState(null);
@@ -79,6 +80,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingMessage]);
+  
+  // Add a separate useEffect for task updates to ensure they're properly re-rendered
+  useEffect(() => {
+    console.log('Current tasks updated:', currentTasks);
+    // This empty effect ensures the component re-renders when tasks change
+  }, [currentTasks]);
 
   // Format timestamp to readable format
   const formatTimestamp = (timestamp) => {
@@ -90,7 +97,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
     }
   };
 
-  // Interrupt function to stop ongoing agent tasks
+  // Interrupt function to stop ongoing agent tasks and allow sending a message
   const handleInterrupt = async () => {
     if (readerRef.current) {
       try {
@@ -101,10 +108,9 @@ function StreamingChatPage({ convId, refreshConversations }) {
       }
     }
     
-    setIsSending(false);
-    setStreamingMessage(null);
-    setCurrentTasks([]);
-    setToolCallStatus("");
+    // Enter interrupted state instead of fully stopping
+    setIsInterrupted(true);
+    setToolCallStatus("Interrupted");
     
     // Optionally send an interrupt signal to the backend
     try {
@@ -116,6 +122,11 @@ function StreamingChatPage({ convId, refreshConversations }) {
     } catch (error) {
       console.log("Failed to send interrupt signal:", error);
     }
+    
+    // Focus the input field
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
   };
 
   // Clean up event source on unmount
@@ -253,7 +264,10 @@ function StreamingChatPage({ convId, refreshConversations }) {
     const textToSend =
       typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
-    if ((!textToSend && !imageAttachment) || isSending) return;
+    if ((!textToSend && !imageAttachment) || (isSending && !isInterrupted)) return;
+    
+    // If we're interrupted, add a special flag to the request
+    const isInterruptedMessage = isInterrupted;
 
     // Before sending a new message, check if we have a completed streaming message
     // If so, move it to regular messages
@@ -301,20 +315,21 @@ function StreamingChatPage({ convId, refreshConversations }) {
       const fetchUrl = "/stream_chat";
 
       // Prepare request data
-      const requestData = {
-        conv_id: activeConv || undefined,
+      const requestBody = {
         message: textToSend,
+        conv_id: activeConv,
+        is_interruption: isInterruptedMessage,
       };
 
       // Add image data if present
       if (imageAttachment) {
         if (imageAttachment.dataUrl) {
-          requestData.image = {
+          requestBody.image = {
             type: "data_url",
             data: imageAttachment.dataUrl
           };
         } else if (imageAttachment.url) {
-          requestData.image = {
+          requestBody.image = {
             type: "url",
             url: imageAttachment.url
           };
@@ -325,7 +340,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       const response = await fetch(fetchUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -335,33 +350,38 @@ function StreamingChatPage({ convId, refreshConversations }) {
       // Get the response as a ReadableStream
       const reader = response.body.getReader();
       readerRef.current = reader;
-      const decoder = new TextDecoder();
-      let eventData = "";
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
 
       // Process the stream
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        eventData += chunk;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";  // Keep the incomplete part for next time
 
-        // Process any complete SSE messages
-        const messages = eventData.split(/\n\n/);
-        eventData = messages.pop() || ""; // Keep the last incomplete chunk for next iteration
-
-        for (const message of messages) {
-          if (!message.trim() || !message.startsWith("data:")) continue;
+        for (const line of lines) {
+          if (!line.trim() || !line.startsWith("data: ")) continue;
 
           try {
-            // Extract and parse the JSON data
-            const jsonString = message.split(/\n/)
-              .filter(line => line.startsWith("data:"))
-              .map(line => line.slice(5).trim())
-              .join("");
+            const jsonStr = line.substring(6);  // Remove "data: " prefix
+            const data = JSON.parse(jsonStr);
 
-            const data = JSON.parse(jsonString);
-            console.log("Received data:", data);
+            // Handle interruption from server
+            if (data.interrupted) {
+              console.log("Processing interrupted by user");
+              setIsInterrupted(true);
+              setToolCallStatus("Interrupted");
+              // Allow immediate new input
+              setIsSending(false);
+              // Focus the input field
+              setTimeout(() => {
+                inputRef.current?.focus();
+              }, 100);
+              continue;
+            }
 
             // Handle tool_call status updates
             if (data.tool_call) {
@@ -396,7 +416,9 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle task updates
             if (data.type === 'task_update' && data.tasks) {
-              setCurrentTasks(data.tasks);
+              console.log('Received task update:', data.tasks);
+              // Force a state update by creating a new array
+              setCurrentTasks([...data.tasks]);
             }
 
             // Handle suggestions
@@ -406,8 +428,8 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             // Handle completion
             if (data.done) {
-              // Clear tasks when streaming is complete
-              setCurrentTasks([]);
+              // Don't clear tasks when streaming is complete - keep them visible
+              // to allow users to track what steps were taken
               
               // Important: Don't clear streamingMessage immediately
               // Instead, mark it as complete but keep displaying it
@@ -450,6 +472,12 @@ function StreamingChatPage({ convId, refreshConversations }) {
       );
     } finally {
       setIsSending(false);
+      setIsInterrupted(false);
+      setInput("");
+      setSuggestions([]);
+      setImageAttachment(null);
+      setImageUrl("");
+      setShowImageUrlInput(false);
       setToolCallStatus(""); // Clear tool status when streaming ends
       readerRef.current = null; // Clear reader reference
     }
@@ -564,11 +592,14 @@ function StreamingChatPage({ convId, refreshConversations }) {
               ))}
 
               {/* Task Progress Display */}
-                <TaskProgress 
-                  tasks={currentTasks} 
-                  onInterrupt={handleInterrupt}
-                  isStreaming={isSending}
-                />
+                {currentTasks.length > 0 && (
+                  <TaskProgress 
+                    tasks={currentTasks} 
+                    conversationId={activeConv}
+                    onInterrupt={isSending && !isInterrupted ? handleInterrupt : undefined} 
+                    isStreaming={isSending}
+                  />
+                )}
 
 
               {/* Render streaming message if present */}

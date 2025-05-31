@@ -14,8 +14,40 @@ from extensions import db
 # Import models from the new models.py file
 from models import Conversation, Message, User
 
+# Global flag to track active interruptions by user+conversation
+interruption_flags = {}
+
 def create_stream_blueprint(app, openai_client):
     stream_bp = Blueprint('stream_chat', __name__)
+
+    # Global flag to signal interruption to all components
+    _interrupt_flags = {}
+    
+    @stream_bp.route('/api/interrupt', methods=['POST'])
+    @login_required
+    def interrupt():
+        """Interrupt the current chat processing"""
+        global interruption_flags
+        data = request.json
+        conv_id = data.get('conv_id')
+        
+        if not conv_id:
+            return jsonify({"error": "No conversation ID provided"}), 400
+        
+        # Set global interruption flag for this conversation
+        flag_key = f"{current_user.id}:{conv_id}"
+        interruption_flags[flag_key] = True
+        print(f"Setting interruption flag for {flag_key}")
+        
+        # Add a system message to indicate interruption
+        try:
+            system_msg = Message(conv_id=conv_id, role='system', content='[User interrupted the conversation]')
+            db.session.add(system_msg)
+            db.session.commit()
+        except Exception as e:
+            print(f"Error recording interruption message: {e}")
+        
+        return jsonify({"success": True, "message": "Interruption requested"})
 
     @stream_bp.route('/stream_chat', methods=['POST'])
     @login_required
@@ -24,6 +56,7 @@ def create_stream_blueprint(app, openai_client):
         conv_id = data.get('conv_id')
         message_text = data.get('message', '')
         image_data = data.get('image')
+        is_interruption = data.get('is_interruption', False)
 
         conversation = None
         if conv_id:
@@ -99,15 +132,31 @@ def create_stream_blueprint(app, openai_client):
             final_assistant_message_content = None
             try:
                 async def process_agent():
-                    nonlocal full_response, final_assistant_message_content
+                    global interruption_flags
+                    # Import here to avoid circular imports
                     from simple_agent import run_simple_agent
-                    # Get user's name and bio
-                    user_name = current_user.name
-                    user_bio = current_user.bio
-                    # Pass the user_id for user-specific memory
-                    user_id = current_user.id
                     
-                    # Prepare message content based on whether an image is included
+                    # Create a key for this conversation
+                    flag_key = f"{current_user.id}:{conv_id}"
+                    
+                    # Get user details
+                    user = db.session.get(User, current_user.id)
+                    user_name = user.name if user and user.name else "User"
+                    user_bio = user.bio if user and user.bio else ""
+                    user_id = user.id if user else None
+                    
+                    # Add a system message for interruptions
+                    system_message = None
+                    if is_interruption:
+                        # Add a system message to inform the agent about the interruption
+                        system_message = {
+                            "role": "system",
+                            "content": "The user has interrupted your current process with this message. "
+                                       "Pause your current task, address their message, and then decide whether "
+                                       "to continue your previous task or follow new instructions."
+                        }
+                    
+                    # Prepare message content - could be text only or include an image
                     if image_data:
                         # Create a multimodal message with text and image
                         message_content = []
@@ -147,8 +196,22 @@ def create_stream_blueprint(app, openai_client):
                         user_bio, 
                         history, 
                         streaming=True, 
-                        user_id=user_id, 
+                        user_id=user_id,
+                        is_interruption=is_interruption,
+                        system_message=system_message,
                         logger=current_app.logger):
+                            
+                        # Check if we've been interrupted
+                        if flag_key in interruption_flags and interruption_flags[flag_key] and not is_interruption:
+                            print(f"Detected interruption flag for {flag_key}, stopping processing")
+                            # Return one last chunk indicating interruption
+                            yield f"data: {{\n"
+                            yield f"data: \"interrupted\": true,\n"
+                            yield f"data: \"content\": \"Processing interrupted by user\"\n"
+                            yield f"data: }}\n\n"
+                            # Clear the flag since we've handled it
+                            interruption_flags.pop(flag_key, None)
+                            return
                             
                         if chunk.get('type') == 'content':
                             delta = chunk.get('delta', '')

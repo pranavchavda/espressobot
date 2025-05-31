@@ -57,6 +57,38 @@ class SQLiteTaskManager:
                 )
             ''')
             
+            # Create tasks table for persistence
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS persisted_tasks (
+                    id INTEGER PRIMARY KEY,
+                    task_id TEXT,
+                    conversation_id INTEGER,
+                    user_id INTEGER,
+                    text TEXT NOT NULL,
+                    active INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Check if task_id column exists in persisted_tasks
+            cursor = conn.execute("PRAGMA table_info(persisted_tasks)")
+            columns = [info[1] for info in cursor.fetchall()]
+            if 'task_id' not in columns:
+                conn.execute('''
+                    ALTER TABLE persisted_tasks 
+                    ADD COLUMN task_id TEXT
+                ''')
+                
+            # Create index for persisted_tasks
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_persisted_tasks_task_id ON persisted_tasks (task_id)
+            ''')
+            
+            conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_persisted_tasks_conversation_id ON persisted_tasks (conversation_id)
+            ''')
+            
             # Check if conversation_id column exists, add it if it doesn't
             cursor = conn.execute("PRAGMA table_info(task_lists)")
             columns = [info[1] for info in cursor.fetchall()]
@@ -197,29 +229,60 @@ class SQLiteTaskManager:
         """Update the status of a specific task."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                # Include conversation_id in the filter if provided
+                conn.row_factory = sqlite3.Row
+                
+                # First, get the task details to ensure it exists and to get its content
                 if conversation_id is not None:
                     cursor = conn.execute('''
-                        UPDATE tasks 
-                        SET status = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ? AND task_list_id IN (
-                            SELECT id FROM task_lists WHERE user_id = ? AND conversation_id = ?
-                        )
-                    ''', (status, task_id, user_id, conversation_id))
+                        SELECT tasks.*, task_lists.conversation_id
+                        FROM tasks 
+                        JOIN task_lists ON tasks.task_list_id = task_lists.id
+                        WHERE tasks.id = ? AND task_lists.user_id = ? AND task_lists.conversation_id = ?
+                    ''', (task_id, user_id, conversation_id))
                 else:
                     cursor = conn.execute('''
-                        UPDATE tasks 
-                        SET status = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ? AND task_list_id IN (
-                            SELECT id FROM task_lists WHERE user_id = ?
-                        )
-                    ''', (status, task_id, user_id))
+                        SELECT tasks.*, task_lists.conversation_id
+                        FROM tasks 
+                        JOIN task_lists ON tasks.task_list_id = task_lists.id
+                        WHERE tasks.id = ? AND task_lists.user_id = ?
+                    ''', (task_id, user_id))
                 
-                if cursor.rowcount == 0:
+                task_row = cursor.fetchone()
+                if not task_row:
                     return {"success": False, "error": "Task not found"}
                 
+                task = dict(task_row)
+                task_content = task.get("content", "")
+                task_conversation_id = task.get("conversation_id")
+                
+                # Now update the task status
+                cursor = conn.execute('''
+                    UPDATE tasks 
+                    SET status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (status, task_id))
+                
+                # Add task to persisted tasks if completed
+                if status == "done" or status == "completed":
+                    # Check if it's already in persisted_tasks
+                    cursor = conn.execute('''
+                        SELECT id FROM persisted_tasks WHERE task_id = ?
+                    ''', (task_id,))
+                    
+                    if not cursor.fetchone():  # Only insert if not already present
+                        conn.execute('''
+                            INSERT INTO persisted_tasks (task_id, conversation_id, user_id, text, active)
+                            VALUES (?, ?, ?, ?, 0)
+                        ''', (task_id, task_conversation_id, user_id, task_content))
+                
                 conn.commit()
-                return {"success": True, "message": f"Task status updated to {status}"}
+                return {
+                    "success": True,
+                    "message": f"Task status updated to {status}",
+                    "task_id": task_id,
+                    "task_content": task_content,
+                    "conversation_id": task_conversation_id
+                }
                 
         except Exception as e:
             logger.error(f"Error updating task status: {e}")
@@ -231,6 +294,7 @@ class SQLiteTaskManager:
             with sqlite3.connect(self.db_path) as conn:
                 # Get current task list, filtering by conversation_id if provided
                 if conversation_id is not None:
+                    # If conversation_id is provided, get task list specific to that conversation
                     cursor = conn.execute('''
                         SELECT id FROM task_lists 
                         WHERE user_id = ? AND conversation_id = ? AND status = 'active'
@@ -238,6 +302,7 @@ class SQLiteTaskManager:
                         LIMIT 1
                     ''', (user_id, conversation_id))
                 else:
+                    # If no conversation_id, get most recent active task list for user
                     cursor = conn.execute('''
                         SELECT id FROM task_lists 
                         WHERE user_id = ? AND status = 'active'
