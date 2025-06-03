@@ -30,7 +30,7 @@ function ChatPage({ convId, refreshConversations }) {
       return;
     }
     setLoading(true);
-    fetch(`/conversations/${convId}`)
+    fetch(`/api/conversations/${convId}`)
       .then((res) => res.json())
       .then((data) => {
         setMessages(data);
@@ -89,16 +89,19 @@ function ChatPage({ convId, refreshConversations }) {
     setSuggestions([]); // Always clear suggestions when a message is being sent
 
     try {
-      const res = await fetch("/chat", {
+      // Build the messages payload for context
+      const payloadMessages = [...messages, userMessage]
+        .filter((m) => m.role && m.content)
+        .map((m) => ({ role: m.role, content: m.content }));
+      const payload = { messages: payloadMessages };
+      if (activeConv) payload.conv_id = activeConv;
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conv_id: activeConv || undefined,
-          message: textToSend, // Use textToSend
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await res.json(); // Expect: { conv_id, suggestions?, (other message data if backend is modified) }
+      const data = await res.json(); // Expect: { reply, conv_id, suggestions? }
 
       if (data.conv_id && !activeConv) {
         refreshConversations && refreshConversations();
@@ -118,7 +121,7 @@ function ChatPage({ convId, refreshConversations }) {
       // This is crucial as the `data` from `/chat` might not contain the full message object
       // or if multiple messages (user + bot) are added in one go by the backend.
       const messagesRes = await fetch(
-        `/conversations/${data.conv_id || activeConv}`,
+        `/api/conversations/${data.conv_id || activeConv}`,
       );
       const updatedMessages = await messagesRes.json();
       setMessages(updatedMessages);
