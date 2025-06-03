@@ -25,23 +25,26 @@ export default defineConfig({
         plugins: [tailwindTypography],
       },
     }),
+    {
+      name: 'server-middleware',
+      async configureServer(server) {
+        const express = (await import('express')).default;
+        const bodyParser = (await import('body-parser')).default;
+        const chatHandler = (await import('./server/chat')).default;
+        const convHandler = (await import('./server/conversations')).default;
+
+        const apiApp = express();
+        apiApp.use(bodyParser.json());
+        apiApp.use('/api/conversations', convHandler);
+        apiApp.use('/api/chat', chatHandler);
+        server.middlewares.use(apiApp);
+      },
+    },
   ],
   server: {
-    historyApiFallback: true, // SPA fallback for React Router
     port: 5173,
     open: true,
     host: "0.0.0.0",
-    proxy: {
-      "/chat": "http://0.0.0.0:5000",
-      "/conversations": "http://0.0.0.0:5000",
-      "/stream_chat": "http://0.0.0.0:5000",
-      // Add new rule for all /api routes
-      '/api': {
-        target: 'http://0.0.0.0:5000',
-        changeOrigin: true,
-      }
-    },
-    allowedHosts: ["localhost", ".replit.dev", ".replit.app", ".repl.co", ".idrinkcoffee.info", ".idrinkcoffee.com"],
   },
   resolve: {
     alias: {
