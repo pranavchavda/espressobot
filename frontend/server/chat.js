@@ -57,6 +57,29 @@ router.post('/', async (req, res) => {
           user_location: { type: 'approximate' },
           search_context_size: 'medium',
         },
+        {
+          type: "mcp",
+          server_label: "iDrinkCoffee_Shopify_Tools",
+          server_url: "https://webhook-listener-pranavchavda.replit.app/mcp",
+          allowed_tools: [
+            "upload_to_sku_valut",
+            "update_pricing",
+            "product_create_full",
+            "add_product_to_collection",
+            "get_collections",
+            "set_metafield",
+            "variant_create",
+            "product_create",
+            "get_single_product",
+            "search_products",
+            "create_feature_box",
+            "get_product",
+            "product_update",
+            "product_tags_add",
+            "product_tags_remove"
+          ],
+          require_approval: "never"
+        }
       ],
     });
 
