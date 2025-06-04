@@ -41,9 +41,20 @@ export default defineConfig({
                 MEMORY_FILE_PATH: process.env.MEMORY_FILE_PATH,
               },
               stdio: 'inherit',
+              detached: true,
             }
           );
-          process.on('exit', () => memoryProc.kill());
+          memoryProc.unref();
+          const cleanup = () => {
+            try {
+              process.kill(-memoryProc.pid);
+            } catch {}
+          };
+          process.on('SIGINT', () => {
+            cleanup();
+            process.exit();
+          });
+          process.on('exit', cleanup);
         }
         const express = (await import('express')).default;
         const bodyParser = (await import('body-parser')).default;
@@ -65,6 +76,10 @@ export default defineConfig({
     },
   ],
   server: {
+    // Ignore local database and migration files to avoid full-page reloads on DB writes
+    watch: {
+      ignored: ['**/dev.db', '**/prisma/migrations/**'],
+    },
     port: 5173,
     open: true,
     host: "0.0.0.0",

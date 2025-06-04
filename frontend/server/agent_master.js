@@ -54,11 +54,13 @@ router.post('/', async (req, res) => {
     const inputMessages = history.map((m) => ({ role: m.role, content: m.content }));
     const historyText = history.map((m) => `${m.role}: ${m.content}`).join('\n');
 
-    // Initialize SSE headers
+    // Initialize SSE headers and notify client of conversation ID
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
+    // Emit conversation ID so frontend can maintain context
+    res.write(`data: ${JSON.stringify({ conv_id: conversation.id })}\n\n`);
 
     const plannerAgent = new Agent({
       name: 'Planner',
@@ -133,9 +135,12 @@ Do not include any additional commentary, markdown, or text beyond the JSON.`,
           ],
           stream: false,
         });
-        const output = Array.isArray(toolStream.output)
-          ? toolStream.output.join('')
-          : toolStream.output || '';
+        const rawOutput = toolStream.output;
+        const output = Array.isArray(rawOutput)
+          ? rawOutput.map(part => typeof part === 'object' ? JSON.stringify(part) : part).join('')
+          : typeof rawOutput === 'object'
+          ? JSON.stringify(rawOutput)
+          : rawOutput || '';
         tasks[i].subtasks.push({ content: output, status: 'completed' });
         tasks[i].status = 'completed';
       } catch (err) {
@@ -145,7 +150,36 @@ Do not include any additional commentary, markdown, or text beyond the JSON.`,
       res.write(`data: ${JSON.stringify({ type: 'task_update', tasks })}\n\n`);
     }
 
-    // Signal completion
+    await prisma.agent_runs.create({ data: { conv_id: conversation.id, tasks: JSON.stringify(tasks) } });
+
+    // After all tasks, invoke the primary assistant to synthesize task results
+    try {
+      // Prepare a summary prompt including original user request and each task output
+      const summaryMessages = [
+        { role: 'system', content: `You are a helpful assistant. The user asked: "${message}". Based on the results of the executed tasks below, present a clear, concise response to the user.` },
+        ...tasks.map((t) => ({
+          role: 'system',
+          content: `Task ${t.id} (${t.content}) output: ${t.subtasks.map((s) => s.content).join(' ')}`,
+        })),
+      ];
+      const chatStream = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL,
+        messages: summaryMessages,
+        stream: true,
+      });
+      let assistantResponse = '';
+      for await (const part of chatStream) {
+        const delta = part.choices?.[0]?.delta?.content || '';
+        assistantResponse += delta;
+        res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+      }
+      // Persist the final assistant summary to the database
+      await prisma.messages.create({ data: { conv_id: conversation.id, role: 'assistant', content: assistantResponse } });
+    } catch (e) {
+      console.error('Error in final assistant synthesis:', e);
+    }
+
+    // Signal completion of agent run
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
   } catch (err) {
