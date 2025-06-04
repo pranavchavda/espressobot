@@ -107,6 +107,18 @@ function AboutPage() {
                 <p className="text-sm mt-1">Enjoy real-time, token-by-token chat responses for a natural and interactive experience.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Title Creator</h4>
+                <p className="text-sm mt-1">Automatically generates concise titles for your conversations in the sidebar.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Planner Agent</h4>
+                <p className="text-sm mt-1">Outlines a clear sequence of steps for complex tasks and visualizes them as a task plan.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Agent Mode</h4>
+                <p className="text-sm mt-1">Switch to agentic workflows to perform multi-step tool-driven tasks with real-time progress updates.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">User Authentication</h4>
                 <p className="text-sm mt-1">Sign in securely with Google. Only approved (whitelisted) team members can access the platform. Each user sees only their own chats.</p>
               </div>

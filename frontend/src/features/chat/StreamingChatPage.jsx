@@ -37,6 +37,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
   const [imageAttachment, setImageAttachment] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
+  const [useAgent, setUseAgent] = useState(false);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -52,7 +53,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       return;
     }
     setLoading(true);
-    fetch(`/conversations/${convId}`)
+    fetch(`/api/conversations/${convId}`)
       .then((res) => res.json())
       .then((data) => {
         setMessages(data);
@@ -281,6 +282,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
     setIsSending(true);
     setInput('');
     setSuggestions([]);
+    setCurrentTasks([]);
 
     // Initialize streaming message
     setStreamingMessage({
@@ -298,7 +300,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
     try {
       // Set up Server-Sent Events connection
-      const fetchUrl = "/stream_chat";
+      const fetchUrl = useAgent ? "/api/agent/run" : "/stream_chat";
 
       // Prepare request data
       const requestData = {
@@ -337,9 +339,10 @@ function StreamingChatPage({ convId, refreshConversations }) {
       readerRef.current = reader;
       const decoder = new TextDecoder();
       let eventData = "";
+      let shouldStop = false;
 
       // Process the stream
-      while (true) {
+      while (!shouldStop) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -362,6 +365,10 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             const data = JSON.parse(jsonString);
             console.log("Received data:", data);
+            // Handle title updates: refresh conversation list when title changes
+            if (data.new_title) {
+              refreshConversations && refreshConversations();
+            }
 
             // Handle tool_call status updates
             if (data.tool_call) {
@@ -404,26 +411,17 @@ function StreamingChatPage({ convId, refreshConversations }) {
               setSuggestions(data.suggestions);
             }
 
-            // Handle completion
+            // Handle completion: mark streaming message complete and stop processing further events
             if (data.done) {
-              // Clear tasks when streaming is complete
-              setCurrentTasks([]);
-              
-              // Important: Don't clear streamingMessage immediately
-              // Instead, mark it as complete but keep displaying it
               setStreamingMessage(prev => {
                 if (!prev) return null;
                 return {
                   ...prev,
-                  isComplete: true, // Mark as complete but don't remove
-                  isStreaming: false, // No longer streaming
+                  isComplete: true,
+                  isStreaming: false,
                 };
               });
-              
-              // We no longer add to messages array here
-              // The streaming message will stay visible and 
-              // be "locked in place" since it's marked complete
-              
+              shouldStop = true;
               break;
             }
 
@@ -462,6 +460,11 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
+      <div className="flex justify-end px-4 sm:px-6 py-2">
+        <Button size="sm" variant={useAgent ? 'solid' : 'outline'} onClick={() => setUseAgent(!useAgent)}>
+          {useAgent ? 'Agent Mode On' : 'Agent Mode Off'}
+        </Button>
+      </div>
       {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 max-w-3xl w-full mx-auto">
         <div className="flex flex-col gap-3">

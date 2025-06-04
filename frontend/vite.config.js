@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+
 export default defineConfig({
   plugins: [
     react(),
@@ -28,15 +29,37 @@ export default defineConfig({
     {
       name: 'server-middleware',
       async configureServer(server) {
+        // Launch a local memory server for agent context (unless skipped)
+        if (!process.env.SKIP_MEMORY_SERVER) {
+          const { spawn } = await import('child_process');
+          console.log('Starting local memory server for agent context...');
+          const memoryProc = spawn(
+            'npx', ['-y', '@modelcontextprotocol/server-memory'],
+            {
+              env: {
+                ...process.env,
+                MEMORY_FILE_PATH: process.env.MEMORY_FILE_PATH,
+              },
+              stdio: 'inherit',
+            }
+          );
+          process.on('exit', () => memoryProc.kill());
+        }
         const express = (await import('express')).default;
         const bodyParser = (await import('body-parser')).default;
         const chatHandler = (await import('./server/chat')).default;
         const convHandler = (await import('./server/conversations')).default;
+        const streamChatHandler = (await import('./server/stream_chat')).default;
+        const plannerHandler = (await import('./server/agent_planner')).default;
+        const masterHandler = (await import('./server/agent_master')).default;
 
         const apiApp = express();
         apiApp.use(bodyParser.json());
         apiApp.use('/api/conversations', convHandler);
         apiApp.use('/api/chat', chatHandler);
+        apiApp.use('/stream_chat', streamChatHandler);
+        apiApp.use('/api/agent/planner', plannerHandler);
+        apiApp.use('/api/agent/run', masterHandler);
         server.middlewares.use(apiApp);
       },
     },

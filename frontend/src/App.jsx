@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { SidebarLayout } from "@common/sidebar-layout";
 import { Button } from "@common/button";
-import ChatPage from "./features/chat/ChatPage";
+import StreamingChatPage from "./features/chat/StreamingChatPage";
 import AboutPage from './pages/AboutPage';
 import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
 import { Loader2Icon, MessageSquarePlusIcon, XIcon } from 'lucide-react';
@@ -23,9 +23,13 @@ function App() {
       const res = await fetch("/api/conversations");
       const data = await res.json();
       setConversations(data || []);
-      if (!selectedChat && data.length > 0) {
-        setSelectedChat(data[0].id);
-      }
+      // Keep current selection if still present; otherwise default to the most recent conversation (if any)
+      setSelectedChat((prevSelected) => {
+        if (data && data.find((c) => c.id === prevSelected)) {
+          return prevSelected;
+        }
+        return data && data.length > 0 ? data[0].id : null;
+      });
     } catch (e) {
       console.error("Failed to fetch conversations:", e);
       setConversations([]);
@@ -178,7 +182,7 @@ function App() {
           path="/"
           element={
             <>
-              <ChatPage
+              <StreamingChatPage
                 key={selectedChat === null ? "new_chat_instance_key" : selectedChat}
                 convId={selectedChat}
                 refreshConversations={fetchConversations}

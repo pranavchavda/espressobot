@@ -102,7 +102,11 @@ export function TaskProgress({ tasks, onInterrupt, isStreaming, conversationId }
                     <div key={subIndex} className="flex items-start gap-2">
                       {getStatusIcon(subtask.status || "pending")}
                       <Text className="text-xs text-gray-600 dark:text-gray-400">
-                        {subtask.content || subtask}
+                        {subtask.content != null
+                          ? typeof subtask.content === "object"
+                            ? JSON.stringify(subtask.content)
+                            : subtask.content
+                          : ""}
                       </Text>
                     </div>
                   ))}
