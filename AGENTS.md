@@ -34,8 +34,18 @@ This document summarizes the key steps completed to migrate from a Flask backend
 - Extended `/api/chat` handler with a `mcp_remote` tool descriptor for the remote Shopify MCP server.
 - Tested end‑to‑end flow with the Shopify tool.
 
+## 9. Agent Mode & Task System Iteration
+
+- Orchestrated Master Agent endpoint (`/api/agent/run`) with streaming SSE to handle Planner sub-agent and tool execution.
+- Added Planner sub-agent using `gpt-4o-mini` for JSON task plan generation.
+- Introduced “Agent Mode” toggle in the UI to switch between chat and agentic workflows.
+- Improved TaskProgress component to render subtask content as JSON strings.
+- Spawned local memory server (`@modelcontextprotocol/server-memory`) via NPX in the dev server setup.
+- Fixed environment variable fallbacks for the MCP tool server URL.
+- Updated Title Creator agent to include the final assistant response before generating conversation titles.
+
 ## Next Steps
 - Integrate full OpenAI Agents JS SDK workflows for multi‑tool planning.
 - Scaffold a `/api/agent` endpoint and UI toggle for agent mode.
-- Add support for local stdio‑based MCP servers via `npx`.
+- Add support for local stdio‑based MCP servers and memory server via `npx`.
 - Enhance UI with streaming responses and improved UX.
