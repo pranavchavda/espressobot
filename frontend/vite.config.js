@@ -29,7 +29,6 @@ export default defineConfig({
     {
       name: 'server-middleware',
       async configureServer(server) {
-        // Launch a local memory server for agent context (unless skipped)
         if (!process.env.SKIP_MEMORY_SERVER) {
           const { spawn } = await import('child_process');
           console.log('Starting local memory server for agent context...');
@@ -76,7 +75,6 @@ export default defineConfig({
     },
   ],
   server: {
-    // Ignore local database and migration files to avoid full-page reloads on DB writes
     watch: {
       ignored: ['**/dev.db', '**/prisma/migrations/**'],
     },
