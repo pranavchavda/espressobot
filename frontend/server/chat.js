@@ -35,17 +35,16 @@ router.post('/', async (req, res) => {
       });
     }
 
-    await Promise.all(
-      messages.map((m) =>
-        prisma.messages.create({
-          data: {
-            conv_id: conversation.id,
-            role: m.role,
-            content: m.content,
-          },
-        })
-      )
-    );
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      await prisma.messages.create({
+        data: {
+          conv_id: conversation.id,
+          role: lastMessage.role,
+          content: lastMessage.content,
+        },
+      });
+    }
 
     const response = await openai.responses.create({
       model: process.env.OPENAI_MODEL,
