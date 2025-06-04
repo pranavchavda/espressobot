@@ -19,6 +19,18 @@ router.post('/', async (req, res) => {
     }
 
     const USER_ID = 1;
+    // Ensure a default local user exists to satisfy foreign key constraints
+    await prisma.users.upsert({
+      where: { id: USER_ID },
+      update: {},
+      create: {
+        id: USER_ID,
+        email: 'local@local.dev',
+        password_hash: '',
+        is_whitelisted: true,
+        created_at: new Date(),
+      },
+    });
     let conversation;
     if (conv_id) {
       conversation = await prisma.conversations.findUnique({ where: { id: conv_id } });

@@ -1,7 +1,7 @@
 import React from "react";
 import { CheckCircle, Clock, AlertTriangle, X } from "lucide-react";
 import { Button } from "@common/button";
-import { Text } from "@common/text";
+import { Text, Code } from "@common/text";
 import { Badge } from "@common/badge";
 
 export function TaskProgress({ tasks, onInterrupt, isStreaming, conversationId }) {
@@ -78,7 +78,7 @@ export function TaskProgress({ tasks, onInterrupt, isStreaming, conversationId }
         <div 
           className="bg-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
           style={{ width: `${progressPercentage}%` }}
-        />
+        /> 
       </div>
 
       {/* Task list */}
@@ -101,13 +101,22 @@ export function TaskProgress({ tasks, onInterrupt, isStreaming, conversationId }
                   {task.subtasks.map((subtask, subIndex) => (
                     <div key={subIndex} className="flex items-start gap-2">
                       {getStatusIcon(subtask.status || "pending")}
-                      <Text className="text-xs text-gray-600 dark:text-gray-400">
-                        {subtask.content != null
-                          ? typeof subtask.content === "object"
-                            ? JSON.stringify(subtask.content)
-                            : subtask.content
-                          : ""}
-                      </Text>
+                      <details className="w-full group" open={false}>
+                        <summary className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none flex items-center">
+                          <span className="flex-1 truncate">
+                            {subtask.content != null
+                              ? typeof subtask.content === "object"
+                                ? "See details"
+                                : subtask.content
+                              : ""}
+                          </span>
+                        </summary>
+                        {subtask.content != null && typeof subtask.content === "object" && (
+                          <pre className="bg-zinc-100 dark:bg-zinc-800 rounded p-2 mt-1 text-xs overflow-x-auto whitespace-pre-wrap">
+                            {JSON.stringify(subtask.content, null, 2)}
+                          </pre>
+                        )}
+                      </details>
                     </div>
                   ))}
                 </div>

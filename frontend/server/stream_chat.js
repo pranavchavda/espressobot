@@ -72,7 +72,7 @@ router.post('/', async (req, res) => {
           server_label: 'iDrinkCoffee_Shopify_Tools',
           server_url: 'https://webhook-listener-pranavchavda.replit.app/mcp',
           allowed_tools: [
-            'upload_to_sku_valut',
+            'upload_to_sku_vault',
             'update_pricing',
             'product_create_full',
             'add_product_to_collection',
@@ -83,7 +83,6 @@ router.post('/', async (req, res) => {
             'get_single_product',
             'search_products',
             'create_feature_box',
-            'get_product',
             'product_update',
             'product_tags_add',
             'product_tags_remove'

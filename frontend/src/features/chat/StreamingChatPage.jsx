@@ -24,7 +24,7 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
-function StreamingChatPage({ convId, refreshConversations }) {
+function StreamingChatPage({ convId }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,16 +49,18 @@ function StreamingChatPage({ convId, refreshConversations }) {
     if (!convId) {
       setMessages([]);
       setSuggestions([]);
+      setCurrentTasks([]);
       setActiveConv(null);
       return;
     }
     setLoading(true);
     fetch(`/api/conversations/${convId}`)
       .then((res) => res.json())
-      .then((data) => {
-        setMessages(data);
+      .then(({ messages: fetchedMessages, tasks: persistedTasks }) => {
+        setMessages(fetchedMessages);
+        setCurrentTasks(persistedTasks);
         setActiveConv(convId);
-        const lastMessage = data[data.length - 1];
+        const lastMessage = fetchedMessages[fetchedMessages.length - 1];
         if (
           lastMessage &&
           lastMessage.role === "assistant" &&
@@ -72,6 +74,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
       .catch(() => {
         setMessages([]);
         setSuggestions([]);
+        setCurrentTasks([]);
       })
       .finally(() => setLoading(false));
   }, [convId]);
@@ -130,6 +133,20 @@ function StreamingChatPage({ convId, refreshConversations }) {
       }
     };
   }, []);
+
+  // When a streaming agent message completes, append it to messages and clear the stream buffer
+  useEffect(() => {
+    if (streamingMessage?.isComplete) {
+      const { content, timestamp } = streamingMessage;
+      if (content) {
+        setMessages(prev => [
+          ...prev,
+          { id: `msg-${Date.now()}`, role: "assistant", content, timestamp }
+        ]);
+      }
+      setStreamingMessage(null);
+    }
+  }, [streamingMessage?.isComplete]);
 
   // Handle image paste from clipboard
   useEffect(() => {
@@ -365,10 +382,6 @@ function StreamingChatPage({ convId, refreshConversations }) {
 
             const data = JSON.parse(jsonString);
             console.log("Received data:", data);
-            // Handle title updates: refresh conversation list when title changes
-            if (data.new_title) {
-              refreshConversations && refreshConversations();
-            }
 
             // Handle tool_call status updates
             if (data.tool_call) {
@@ -387,10 +400,8 @@ function StreamingChatPage({ convId, refreshConversations }) {
               setToolCallStatus("");
             }
 
-            // Handle initial connection with conversation ID
             if (data.conv_id && !activeConv) {
               setActiveConv(data.conv_id);
-              refreshConversations && refreshConversations();
             }
 
             // Handle content updates
@@ -421,6 +432,7 @@ function StreamingChatPage({ convId, refreshConversations }) {
                   isStreaming: false,
                 };
               });
+              setUseAgent(false);
               shouldStop = true;
               break;
             }
@@ -487,93 +499,103 @@ function StreamingChatPage({ convId, refreshConversations }) {
           ) : (
             <>
               {/* Render all messages */}
-              {messages.map((msg, i) => (
-                <div
-                  key={msg.id || i}
-                  className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-                >
-                  <div className="flex-shrink-0">
-                    {msg.role === "user" ? (
-                      <Avatar
-                        className="size-8 bg-gray-100 dark:bg-zinc-700"
-                        initials="Me"
-                        alt="User"
-                      />
-                    ) : (
-                      <Avatar
-                        className="size-8 bg-blue-100 dark:bg-blue-900/30"
-                        alt="ShopifyBot"
-                        initials="🤖"
+              {messages.map((msg, i) => {
+                const isLastMessage = i === messages.length - 1;
+                return (
+                  <React.Fragment key={msg.id || i}>
+                    {isLastMessage && currentTasks.length > 0 && !streamingMessage && (
+                      <TaskProgress
+                        tasks={currentTasks}
+                        onInterrupt={handleInterrupt}
+                        isStreaming={isSending}
                       />
                     )}
-                  </div>
+                    <div
+                      className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                    >
+                      <div className="flex-shrink-0">
+                        {msg.role === "user" ? (
+                          <Avatar
+                            className="size-8 bg-gray-100 dark:bg-zinc-700"
+                            initials="Me"
+                            alt="User"
+                          />
+                        ) : (
+                          <Avatar
+                            className="size-8 bg-blue-100 dark:bg-blue-900/30"
+                            alt="ShopifyBot"
+                            initials="🤖"
+                          />
+                        )}
+                      </div>
 
-                  <div
-                    className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
-                      msg.role === "user"
-                        ? "bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none"
-                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
-                    }`}
-                  >
-                    <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
-                      {/* Show image attachment if present */}
-                      {msg.imageAttachment && (
-                        <div className="mb-3">
-                          {msg.imageAttachment.dataUrl && (
-                            <img 
-                              src={msg.imageAttachment.dataUrl} 
-                              alt="User uploaded" 
-                              className="max-h-64 rounded-lg object-contain"
-                            />
+                      <div
+                        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
+                          msg.role === "user"
+                            ? "bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none"
+                            : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+                        }`}
+                      >
+                        <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
+                          {msg.imageAttachment && (
+                            <div className="mb-3">
+                              {msg.imageAttachment.dataUrl && (
+                                <img
+                                  src={msg.imageAttachment.dataUrl}
+                                  alt="User uploaded"
+                                  className="max-h-64 rounded-lg object-contain"
+                                />
+                              )}
+                              {msg.imageAttachment.url && (
+                                <img
+                                  src={msg.imageAttachment.url}
+                                  alt="From URL"
+                                  className="max-h-64 rounded-lg object-contain"
+                                  onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src =
+                                      'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNFRUVFRUUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM5OTk5OTkiPkltYWdlIGVycm9yPC90ZXh0Pjwvc3ZnPg==';
+                                  }}
+                                />
+                              )}
+                            </div>
                           )}
-                          {msg.imageAttachment.url && (
-                            <img 
-                              src={msg.imageAttachment.url} 
-                              alt="From URL" 
-                              className="max-h-64 rounded-lg object-contain"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIGZpbGw9IiNFRUVFRUUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM5OTk5OTkiPkltYWdlIGVycm9yPC90ZXh0Pjwvc3ZnPg==';
-                              }}
-                            />
+                          <MarkdownRenderer isAgent={msg.role === "assistant"}>
+                            {String(msg.content || "")}
+                          </MarkdownRenderer>
+                        </div>
+                        <div
+                          className={`text-xs mt-2 flex items-center justify-end gap-2 ${
+                            msg.role === "user"
+                              ? "text-gray-400 dark:text-gray-500"
+                              : "text-zinc-500 dark:text-zinc-400"
+                          }`}
+                        >
+                          {msg.status === "sending" && (
+                            <span className="flex items-center">
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              Processing
+                            </span>
+                          )}
+                          {msg.timestamp && !msg.status && (
+                            <span className="whitespace-nowrap">
+                              {formatTimestamp(msg.timestamp)}
+                            </span>
                           )}
                         </div>
-                      )}
-                      <MarkdownRenderer isAgent={msg.role === "assistant"}>
-                        {String(msg.content || "")}
-                      </MarkdownRenderer>
+                      </div>
                     </div>
-                    <div
-                      className={`text-xs mt-2 flex items-center justify-end gap-2 ${
-                        msg.role === "user"
-                          ? "text-gray-400 dark:text-gray-500"
-                          : "text-zinc-500 dark:text-zinc-400"
-                      }`}
-                    >
-                      {msg.status === "sending" && (
-                        <span className="flex items-center">
-                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          Processing
-                        </span>
-                      )}
-                      {msg.timestamp && !msg.status && (
-                        <span className="whitespace-nowrap">
-                          {formatTimestamp(msg.timestamp)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  </React.Fragment>
+                );
+              })}
 
-              {/* Task Progress Display */}
-                <TaskProgress 
-                  tasks={currentTasks} 
+              {streamingMessage && currentTasks.length > 0 && (
+                <TaskProgress
+                  tasks={currentTasks}
                   onInterrupt={handleInterrupt}
                   isStreaming={isSending}
                 />
-
-
+              )}
               {/* Render streaming message if present */}
               {streamingMessage && (
                 <div className="flex items-start gap-2">

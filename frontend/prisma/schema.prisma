@@ -3,54 +3,55 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
 model alembic_version {
-  version_num String @id(map: "alembic_version_pkc") @db.VarChar(32)
+  version_num String @id
 }
 
 model conversations {
-  id         Int        @id @default(autoincrement())
+  id         Int          @id @default(autoincrement())
   user_id    Int
-  title      String     @db.VarChar(200)
-  created_at DateTime?  @db.Timestamp(6)
-  updated_at DateTime?  @db.Timestamp(6)
-  filename   String     @unique @db.VarChar(255)
-  users      users      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  title      String
+  created_at DateTime?
+  updated_at DateTime?
+  filename   String       @unique
+  users      users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   messages   messages[]
+  agent_runs agent_runs[]
 }
 
 model embedding_cache {
   id                     Int                      @id @default(autoincrement())
-  text_hash              String                   @unique(map: "ix_embedding_cache_text_hash") @db.VarChar(64)
+  text_hash              String                   @unique(map: "ix_embedding_cache_text_hash")
   text_content           String
   embedding_data         Bytes
-  model_name             String                   @db.VarChar(100)
-  created_at             DateTime?                @db.Timestamp(6)
-  last_accessed          DateTime?                @db.Timestamp(6)
+  model_name             String
+  created_at             DateTime?
+  last_accessed          DateTime?
   user_memory_embeddings user_memory_embeddings[]
 }
 
 model messages {
   id            Int           @id @default(autoincrement())
   conv_id       Int
-  role          String?       @db.VarChar(20)
+  role          String?
   content       String
-  tool_call_id  String?       @db.VarChar(100)
-  tool_name     String?       @db.VarChar(100)
-  created_at    DateTime?     @db.Timestamp(6)
+  tool_call_id  String?
+  tool_name     String?
+  created_at    DateTime?
   conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model user_memories {
   id         Int       @id @default(autoincrement())
   user_id    Int
-  key        String    @db.VarChar(255)
+  key        String
   value      String
-  created_at DateTime? @db.Timestamp(6)
-  updated_at DateTime? @db.Timestamp(6)
+  created_at DateTime?
+  updated_at DateTime?
   users      users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([user_id, key], map: "unique_user_memory_key")
@@ -59,9 +60,9 @@ model user_memories {
 model user_memory_embeddings {
   id                 Int             @id @default(autoincrement())
   user_id            Int
-  memory_key         String          @db.VarChar(255)
+  memory_key         String
   embedding_cache_id Int
-  created_at         DateTime?       @db.Timestamp(6)
+  created_at         DateTime?
   embedding_cache    embedding_cache @relation(fields: [embedding_cache_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users              users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -70,13 +71,22 @@ model user_memory_embeddings {
 
 model users {
   id                     Int                      @id @default(autoincrement())
-  email                  String                   @unique(map: "ix_users_email") @db.VarChar(120)
-  password_hash          String                   @db.VarChar(256)
-  name                   String?                  @db.VarChar(100)
+  email                  String                   @unique(map: "ix_users_email")
+  password_hash          String
+  name                   String?
   bio                    String?
   is_whitelisted         Boolean
-  created_at             DateTime?                @db.Timestamp(6)
+  created_at             DateTime?
   conversations          conversations[]
   user_memories          user_memories[]
   user_memory_embeddings user_memory_embeddings[]
+}
+
+model agent_runs {
+  id         Int      @id @default(autoincrement())
+  conv_id    Int
+  tasks      String
+  created_at DateTime @default(now())
+
+  conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
 }

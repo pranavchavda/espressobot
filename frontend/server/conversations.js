@@ -24,7 +24,11 @@ router.get('/:id', async (req, res) => {
     where: { conv_id: convId },
     orderBy: { created_at: 'asc' },
   });
-  res.json(messages);
+  const latestRun = await prisma.agent_runs.findFirst({
+    where: { conv_id: convId },
+    orderBy: { created_at: 'desc' },
+  });
+  res.json({ messages, tasks: latestRun ? JSON.parse(latestRun.tasks) : [] });
 });
 
 // Delete a conversation and its messages
