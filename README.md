@@ -34,7 +34,7 @@
 # Edit frontend/.env.local and set:
 #   • DATABASE_URL (e.g. `file:./dev.db` for SQLite or a Postgres URL)
 #   • OPENAI_API_KEY, OPENAI_MODEL
-#   • (optional) PLANNER_AGENT_MODEL (default: gpt-4o-mini)
+#   • (optional) PLANNER_AGENT_MODEL (default: o4-mini)
 #   • (optional) MEMORY_FILE_PATH (path to your memory file, e.g. storage/memory.json)
    ```
 
@@ -116,3 +116,10 @@ npx -y @modelcontextprotocol/server-memory
 	- [x] Add support for custom MCP servers and Node-based MCP via NPX
 	- [x] Add end-to-end tests for front-end UI and API middleware
 	- [x] Polish UI/UX (styling, loading states, error handling)
+   - [ ] Reintroduce memory storage, retrival and proactive injection of memory into the system prompt based on the conversation history and context
+   - [ ] Strengthen agentic architecture and be more agentic
+   - [ ] Add Google tasks, Gmail, Calendar, Drive, and Sheets integration
+   - [ ] Add Klaviyo, Attentive, Yotpo and Recharge integration for admin tasks
+   - [ ] Add Google Ads and GA4 integration for marketing tasks
+   - [ ] Display yesterday's and today's Sales, Ads, and Marketing metrics in the UI (Sidebar?)
+   - [ ] Reintroduce the authentication flow for multiple users - use Google OAuth + Whitelist defined in .env
