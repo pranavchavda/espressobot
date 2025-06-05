@@ -51,7 +51,11 @@ router.post('/', async (req, res) => {
       where: { conv_id: conversation.id },
       orderBy: { id: 'asc' },
     });
-    const inputMessages = history.map((m) => ({ role: m.role, content: m.content }));
+    const inputMessages = history.map((m) => ({
+      type: 'message',
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+    }));
     const historyText = history.map((m) => `${m.role}: ${m.content}`).join('\n');
 
     // Initialize SSE headers and notify client of conversation ID
@@ -114,7 +118,9 @@ Do not include any additional commentary, markdown, or text beyond the JSON.`,
                 // process.env.MCP_MEMORY_SERVER_URL ||
                 'https://webhook-listener-pranavchavda.replit.app/mcp',
               allowed_tools: [
-                'upload_to_sku_valut',
+                'upload_to_sku_vault',
+                "run_full_shopify_graphql_mutation",
+                "run_full_shopify_graphql_query",        
                 'update_pricing',
                 'product_create_full',
                 'add_product_to_collection',

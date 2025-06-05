@@ -5,9 +5,11 @@ import { Button } from "@common/button";
 import StreamingChatPage from "./features/chat/StreamingChatPage";
 import AboutPage from './pages/AboutPage';
 import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon } from 'lucide-react';
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
+import { Divider } from "@common/divider";
+import { Heading } from "@common/heading";
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -110,15 +112,19 @@ function App() {
           }
           sidebar={
             <div className="flex flex-col h-[93vh] sm:h-full">
-                  <Button 
-                    className="w-fit cursor-pointer mt-10"
+
+              <nav className="flex-1 overflow-y-auto">
+              <Button 
+                    className="w-full cursor-pointer my-10 "
                     color="steel-blue"
                     outline
                     onClick={() => setSelectedChat(null)}
                   >
-                    <MessageSquarePlusIcon className="h-4 w-4 mt-1" />
+                    <MessageSquarePlusIcon className="h-4 w-4" /> New Chat
                   </Button>
-              <nav className="flex-1 overflow-y-auto">
+              <Divider
+              soft = "true"
+              />
               {loading ? (
                   <div className="flex flex-col items-center justify-center py-2">
                     <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
@@ -126,12 +132,26 @@ function App() {
                 ) : (
                   <>
 
-                  <ul className="flex flex-col gap-1">
-                    {conversations.map((chat) => (
-                      <li key={chat.id} className="group relative pr-4">
+                  <ul className="flex flex-col max-h-[50vh] overflow-y-auto h-[50vh]">
+                    {[...conversations].reverse().map((chat) => (
+                      <li key={chat.id} className="group relative pr-4">                        
+                      
+                      <Button
+                          outline
+                          small
+                          className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDeleteConversation(chat.id);
+                          }}
+                          aria-label="Delete conversation"
+                        >
+                          <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
+                        </Button>
                         <Link 
-                          to="/" // Always link to home
-                          className={`block w-full text-left px-4 py-3 rounded-lg transition-colors ${
+                          to="/"
+                          className={`block w-full text-left px-2 py-2 shadow-sm rounded-lg transition-colors ${
                             selectedChat === chat.id 
                               ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" 
                               : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -145,19 +165,7 @@ function App() {
                               : ""}
                           </div>
                         </Link>
-                        <Button
-                          variant="ghost"
-                          size="iconSm"
-                          className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDeleteConversation(chat.id);
-                          }}
-                          aria-label="Delete conversation"
-                        >
-                          <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
-                        </Button>
+
                       </li>
                     ))}
 
@@ -167,8 +175,68 @@ function App() {
                   </ul>
                   </>
                 )}
-
+    <Divider
+              soft = "true"
+              />
+              <div className="shadow mx-1 rounded-lg ">  
+              <div className="flex items-center px-3 py-3">
+                <LinkIcon className="h-5 w-5 mr-2 text-indigo-600 dark:text-indigo-400" />
+                <Heading
+                  level={3}
+                  className="font-medium text-zinc-800 dark:text-zinc-200"
+                >
+                  Important Links
+                </Heading>
+              </div>
+              <ul className="flex flex-col space-y-2 px-2 py-2">
+                <li>
+                  <a 
+                    href="https://admin.shopify.com/store/idrinkcoffee" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
+                  >
+                    <ShoppingBagIcon className="h-5 w-5 mr-3 text-[#96bf48]" />
+                    <span>Shopify</span>
+                  </a>
+                </li>
+                <li>
+                  <a 
+                    href="https://ads.google.com/aw/campaigns" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
+                  >
+                    <BarChart3Icon className="h-5 w-5 mr-3 text-[#4285F4]" />
+                    <span>Google Ads</span>
+                  </a>
+                </li>
+                <li>
+                  <a 
+                    href="https://analytics.google.com/analytics/web" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
+                  >
+                    <LineChartIcon className="h-5 w-5 mr-3 text-[#E37400]" />
+                    <span>Google Analytics</span>
+                  </a>
+                </li>
+                <li>
+                  <a 
+                    href="https://webhook-listener-pranavchavda.replit.app/" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
+                  >
+                    <GlobeIcon className="h-5 w-5 mr-3 text-[#667eea]" />
+                    <span>MCP Tool Manager</span>
+                  </a>
+                </li>
+              </ul>
+              </div>  
               </nav>
+          
 
             </div>
           }
