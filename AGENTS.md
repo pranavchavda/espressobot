@@ -43,9 +43,11 @@ This document summarizes the key steps completed to migrate from a Flask backend
 - Spawned local memory server (`@modelcontextprotocol/server-memory`) via NPX in the dev server setup.
 - Fixed environment variable fallbacks for the MCP tool server URL.
 - Updated Title Creator agent to include the final assistant response before generating conversation titles.
+- Implemented full SSE streaming for multi-agent orchestrator, including planner, dispatcher, synthesizer statuses, and token-by-token assistant responses.
+- Fixed non-agent mode spinner issue by aligning frontend SSE completion check (`data.done === true`).
 
 ## Next Steps
 - Integrate full OpenAI Agents JS SDK workflows for multi‑tool planning.
 - Scaffold a `/api/agent` endpoint and UI toggle for agent mode.
 - Add support for local stdio‑based MCP servers and memory server via `npx`.
-- Enhance UI with streaming responses and improved UX.
+- Enhance UI with streaming responses and improved UX, including restoring and verifying planner/task progress display in Agent Mode.
