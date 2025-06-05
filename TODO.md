@@ -24,3 +24,5 @@ This document outlines the key next steps for the Shopify Agent Chatbot (fronten
 	- [x] Validate and refine Planner sub-agent instructions and model parameters for reliable JSON plan output
 	- [x] Add end-to-end tests for front-end UI and API middleware
 	- [x] Polish UI/UX (styling, loading states, error handling)
+## Fully Agentized
+- [ ] Make full use of openai-agents-js SDK for agent orchestration and tool chaining

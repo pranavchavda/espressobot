@@ -62,6 +62,7 @@ export default defineConfig({
         const streamChatHandler = (await import('./server/stream_chat')).default;
         const plannerHandler = (await import('./server/agent_planner')).default;
         const masterHandler = (await import('./server/agent_master')).default;
+        const agentOrchestratorRouter = (await import('./server/agent_orchestrator')).default;
 
         const apiApp = express();
         apiApp.use(bodyParser.json({ limit: '50mb' }));
@@ -71,6 +72,7 @@ export default defineConfig({
         apiApp.use('/stream_chat', streamChatHandler);
         apiApp.use('/api/agent/planner', plannerHandler);
         apiApp.use('/api/agent/run', masterHandler);
+        apiApp.use('/api/agent/v2', agentOrchestratorRouter);
         server.middlewares.use(apiApp);
       },
     },
