@@ -12,7 +12,19 @@ const router = Router();
 
 // Helper to send SSE messages
 function sendSse(res, eventName, data) {
-  res.write(`data: ${JSON.stringify({ type: eventName, data })}\n\n`);
+  if (res.writableEnded) {
+    console.warn(`BACKEND Orchestrator: Attempted to send SSE event '${eventName}' after stream ended.`);
+    return;
+  }
+  try {
+    res.write(`data: ${JSON.stringify({ type: eventName, data })}\n\n`);
+  } catch (e) {
+    console.error(`BACKEND Orchestrator: Error writing to SSE stream (event: ${eventName}):`, e.message);
+    // Consider ending the stream if a write error occurs, as it's likely unrecoverable.
+    if (!res.writableEnded) {
+      res.end();
+    }
+  }
 }
 
 router.post('/run', async (req, res) => {
@@ -60,8 +72,89 @@ router.post('/run', async (req, res) => {
       where: { conv_id: conversationId },
       orderBy: { id: 'asc' },
     });
-    const historyText = history.map(m => `${m.role}: ${m.content}`).join('\n');
-    const runInput = `User Query: ${message}\n\nConversation History:\n${historyText}`;
+    let plannerInputMessages = history.map(m => ({
+      type: 'message',
+      role: m.role, // 'user' or 'assistant'
+      // Truncate long assistant messages in history for the agent input
+      content: m.content
+    }));
+
+    const { image } = req.body;
+    let currentUserMessageContent;
+
+    console.log('BACKEND Orchestrator: Full request body:', JSON.stringify(req.body, null, 2));
+    console.log('BACKEND Orchestrator: Image object:', JSON.stringify(image, null, 2));
+    console.log('BACKEND Orchestrator: Message text:', JSON.stringify(message));
+
+    if (image && (image.url || image.data)) {
+      const imageUrl = image.type === 'data_url' ? image.data : image.url;
+      console.log('BACKEND Orchestrator: Final imageUrl:', imageUrl?.substring(0, 100) + '...');
+      console.log('BACKEND Orchestrator: Creating multimodal content with message:', JSON.stringify(message));
+      
+      const textPart = {
+        type: 'input_text',
+        text: message || '' // Ensure text is never undefined
+      };
+      const imagePart = {
+        type: 'input_image',
+        image_url: imageUrl,
+        detail: process.env.VISION_DETAIL || 'auto'
+      };
+      
+      console.log('BACKEND Orchestrator: Created textPart:', JSON.stringify(textPart));
+      console.log('BACKEND Orchestrator: Created imagePart:', JSON.stringify(imagePart, null, 2));
+      
+      currentUserMessageContent = [textPart, imagePart];
+    } else {
+      currentUserMessageContent = message; // Simple string for text-only
+    }
+
+    // Replace the last message with multimodal content if we have an image
+    if (image && (image.url || image.data)) {
+      plannerInputMessages[plannerInputMessages.length - 1] = {
+        type: 'message',
+        role: 'user',
+        content: currentUserMessageContent
+      };
+    } else {
+      plannerInputMessages.push({
+        type: 'message',
+        role: 'user',
+        content: currentUserMessageContent
+      });
+    }
+
+    const plannerInput = plannerInputMessages;
+    console.log('BACKEND Orchestrator: Sending to planner:', JSON.stringify(plannerInput, null, 2));
+    
+    // Additional debug: Check the last message specifically
+    const lastMessage = plannerInput[plannerInput.length - 1];
+    console.log('BACKEND Orchestrator: Last message to planner:', JSON.stringify(lastMessage, null, 2));
+    if (Array.isArray(lastMessage.content)) {
+      console.log('BACKEND Orchestrator: Multimodal message parts:', lastMessage.content.length);
+      lastMessage.content.forEach((part, i) => {
+        console.log(`BACKEND Orchestrator: Part ${i} full object:`, JSON.stringify(part, null, 2));
+        if (part.type === 'input_text') {
+          console.log(`BACKEND Orchestrator: Text content: "${part.text}"`);
+        } else if (part.type === 'input_image') {
+          console.log(`BACKEND Orchestrator: Image URL prefix: ${part.image_url?.substring(0, 50)}...`);
+        }
+      });
+    }
+    // The plannerAgent's system prompt will need to be aware that it's receiving a full message history
+    // and the user's query is the last message. It should extract context accordingly.
+    // It no longer gets a single string with "User Query: ... Conversation History: ..."
+    // Instead, it gets an array of message objects.
+
+    // For the other agents (dispatcher, synthesizer), they still expect a JSON.stringified object
+    // containing originalQuery, conversationHistory (as a string), etc.
+    // We need to reconstruct historyText for them.
+    const historyText = history.map(m => {
+      if (m.role === 'assistant' && m.content.length > 500) {
+        return `${m.role}: ${m.content.substring(0, 497)}...`;
+      }
+      return `${m.role}: ${m.content}`;
+    }).join('\n');
 
     const runConfig = new RunConfig({
       // modelProvider: /* If using a custom model provider */,
@@ -71,7 +164,7 @@ router.post('/run', async (req, res) => {
 
     // 1. Run Planner Agent
     sendSse(res, 'planner_status', { status: 'started' });
-    const plannerResult = await Runner.run(plannerAgent, runInput, { runConfig });
+    const plannerResult = await Runner.run(plannerAgent, plannerInput, { runConfig });
 
     if (plannerResult.error || !plannerResult.finalOutput) {
       sendSse(res, 'error', { message: 'Planner agent failed or produced no output.', details: plannerResult.error?.message || 'Planner produced no output' });
@@ -111,28 +204,54 @@ router.post('/run', async (req, res) => {
       if (event.type === 'llm_delta' && event.data?.delta) {
         // Dispatcher might have intermediate thoughts or be forming its final JSON output
         // For now, we mostly care about its final structured output.
-      } else if (event.type === 'tool_call_start') {
-        sendSse(res, 'task_update', { 
-          status: 'started', 
-          toolName: event.data?.name, 
-          toolInput: event.data?.input // or args
+      } else if (event.type === 'tool_call_started') {
+        console.log("BACKEND Orchestrator: Raw tool_call_started event from SDK:", JSON.stringify(event, null, 2));
+        const toolCallId = event.toolCallId || `unknown_id_${Date.now()}`;
+        const toolName = event.toolName || "Unknown Tool";
+        const toolInput = event.toolInput !== undefined ? event.toolInput : "No input";
+        sendSse(res, 'dispatcher_event', { 
+          type: event.type, // Forwarding original type for potential frontend use
+          tool_call_id: toolCallId,
+          tool_name: toolName, 
+          tool_input: toolInput,
+          status: 'started'
         });
-      } else if (event.type === 'tool_call_output') {
-        sendSse(res, 'task_update', { 
-          status: 'completed', 
-          toolName: event.data?.name, 
-          output: event.data?.output
+      } else if (event.type === 'tool_call_completed') {
+        console.log("BACKEND Orchestrator: Raw tool_call_completed event from SDK:", JSON.stringify(event, null, 2));
+        const toolCallId = event.toolCallId || `unknown_id_${Date.now()}`;
+        const toolName = event.toolName || "Unknown Tool"; // Fallback if not present
+        collectedTaskResults.push({ toolCallId: toolCallId, output: event.output });
+        sendSse(res, 'dispatcher_event', {
+          type: event.type,
+          tool_call_id: toolCallId,
+          tool_name: toolName, 
+          output: event.output,
+          status: 'completed'
         });
         // Potentially collect individual task outputs if dispatcher doesn't do it in final output
-      } else if (event.type === 'tool_call_error') {
-         sendSse(res, 'task_update', { 
-          status: 'error', 
-          toolName: event.data?.name, 
-          error: event.data?.error?.message || 'Tool call failed'
+      } else if (event.type === 'tool_call_failed') {
+        console.log("BACKEND Orchestrator: Raw tool_call_failed event from SDK:", JSON.stringify(event, null, 2));
+        const toolCallId = event.toolCallId || `unknown_id_${Date.now()}`;
+        const toolName = event.toolName || "Unknown Tool"; // Fallback if not present
+        collectedTaskResults.push({ toolCallId: toolCallId, error: event.error?.message || event.error });
+        sendSse(res, 'dispatcher_event', {
+          type: event.type,
+          tool_call_id: toolCallId,
+          tool_name: toolName, 
+          error: event.error?.message || event.error || 'Tool call failed',
+          status: 'error'
         });
+      } else if (event.type === 'llm_output') {
+        // This might be the dispatcher's own reasoning or summary before/after tools
+        // For now, we're not sending this as a specific dispatcher_event to update tasks
+        // but you could if it's relevant to the UI.
+        // console.log('Dispatcher LLM Output:', event.output);
+      } else {
+        // Forward other dispatcher events if necessary, or log them
+        // console.log('Unhandled dispatcher event:', event);
       }
-      sendSse(res, 'dispatcher_event', { event }); 
-      // Add more event type handlers as needed from the SDK
+      // Add more event type handlers as needed from the SDK. 
+      // The generic sendSse(res, 'dispatcher_event', { event }); has been removed.
 
       if (dispatcherStream.isComplete && dispatcherStream._event_queue.isEmpty()) {
         break;
@@ -197,8 +316,24 @@ router.post('/run', async (req, res) => {
     sendSse(res, 'synthesizer_status', { status: 'completed' });
 
   } catch (error) {
-    console.error('Orchestrator error:', error);
-    sendSse(res, 'error', { message: 'An unexpected error occurred in the orchestrator.', details: error.message });
+    console.error('BACKEND Orchestrator: Orchestrator error:', error.message, error.stack);
+    if (!res.headersSent && !res.writableEnded) {
+        // Only set headers if not already sent and stream is writable
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        // Avoid res.flushHeaders() here as it can also error if stream state is bad
+    }
+    if (!res.writableEnded) { 
+        sendSse(res, 'error', { message: 'An unexpected error occurred in the orchestrator.', details: error.message });
+    } else {
+        console.warn("BACKEND Orchestrator: Stream ended before error could be sent to client in catch block.");
+    }
+    // Ensure the stream is ended if an error occurs and we haven't explicitly ended it.
+    if (!res.writableEnded) {
+        console.log("BACKEND Orchestrator: Ending stream in main catch block due to unhandled error.");
+        res.end();
+    }
   } finally {
     sendSse(res, 'done', {});
     res.end();
