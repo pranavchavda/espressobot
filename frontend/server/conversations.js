@@ -37,9 +37,18 @@ router.delete('/:id', async (req, res) => {
   if (!convId) {
     return res.status(400).json({ error: 'Invalid conversation ID' });
   }
-  await prisma.messages.deleteMany({ where: { conv_id: convId } });
-  await prisma.conversations.delete({ where: { id: convId } });
-  res.sendStatus(204);
+  try {
+    // Delete related agent_runs first
+    await prisma.agent_runs.deleteMany({ where: { conv_id: convId } });
+    // Then delete messages
+    await prisma.messages.deleteMany({ where: { conv_id: convId } });
+    // Finally delete the conversation
+    await prisma.conversations.delete({ where: { id: convId } });
+    res.sendStatus(204);
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    res.status(500).json({ error: 'Failed to delete conversation' });
+  }
 });
 
 export default router;

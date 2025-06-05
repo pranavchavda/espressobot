@@ -9,7 +9,7 @@ const router = Router();
 // Server-Sent Events streaming endpoint for chat responses
 router.post('/', async (req, res) => {
   try {
-    const { message, conv_id } = req.body || {};
+    const { message, conv_id, image } = req.body || {};
     if (typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'Request body must include a non-empty message string' });
     }
@@ -45,8 +45,26 @@ router.post('/', async (req, res) => {
       where: { conv_id: conversation.id },
       orderBy: { id: 'asc' },
     });
-    const inputMessages = history.map((m) => ({ role: m.role || 'assistant', content: m.content }));
-
+    const inputMessages = history.map((m) => ({
+      type: 'message',
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+    }));
+    if (image) {
+      const imageUrl = image.type === 'data_url' ? image.data : image.url;
+      inputMessages.push({
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_image',
+            detail: process.env.VISION_DETAIL || 'auto',
+            image_url: imageUrl,
+          },
+        ],
+      });
+    }
+    console.log(inputMessages);
     // Initialize SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -57,8 +75,9 @@ router.post('/', async (req, res) => {
     res.write(`data: ${JSON.stringify({ conv_id: conversation.id })}\n\n`);
 
     // Stream responses from OpenAI Responses API
+    const responseModel = image ? process.env.VISION_MODEL : process.env.OPENAI_MODEL;
     const stream = await openai.responses.create({
-      model: process.env.OPENAI_MODEL,
+      model: responseModel,
       input: inputMessages,
       text: { format: { type: 'text' } },
       tools: [
@@ -73,10 +92,11 @@ router.post('/', async (req, res) => {
           server_url: 'https://webhook-listener-pranavchavda.replit.app/mcp',
           allowed_tools: [
             'upload_to_sku_vault',
+            "run_full_shopify_graphql_mutation",
+            "run_full_shopify_graphql_query",    
             'update_pricing',
             'product_create_full',
             'add_product_to_collection',
-            'get_collections',
             'set_metafield',
             'variant_create',
             'product_create',

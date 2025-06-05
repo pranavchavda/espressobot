@@ -8,9 +8,9 @@ import { TaskProgress } from "@components/chat/TaskProgress";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
-import { Form } from "react-router-dom";
+import { Description, Label } from '@common/fieldset'
+import { Switch, SwitchField } from '@common/switch'
 
-// Helper hook for debouncing
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -472,11 +472,7 @@ function StreamingChatPage({ convId }) {
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
-      <div className="flex justify-end px-4 sm:px-6 py-2">
-        <Button size="sm" variant={useAgent ? 'solid' : 'outline'} onClick={() => setUseAgent(!useAgent)}>
-          {useAgent ? 'Agent Mode On' : 'Agent Mode Off'}
-        </Button>
-      </div>
+
       {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 max-w-3xl w-full mx-auto">
         <div className="flex flex-col gap-3">
@@ -661,6 +657,13 @@ function StreamingChatPage({ convId }) {
         )}
 
         {/* Image Preview */}
+        <div className="flex justify-center px-4 sm:px-6 py-2">
+
+<SwitchField>
+  <Label>Agent Mode {useAgent ? 'On' : 'Off'}</Label>
+  <Switch checked={useAgent} onChange={setUseAgent} name="agent-mode" defaultChecked={useAgent} />
+</SwitchField>
+</div>
         {imageAttachment && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2">
             <div className="relative inline-block">

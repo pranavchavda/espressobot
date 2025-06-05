@@ -58,9 +58,15 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Format prior messages as input blocks for the Responses API
+    const inputMessages = messages.map((m) => ({
+      type: 'message',
+      role: m.role,
+      content: m.content,
+    }));
     const response = await openai.responses.create({
       model: process.env.OPENAI_MODEL,
-      input: messages,
+      input: inputMessages,
       text: { format: { type: 'text' } },
       tools: [
         {

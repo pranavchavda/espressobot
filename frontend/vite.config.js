@@ -64,7 +64,8 @@ export default defineConfig({
         const masterHandler = (await import('./server/agent_master')).default;
 
         const apiApp = express();
-        apiApp.use(bodyParser.json());
+        apiApp.use(bodyParser.json({ limit: '50mb' }));
+        apiApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
         apiApp.use('/api/conversations', convHandler);
         apiApp.use('/api/chat', chatHandler);
         apiApp.use('/stream_chat', streamChatHandler);
