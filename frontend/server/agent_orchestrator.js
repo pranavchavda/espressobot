@@ -165,11 +165,18 @@ router.post('/run', async (req, res) => {
     let fullAssistantResponse = '';
     while (true) {
       const event = await synthesizerStream._event_queue.get();
-      if (event.type === 'llm_delta' && event.data?.delta) {
-        const delta = event.data.delta;
-        sendSse(res, 'assistant_delta', { delta });
-        fullAssistantResponse += delta;
+      console.log('BACKEND Orchestrator: Synthesizer event:', JSON.stringify(event)); // DEBUG: Log all synthesizer events
+      // Primary handler for true token-by-token streaming from synthesizer
+      if (event && event.type === 'agent_text_delta_stream_event' && typeof event.delta === 'string') {
+        // console.log('BACKEND Orchestrator: Sending assistant_delta with chunk:', JSON.stringify(event.delta)); // Optional: DEBUG for each chunk
+        sendSse(res, 'assistant_delta', { delta: event.delta });
+        fullAssistantResponse += event.delta;
       }
+      // Fallback or other event types from synthesizer (if any become relevant)
+      // else if (event && event.type === 'some_other_synthesizer_event_type') {
+      //   // Handle other specific synthesizer events if needed
+      // } 
+      // The original llm_output and llm_delta cases are removed as they don't match observed synthesizer events for deltas.
       // Handle other synthesizer event types if necessary
 
       if (synthesizerStream.isComplete && synthesizerStream._event_queue.isEmpty()) {

@@ -8,7 +8,7 @@
 - **Basic Chat**: Uses the OpenAI Responses API with built‑in tools (e.g., `web_search_preview`)
 - **Streaming Responses**: Real-time token updates via Server-Sent Events (SSE) for a live chat experience
 - **Title Creator**: Automatically generate concise titles for chat conversations in the history sidebar
-- **Agentic Workflows**: Leverage the OpenAI Agents JS SDK for custom agents and tool integration
+- **Agentic Workflows**: Leverages the OpenAI Agents JS SDK for multi-agent orchestration (planner, dispatcher, synthesizer) with full SSE streaming of statuses and token-by-token assistant responses.
 - **Persistent Storage**: Conversations and messages stored in SQLite (local dev) or Postgres via Prisma
 - **React Router 7 (Framework Edition)**: File-based routing with loaders & actions (no Flask)
 - **Single-User Local Dev**: No auth—runs locally for user ID 1 only
@@ -116,6 +116,7 @@ npx -y @modelcontextprotocol/server-memory
 	- [x] Add support for custom MCP servers and Node-based MCP via NPX
 	- [x] Add end-to-end tests for front-end UI and API middleware
 	- [x] Polish UI/UX (styling, loading states, error handling)
+   - [ ] Restore and verify planner status display and `TaskProgress` UI component in Agent Mode.
    - [ ] Reintroduce memory storage, retrival and proactive injection of memory into the system prompt based on the conversation history and context
    - [ ] Strengthen agentic architecture and be more agentic
    - [ ] Add Google tasks, Gmail, Calendar, Drive, and Sheets integration

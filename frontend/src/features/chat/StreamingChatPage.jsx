@@ -32,9 +32,13 @@ function StreamingChatPage({ convId }) {
   const [activeConv, setActiveConv] = useState(convId);
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessage] = useState(null);
-  const [toolCallStatus, setToolCallStatus] = useState("");
+  const [toolCallStatus, setToolCallStatus] = useState(""); // Can be repurposed or used for general status
   const [currentTasks, setCurrentTasks] = useState([]);
   const [imageAttachment, setImageAttachment] = useState(null);
+  const [plannerStatus, setPlannerStatus] = useState("");
+  const [dispatcherStatus, setDispatcherStatus] = useState("");
+  const [synthesizerStatus, setSynthesizerStatus] = useState("");
+  const [currentPlan, setCurrentPlan] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const [useAgent, setUseAgent] = useState(false);
@@ -273,8 +277,6 @@ function StreamingChatPage({ convId }) {
 
     if ((!textToSend && !imageAttachment) || isSending) return;
 
-    // Before sending a new message, check if we have a completed streaming message
-    // If so, move it to regular messages
     if (streamingMessage?.isComplete) {
       setMessages(prev => [
         ...prev,
@@ -287,7 +289,6 @@ function StreamingChatPage({ convId }) {
       ]);
     }
 
-    // Add user message to the conversation
     const userMessage = {
       role: "user",
       content: textToSend,
@@ -300,32 +301,39 @@ function StreamingChatPage({ convId }) {
     setInput('');
     setSuggestions([]);
     setCurrentTasks([]);
+    setImageAttachment(null); // Clear attachment after sending
+    setImageUrl("");
+    setShowImageUrlInput(false);
 
-    // Initialize streaming message
     setStreamingMessage({
       role: "assistant",
       content: "",
       timestamp: new Date().toISOString(),
       isStreaming: true,
-      isComplete: false, // Add this flag to track completion state
+      isComplete: false,
     });
 
-    // Close any existing SSE connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
     try {
-      // Set up Server-Sent Events connection
-      const fetchUrl = useAgent ? "/api/agent/run" : "/stream_chat";
+      const fetchUrl = useAgent ? "/api/agent/v2/run" : "/stream_chat";
 
-      // Prepare request data
+      if (useAgent) {
+        setPlannerStatus("Initializing...");
+        setDispatcherStatus("");
+        setSynthesizerStatus("");
+        setCurrentPlan(null);
+        setCurrentTasks([]);
+        setToolCallStatus("");
+      }
+
       const requestData = {
         conv_id: activeConv || undefined,
         message: textToSend,
       };
 
-      // Add image data if present
       if (imageAttachment) {
         if (imageAttachment.dataUrl) {
           requestData.image = {
@@ -340,7 +348,6 @@ function StreamingChatPage({ convId }) {
         }
       }
 
-      // Use fetch POST to start the stream
       const response = await fetch(fetchUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -348,124 +355,194 @@ function StreamingChatPage({ convId }) {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorBody = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
       }
 
-      // Get the response as a ReadableStream
       const reader = response.body.getReader();
       readerRef.current = reader;
       const decoder = new TextDecoder();
-      let eventData = "";
+      let eventDataBuffer = "";
       let shouldStop = false;
 
-      // Process the stream
       while (!shouldStop) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        eventData += chunk;
+        const chunk = decoder.decode(value, { stream: true });
+        eventDataBuffer += chunk;
 
-        // Process any complete SSE messages
-        const messages = eventData.split(/\n\n/);
-        eventData = messages.pop() || ""; // Keep the last incomplete chunk for next iteration
+        const eventMessages = eventDataBuffer.split(/\n\n/);
+        eventDataBuffer = eventMessages.pop() || ""; 
 
-        for (const message of messages) {
-          if (!message.trim() || !message.startsWith("data:")) continue;
+        for (const singleEventString of eventMessages) {
+          if (!singleEventString.trim()) continue;
+
+          let eventName = null;
+          let rawJsonDataString = "";
+          const sseLines = singleEventString.split('\n');
+
+          for (const line of sseLines) {
+            // Prioritize explicit event: line if present
+            if (line.startsWith('event:')) {
+              eventName = line.substring(6).trim();
+            } 
+            // Always accumulate data: lines
+            if (line.startsWith('data:')) { 
+              rawJsonDataString += line.substring(5).trim();
+            }
+          }
 
           try {
-            // Extract and parse the JSON data
-            const jsonString = message.split(/\n/)
-              .filter(line => line.startsWith("data:"))
-              .map(line => line.slice(5).trim())
-              .join("");
+            let parsedData = rawJsonDataString ? JSON.parse(rawJsonDataString) : {};
+            let actualEventPayload = parsedData;
 
-            const data = JSON.parse(jsonString);
-            console.log("Received data:", data);
+            // If eventName wasn't set by an 'event:' line, 
+            // and we are using the agent, try to get it from the parsed data structure.
+            if (!eventName && useAgent && parsedData.type) {
+              eventName = parsedData.type;
+              actualEventPayload = parsedData.data !== undefined ? parsedData.data : {}; // Use .data if it exists, otherwise empty obj
+            } else if (!eventName && !useAgent && singleEventString.startsWith('data:')) {
+              // Legacy /stream_chat handling (eventName remains null, payload is parsedData)
+              actualEventPayload = parsedData;
+            }
+            
+            // console.log("Processed SSE Event -- Name:", eventName, "Payload:", actualEventPayload);
 
-            // Handle tool_call status updates
-            if (data.tool_call) {
-              const { name, status } = data.tool_call;
-              let statusMessage = `Tool ${name}: ${status}`;
-              if (status === "started") {
-                statusMessage = `Running tool: ${name}...`;
-              } else if (status === "finished" || status === "ended") {
-                statusMessage = `Tool ${name} finished.`;
-              } else if (status === "error") {
-                statusMessage = `Error with tool: ${name}.`;
+            if (useAgent) {
+              switch (eventName) {
+                case 'planner_status':
+                  setPlannerStatus(actualEventPayload.status === 'completed' ? `Plan: ${actualEventPayload.status}` : `Planner: ${actualEventPayload.status}`);
+                  if (actualEventPayload.status === 'completed') {
+                    if (actualEventPayload.plan) setCurrentPlan(actualEventPayload.plan);
+                    if (actualEventPayload.conversationId && (!activeConv || activeConv !== actualEventPayload.conversationId)) {
+                      setActiveConv(actualEventPayload.conversationId);
+                      if (typeof onNewConversation === 'function') {
+                        onNewConversation(actualEventPayload.conversationId);
+                      }
+                    }
+                  }
+                  break;
+                case 'dispatcher_status':
+                  setDispatcherStatus(`Dispatcher: ${actualEventPayload.status}`);
+                  if(actualEventPayload.status === 'completed') setPlannerStatus("Plan execution completed.");
+                  break;
+                case 'dispatcher_event':
+                  setDispatcherStatus("Dispatcher: running task...");
+                  setCurrentTasks(prevTasks => {
+                    const existingTaskIndex = prevTasks.findIndex(t => t.id === actualEventPayload.tool_call_id);
+                    if (actualEventPayload.status === 'started') {
+                      const newTask = { 
+                        id: actualEventPayload.tool_call_id || `${actualEventPayload.tool_name}-${Date.now()}`, 
+                        name: actualEventPayload.tool_name, 
+                        input: typeof actualEventPayload.tool_input === 'string' ? actualEventPayload.tool_input : JSON.stringify(actualEventPayload.tool_input, null, 2),
+                        status: 'running' 
+                      };
+                      if (existingTaskIndex !== -1) {
+                         const newTasks = [...prevTasks];
+                         newTasks[existingTaskIndex] = newTask;
+                         return newTasks;
+                      } else {
+                          return [...prevTasks, newTask];
+                      }
+                    } else if (actualEventPayload.status === 'completed' || actualEventPayload.status === 'error') {
+                      if (existingTaskIndex !== -1) {
+                        const updatedTasks = [...prevTasks];
+                        updatedTasks[existingTaskIndex] = {
+                          ...prevTasks[existingTaskIndex],
+                          status: actualEventPayload.status,
+                          output: typeof actualEventPayload.output === 'string' ? actualEventPayload.output : JSON.stringify(actualEventPayload.output, null, 2),
+                          error: actualEventPayload.error ? (typeof actualEventPayload.error === 'string' ? actualEventPayload.error : JSON.stringify(actualEventPayload.error, null, 2)) : undefined,
+                        };
+                        return updatedTasks;
+                      }
+                    }
+                    return prevTasks;
+                  });
+                  break;
+                case 'synthesizer_status':
+                  console.log("FRONTEND: Received 'synthesizer_status' event", JSON.stringify(actualEventPayload)); // DEBUG
+                  setSynthesizerStatus(`Synthesizer: ${actualEventPayload.status}`);
+                  if(actualEventPayload.status === 'started') setDispatcherStatus("Dispatcher: completed, awaiting synthesis.");
+                  break;
+                case 'assistant_delta':
+                  if (plannerStatus) setPlannerStatus(""); 
+                  if (dispatcherStatus) setDispatcherStatus("");
+                  setSynthesizerStatus("Synthesizer: streaming...");
+                  setToolCallStatus("");
+                  setCurrentTasks(prev => prev.map(t => (t.status === 'running' ? {...t, status:'completed_implicit'} : t) ));
+                  console.log("FRONTEND: Received 'assistant_delta' event payload:", JSON.stringify(actualEventPayload)); // DEBUG
+                  setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + actualEventPayload.delta, isStreaming: true, isComplete: false }));
+                  break;
+                case 'error':
+                  setToolCallStatus(`Error: ${actualEventPayload.message}`);
+                  console.error("SSE Orchestrator Error:", actualEventPayload);
+                  setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + `\n\n**Error:** ${actualEventPayload.message}`, isStreaming: false, isComplete: true }));
+                  setIsSending(false); shouldStop = true; break;
+                case 'done':
+                  console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
+                  setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
+                  setIsSending(false); shouldStop = true;
+                  setSynthesizerStatus("Synthesizer: completed.");
+                  console.log("FRONTEND: 'done' event processed, isSending:", false, "shouldStop:", true); // DEBUG
+                  break;
+                default:
+                  console.log("Unknown agent SSE event type:", eventName, "Payload:", actualEventPayload);
               }
-              setToolCallStatus(statusMessage);
-            } else if (data.content || data.delta) {
-              // If new content (even if empty string from delta) arrives, clear specific tool status
-              setToolCallStatus("");
-            }
-
-            if (data.conv_id && !activeConv) {
-              setActiveConv(data.conv_id);
-            }
-
-            // Handle content updates
-            if (data.delta || data.content) {
-              setStreamingMessage(prev => ({
-                ...prev,
-                content: data.content || (prev?.content + (data.delta || "")),
-              }));
-            }
-
-            // Handle task updates
-            if (data.type === 'task_update' && data.tasks) {
-              setCurrentTasks(data.tasks);
-            }
-
-            // Handle suggestions
-            if (data.suggestions && Array.isArray(data.suggestions)) {
-              setSuggestions(data.suggestions);
-            }
-
-            // Handle completion: mark streaming message complete and stop processing further events
-            if (data.done) {
-              setStreamingMessage(prev => {
-                if (!prev) return null;
-                return {
-                  ...prev,
-                  isComplete: true,
-                  isStreaming: false,
-                };
-              });
-              setUseAgent(false);
-              shouldStop = true;
-              break;
-            }
-
-            // Handle errors
-            if (data.error) {
-              console.error("Stream error:", data.error);
-              setStreamingMessage(prev => ({
-                ...prev,
-                content: `Error: ${data.error}`,
-                isError: true,
-              }));
+            } else { // Legacy /stream_chat handling
+              const data = actualEventPayload; // Use actualEventPayload for legacy too
+              if (data.tool_call) {
+                const { name, status } = data.tool_call;
+                let statusMessage = `Tool ${name}: ${status}`;
+                if (status === "started") statusMessage = `Running tool: ${name}...`;
+                else if (status === "finished" || status === "ended") statusMessage = `Tool ${name} finished.`;
+                else if (status === "error") statusMessage = `Error with tool: ${name}.`;
+                setToolCallStatus(statusMessage);
+              } else if (data.content || data.delta) {
+                setToolCallStatus("");
+              }
+              if (data.delta) {
+                setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + data.delta, isStreaming: true, isComplete: false }));
+              } else if (data.content) {
+                setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + data.content, isStreaming: true, isComplete: false }));
+              }
+              if (data.suggestions) setSuggestions(data.suggestions);
+              if (data.tasks) {
+                setCurrentTasks(prevTasks => {
+                  const newTasks = data.tasks.filter(task => !prevTasks.some(pt => pt.id === task.id || pt.name === task.name));
+                  const updatedTasks = prevTasks.map(pt => {
+                    const updatedTask = data.tasks.find(t => t.id === pt.id || t.name === pt.name);
+                    return updatedTask ? { ...pt, ...updatedTask } : pt;
+                  });
+                  return [...updatedTasks, ...newTasks];
+                });
+              }
+              if (data.done === true) {
+                setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
+                setIsSending(false); shouldStop = true;
+                if (!activeConv && data.conv_id) {
+                   setActiveConv(data.conv_id);
+                   if (typeof onNewConversation === 'function') onNewConversation(data.conv_id);
+                }
+                break; 
+              }
             }
           } catch (e) {
-            console.error("Error parsing SSE message:", e, message);
+            console.error("Failed to parse SSE JSON or handle event:", e, "Event Name:", eventName, "JSON String:", rawJsonDataString);
           }
         }
       }
     } catch (e) {
       console.error("Failed to send message or process stream:", e);
-
-      // Update streaming message with error
       setStreamingMessage(prev => 
-        prev ? { ...prev, content: `Error: ${e.message}`, isError: true } : null
+        prev ? { ...prev, content: (prev?.content || "") + `\n\n**Error:** ${e.message}`, isError: true, isStreaming: false, isComplete: true } : null
       );
     } finally {
       setIsSending(false);
-      setToolCallStatus(""); // Clear tool status when streaming ends
-      readerRef.current = null; // Clear reader reference
+      // setToolCallStatus(""); // Keep agent specific statuses for review
+      readerRef.current = null;
     }
   }
-
-  // Handle clicking a suggestion
   const handleSuggestionClick = (suggestionText) => {
     handleSend(suggestionText);
   };
@@ -499,13 +576,6 @@ function StreamingChatPage({ convId }) {
                 const isLastMessage = i === messages.length - 1;
                 return (
                   <React.Fragment key={msg.id || i}>
-                    {isLastMessage && currentTasks.length > 0 && !streamingMessage && (
-                      <TaskProgress
-                        tasks={currentTasks}
-                        onInterrupt={handleInterrupt}
-                        isStreaming={isSending}
-                      />
-                    )}
                     <div
                       className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                     >

@@ -18,11 +18,15 @@ This document outlines the key next steps for the Shopify Agent Chatbot (fronten
 	- [x] Scaffold Master Agent orchestration endpoint and Agent Mode toggle in chat UI
 - [x] Add support for local stdio-based MCP servers via NPX for custom tools
 - [x] Add support for local memory server via NPX for agent context memory
-- [x] Enable streaming responses in the chat UI for real-time token updates
-	- [x] Fix subtask content rendering in TaskProgress component to display JSON properly
-	- [x] Implement final assistant handover message after all tasks complete in master-agent SSE stream
-	- [x] Validate and refine Planner sub-agent instructions and model parameters for reliable JSON plan output
-	- [x] Add end-to-end tests for front-end UI and API middleware
-	- [x] Polish UI/UX (styling, loading states, error handling)
+- [x] Enable full SSE streaming for multi-agent orchestrator (planner, dispatcher, synthesizer statuses, and token-by-token assistant responses).
+    - [x] Backend: Correctly handle `agent_text_delta_stream_event` for synthesizer token streaming.
+    - [x] Frontend: Parse all orchestrator SSE events and update UI accordingly.
+- [x] Resolve non-agent mode spinner issue (ensure `setIsSending(false)` on `data.done === true`).
+- [ ] Restore and verify planner status display and `TaskProgress` UI component in Agent Mode.
+    - [ ] Ensure `currentPlan` and `currentTasks` states are correctly populated from SSE events.
+    - [ ] Verify UI elements for plan steps and task progress are visible and functional.
+- [ ] Validate and refine Planner sub-agent instructions and model parameters for reliable JSON plan output (ongoing).
+- [ ] Add end-to-end tests for front-end UI and API middleware.
+- [ ] General UI/UX Polish (styling, loading states, error handling improvements).
 ## Fully Agentized
 - [ ] Make full use of openai-agents-js SDK for agent orchestration and tool chaining
