@@ -53,7 +53,9 @@ function StreamingChatPage({ convId }) {
     if (!convId) {
       setMessages([]);
       setSuggestions([]);
-      setCurrentTasks([]);
+      console.warn('FRONTEND: convId is null in useEffect[convId]. Clearing messages/suggestions. convId:', convId);
+      setMessages([]);
+      setSuggestions([]);
       setActiveConv(null);
       return;
     }
@@ -78,10 +80,12 @@ function StreamingChatPage({ convId }) {
       .catch(() => {
         setMessages([]);
         setSuggestions([]);
-        setCurrentTasks([]);
+        console.error('FRONTEND: Error fetching conversation in useEffect[convId]. Clearing messages/suggestions. convId:', convId);
       })
       .finally(() => setLoading(false));
   }, [convId]);
+
+  console.log("FRONTEND RENDER: useAgent:", useAgent, "currentPlan:", currentPlan, "currentTasks:", currentTasks, "streamingMessage:", streamingMessage); // DEBUG
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -111,6 +115,7 @@ function StreamingChatPage({ convId }) {
     
     setIsSending(false);
     setStreamingMessage(null);
+    console.error('FRONTEND: Clearing tasks inside handleInterrupt. Conversation ID:', activeConv);
     setCurrentTasks([]);
     setToolCallStatus("");
     
@@ -325,6 +330,7 @@ function StreamingChatPage({ convId }) {
         setDispatcherStatus("");
         setSynthesizerStatus("");
         setCurrentPlan(null);
+    setCurrentTasks([]); // Reset tasks for new agent run
         setCurrentTasks([]);
         setToolCallStatus("");
       }
@@ -414,7 +420,16 @@ function StreamingChatPage({ convId }) {
                 case 'planner_status':
                   setPlannerStatus(actualEventPayload.status === 'completed' ? `Plan: ${actualEventPayload.status}` : `Planner: ${actualEventPayload.status}`);
                   if (actualEventPayload.status === 'completed') {
-                    if (actualEventPayload.plan) setCurrentPlan(actualEventPayload.plan);
+                    if (actualEventPayload.plan && Array.isArray(actualEventPayload.plan.tasks)) {
+                    console.log("FRONTEND: Setting currentPlan with extracted tasks:", actualEventPayload.plan.tasks); // DEBUG
+                    setCurrentPlan(actualEventPayload.plan.tasks);
+                  } else if (Array.isArray(actualEventPayload.plan)) { // Fallback if plan is already an array
+                    console.log("FRONTEND: Setting currentPlan (payload was already an array):", actualEventPayload.plan); // DEBUG
+                    setCurrentPlan(actualEventPayload.plan);
+                  } else {
+                    console.warn("FRONTEND: Received plan is not in expected format (object with tasks array or direct array):", actualEventPayload.plan);
+                    setCurrentPlan([]); // Set to empty array to avoid errors
+                  }
                     if (actualEventPayload.conversationId && (!activeConv || activeConv !== actualEventPayload.conversationId)) {
                       setActiveConv(actualEventPayload.conversationId);
                       if (typeof onNewConversation === 'function') {
@@ -426,24 +441,38 @@ function StreamingChatPage({ convId }) {
                 case 'dispatcher_status':
                   setDispatcherStatus(`Dispatcher: ${actualEventPayload.status}`);
                   if(actualEventPayload.status === 'completed') setPlannerStatus("Plan execution completed.");
-                  break;
-                case 'dispatcher_event':
+case 'dispatcher_event':
                   setDispatcherStatus("Dispatcher: running task...");
+                  console.log("FRONTEND: Received dispatcher_event, payload:", actualEventPayload); // DEBUG
                   setCurrentTasks(prevTasks => {
+                    console.log("FRONTEND: setCurrentTasks - START - prevTasks:", JSON.parse(JSON.stringify(prevTasks)), "Incoming event payload:", actualEventPayload); // Deep copy for logging
+                    
+                    // Defensive check
+                    if (!actualEventPayload || typeof actualEventPayload.status === 'undefined') {
+                      console.error('FRONTEND: setCurrentTasks updater. Critical: actualEventPayload or its status is undefined for dispatcher_event. Payload:', JSON.stringify(actualEventPayload), '. Returning prevTasks.');
+                      return prevTasks;
+                    }
+
                     const existingTaskIndex = prevTasks.findIndex(t => t.id === actualEventPayload.tool_call_id);
+                    
                     if (actualEventPayload.status === 'started') {
                       const newTask = { 
                         id: actualEventPayload.tool_call_id || `${actualEventPayload.tool_name}-${Date.now()}`, 
                         name: actualEventPayload.tool_name, 
+                        content: actualEventPayload.tool_name, // For TaskProgress display
                         input: typeof actualEventPayload.tool_input === 'string' ? actualEventPayload.tool_input : JSON.stringify(actualEventPayload.tool_input, null, 2),
-                        status: 'running' 
+                        status: 'in_progress', // Mapped 'started' to 'in_progress' for TaskProgress component 
+                        conversation_id: activeConv || convId // For TaskProgress filtering
                       };
                       if (existingTaskIndex !== -1) {
                          const newTasks = [...prevTasks];
                          newTasks[existingTaskIndex] = newTask;
+                         console.log("FRONTEND: setCurrentTasks - returning updated newTasks (existing task modified)", JSON.parse(JSON.stringify(newTasks)));
                          return newTasks;
                       } else {
-                          return [...prevTasks, newTask];
+                         const updatedList = [...prevTasks, newTask];
+                         console.log("FRONTEND: setCurrentTasks - returning new task added to list", JSON.parse(JSON.stringify(updatedList)));
+                         return updatedList;
                       }
                     } else if (actualEventPayload.status === 'completed' || actualEventPayload.status === 'error') {
                       if (existingTaskIndex !== -1) {
@@ -453,10 +482,14 @@ function StreamingChatPage({ convId }) {
                           status: actualEventPayload.status,
                           output: typeof actualEventPayload.output === 'string' ? actualEventPayload.output : JSON.stringify(actualEventPayload.output, null, 2),
                           error: actualEventPayload.error ? (typeof actualEventPayload.error === 'string' ? actualEventPayload.error : JSON.stringify(actualEventPayload.error, null, 2)) : undefined,
+                          // Ensure conversation_id is preserved if it was set
+                          conversation_id: prevTasks[existingTaskIndex].conversation_id || activeConv || convId 
                         };
+                        console.log("FRONTEND: setCurrentTasks - returning updatedTasks (task status change)", JSON.parse(JSON.stringify(updatedTasks)));
                         return updatedTasks;
                       }
                     }
+                    console.log("FRONTEND: setCurrentTasks - returning prevTasks (no change or unmatched condition)", JSON.parse(JSON.stringify(prevTasks)));
                     return prevTasks;
                   });
                   break;
@@ -655,13 +688,7 @@ function StreamingChatPage({ convId }) {
                 );
               })}
 
-              {streamingMessage && currentTasks.length > 0 && (
-                <TaskProgress
-                  tasks={currentTasks}
-                  onInterrupt={handleInterrupt}
-                  isStreaming={isSending}
-                />
-              )}
+
               {/* Render streaming message if present */}
               {streamingMessage && (
                 <div className="flex items-start gap-2">
@@ -678,6 +705,62 @@ function StreamingChatPage({ convId }) {
                     data-state={streamingMessage.isComplete ? "complete" : "streaming"}
                   >
                     <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
+                    {/* Display Plan Steps if in Agent Mode and plan exists */}
+                    {useAgent && currentPlan && currentPlan.length > 0 && (
+                      <div className="mb-2 p-2 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30">
+                        <h4 className="font-semibold text-xs mb-1 text-blue-700 dark:text-blue-300">Execution Plan:</h4>
+                        <ol className="list-decimal list-inside text-xs text-blue-600 dark:text-blue-400 space-y-0.5">
+                          {currentPlan.map((step, index) => {
+                          // Determine if this step is completed, errored, or in progress
+                          const isCompleted = currentTasks.some(
+                            task => task.name === step.tool_name && task.status === 'completed'
+                          );
+                          const isErrored = currentTasks.some(
+                            task => task.name === step.tool_name && task.status === 'error'
+                          );
+                          const isInProgress = currentTasks.some(
+                            task => task.name === step.tool_name && task.status === 'in_progress'
+                          );
+
+                          let stepStyle = {};
+                          let statusIndicator = "";
+
+                          if (isCompleted) {
+                            stepStyle = { textDecoration: 'line-through', color: 'rgb(107 114 128)' }; // gray-500
+                            statusIndicator = "✅";
+                          } else if (isErrored) {
+                            stepStyle = { color: 'rgb(239 68 68)' }; // red-500
+                            statusIndicator = "❌";
+                          } else if (isInProgress) {
+                            // No specific style for in-progress, just the indicator
+                            statusIndicator = "⏳";
+                          } else {
+                            // Default, not yet started or status unknown
+                            statusIndicator = "▫️"; // or some other placeholder
+                          }
+
+                          return (
+                            <li key={index} style={stepStyle} className="mb-0.5">
+                              <span className="mr-1">{statusIndicator}</span>
+                              <span><strong>{step.tool_name}:</strong> {step.description}</span>
+                            </li>
+                          );
+                        })}
+                        </ol>
+                      </div>
+                    )}
+
+                    {/* Task Progress - only if useAgent is true */}
+                    {console.log("FRONTEND RENDER: About to render TaskProgress. currentTasks.length:", currentTasks.length, "currentTasks:", JSON.parse(JSON.stringify(currentTasks)))}
+                    {useAgent && currentTasks.length > 0 && (
+                      <div className="mb-2">
+                        <TaskProgress
+                          tasks={currentTasks}
+                          onInterrupt={handleInterrupt}
+                          isStreaming={isSending}
+                        />
+                      </div>
+                    )}
                       <MarkdownRenderer isAgent={true}>
                         {streamingMessage.content || ""}
                       </MarkdownRenderer>
