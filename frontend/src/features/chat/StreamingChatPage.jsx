@@ -85,7 +85,27 @@ function StreamingChatPage({ convId }) {
       .finally(() => setLoading(false));
   }, [convId]);
 
-  console.log("FRONTEND RENDER: useAgent:", useAgent, "currentPlan:", currentPlan, "currentTasks:", currentTasks, "streamingMessage:", streamingMessage); // DEBUG
+  //console.log("FRONTEND RENDER: useAgent:", useAgent, "currentPlan:", currentPlan, "currentTasks:", currentTasks, "streamingMessage:", streamingMessage); // DEBUG
+
+    console.log("FRONTEND RENDER: useAgent:", useAgent, "currentPlan:", currentPlan, "currentTasks:", currentTasks,
+    "streamingMessage:", streamingMessage); // DEBUG
+    
+          // Fallback: if the LLM spits back a pure plan JSON instead of using tool events,
+          // detect it on stream completion and seed currentPlan.
+          useEffect(() => {
+            if (useAgent && streamingMessage?.isComplete && !currentPlan && streamingMessage.content) {
+              try {
+                const pkg = JSON.parse(streamingMessage.content);
+                if (pkg.response && Array.isArray(pkg.response.tasks)) {
+                  console.log("FRONTEND: parsed direct plan JSON, setting currentPlan:", pkg.response.tasks);
+                  setCurrentPlan(pkg.response.tasks);
+                }
+              } catch (_e) {
+                // not JSON or not a plan, ignore
+              }
+            }
+          }, [useAgent, streamingMessage, currentPlan]);
+
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -323,6 +343,7 @@ function StreamingChatPage({ convId }) {
     }
 
     try {
+      // Use the legacy master agent run endpoint (supports full orchestration)
       const fetchUrl = useAgent ? "/api/agent/v2/run" : "/stream_chat";
 
       if (useAgent) {
@@ -417,6 +438,15 @@ function StreamingChatPage({ convId }) {
 
             if (useAgent) {
               switch (eventName) {
+                case 'conversation_id':
+                  if (actualEventPayload.conv_id && (!activeConv || activeConv !== actualEventPayload.conv_id)) {
+                    console.log("FRONTEND: Received 'conversation_id' event. Updating activeConv from", activeConv, "to", actualEventPayload.conv_id); // DEBUG
+                    setActiveConv(actualEventPayload.conv_id);
+                    // TODO: If the URL needs to be updated to reflect the new conv_id (e.g., for bookmarking or sharing),
+                    // a callback prop from the parent component (e.g., App.js or the router component)
+                    // that can trigger a URL change should be invoked here.
+                  }
+                  break;
                 case 'planner_status':
                   setPlannerStatus(actualEventPayload.status === 'completed' ? `Plan: ${actualEventPayload.status}` : `Planner: ${actualEventPayload.status}`);
                   if (actualEventPayload.status === 'completed') {
@@ -430,12 +460,6 @@ function StreamingChatPage({ convId }) {
                     console.warn("FRONTEND: Received plan is not in expected format (object with tasks array or direct array):", actualEventPayload.plan);
                     setCurrentPlan([]); // Set to empty array to avoid errors
                   }
-                    if (actualEventPayload.conversationId && (!activeConv || activeConv !== actualEventPayload.conversationId)) {
-                      setActiveConv(actualEventPayload.conversationId);
-                      if (typeof onNewConversation === 'function') {
-                        onNewConversation(actualEventPayload.conversationId);
-                      }
-                    }
                   }
                   break;
                 case 'dispatcher_status':
@@ -553,10 +577,6 @@ case 'dispatcher_event':
               if (data.done === true) {
                 setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
                 setIsSending(false); shouldStop = true;
-                if (!activeConv && data.conv_id) {
-                   setActiveConv(data.conv_id);
-                   if (typeof onNewConversation === 'function') onNewConversation(data.conv_id);
-                }
                 break; 
               }
             }
