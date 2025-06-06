@@ -91,7 +91,7 @@ npm run build
 
 # Start frontend preview server on port 5173
 echo "Starting frontend preview server on port 5173..."
-npx vite preview --port 5173 --host 0.0.0.0 &
+npx vite preview --port 2000 --host 0.0.0.0 &
 
 # Function to clean up background process on exit
 cleanup() {
