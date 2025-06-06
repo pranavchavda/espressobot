@@ -91,21 +91,20 @@ router.post('/', async (req, res) => {
           server_label: 'iDrinkCoffee_Shopify_Tools',
           server_url: 'https://webhook-listener-pranavchavda.replit.app/mcp',
           allowed_tools: [
-            'upload_to_sku_vault',
+            "remove_tags_from_product",
+            "add_tags_to_product",
             "run_full_shopify_graphql_mutation",
-            "run_full_shopify_graphql_query",    
-            'update_pricing',
-            'product_create_full',
-            'add_product_to_collection',
-            'set_metafield',
-            'variant_create',
-            'product_create',
-            'get_single_product',
-            'search_products',
-            'create_feature_box',
-            'product_update',
-            'product_tags_add',
-            'product_tags_remove'
+            "run_full_shopify_graphql_query",
+            "upload_to_sku_vault",
+            "update_pricing",
+            "product_create_full",
+            "add_product_to_collection",
+            "get_collections",
+            "set_metafield",
+            "variant_create",
+            "product_create",
+            "get_single_product",
+            "search_products"
           ],
           require_approval: 'never',
         },
@@ -143,11 +142,13 @@ router.post('/', async (req, res) => {
         },
         ...history.map((m) => ({ role: m.role || 'assistant', content: m.content })),
       ];
-      const titleCompletion = await openai.chat.completions.create({
+      const titleCompletion = await openai.responses.create({
         model: process.env.OPENAI_MODEL,
-        messages: titlePrompt,
+        input: titlePrompt,
+        text: { format: { type: 'text' } },
       });
-      const newTitle = titleCompletion.choices?.[0]?.message?.content?.trim();
+      console.log(JSON.stringify(titleCompletion, null, 2));
+      const newTitle = titleCompletion.output?.[0]?.content?.trim();
       if (newTitle) {
         await prisma.conversations.update({
           where: { id: conversation.id },
