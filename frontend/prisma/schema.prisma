@@ -18,9 +18,9 @@ model conversations {
   created_at DateTime?
   updated_at DateTime?
   filename   String       @unique
+  agent_runs agent_runs[]
   users      users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   messages   messages[]
-  agent_runs agent_runs[]
 }
 
 model embedding_cache {
@@ -63,8 +63,8 @@ model user_memory_embeddings {
   memory_key         String
   embedding_cache_id Int
   created_at         DateTime?
-  embedding_cache    embedding_cache @relation(fields: [embedding_cache_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users              users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  embedding_cache    embedding_cache @relation(fields: [embedding_cache_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([user_id, memory_key], map: "unique_user_memory_embedding")
 }
@@ -83,10 +83,9 @@ model users {
 }
 
 model agent_runs {
-  id         Int      @id @default(autoincrement())
-  conv_id    Int
-  tasks      String
-  created_at DateTime @default(now())
-
+  id            Int           @id @default(autoincrement())
+  conv_id       Int
+  tasks         String
+  created_at    DateTime      @default(now())
   conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
 }
