@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
 import { run } from '@openai/agents';
-import { simpleChatAgent, initializeMCPServer, closeMCPServer } from './simple-agent.js';
+import { basicChatAgent } from './basic-agent.js';
 
 // Debug logging
-console.log('======= AGENT_ORCHESTRATOR.JS INITIALIZATION =======');
+console.log('======= BASIC_ORCHESTRATOR.JS INITIALIZATION =======');
 
 const PrismaClient = prismaClient.PrismaClient;
 const prisma = new PrismaClient();
@@ -26,7 +26,6 @@ function sendSse(res, eventName, data) {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   } catch (e) {
     console.error(`BACKEND Orchestrator: Error writing to SSE stream (event: ${eventName}):`, e.message);
-    // Consider ending the stream if a write error occurs, as it's likely unrecoverable.
     if (!res.writableEnded) {
       res.end();
     }
@@ -34,8 +33,8 @@ function sendSse(res, eventName, data) {
 }
 
 router.post('/run', async (req, res) => {
-  console.log('\n========= AGENT ORCHESTRATOR REQUEST RECEIVED =========');
-  const { message, conv_id: existing_conv_id, image } = req.body || {};
+  console.log('\n========= BASIC ORCHESTRATOR REQUEST RECEIVED =========');
+  const { message, conv_id: existing_conv_id } = req.body || {};
   let conversationId = existing_conv_id;
 
   // Setup SSE
@@ -86,20 +85,20 @@ router.post('/run', async (req, res) => {
     });
     console.log('Persisted user message');
 
-    // Fetch full history for context
+    // Fetch conversation history
     const history = await prisma.messages.findMany({
       where: { conv_id: conversationId },
       orderBy: { id: 'asc' },
     });
 
-    // Format the conversation history
+    // Format conversation history
     const MAX_HISTORY_MESSAGES = parseInt(process.env.MAX_HISTORY_MESSAGES || '10', 10);
     const recentHistory = history.slice(-MAX_HISTORY_MESSAGES);
     const historyText = recentHistory.map(m => `${m.role}: ${m.content}`).join('\n');
     
     console.log('Formatted conversation history with', recentHistory.length, 'messages');
 
-    // Prepare the agent input
+    // Prepare agent input
     let agentInput = message;
     if (historyText) {
       agentInput = `Previous conversation:\n${historyText}\n\nUser: ${message}`;
@@ -107,38 +106,39 @@ router.post('/run', async (req, res) => {
     
     console.log('Agent input prepared');
     
-    // Notify client with the conversation ID
+    // Notify client with conversation ID
     sendSse(res, 'conv_id', { conversationId });
 
-    // Initialize and run agent
+    // Run agent
     let assistantResponse = '';
     try {
-      // Initialize MCP server
-      console.log('Initializing MCP server...');
-      await initializeMCPServer();
-      console.log('MCP server initialized');
-      
       // Run the agent directly using the run() function - following the examples pattern
-      console.log('Running simple agent with MCP...');
-      
-      // Run the agent with the formatted input
+      console.log('Running basic agent...');
       console.log('Agent input (first 100 chars):', agentInput.substring(0, 100) + (agentInput.length > 100 ? '...' : ''));
-      const result = await run(simpleChatAgent, agentInput);
+      
+      // Use the run function directly from @openai/agents
+      const result = await run(basicChatAgent, agentInput);
       console.log('Agent run completed');
       
       // Extract the final output from the result
       assistantResponse = result.finalOutput || '';
       console.log('Response received, length:', assistantResponse.length);
       
-      // Stream the response to the client
-      sendSse(res, 'assistant_response', { content: assistantResponse });
+      // First, send the conversation ID (needed for UI to work properly)
+      sendSse(res, 'conversation_id', { conv_id: conversationId });
+      
+      // Stream response to client as a single delta (could be chunked for real streaming)
+      sendSse(res, 'assistant_delta', { delta: assistantResponse });
+      
+      // Send done event to mark completion
+      sendSse(res, 'done', {});
       
     } catch (agentError) {
       console.error('Error running agent:', agentError);
       throw agentError;
     }
     
-    // Persist the assistant message
+    // Persist assistant message
     if (assistantResponse.trim()) {
       await prisma.messages.create({
         data: {
@@ -151,7 +151,7 @@ router.post('/run', async (req, res) => {
     }
 
   } catch (error) {
-    console.error('\n====== AGENT ORCHESTRATOR ERROR ======');
+    console.error('\n====== BASIC ORCHESTRATOR ERROR ======');
     console.error('Error:', error);
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
@@ -159,36 +159,23 @@ router.post('/run', async (req, res) => {
     
     if (!res.writableEnded) {
       sendSse(res, 'error', { 
-        message: 'An unexpected error occurred in the orchestrator.', 
+        message: 'An error occurred', 
         details: error.message
       });
-    } else {
-      console.warn("BACKEND Orchestrator: Stream ended before error could be sent to client.");
     }
     
-    // Ensure the stream is ended if an error occurs and we haven't explicitly ended it.
     if (!res.writableEnded) {
       console.log("BACKEND Orchestrator: Ending stream due to error.");
       res.end();
     }
   } finally {
-    // Close the MCP server regardless of success/failure
-    try {
-      console.log('Closing MCP server...');
-      await closeMCPServer();
-      console.log('MCP server closed');
-    } catch (closeErr) {
-      console.error('Error closing MCP server:', closeErr);
-    }
-    
-    // Only send 'done' event and end response if not already ended
     if (!res.writableEnded) {
       sendSse(res, 'done', {});
       res.end();
       console.log('Stream ended with done event');
     }
     
-    console.log('========= AGENT ORCHESTRATOR REQUEST COMPLETED =========');
+    console.log('========= BASIC ORCHESTRATOR REQUEST COMPLETED =========');
   }
 });
 

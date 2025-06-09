@@ -5,6 +5,10 @@ import tailwindTypography from "@tailwindcss/typography";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Load environment variables from .env file
+import { config } from 'dotenv';
+config();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -29,6 +33,11 @@ export default defineConfig({
     {
       name: 'server-middleware',
       async configureServer(server) {
+        // Check if environment variables are available in server middleware
+        console.log('SERVER MIDDLEWARE ENV CHECK:');
+        console.log('OPENAI_API_KEY available:', !!process.env.OPENAI_API_KEY);
+        console.log('OPENAI_MODEL:', process.env.OPENAI_MODEL);
+        console.log('DATABASE_URL:', process.env.DATABASE_URL);
         if (!process.env.SKIP_MEMORY_SERVER) {
           const { spawn } = await import('child_process');
           console.log('Starting local memory server for agent context...');
@@ -60,9 +69,10 @@ export default defineConfig({
         const chatHandler = (await import('./server/chat')).default;
         const convHandler = (await import('./server/conversations')).default;
         const streamChatHandler = (await import('./server/stream_chat')).default;
-        const plannerHandler = (await import('./server/agent_planner')).default;
-        const masterHandler = (await import('./server/agent_master')).default;
         const agentOrchestratorRouter = (await import('./server/agent_orchestrator')).default;
+        const basicOrchestratorRouter = (await import('./server/basic_orchestrator')).default;
+        const superSimpleOrchestratorRouter = (await import('./server/super-simple-orchestrator')).default;
+        const testSseRouter = (await import('./server/test-sse')).default; // Import the test SSE router
 
         const apiApp = express();
         apiApp.use(bodyParser.json({ limit: '50mb' }));
@@ -70,9 +80,10 @@ export default defineConfig({
         apiApp.use('/api/conversations', convHandler);
         apiApp.use('/api/chat', chatHandler);
         apiApp.use('/stream_chat', streamChatHandler);
-        apiApp.use('/api/agent/planner', plannerHandler);
-        apiApp.use('/api/agent/run', masterHandler);
         apiApp.use('/api/agent/v2', agentOrchestratorRouter);
+        apiApp.use('/api/agent/basic', basicOrchestratorRouter); // Add the simple basic agent route
+        apiApp.use('/api/agent/super-simple', superSimpleOrchestratorRouter); // Add the super simple agent WITHOUT MCP
+        apiApp.use('/api/sse', testSseRouter); // Add the SSE test endpoint for debugging
         server.middlewares.use(apiApp);
       },
     },

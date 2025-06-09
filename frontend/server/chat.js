@@ -1,10 +1,17 @@
 import { Router } from 'express';
 
-import { PrismaClient } from '@prisma/client';
+// Fix CommonJS import issue with Prisma
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
 import OpenAI from 'openai';
 
 const prisma = new PrismaClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Configure OpenAI client with extended timeout for network issues
+const openai = new OpenAI({ 
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 120000, // 2 minute timeout
+  maxRetries: 3 // Add retries to handle transient network issues
+});
 const router = Router();
 
 router.get('/', (req, res) => {
@@ -13,10 +20,15 @@ router.get('/', (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
+    console.log('Received chat request with API Key:', process.env.OPENAI_API_KEY ? 'API key is set' : 'API key is missing');
+    console.log('Using OpenAI model:', process.env.OPENAI_MODEL);
+    
     const { messages, conv_id } = req.body || {};
     if (!Array.isArray(messages)) {
       return res.status(400).json({ error: 'Request body must include a messages array' });
     }
+    
+    console.log('Processing messages:', messages.length, 'messages');
 
     const USER_ID = 1;
     // Ensure a default local user exists to satisfy foreign key constraints
@@ -64,8 +76,10 @@ router.post('/', async (req, res) => {
       role: m.role,
       content: m.content,
     }));
+    console.log('Sending request to OpenAI with model:', process.env.OPENAI_MODEL);
+    
     const response = await openai.responses.create({
-      model: process.env.OPENAI_MODEL,
+      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini', // Fallback if env var is missing
       input: inputMessages,
       text: { format: { type: 'text' } },
       tools: [
@@ -123,6 +137,9 @@ router.post('/', async (req, res) => {
     return res.json({ reply: replyContent, conv_id: conversation.id });
   } catch (err) {
     console.error('Chat API error:', err);
+    console.error('Error details:', JSON.stringify(err, null, 2));
+    console.error('API Key status:', process.env.OPENAI_API_KEY ? 'API key is set' : 'API key is missing');
+    console.error('Model being used:', process.env.OPENAI_MODEL);
     res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });

@@ -8,21 +8,9 @@ import { TaskProgress } from "@components/chat/TaskProgress";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
-import { Description, Label } from '@common/fieldset'
+import { Label } from '@common/fieldset'
 import { Switch, SwitchField } from '@common/switch'
 
-function useDebounce(value, delay) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-  return debouncedValue;
-}
 
 function StreamingChatPage({ convId }) {
   const [messages, setMessages] = useState([]);
@@ -37,11 +25,12 @@ function StreamingChatPage({ convId }) {
   const [imageAttachment, setImageAttachment] = useState(null);
   const [plannerStatus, setPlannerStatus] = useState("");
   const [dispatcherStatus, setDispatcherStatus] = useState("");
-  const [synthesizerStatus, setSynthesizerStatus] = useState("");
   const [currentPlan, setCurrentPlan] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const [useAgent, setUseAgent] = useState(false);
+  const [useBasicAgent, setUseBasicAgent] = useState(false);
+  const [useSuperSimpleAgent, setUseSuperSimpleAgent] = useState(false);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -343,8 +332,18 @@ function StreamingChatPage({ convId }) {
     }
 
     try {
-      // Use the legacy master agent run endpoint (supports full orchestration)
-      const fetchUrl = useAgent ? "/api/agent/v2/run" : "/stream_chat";
+      // Determine which endpoint to use based on agent mode
+      let fetchUrl = "/stream_chat"; // Default to non-agent
+      if (useSuperSimpleAgent) {
+        fetchUrl = "/api/agent/super-simple/run"; // Use super simple agent WITHOUT MCP
+        console.log("Using super simple agent endpoint (NO MCP)");
+      } else if (useBasicAgent) {
+        fetchUrl = "/api/agent/basic/run"; // Use simplified basic agent
+        console.log("Using basic agent endpoint");
+      } else if (useAgent) {
+        fetchUrl = "/api/agent/v2/run"; // Use full agent orchestration
+        console.log("Using full agent orchestration endpoint");
+      }
 
       if (useAgent) {
         setPlannerStatus("Initializing...");
@@ -393,51 +392,77 @@ function StreamingChatPage({ convId }) {
       let shouldStop = false;
 
       while (!shouldStop) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        eventDataBuffer += chunk;
-
-        const eventMessages = eventDataBuffer.split(/\n\n/);
-        eventDataBuffer = eventMessages.pop() || ""; 
-
-        for (const singleEventString of eventMessages) {
-          if (!singleEventString.trim()) continue;
-
-          let eventName = null;
-          let rawJsonDataString = "";
-          const sseLines = singleEventString.split('\n');
-
-          for (const line of sseLines) {
-            // Prioritize explicit event: line if present
-            if (line.startsWith('event:')) {
-              eventName = line.substring(6).trim();
-            } 
-            // Always accumulate data: lines
-            if (line.startsWith('data:')) { 
-              rawJsonDataString += line.substring(5).trim();
-            }
+        try {
+          const { done, value } = await reader.read();
+          
+          // Breaking condition - either explicit shouldStop flag or reader signals done
+          if (done || shouldStop) {
+            console.log("FRONTEND: Stream reader loop breaking, done=", done, "shouldStop=", shouldStop);
+            break;
           }
 
-          try {
-            let parsedData = rawJsonDataString ? JSON.parse(rawJsonDataString) : {};
-            let actualEventPayload = parsedData;
+          const chunk = decoder.decode(value, { stream: true });
+          eventDataBuffer += chunk;
 
-            // If eventName wasn't set by an 'event:' line, 
-            // and we are using the agent, try to get it from the parsed data structure.
-            if (!eventName && useAgent && parsedData.type) {
-              eventName = parsedData.type;
-              actualEventPayload = parsedData.data !== undefined ? parsedData.data : {}; // Use .data if it exists, otherwise empty obj
-            } else if (!eventName && !useAgent && singleEventString.startsWith('data:')) {
-              // Legacy /stream_chat handling (eventName remains null, payload is parsedData)
-              actualEventPayload = parsedData;
+          const eventMessages = eventDataBuffer.split(/\n\n/);
+          eventDataBuffer = eventMessages.pop() || ""; 
+          
+          // Process all complete event messages in this chunk
+          for (const singleEventString of eventMessages) {
+            if (!singleEventString.trim()) continue;
+
+            let eventName = null;
+            let rawJsonDataString = "";
+            const sseLines = singleEventString.split('\n');
+
+            for (const line of sseLines) {
+              // Prioritize explicit event: line if present
+              if (line.startsWith('event:')) {
+                eventName = line.substring(6).trim();
+              } 
+              // Always accumulate data: lines
+              if (line.startsWith('data:')) { 
+                rawJsonDataString += line.substring(5).trim();
+              }
             }
-            
-            // console.log("Processed SSE Event -- Name:", eventName, "Payload:", actualEventPayload);
 
-            if (useAgent) {
-              switch (eventName) {
+            try {
+              let parsedData = rawJsonDataString ? JSON.parse(rawJsonDataString) : {};
+              let actualEventPayload = parsedData;
+
+              // If eventName wasn't set by an 'event:' line, 
+              // and we are using the agent, try to get it from the parsed data structure.
+              if (!eventName && useAgent && parsedData.type) {
+                eventName = parsedData.type;
+                actualEventPayload = parsedData.data !== undefined ? parsedData.data : {}; // Use .data if it exists, otherwise empty obj
+              } else if (!eventName && !useAgent && singleEventString.startsWith('data:')) {
+                // Legacy /stream_chat handling (eventName remains null, payload is parsedData)
+                actualEventPayload = parsedData;
+              }
+              
+              console.log("Processed SSE Event -- Name:", eventName, "Payload:", actualEventPayload);
+
+              // Handle 'done' event regardless of agent mode
+              if (eventName === 'done') {
+                console.log("FRONTEND: Received explicit 'done' event");
+                setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
+                setIsSending(false);
+                shouldStop = true;
+                
+                // If there's an active reader, attempt to release/cancel it
+                if (readerRef.current) {
+                  try {
+                    console.log("FRONTEND: Attempting to cancel reader");
+                    readerRef.current.cancel("Stream completed");
+                  } catch (e) {
+                    console.error("Error cancelling reader:", e);
+                  }
+                }
+                break;
+              }
+            
+              if (useAgent) {
+                switch (eventName) {
                 case 'conversation_id':
                   if (actualEventPayload.conv_id && (!activeConv || activeConv !== actualEventPayload.conv_id)) {
                     console.log("FRONTEND: Received 'conversation_id' event. Updating activeConv from", activeConv, "to", actualEventPayload.conv_id); // DEBUG
@@ -451,21 +476,22 @@ function StreamingChatPage({ convId }) {
                   setPlannerStatus(actualEventPayload.status === 'completed' ? `Plan: ${actualEventPayload.status}` : `Planner: ${actualEventPayload.status}`);
                   if (actualEventPayload.status === 'completed') {
                     if (actualEventPayload.plan && Array.isArray(actualEventPayload.plan.tasks)) {
-                    console.log("FRONTEND: Setting currentPlan with extracted tasks:", actualEventPayload.plan.tasks); // DEBUG
-                    setCurrentPlan(actualEventPayload.plan.tasks);
-                  } else if (Array.isArray(actualEventPayload.plan)) { // Fallback if plan is already an array
-                    console.log("FRONTEND: Setting currentPlan (payload was already an array):", actualEventPayload.plan); // DEBUG
-                    setCurrentPlan(actualEventPayload.plan);
-                  } else {
-                    console.warn("FRONTEND: Received plan is not in expected format (object with tasks array or direct array):", actualEventPayload.plan);
-                    setCurrentPlan([]); // Set to empty array to avoid errors
-                  }
+                      console.log("FRONTEND: Setting currentPlan with extracted tasks:", actualEventPayload.plan.tasks); // DEBUG
+                      setCurrentPlan(actualEventPayload.plan.tasks);
+                    } else if (Array.isArray(actualEventPayload.plan)) { // Fallback if plan is already an array
+                      console.log("FRONTEND: Setting currentPlan (payload was already an array):", actualEventPayload.plan); // DEBUG
+                      setCurrentPlan(actualEventPayload.plan);
+                    } else {
+                      console.warn("FRONTEND: Received plan is not in expected format (object with tasks array or direct array):", actualEventPayload.plan);
+                      setCurrentPlan([]); // Set to empty array to avoid errors
+                    }
                   }
                   break;
                 case 'dispatcher_status':
                   setDispatcherStatus(`Dispatcher: ${actualEventPayload.status}`);
                   if(actualEventPayload.status === 'completed') setPlannerStatus("Plan execution completed.");
-case 'dispatcher_event':
+                  break;
+                case 'dispatcher_event':
                   setDispatcherStatus("Dispatcher: running task...");
                   console.log("FRONTEND: Received dispatcher_event, payload:", actualEventPayload); // DEBUG
                   setCurrentTasks(prevTasks => {
@@ -538,10 +564,31 @@ case 'dispatcher_event':
                   setIsSending(false); shouldStop = true; break;
                 case 'done':
                   console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
-                  setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
-                  setIsSending(false); shouldStop = true;
+                  
+                  // Force immediate state updates for UI
+                  setStreamingMessage(prev => {
+                    console.log("Setting message to complete, prev state:", prev);
+                    return { ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() };
+                  });
+                  
+                  setIsSending(false);
+                  
+                  // CRITICAL: Force shouldStop to true to end the reader loop
+                  shouldStop = true;
+                  console.log("FRONTEND: Force setting shouldStop=true to terminate stream reader loop");
+                  
+                  // If there's an active reader, attempt to release/cancel it
+                  if (readerRef.current) {
+                    try {
+                      console.log("FRONTEND: Attempting to cancel reader");
+                      readerRef.current.cancel("Stream completed");
+                    } catch (e) {
+                      console.error("Error cancelling reader:", e);
+                    }
+                  }
+                  
                   setSynthesizerStatus("Synthesizer: completed.");
-                  console.log("FRONTEND: 'done' event processed, isSending:", false, "shouldStop:", true); // DEBUG
+                  console.log("FRONTEND: 'done' event fully processed");
                   break;
                 default:
                   console.log("Unknown agent SSE event type:", eventName, "Payload:", actualEventPayload);
@@ -574,15 +621,22 @@ case 'dispatcher_event':
                   return [...updatedTasks, ...newTasks];
                 });
               }
+              // Also check for data.done = true pattern (older style)
               if (data.done === true) {
+                console.log("FRONTEND: Received data.done=true");
                 setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
-                setIsSending(false); shouldStop = true;
-                break; 
+                setIsSending(false); 
+                shouldStop = true;
+                break;
               }
             }
-          } catch (e) {
-            console.error("Failed to parse SSE JSON or handle event:", e, "Event Name:", eventName, "JSON String:", rawJsonDataString);
+            } catch (e) {
+              console.error("Failed to parse SSE JSON or handle event:", e, "Event Name:", eventName, "JSON String:", rawJsonDataString);
+            }
           }
+        } catch (e) {
+          console.error("Failed to read stream chunk:", e);
+          shouldStop = true;
         }
       }
     } catch (e) {
@@ -626,7 +680,6 @@ case 'dispatcher_event':
             <>
               {/* Render all messages */}
               {messages.map((msg, i) => {
-                const isLastMessage = i === messages.length - 1;
                 return (
                   <React.Fragment key={msg.id || i}>
                     <div
@@ -771,7 +824,6 @@ case 'dispatcher_event':
                     )}
 
                     {/* Task Progress - only if useAgent is true */}
-                    {console.log("FRONTEND RENDER: About to render TaskProgress. currentTasks.length:", currentTasks.length, "currentTasks:", JSON.parse(JSON.stringify(currentTasks)))}
                     {useAgent && currentTasks.length > 0 && (
                       <div className="mb-2">
                         <TaskProgress
@@ -830,13 +882,55 @@ case 'dispatcher_event':
         )}
 
         {/* Image Preview */}
-        <div className="flex justify-center px-4 sm:px-6 py-2">
-
-<SwitchField>
-  <Label>Agent Mode {useAgent ? 'On' : 'Off'}</Label>
-  <Switch checked={useAgent} onChange={setUseAgent} name="agent-mode" defaultChecked={useAgent} />
-</SwitchField>
-</div>
+        <div className="mt-2 flex items-center justify-between gap-4">
+          <div className="flex items-center space-x-6">
+            <SwitchField>
+              <Label htmlFor="agent-mode">Full Agent</Label>
+              <Switch 
+                checked={useAgent} 
+                onChange={(checked) => {
+                  setUseAgent(checked);
+                  if (checked) {
+                    setUseBasicAgent(false);
+                    setUseSuperSimpleAgent(false);
+                  }
+                }} 
+                name="agent-mode" 
+                defaultChecked={useAgent} 
+              />
+            </SwitchField>
+            <SwitchField>
+              <Label htmlFor="basic-agent-mode">Basic Agent</Label>
+              <Switch 
+                checked={useBasicAgent} 
+                onChange={(checked) => {
+                  setUseBasicAgent(checked);
+                  if (checked) {
+                    setUseAgent(false);
+                    setUseSuperSimpleAgent(false);
+                  }
+                }} 
+                name="basic-agent-mode" 
+                defaultChecked={useBasicAgent} 
+              />
+            </SwitchField>
+            <SwitchField>
+              <Label htmlFor="super-simple-agent-mode">No MCP Agent</Label>
+              <Switch 
+                checked={useSuperSimpleAgent} 
+                onChange={(checked) => {
+                  setUseSuperSimpleAgent(checked);
+                  if (checked) {
+                    setUseAgent(false);
+                    setUseBasicAgent(false);
+                  }
+                }} 
+                name="super-simple-agent-mode" 
+                defaultChecked={useSuperSimpleAgent} 
+              />
+            </SwitchField>
+          </div>
+        </div>
         {imageAttachment && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2">
             <div className="relative inline-block">
