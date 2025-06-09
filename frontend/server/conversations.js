@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+// Fix CommonJS import issue with Prisma
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
 
 const prisma = new PrismaClient();
 const router = Router();

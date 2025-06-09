@@ -1,9 +1,6 @@
-import {
-  Agent,
-  WebSearchTool,
-  AgentOutputSchema,
-  MCPServerSse,
-} from 'openai-agents-js';
+import { Agent, tool } from '@openai/agents';
+import { webSearchTool } from '@openai/agents-openai';
+import { z } from 'zod';
 
 const plannerOutputSchema = new AgentOutputSchema(
   {
@@ -100,7 +97,7 @@ export const webSearchExecutorAgent = new Agent({
   instructions: 'You are a web search specialist. Execute the web search task precisely based on the provided query and return the result.',
   model: process.env.EXECUTOR_MODEL || 'gpt-4.1',
   tools: [
-    new WebSearchTool({
+    new webSearchTool({
       search_context_size: 'medium',
     }),
   ],
