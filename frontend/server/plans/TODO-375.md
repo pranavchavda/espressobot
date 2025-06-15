@@ -1,0 +1,5 @@
+- [x] Fetch Profitec Go product via shopifyGetProductOrCollection
+- [x] Fetch variants of Profitec Go via shopifyGetVariants
+- [x] Filter variants by colour option
+- [x] Extract price for each colour variant
+- [x] Format and present prices per colour

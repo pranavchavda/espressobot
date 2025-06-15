@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
 import { run } from '@openai/agents';
-import { unifiedAgent, todoMCPServer } from './basic-agent-unified.js';
+import { unifiedAgent } from './basic-agent-unified.js';
+import { taskGeneratorAgent, writePlanMdTool, readPlanMdTool, getTodosTool, generateTodosTool } from './task-generator-agent.js';
 
 const PrismaClient = prismaClient.PrismaClient;
 const prisma = new PrismaClient();
@@ -22,6 +23,52 @@ function sendSse(res, eventName, data) {
     if (!res.writableEnded) {
       res.end();
     }
+  }
+}
+
+// Helper to read and send task markdown via SSE
+async function sendTaskMarkdown(res, conversationId) {
+  try {
+    const { readFileSync, existsSync } = await import('fs');
+    const { resolve, dirname } = await import('path');
+    const { fileURLToPath } = await import('url');
+    
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const plansDir = resolve(__dirname, 'plans');
+    const filePath = resolve(plansDir, `TODO-${conversationId}.md`);
+    
+    if (existsSync(filePath)) {
+      const content = readFileSync(filePath, 'utf-8');
+      const tasks = [];
+      
+      // Parse markdown to extract task status
+      const lines = content.split(/\r?\n/);
+      lines.forEach((line, index) => {
+        const match = line.match(/^\s*-\s*\[( |x)\]\s*(.+)$/i);
+        if (match) {
+          const isCompleted = match[1].toLowerCase() === 'x';
+          const isInProgress = match[2].includes('🔄');
+          const taskText = match[2].replace('🔄 ', '');
+          
+          tasks.push({
+            index,
+            text: taskText,
+            status: isCompleted ? 'completed' : (isInProgress ? 'in_progress' : 'pending')
+          });
+        }
+      });
+      
+      sendSse(res, 'task_markdown', {
+        conversation_id: conversationId,
+        markdown: content,
+        tasks: tasks
+      });
+      
+      console.log(`Sent task markdown for conversation ${conversationId}, ${tasks.length} tasks`);
+    }
+  } catch (err) {
+    console.error('Error sending task markdown:', err);
   }
 }
 
@@ -91,7 +138,7 @@ router.post('/run', async (req, res) => {
     const MAX_HISTORY_MESSAGES = parseInt(process.env.MAX_HISTORY_MESSAGES || '10', 10);
     const recentHistory = history.slice(-MAX_HISTORY_MESSAGES);
     const historyText = recentHistory.map(m => `${m.role}: ${m.content}`).join('\n');
-    
+    const MAX_TURNS = parseInt(process.env.MAX_TURNS || '20', 20);
     console.log('Formatted conversation history with', recentHistory.length, 'messages');
 
     let agentInput = message;
@@ -100,7 +147,7 @@ router.post('/run', async (req, res) => {
     }
     
     // Add conversation ID context for the agent
-    agentInput += `\n\n[SYSTEM: Current conversation_id is ${conversationId}. MANDATORY: When calling create_task, you MUST include conversation_id=${conversationId} as a parameter to link tasks to this conversation. Example: create_task(title="My Task", description="Details", conversation_id=${conversationId})]`;
+    agentInput += `\n\n[SYSTEM CONTEXT]\nconversation_id=${conversationId}\n[/SYSTEM CONTEXT]`;
     
     console.log('Agent input prepared');
     
@@ -110,107 +157,71 @@ router.post('/run', async (req, res) => {
     // Send initial status
     sendSse(res, 'agent_status', { status: 'analyzing' });
 
-    // Run unified agent with event tracking
-    console.log('Running unified agent...');
+    // MCP polling disabled – EspressoBot will generate the plan on its first tool call.
+
+    // Set up markdown file polling
+    let pollMarkdownInterval = null;
+    let lastMarkdownContent = '';
     
-    // Start polling for tasks while agent runs
-    let isAgentRunning = true;
-    let lastTaskCount = 0;
-    
-    const pollTasks = async () => {
-      if (!isAgentRunning) return;
-      
+    // Function to poll and send markdown updates
+    const pollTaskMarkdown = async () => {
       try {
-        const { spawn } = await import('child_process');
-        const mcpProcess = spawn('npx', ['-y', '@pranavchavda/todo-mcp-server'], {
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
+        const { readFileSync, existsSync } = await import('fs');
+        const { resolve, dirname } = await import('path');
+        const { fileURLToPath } = await import('url');
         
-        const request = JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "list_tasks",
-            arguments: {
-              conversation_id: conversationId.toString(),
-              limit: 10
-            }
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = dirname(__filename);
+        const plansDir = resolve(__dirname, 'plans');
+        const filePath = resolve(plansDir, `TODO-${conversationId}.md`);
+        
+        if (existsSync(filePath)) {
+          const content = readFileSync(filePath, 'utf-8');
+          // Only send if content has changed
+          if (content !== lastMarkdownContent) {
+            lastMarkdownContent = content;
+            await sendTaskMarkdown(res, conversationId);
+            console.log('Sent updated task markdown via polling');
           }
-        });
-        
-        mcpProcess.stdin.write(request + '\n');
-        mcpProcess.stdin.end();
-        
-        let responseData = '';
-        mcpProcess.stdout.on('data', (data) => {
-          responseData += data.toString();
-        });
-        
-        mcpProcess.on('close', () => {
-          try {
-            const lines = responseData.split('\n').filter(line => line.trim());
-            const jsonLine = lines.find(line => line.startsWith('{"result"'));
-            
-            if (jsonLine) {
-              const parsed = JSON.parse(jsonLine);
-              const text = parsed.result?.content?.[0]?.text;
-              
-              if (text) {
-                const match = text.match(/(\[[\s\S]*\])/);
-                if (match) {
-                  const tasksArray = JSON.parse(match[1]);
-                  
-                  if (tasksArray.length > lastTaskCount) {
-                    console.log(`POLLING: Found ${tasksArray.length} tasks (was ${lastTaskCount}) - sending update!`);
-                    lastTaskCount = tasksArray.length;
-                    
-                    const taskProgressItems = tasksArray.map(task => ({
-                      id: `task-${task.id}`,
-                      content: task.title || task.description || '',
-                      status: task.status === 'completed' ? 'completed' : task.status === 'in_progress' ? 'in_progress' : 'pending',
-                      conversation_id: conversationId,
-                      toolName: 'todo_task',
-                      action: task.description,
-                      result: task.status === 'completed' ? 'Task completed' : undefined
-                    }));
-                    
-                    sendSse(res, 'task_summary', { 
-                      tasks: taskProgressItems,
-                      total: tasksArray.length,
-                      completed: tasksArray.filter(t => t.status === 'completed').length
-                    });
-                    
-                    console.log('Sent REAL-TIME POLLING task_summary with', taskProgressItems.length, 'tasks');
-                  }
-                }
-              }
-            }
-          } catch (err) {
-            console.error('Error in task polling:', err);
-          }
-          
-          // Continue polling every 500ms while agent runs
-          if (isAgentRunning) {
-            setTimeout(pollTasks, 500);
-          }
-        });
-      } catch (err) {
-        console.error('Error with task polling:', err);
-        if (isAgentRunning) {
-          setTimeout(pollTasks, 500);
         }
+      } catch (err) {
+        console.error('Error polling task markdown:', err);
       }
     };
     
-    // Start polling immediately
-    setTimeout(pollTasks, 100);
+    // Start polling every 500ms
+    pollMarkdownInterval = setInterval(pollTaskMarkdown, 500);
+    console.log('Started task markdown polling');
+
+    // Run unified agent with event tracking
+    console.log('Running unified agent...');
+    
+    // Track generate_todos calls to prevent loops
+    const generateTodosCallCount = new Map();
     
     const result = await run(unifiedAgent, agentInput, {
+      maxTurns: MAX_TURNS,
+      trace: {
+        workflow_name: 'EspressoBot Workflow',
+        metadata: { conversation_id: conversationId }
+      },
       onStepStart: (step) => {
         console.log('*** onStepStart triggered ***');
         console.log('Step type:', step.type);
         console.log('Step:', JSON.stringify(step, null, 2).substring(0, 300));
+        
+        // Loop prevention for generate_todos
+        if (step.type === 'tool_call' && step.tool_name === 'generate_todos') {
+          const currentCount = generateTodosCallCount.get(conversationId) || 0;
+          console.log(`[LOOP PREVENTION] generate_todos call #${currentCount + 1} for conversation ${conversationId}`);
+          
+          if (currentCount >= 2) {
+            console.error(`[LOOP PREVENTION] BLOCKING: Already called ${currentCount} times!`);
+            throw new Error(`Loop detected: generate_todos already called ${currentCount} times. Task generation should only happen once per conversation.`);
+          }
+          
+          generateTodosCallCount.set(conversationId, currentCount + 1);
+        }
         
         if (step.type === 'tool_call' && step.tool_name === 'create_task') {
           console.log('Task creation tool started!');
@@ -220,7 +231,21 @@ router.post('/run', async (req, res) => {
       onStepFinish: (step) => {
         console.log('*** onStepFinish triggered ***');
         console.log('Step type:', step.type);
+        console.log('Step tool_name:', step.tool_name);
         console.log('Step result:', JSON.stringify(step, null, 2).substring(0, 500));
+
+        // Send task markdown after any task-related tool call
+        const taskRelatedTools = ['generate_todos', 'update_task_status', 'create_task', 'get_todos'];
+        if (step.type === 'tool_call' && taskRelatedTools.includes(step.tool_name)) {
+          console.log(`Task-related tool called: ${step.tool_name}, sending markdown`);
+          (async () => {
+            try {
+              await sendTaskMarkdown(res, conversationId);
+            } catch (err) {
+              console.error('Error sending task markdown:', err);
+            }
+          })();
+        }
         
         if (step.type === 'tool_call' && step.tool_name === 'create_task' && step.result) {
           console.log('Task creation completed! Result:', step.result);
@@ -241,7 +266,7 @@ router.post('/run', async (req, res) => {
                   name: "list_tasks",
                   arguments: {
                     conversation_id: conversationId.toString(),
-                    limit: 10
+                    limit: MAX_TURNS
                   }
                 }
               });
@@ -450,9 +475,24 @@ router.post('/run', async (req, res) => {
     });
     
     // Stop polling when agent completes
-    isAgentRunning = false;
-    console.log('Agent run completed - stopped task polling');
+    if (pollMarkdownInterval) {
+      clearInterval(pollMarkdownInterval);
+      console.log('Stopped task markdown polling');
+    }
     
+    console.log('Agent run completed');
+    console.log('=== AGENT RUN RESULT ===');
+    console.log('Result object keys:', Object.keys(result || {}));
+    console.log('Result state:', result.state ? Object.keys(result.state) : 'No state');
+    console.log('Tool use tracker:', result.state?.toolUseTracker);
+    console.log('Final output:', result.state?.currentStep);
+    console.log('Trace ID:', result.state?.trace?.id);
+    console.log('======================');
+    
+    // Send final task markdown after agent completes
+    console.log('Sending final task markdown after agent completion');
+    await sendTaskMarkdown(res, conversationId);
+
     // After completion, fetch tasks directly using spawn instead of agent's MCP connection
     console.log('Starting direct task fetching...');
     try {
@@ -580,6 +620,40 @@ router.post('/run', async (req, res) => {
         },
       });
       console.log('Persisted assistant response');
+
+      // ---- 🎨 Generate conversation title asynchronously ----
+      try {
+        if (conversation.title.startsWith('Conversation')) {
+          (async () => {
+            try {
+              const { OpenAI } = await import('openai');
+              const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+              const titlePrompt = `Generate a concise, descriptive title (max 50 characters, title case, no quotes) for this chat based on the following exchange.\nUser: ${message}\nAssistant: ${assistantResponse}`;
+              const completion = await openai.chat.completions.create({
+                model: 'gpt-4.1-nano',
+                messages: [
+                  { role: 'system', content: 'You are a helpful assistant that generates short conversation titles.' },
+                  { role: 'user', content: titlePrompt }
+                ],
+                max_tokens: 20,
+                temperature: 0.3,
+              });
+              const newTitle = completion.choices?.[0]?.message?.content?.trim();
+              if (newTitle) {
+                await prisma.conversations.update({
+                  where: { id: conversationId },
+                  data: { title: newTitle },
+                });
+                console.log('Conversation title updated to:', newTitle);
+              }
+            } catch (titleErr) {
+              console.error('Conversation title generation error:', titleErr);
+            }
+          })();
+        }
+      } catch (outerTitleErr) {
+        console.error('Async title generation scheduling failed:', outerTitleErr);
+      }
     }
 
   } catch (error) {

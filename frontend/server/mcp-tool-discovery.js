@@ -9,6 +9,9 @@ export class MCPToolDiscovery {
     this.shopifyTools = [];
     this.todoTools = [];
     this.allTools = [];
+
+    // Allow skipping remote discovery to avoid long start-up timeouts
+    this.skipDiscovery = process.env.SKIP_MCP_DISCOVERY === 'true';
   }
 
   /**
@@ -16,7 +19,12 @@ export class MCPToolDiscovery {
    */
   async discoverTools() {
     console.log('🔍 Starting MCP tool discovery...');
-    
+
+    if (this.skipDiscovery) {
+      console.log('⚠️ SKIP_MCP_DISCOVERY=true – using fallback hardcoded tools');
+      return this.getFallbackTools();
+    }
+
     try {
       // Discover Shopify tools
       await this.discoverShopifyTools();
@@ -48,18 +56,21 @@ export class MCPToolDiscovery {
     }
   }
 
+
   /**
    * Discover tools from Shopify MCP server
    */
   async discoverShopifyTools() {
+    const MCP_SERVER_URL = 'https://webhook-listener-pranavchavda.replit.app/';
+    console.log('MCP_SERVER_URL: ' + MCP_SERVER_URL);
     console.log('🛍️ Discovering Shopify MCP tools...');
-    
+    console.log(JSON.stringify(process.env));
     const childEnv = { ...process.env };
     const shopifyMCPServer = new MCPServerStdio({
       name: 'Shopify MCP Server Discovery',
-      command: 'npx',
+      command: '/home/pranav/.nvm/versions/node/v22.13.0/bin/npx',
       args: ['-y', '@pranavchavda/shopify-mcp-stdio-client'],
-      env: childEnv,
+      env: childEnv + MCP_SERVER_URL,
       shell: true,
     });
 
@@ -102,11 +113,12 @@ export class MCPToolDiscovery {
     const childEnv = { ...process.env };
     const todoMCPServer = new MCPServerStdio({
       name: 'Todo MCP Server Discovery',
-      command: 'npx',
+      command: '/home/pranav/.nvm/versions/node/v22.13.0/bin/npx',
       args: ['-y', '@pranavchavda/todo-mcp-server'],
       env: childEnv,
       shell: true,
     });
+    console.log(JSON.stringify(childEnv));
 
     try {
       await todoMCPServer.connect();

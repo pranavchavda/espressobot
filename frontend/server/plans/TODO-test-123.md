@@ -1,0 +1,5 @@
+- [ ] Search 'Profitec Go' via shopifySearchProducts
+- [ ] Retrieve product details for Profitec Go via shopifyGetProduct
+- [ ] Check inventory levels for Profitec Go via shopifyGetInventoryLevel
+- [ ] Fetch discounts applicable to Profitec Go via shopifyGetDiscounts
+- [ ] Summarize price, stock, and discounts for Profitec Go

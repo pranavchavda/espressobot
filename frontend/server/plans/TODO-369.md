@@ -1,0 +1,5 @@
+- [ ] Product 1: Identify SKU via shopifySearchProducts, retrieve current inventory via shopifyGetInventoryLevel, set new inventory level via shopifySetInventoryLevel, and confirm update
+- [ ] Product 2: Identify SKU via shopifySearchProducts, retrieve current inventory via shopifyGetInventoryLevel, set new inventory level via shopifySetInventoryLevel, and confirm update
+- [ ] Product 3: Identify SKU via shopifySearchProducts, retrieve current inventory via shopifyGetInventoryLevel, set new inventory level via shopifySetInventoryLevel, and confirm update
+- [ ] Product 4: Identify SKU via shopifySearchProducts, retrieve current inventory via shopifyGetInventoryLevel, set new inventory level via shopifySetInventoryLevel, and confirm update
+- [ ] Product 5: Identify SKU via shopifySearchProducts, retrieve current inventory via shopifyGetInventoryLevel, set new inventory level via shopifySetInventoryLevel, and confirm update

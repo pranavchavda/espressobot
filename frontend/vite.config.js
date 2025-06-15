@@ -71,12 +71,6 @@ export default defineConfig({
         const streamChatHandler = (await import('./server/stream_chat')).default;
         // Unified orchestrator (new simplified architecture)
         const unifiedOrchestratorRouter = (await import('./server/unified-orchestrator')).default;
-        // Agent orchestrator v2 (streams planner, task, and synthesizer events)
-        const basicOrchestratorRouter = (await import('./server/basic_orchestrator')).default;
-        // Fallback simple orchestrators (basic-simple and super-simple) for legacy/testing
-        const simpleOrchestratorRouter = (await import('./server/basic_orchestrator_simple')).default;
-        const superSimpleOrchestratorRouter = (await import('./server/super-simple-orchestrator')).default;
-        const testSseRouter = (await import('./server/test-sse')).default;
 
         const apiApp = express();
         apiApp.use(bodyParser.json({ limit: '50mb' }));
@@ -86,11 +80,6 @@ export default defineConfig({
         apiApp.use('/stream_chat', streamChatHandler);
         // Master Agent endpoint: use unified orchestrator for all agent mode requests
         apiApp.use('/api/agent', unifiedOrchestratorRouter);
-        // Legacy orchestrators for testing/comparison
-        apiApp.use('/api/agent/v2', basicOrchestratorRouter);
-        apiApp.use('/api/agent/basic', simpleOrchestratorRouter);
-        apiApp.use('/api/agent/super-simple', superSimpleOrchestratorRouter);
-        apiApp.use('/api/sse', testSseRouter); // Add the SSE test endpoint for debugging
         server.middlewares.use(apiApp);
       },
     },

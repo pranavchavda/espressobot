@@ -1,0 +1,7 @@
+- [ ] Verify Profitec Go details via shopifySearchProducts
+- [ ] Fetch Profitec Go price and stock via shopifyGetProduct
+- [ ] Verify ECM Synchronika details via shopifySearchProducts
+- [ ] Fetch ECM Synchronika price and stock via shopifyGetProduct
+- [ ] Verify Baratza Encore details via shopifySearchProducts
+- [ ] Fetch Baratza Encore price and stock via shopifyGetProduct
+- [ ] Compile consolidated report for all products

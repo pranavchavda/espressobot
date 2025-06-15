@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { Loader2, Send, ImageIcon, X } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { TaskProgress } from "@components/chat/TaskProgress";
+import { TaskMarkdownProgress } from "@components/chat/TaskMarkdownProgress";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
@@ -29,6 +30,7 @@ function StreamingChatPage({ convId }) {
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
   const [useBasicAgent, setUseBasicAgent] = useState(true);
   const [hasShownTasks, setHasShownTasks] = useState(false);
+  const [taskMarkdown, setTaskMarkdown] = useState(null);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -41,10 +43,9 @@ function StreamingChatPage({ convId }) {
       setMessages([]);
       setSuggestions([]);
       console.warn('FRONTEND: convId is null in useEffect[convId]. Clearing messages/suggestions. convId:', convId);
-      setMessages([]);
-      setSuggestions([]);
-      setCurrentTasks([]);
+      setCurrentTasks([]); // convId null means switching out, safe clear
       setHasShownTasks(false);
+      setTaskMarkdown(null);
       setActiveConv(null);
       return;
     }
@@ -70,7 +71,8 @@ function StreamingChatPage({ convId }) {
       .catch(() => {
         setMessages([]);
         setSuggestions([]);
-        setCurrentTasks([]);
+        // do not clear tasks on fetch error to preserve sticky UI
+        // setCurrentTasks([]);
         setHasShownTasks(false);
         console.error('FRONTEND: Error fetching conversation in useEffect[convId]. Clearing messages/suggestions. convId:', convId);
       })
@@ -251,7 +253,7 @@ function StreamingChatPage({ convId }) {
   //         user_current_input: currentInput,
   //       }),
   //     });
-  //     if (!response.ok) {
+  //     if (!response.ok) {setCurrentTasks
   //       throw new Error(`HTTP error! status: ${response.status}`);
   //     }
   //     const data = await response.json();
@@ -305,7 +307,7 @@ function StreamingChatPage({ convId }) {
     setIsSending(true);
     setInput('');
     setSuggestions([]);
-    // Don't reset currentTasks or hasShownTasks - keep them persistent!
+    setCurrentPlan(null);
     setImageAttachment(null); // Clear attachment after sending
     setImageUrl("");
     setShowImageUrlInput(false);
@@ -331,8 +333,7 @@ function StreamingChatPage({ convId }) {
         setPlannerStatus("Initializing...");
         setDispatcherStatus("");
         setSynthesizerStatus("Initializing...");
-        setCurrentPlan(null);
-        setCurrentTasks([]); // Reset tasks for new agent run
+        // Preserve existing task list so progress UI stays sticky
         setToolCallStatus("");
       }
 
@@ -495,11 +496,26 @@ function StreamingChatPage({ convId }) {
                   break;
                 case 'task_summary':
                   console.log('FRONTEND: task_summary event:', actualEventPayload);
-                  if (actualEventPayload.tasks && Array.isArray(actualEventPayload.tasks)) {
-                    setCurrentTasks(actualEventPayload.tasks);
-                    if (actualEventPayload.tasks.length > 0) {
-                      setHasShownTasks(true);
-                    }
+                  if (
+                    actualEventPayload.tasks &&
+                    Array.isArray(actualEventPayload.tasks) &&
+                    actualEventPayload.tasks.length > 0
+                  ) {
+                    setCurrentTasks(prevTasks => {
+                      const taskMap = new Map(prevTasks.map(t => [t.id, t]));
+                      actualEventPayload.tasks.forEach(t => taskMap.set(t.id, { ...taskMap.get(t.id), ...t }));
+                      return Array.from(taskMap.values());
+                    });
+                    setHasShownTasks(true);
+                  }
+                  break;
+                case 'task_markdown':
+                  console.log('FRONTEND: task_markdown event:', actualEventPayload);
+                  console.log('FRONTEND: activeConv:', activeConv, 'event conv_id:', actualEventPayload.conversation_id);
+                  if (actualEventPayload.markdown) {
+                    console.log('FRONTEND: Setting task markdown:', actualEventPayload.markdown);
+                    setTaskMarkdown(actualEventPayload.markdown);
+                    setHasShownTasks(true);
                   }
                   break;
                 case 'planner_status': {
@@ -770,6 +786,14 @@ function StreamingChatPage({ convId }) {
             </div>
           ) : (
             <>
+              {/* Show task markdown progress if available */}
+              {taskMarkdown && (
+                <TaskMarkdownProgress 
+                  markdown={taskMarkdown} 
+                  conversationId={activeConv || convId}
+                />
+              )}
+              
               {/* Render all messages */}
               {messages.map((msg, i) => {
                 return (
@@ -915,9 +939,8 @@ function StreamingChatPage({ convId }) {
                       </div>
                     )}
 
-                    {/* Task Progress - show if there are tasks, active statuses, or we've shown tasks before (sticky) */}
-                    {/* Task Progress - show if there are tasks, active statuses, or we've shown tasks before (sticky) */}
-                    {useBasicAgent && (currentTasks.length > 0 || plannerStatus || dispatcherStatus || synthesizerStatus || isSending || hasShownTasks) && (
+                    {/* Old Task Progress - commented out in favor of TaskMarkdownProgress */}
+                    {/* {useBasicAgent && (
                       <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                         <div className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">Task Progress</div>
                         <TaskProgress
@@ -930,7 +953,7 @@ function StreamingChatPage({ convId }) {
                           synthesizerStatus={synthesizerStatus}
                         />
                       </div>
-                    )}
+                    )} */}
                       <MarkdownRenderer isAgent={true}>
                         {streamingMessage.content || ""}
                       </MarkdownRenderer>

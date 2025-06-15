@@ -1,6 +1,9 @@
 import { Agent, MCPServerStdio } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { mcpToolDiscovery } from './mcp-tool-discovery.js';
+import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Debug logging for startup
 console.log('======= BASIC-AGENT.JS INITIALIZATION =======');
@@ -36,6 +39,10 @@ const todoMCPServer = new MCPServerStdio({
 await todoMCPServer.connect();
 console.log('Configured Todo MCP Server');
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const espressoSystemPrompt = readFileSync(new URL('./espresso-system-prompt.txt', import.meta.url), 'utf-8');
+console.log('Full system prompt:', espressoSystemPrompt);
 // Discover available tools from MCP servers (with fallback)
 console.log('🔍 Discovering MCP tools...');
 let discoveredTools, toolsForPlanner;
@@ -67,9 +74,7 @@ console.log('Dispatcher tool name:', dispatcherTool?.name);
 export const basicChatAgent = new Agent({
   name: 'EspressoBot',
   tools: [plannerTool, dispatcherTool], 
-  instructions: `You are EspressoBot. You MUST always use tools.
-
-Use 'plan' tool first, then 'dispatch' tool.`,
+  instructions: espressoSystemPrompt,
   model: process.env.SYNTHESIZER_MODEL || 'gpt-4.1-mini',
   modelSettings: { 
     toolChoice: 'required',

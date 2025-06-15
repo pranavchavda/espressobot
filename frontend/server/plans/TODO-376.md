@@ -1,0 +1,5 @@
+- [x] Search products via shopifySearchProducts with query 'Profitec Move'
+- [x] 🔄 Filter shopifySearchProducts results to identify Profitec Move products
+- [x] 🔄 🔄 Fetch detailed product data via shopifyGetProduct for each Profitec Move product
+- [x] 🔄 🔄 🔄 Evaluate inventory_quantity for each variant to check in-stock status
+- [x] 🔄 🔄 🔄 🔄 Check product and variant tags and inventory_policy for preorder availability

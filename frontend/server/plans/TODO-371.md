@@ -1,0 +1,4 @@
+- [x] Search for Profitec Go products via shopifySearchProducts
+- [x] Identify the Profitec Go product ID
+- [x] Fetch product variants via shopifyGetProduct
+- [x] Extract prices for each colour variant
