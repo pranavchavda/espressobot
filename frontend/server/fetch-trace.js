@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '[REMOVED]';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TRACE_ID = 'trace_c52d07d853814e20bcf34d64b7838f14';
 
 async function fetchTrace() {
