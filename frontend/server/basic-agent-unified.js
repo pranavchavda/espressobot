@@ -23,7 +23,7 @@ if (process.env.SKIP_MCP_DISCOVERY === 'true') {
   const childEnv = { ...process.env };
   shopifyMCPServer = new MCPServerStdio({
     name: 'Shopify MCP Server',
-    command: '/home/pranav/.nvm/versions/node/v22.13.0/bin/npx',
+    command: 'npx',
     args: ['-y', '@pranavchavda/shopify-mcp-stdio-client'],
     env: childEnv,
     shell: true,
@@ -31,6 +31,24 @@ if (process.env.SKIP_MCP_DISCOVERY === 'true') {
   });
   await shopifyMCPServer.connect();
   console.log('Configured Shopify MCP Server');
+}
+
+// --- Shopify Dev MCP server configuration ---
+let shopifyDevMCPServer = null;
+if (process.env.SKIP_MCP_DISCOVERY === 'true') {
+  console.log('⚠️ SKIP_MCP_DISCOVERY=true – skipping Shopify Dev MCP server connection');
+} else {
+  const childEnv = { ...process.env };
+  shopifyDevMCPServer = new MCPServerStdio({
+    name: 'Shopify Dev MCP Server',
+    command: 'npx',
+    args: ['-y', '@shopify/dev-mcp@latest'],
+    env: childEnv,
+    shell: true,
+    cacheToolsList: true,
+  });
+  await shopifyDevMCPServer.connect();
+  console.log('Configured Shopify Dev MCP Server');
 }
 
 // --- Todo MCP server configuration ---
@@ -45,6 +63,10 @@ espressoSystemPrompt += '\nToday is ' + new Date().toLocaleDateString();
 
 
 // Create the unified agent that handles both planning and execution
+const mcpServers = [];
+if (shopifyMCPServer) mcpServers.push(shopifyMCPServer);
+if (shopifyDevMCPServer) mcpServers.push(shopifyDevMCPServer);
+
 export const unifiedAgent = new Agent({
   name: 'EspressoBot',
   instructions: espressoSystemPrompt,
@@ -55,7 +77,7 @@ export const unifiedAgent = new Agent({
     parallelToolCalls: false,  // Disabled to prevent multiple simultaneous generate_todos calls
     toolChoice: 'auto',  // Changed from 'required' to avoid forcing tool use on every turn
   },
-  mcpServers: shopifyMCPServer ? [shopifyMCPServer] : [],
+  mcpServers: mcpServers,
   tools: [generateTodosTool, getTodosTool, updateTaskStatusTool],
 });
 
@@ -66,4 +88,4 @@ export const unifiedAgent = new Agent({
 console.log('Created unified agent with direct MCP integration');
 console.log('======= BASIC-AGENT-UNIFIED.JS INITIALIZATION COMPLETE =======');
 
-export { shopifyMCPServer };
+export { shopifyMCPServer, shopifyDevMCPServer };

@@ -1,0 +1,7 @@
+- [x] 🔄 Search Shopify docs for GraphQL orders filtering and sorting using search_dev_docs
+- [x] 🔄 🔄 Inspect GraphQL Order fields totalPrice, processedAt, and lineItems using introspect_admin_schema
+- [x] 🔄 🔄 🔄 Construct a GraphQL query to fetch the top 10 orders on 2025-06-15 sorted by totalPrice, retrieving amount, time, and line items
+- [x] 🔄 🔄 🔄 🔄 Execute the GraphQL query against Shopify Admin API to retrieve the 10 biggest orders for 2025-06-15
+- [x] 🔄 🔄 🔄 🔄 🔄 Construct a paginated GraphQL query to fetch all orders from 2025-06-15 with totalPrice
+- [ ] 🔄 🔄 🔄 🔄 🔄 🔄 Execute the paginated query and calculate the total revenue for 2025-06-15
+- [ ] 🔄 🔄 🔄 🔄 🔄 🔄 Compile and format a report with the top 10 orders and the total daily revenue

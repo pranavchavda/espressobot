@@ -1,3 +1,6 @@
+import { config } from 'dotenv';
+config();
+
 import { Router } from 'express';
 // Fix CommonJS import issue with Prisma
 import pkg from '@prisma/client';

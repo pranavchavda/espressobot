@@ -1,0 +1,3 @@
+- [x] 🔄 Search yesterday's orders via shopifyGraphql
+- [x] 🔄 🔄 Sort fetched orders by totalPrice descending and select top 5
+- [x] 🔄 🔄 🔄 Fetch revenue amount, time of order, and line items for each of the top 5 orders via shopifyGraphql

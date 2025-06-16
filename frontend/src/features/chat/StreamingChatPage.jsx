@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send, ImageIcon, X } from "lucide-react";
+import { Loader2, Send, ImageIcon, X, ListTodo } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { TaskProgress } from "@components/chat/TaskProgress";
 import { TaskMarkdownProgress } from "@components/chat/TaskMarkdownProgress";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
+import { Switch, SwitchField } from "@common/switch";
 import logo from "../../../static/EspressoBotLogo.png";
 
 
@@ -31,6 +32,7 @@ function StreamingChatPage({ convId }) {
   const [useBasicAgent, setUseBasicAgent] = useState(true);
   const [hasShownTasks, setHasShownTasks] = useState(false);
   const [taskMarkdown, setTaskMarkdown] = useState(null);
+  const [forceTaskGen, setForceTaskGen] = useState(false);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -340,6 +342,7 @@ function StreamingChatPage({ convId }) {
       const requestData = {
         conv_id: activeConv || undefined,
         message: textToSend,
+        forceTaskGen: forceTaskGen,
       };
 
       if (imageAttachment) {
@@ -502,9 +505,23 @@ function StreamingChatPage({ convId }) {
                     actualEventPayload.tasks.length > 0
                   ) {
                     setCurrentTasks(prevTasks => {
-                      const taskMap = new Map(prevTasks.map(t => [t.id, t]));
-                      actualEventPayload.tasks.forEach(t => taskMap.set(t.id, { ...taskMap.get(t.id), ...t }));
-                      return Array.from(taskMap.values());
+                      // Only update if we don't have tasks yet, or if this is the initial load
+                      if (prevTasks.length === 0) {
+                        console.log('FRONTEND: Initial task load from task_summary');
+                        return actualEventPayload.tasks;
+                      }
+                      
+                      // Otherwise, preserve existing task statuses and only add new tasks
+                      const existingTaskIds = new Set(prevTasks.map(t => t.id));
+                      const newTasks = actualEventPayload.tasks.filter(t => !existingTaskIds.has(t.id));
+                      
+                      if (newTasks.length > 0) {
+                        console.log('FRONTEND: Adding', newTasks.length, 'new tasks from task_summary');
+                        return [...prevTasks, ...newTasks];
+                      }
+                      
+                      console.log('FRONTEND: Ignoring task_summary - no new tasks');
+                      return prevTasks;
                     });
                     setHasShownTasks(true);
                   }
@@ -516,6 +533,21 @@ function StreamingChatPage({ convId }) {
                     console.log('FRONTEND: Setting task markdown:', actualEventPayload.markdown);
                     setTaskMarkdown(actualEventPayload.markdown);
                     setHasShownTasks(true);
+                  }
+                  break;
+                case 'task_status_update':
+                  console.log('FRONTEND: task_status_update event:', actualEventPayload);
+                  if (actualEventPayload.taskId && actualEventPayload.status) {
+                    setCurrentTasks(prevTasks => {
+                      const updatedTasks = prevTasks.map(task => {
+                        if (task.id === actualEventPayload.taskId || task.id === `task-${actualEventPayload.taskId}`) {
+                          console.log(`FRONTEND: Updating task ${task.id} status from ${task.status} to ${actualEventPayload.status}`);
+                          return { ...task, status: actualEventPayload.status };
+                        }
+                        return task;
+                      });
+                      return updatedTasks;
+                    });
                   }
                   break;
                 case 'planner_status': {
@@ -1049,6 +1081,22 @@ function StreamingChatPage({ convId }) {
             </Button>
           </div>
         )}
+
+        {/* Task Generation Toggle */}
+        <div className="max-w-3xl w-full mx-auto px-4 mb-2">
+          <SwitchField>
+            <span data-slot="label" className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <ListTodo className="h-4 w-4" />
+              Force task generation
+            </span>
+            <Switch 
+              checked={forceTaskGen} 
+              onChange={setForceTaskGen}
+              color="blue"
+              aria-label="Force task generation"
+            />
+          </SwitchField>
+        </div>
 
         {/* Input Form */}
         <form

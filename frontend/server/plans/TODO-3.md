@@ -1,0 +1,5 @@
+- [ ] Fetch yesterday's orders via shopifySearchOrders
+- [ ] Sort orders by revenue amount
+- [ ] Select top 5 orders
+- [ ] Fetch order details via shopifyGetOrder for each order
+- [ ] Compile report of revenue amount, time, and line items

@@ -1,0 +1,5 @@
+- [x] 🔄 Search Shopify developer docs for the Admin GraphQL orders query (use search_dev_docs)
+- [x] 🔄 🔄 Introspect the Admin GraphQL schema to identify totalPriceSet, createdAt, lineItems fields (use introspect_admin_schema)
+- [x] 🔄 🔄 🔄 Generate a GraphQL query to fetch the top 5 orders from yesterday sorted by revenue amount
+- [x] 🔄 🔄 🔄 🔄 Execute the GraphQL query against Shopify Admin API to retrieve the orders
+- [ ] 🔄 🔄 🔄 🔄 🔄 Format each order's output to show revenue amount, order time, and line items

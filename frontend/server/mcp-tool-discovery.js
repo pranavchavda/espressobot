@@ -7,6 +7,7 @@ import { MCPServerStdio } from '@openai/agents';
 export class MCPToolDiscovery {
   constructor() {
     this.shopifyTools = [];
+    this.shopifyDevTools = [];
     this.todoTools = [];
     this.allTools = [];
 
@@ -29,14 +30,18 @@ export class MCPToolDiscovery {
       // Discover Shopify tools
       await this.discoverShopifyTools();
       
+      // Discover Shopify Dev tools
+      await this.discoverShopifyDevTools();
+      
       // Discover Todo tools  
       await this.discoverTodoTools();
       
       // Combine all tools
-      this.allTools = [...this.shopifyTools, ...this.todoTools];
+      this.allTools = [...this.shopifyTools, ...this.shopifyDevTools, ...this.todoTools];
       
       console.log(`✅ Tool discovery complete. Found ${this.allTools.length} total tools:`);
       console.log(`   - Shopify tools: ${this.shopifyTools.length}`);
+      console.log(`   - Shopify Dev tools: ${this.shopifyDevTools.length}`);
       console.log(`   - Todo tools: ${this.todoTools.length}`);
       
       // If no tools were discovered, that's an issue we need to debug
@@ -68,7 +73,7 @@ export class MCPToolDiscovery {
     const childEnv = { ...process.env };
     const shopifyMCPServer = new MCPServerStdio({
       name: 'Shopify MCP Server Discovery',
-      command: '/home/pranav/.nvm/versions/node/v22.13.0/bin/npx',
+      command: 'npx',
       args: ['-y', '@pranavchavda/shopify-mcp-stdio-client'],
       env: childEnv + MCP_SERVER_URL,
       shell: true,
@@ -101,6 +106,52 @@ export class MCPToolDiscovery {
     } catch (error) {
       console.error('❌ Failed to discover Shopify tools:', error.message);
       throw error; // Don't use fallback, let the error propagate
+    }
+  }
+
+  /**
+   * Discover tools from Shopify Dev MCP server
+   */
+  async discoverShopifyDevTools() {
+    console.log('📚 Discovering Shopify Dev MCP tools...');
+    
+    const childEnv = { ...process.env };
+    const shopifyDevMCPServer = new MCPServerStdio({
+      name: 'Shopify Dev MCP Server Discovery',
+      command: 'npx',
+      args: ['-y', '@shopify/dev-mcp@latest'],
+      env: childEnv,
+      shell: true,
+    });
+
+    try {
+      await shopifyDevMCPServer.connect();
+      console.log('   Connected to Shopify Dev MCP server');
+      
+      // List available tools - this should return an array directly
+      const tools = await shopifyDevMCPServer.listTools();
+      console.log('   Raw tools response:', tools);
+      
+      if (Array.isArray(tools)) {
+        this.shopifyDevTools = tools.map(tool => ({
+          name: tool.name,
+          description: tool.description || `Shopify Dev operation: ${tool.name}`,
+          category: 'shopify-dev',
+          inputSchema: tool.inputSchema
+        }));
+        
+        console.log(`   Found ${this.shopifyDevTools.length} Shopify Dev tools:`, 
+          this.shopifyDevTools.map(t => t.name).join(', '));
+      } else {
+        console.log('   Tools response is not an array:', typeof tools);
+        this.shopifyDevTools = [];
+      }
+      
+      await shopifyDevMCPServer.close();
+    } catch (error) {
+      console.error('❌ Failed to discover Shopify Dev tools:', error.message);
+      // Use fallback tools instead of throwing
+      this.shopifyDevTools = this.getFallbackShopifyDevTools();
     }
   }
 
@@ -178,8 +229,9 @@ export class MCPToolDiscovery {
     
     return {
       shopifyTools: this.getFallbackShopifyTools(),
+      shopifyDevTools: this.getFallbackShopifyDevTools(),
       todoTools: this.getFallbackTodoTools(),
-      allTools: [...this.getFallbackShopifyTools(), ...this.getFallbackTodoTools()]
+      allTools: [...this.getFallbackShopifyTools(), ...this.getFallbackShopifyDevTools(), ...this.getFallbackTodoTools()]
     };
   }
 
@@ -199,6 +251,18 @@ export class MCPToolDiscovery {
       { name: 'set_metafield', description: 'Set metafields on objects', category: 'shopify' },
       { name: 'run_full_shopify_graphql_query', description: 'Run custom GraphQL queries', category: 'shopify' },
       { name: 'run_full_shopify_graphql_mutation', description: 'Run custom GraphQL mutations', category: 'shopify' }
+    ];
+  }
+
+  /**
+   * Fallback Shopify Dev tools (hardcoded)
+   */
+  getFallbackShopifyDevTools() {
+    return [
+      { name: 'search_dev_docs', description: 'Search Shopify.dev documentation', category: 'shopify-dev' },
+      { name: 'introspect_admin_schema', description: 'Access Shopify Admin GraphQL schema', category: 'shopify-dev' },
+      { name: 'fetch_docs_by_path', description: 'Retrieve documents by path', category: 'shopify-dev' },
+      { name: 'get_started', description: 'Explore Shopify APIs', category: 'shopify-dev' }
     ];
   }
 

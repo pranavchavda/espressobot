@@ -17,19 +17,20 @@ setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
 // MCP dependency removed – TaskGen now works entirely locally with markdown plans.
 
-// Reuse previously discovered tools to embed Shopify tool names into the prompt
-let toolNames = [];
+// Reuse previously discovered tools to embed all tool names into the prompt
+let allToolNames = [];
 try {
   if (!mcpToolDiscovery.allTools.length) {
     await mcpToolDiscovery.discoverTools();
   }
-  toolNames = mcpToolDiscovery.shopifyTools.map(t => t.name);
+  allToolNames = mcpToolDiscovery.allTools.map(t => t.name);
 } catch (err) {
-  console.error('TaskGen: Failed to get Shopify tool names, using fallback:', err.message);
-  toolNames = mcpToolDiscovery.getFallbackShopifyTools().map(t => t.name);
+  console.error('TaskGen: Failed to get tool names, using fallback:', err.message);
+  const fallback = mcpToolDiscovery.getFallbackTools();
+  allToolNames = fallback.allTools.map(t => t.name);
 }
 
-const toolNameList = toolNames.join(', ');
+const toolNameList = allToolNames.join(', ');
 
 const taskGeneratorPrompt = `You are TaskGen, an autonomous task-planning agent.
 
@@ -39,8 +40,21 @@ Example valid output: ["Task 1", "Task 2"]
 Guidelines:
 1. Read the user's request.
 2. Break it into clear, executable steps for EspressoBot.
-3. Mention a suggested Shopify tool in the title if helpful (e.g., "Fetch products via shopifySearchProducts").
-4. Do not call any tools – just return the JSON.`;
+3. Mention a suggested Shopify tool in the title if helpful.
+4. Do not call any tools – just return the JSON.
+
+AVAILABLE TOOLS for EspressoBot (you can reference these in task titles):
+${toolNameList}
+
+Additional built-in tools:
+- generate_todos: Generate task list
+- get_todos: Get current task list  
+- update_task_status: Update task status
+- search_dev_docs: Search Shopify documentation
+- introspect_admin_schema: Get GraphQL schema details
+- fetch_docs_by_path: Get specific documentation
+
+IMPORTANT: Only suggest tools from the above list. Do not invent tool names.`;
 
 export const taskGeneratorAgent = new Agent({
   name: 'TaskGen',

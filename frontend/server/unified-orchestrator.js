@@ -74,7 +74,7 @@ async function sendTaskMarkdown(res, conversationId) {
 
 router.post('/run', async (req, res) => {
   console.log('\n========= UNIFIED ORCHESTRATOR REQUEST RECEIVED =========');
-  const { message, conv_id: existing_conv_id } = req.body || {};
+  const { message, conv_id: existing_conv_id, forceTaskGen } = req.body || {};
   let conversationId = existing_conv_id;
 
   // Setup SSE
@@ -147,9 +147,16 @@ router.post('/run', async (req, res) => {
     }
     
     // Add conversation ID context for the agent
-    agentInput += `\n\n[SYSTEM CONTEXT]\nconversation_id=${conversationId}\n[/SYSTEM CONTEXT]`;
+    agentInput += `\n\n[SYSTEM CONTEXT]\nconversation_id=${conversationId}\n`;
     
-    console.log('Agent input prepared');
+    // Add force task generation instruction if enabled
+    if (forceTaskGen) {
+      agentInput += `\nIMPORTANT: The user has explicitly requested that you MUST use task generation for this request. Call generate_todos immediately, regardless of task complexity.\n`;
+    }
+    
+    agentInput += `[/SYSTEM CONTEXT]`;
+    
+    console.log('Agent input prepared, forceTaskGen:', forceTaskGen);
     
     // Notify client with conversation ID
     sendSse(res, 'conv_id', { conversationId });
@@ -234,17 +241,36 @@ router.post('/run', async (req, res) => {
         console.log('Step tool_name:', step.tool_name);
         console.log('Step result:', JSON.stringify(step, null, 2).substring(0, 500));
 
-        // Send task markdown after any task-related tool call
-        const taskRelatedTools = ['generate_todos', 'update_task_status', 'create_task', 'get_todos'];
-        if (step.type === 'tool_call' && taskRelatedTools.includes(step.tool_name)) {
-          console.log(`Task-related tool called: ${step.tool_name}, sending markdown`);
-          (async () => {
+        // Send appropriate updates based on the tool called
+        if (step.type === 'tool_call') {
+          if (step.tool_name === 'update_task_status' && step.result) {
+            // For status updates, send a focused update for just this task
             try {
-              await sendTaskMarkdown(res, conversationId);
+              const args = step.tool_args || {};
+              console.log('Task status update - args:', args);
+              
+              if (args.task_id && args.status) {
+                sendSse(res, 'task_status_update', {
+                  taskId: args.task_id,
+                  status: args.status,
+                  conversation_id: conversationId
+                });
+                console.log(`Sent focused task_status_update for task ${args.task_id} -> ${args.status}`);
+              }
             } catch (err) {
-              console.error('Error sending task markdown:', err);
+              console.error('Error sending task status update:', err);
             }
-          })();
+          } else if (['generate_todos', 'create_task', 'get_todos'].includes(step.tool_name)) {
+            // For other task tools, send the full markdown
+            console.log(`Task-related tool called: ${step.tool_name}, sending markdown`);
+            (async () => {
+              try {
+                await sendTaskMarkdown(res, conversationId);
+              } catch (err) {
+                console.error('Error sending task markdown:', err);
+              }
+            })();
+          }
         }
         
         if (step.type === 'tool_call' && step.tool_name === 'create_task' && step.result) {
