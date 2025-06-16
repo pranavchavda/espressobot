@@ -1,0 +1,7 @@
+- [ ] Retrieve API request and response logs for archiving the two products
+- [ ] Inspect API response errors and status codes
+- [ ] Verify correct GraphQL mutation and arguments for product archiving using introspect_admin_schema
+- [ ] Search Shopify dev docs for the productArchive mutation using search_dev_docs
+- [ ] Compare previous request parameters with official documentation
+- [ ] Identify mistakes in the previous archive attempt
+- [ ] Summarize the root cause for why the products remained ACTIVE

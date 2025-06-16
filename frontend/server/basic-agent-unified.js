@@ -87,5 +87,3 @@ export const unifiedAgent = new Agent({
 
 console.log('Created unified agent with direct MCP integration');
 console.log('======= BASIC-AGENT-UNIFIED.JS INITIALIZATION COMPLETE =======');
-
-export { shopifyMCPServer, shopifyDevMCPServer };

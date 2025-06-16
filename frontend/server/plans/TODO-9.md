@@ -1,0 +1,5 @@
+- [x] 🔄 Review the provided package update data
+- [x] 🔄 🔄 Categorize packages by repository (e.g., core, extra)
+- [x] 🔄 🔄 🔄 Identify notable changes (large net changes or significant download sizes)
+- [x] 🔄 🔄 🔄 🔄 Generate a clearly formatted summary report
+- [x] 🔄 🔄 🔄 🔄 🔄 Highlight and annotate packages with significant updates in the report

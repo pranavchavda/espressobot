@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send, ImageIcon, X, ListTodo } from "lucide-react";
+import { Loader2, Send, ImageIcon, X, ListTodo, Square } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { TaskProgress } from "@components/chat/TaskProgress";
 import { TaskMarkdownProgress } from "@components/chat/TaskMarkdownProgress";
@@ -697,6 +697,21 @@ function StreamingChatPage({ convId }) {
                   console.log("FRONTEND: Received 'assistant_delta' event payload:", JSON.stringify(actualEventPayload)); // DEBUG
                   setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + actualEventPayload.delta, isStreaming: true, isComplete: false }));
                   break;
+                case 'interrupted':
+                  console.log("FRONTEND: Received 'interrupted' event", JSON.stringify(actualEventPayload));
+                  setToolCallStatus("Agent execution interrupted");
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: (prev?.content || "") + "\n\n*Agent execution was interrupted by user*", 
+                    isStreaming: false, 
+                    isComplete: true 
+                  }));
+                  setPlannerStatus("");
+                  setDispatcherStatus("");
+                  setSynthesizerStatus("");
+                  setIsSending(false); 
+                  shouldStop = true; 
+                  break;
                 case 'error':
                   setToolCallStatus(`Error: ${actualEventPayload.message}`);
                   console.error("SSE Orchestrator Error:", actualEventPayload);
@@ -1146,18 +1161,25 @@ function StreamingChatPage({ convId }) {
           <div className="flex flex-col gap-2">
 
 
-            <Button
-              type="submit"
-              className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto"
-              disabled={isSending || (!input.trim() && !imageAttachment)}
-            >
-              {isSending ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
+            {isSending ? (
+              <Button
+                type="button"
+                onClick={handleInterrupt}
+                className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto bg-red-500 hover:bg-red-600 text-white"
+              >
+                <Square className="h-4 w-4" />
+                <span className="ml-2">Stop</span>
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto"
+                disabled={!input.trim() && !imageAttachment}
+              >
                 <Send className="h-5 w-5" />
-              )}
-              <span className="ml-2 hidden sm:inline">Send</span>
-            </Button>
+                <span className="ml-2 hidden sm:inline">Send</span>
+              </Button>
+            )}
           </div>
         </form>
       </div>

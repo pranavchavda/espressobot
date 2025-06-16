@@ -3,10 +3,15 @@ import * as prismaClient from '@prisma/client';
 import { run } from '@openai/agents';
 import { unifiedAgent } from './basic-agent-unified.js';
 import { taskGeneratorAgent, writePlanMdTool, readPlanMdTool, getTodosTool, generateTodosTool } from './task-generator-agent.js';
+import { runMemoryExtraction } from './memory-agent.js';
+import { findRelevantMemories, formatMemoriesForContext } from './memory-embeddings.js';
 
 const PrismaClient = prismaClient.PrismaClient;
 const prisma = new PrismaClient();
 const router = Router();
+
+// Track active agent runs for interruption
+const activeAgentRuns = new Map();
 
 // Helper to send SSE messages
 function sendSse(res, eventName, data) {
@@ -141,9 +146,18 @@ router.post('/run', async (req, res) => {
     const MAX_TURNS = parseInt(process.env.MAX_TURNS || '20', 20);
     console.log('Formatted conversation history with', recentHistory.length, 'messages');
 
+    // Find relevant memories for context
+    const relevantMemories = await findRelevantMemories(message, USER_ID);
+    const memoryContext = formatMemoriesForContext(relevantMemories);
+    
     let agentInput = message;
     if (historyText) {
       agentInput = `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+    }
+    
+    // Add memories if available
+    if (memoryContext) {
+      agentInput = memoryContext + '\n' + agentInput;
     }
     
     // Add conversation ID context for the agent
@@ -206,6 +220,16 @@ router.post('/run', async (req, res) => {
     // Track generate_todos calls to prevent loops
     const generateTodosCallCount = new Map();
     
+    // Store this agent run for potential interruption
+    const runController = {
+      aborted: false,
+      pollInterval: pollMarkdownInterval,
+      response: res,
+      conversationId: conversationId
+    };
+    activeAgentRuns.set(conversationId, runController);
+    console.log(`Stored active agent run for conversation ${conversationId}`);
+    
     const result = await run(unifiedAgent, agentInput, {
       maxTurns: MAX_TURNS,
       trace: {
@@ -236,6 +260,7 @@ router.post('/run', async (req, res) => {
         }
       },
       onStepFinish: (step) => {
+        
         console.log('*** onStepFinish triggered ***');
         console.log('Step type:', step.type);
         console.log('Step tool_name:', step.tool_name);
@@ -646,6 +671,24 @@ router.post('/run', async (req, res) => {
         },
       });
       console.log('Persisted assistant response');
+      
+      // ---- 🧠 Extract memories asynchronously ----
+      (async () => {
+        try {
+          console.log('Starting memory extraction...');
+          const allMessages = [...history, 
+            { role: 'user', content: message },
+            { role: 'assistant', content: assistantResponse }
+          ];
+          
+          // Run memory extraction in parallel (fire and forget)
+          runMemoryExtraction(allMessages, USER_ID, conversationId)
+            .then(() => console.log('Memory extraction completed'))
+            .catch(err => console.error('Memory extraction error:', err));
+        } catch (err) {
+          console.error('Error starting memory extraction:', err);
+        }
+      })();
 
       // ---- 🎨 Generate conversation title asynchronously ----
       try {
@@ -693,6 +736,10 @@ router.post('/run', async (req, res) => {
       });
     }
   } finally {
+    // Clean up active agent run
+    activeAgentRuns.delete(conversationId);
+    console.log(`Cleaned up active agent run for conversation ${conversationId}`);
+    
     if (!res.writableEnded) {
       sendSse(res, 'done', {});
       res.end();
@@ -701,6 +748,69 @@ router.post('/run', async (req, res) => {
     
     console.log('========= UNIFIED ORCHESTRATOR REQUEST COMPLETED =========');
   }
+});
+
+// Interrupt endpoint
+router.post('/interrupt', async (req, res) => {
+  console.log('\n========= INTERRUPT REQUEST RECEIVED =========');
+  const { conv_id } = req.body;
+  
+  if (!conv_id) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Conversation ID is required' 
+    });
+  }
+  
+  const activeRun = activeAgentRuns.get(conv_id);
+  
+  if (activeRun) {
+    console.log(`Found active run for conversation ${conv_id}, interrupting...`);
+    
+    // Set abort flag
+    activeRun.aborted = true;
+    
+    // Clear polling interval if exists
+    if (activeRun.pollInterval) {
+      clearInterval(activeRun.pollInterval);
+      console.log('Cleared task polling interval');
+    }
+    
+    // Send interrupted event to SSE stream if still open
+    if (activeRun.response && !activeRun.response.writableEnded) {
+      sendSse(activeRun.response, 'interrupted', { 
+        message: 'Agent execution was interrupted',
+        conversation_id: conv_id
+      });
+      sendSse(activeRun.response, 'done', {});
+      
+      // Close the response stream
+      try {
+        activeRun.response.end();
+        console.log('Closed SSE stream for interrupted agent');
+      } catch (e) {
+        console.error('Error ending response stream:', e);
+      }
+    }
+    
+    // Remove from active runs
+    activeAgentRuns.delete(conv_id);
+    
+    res.json({ 
+      success: true, 
+      message: 'Agent execution interrupted',
+      conversation_id: conv_id 
+    });
+  } else {
+    console.log(`No active run found for conversation ${conv_id}`);
+    res.json({ 
+      success: false, 
+      message: 'No active agent run found for this conversation',
+      conversation_id: conv_id 
+    });
+  }
+  
+  console.log('========= INTERRUPT REQUEST COMPLETED =========');
 });
 
 export default router;
