@@ -19,6 +19,7 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import the individual tool modules
+import base
 import search_products as search_module
 import get_product as get_module
 import create_full_product as create_full_module
@@ -175,12 +176,23 @@ async def create_combo(
 ) -> str:
     """Create a combo/bundle product from multiple existing products."""
     try:
-        result = combo_module.create_combo_product(
-            title=title,
-            product_ids=product_ids,
-            combo_price=combo_price,
-            description=description if description else None,
-            create_as_draft=create_as_draft
+        # create_combo_listing expects two product IDs
+        if len(product_ids) < 2:
+            return json.dumps({"error": "At least 2 product IDs required for combo"}, indent=2)
+        
+        # Create a ShopifyClient instance
+        client = base.ShopifyClient()
+        
+        # Call with the correct function name and parameters
+        result = combo_module.create_combo_listing(
+            client=client,
+            product1_id=product_ids[0],
+            product2_id=product_ids[1],
+            sku_suffix=None,  # Let it auto-generate
+            discount_amount=None,  # Use specific price instead
+            discount_percent=None,
+            price=float(combo_price),
+            publish=not create_as_draft  # publish=False means draft
         )
         return json.dumps(result, indent=2)
     except Exception as e:
@@ -196,8 +208,18 @@ async def create_open_box(
 ) -> str:
     """Create an open box variant of an existing product."""
     try:
-        result = open_box_module.create_open_box_variant(
-            product_id=product_id,
+        # Create a ShopifyClient instance
+        client = base.ShopifyClient()
+        
+        # First find the product
+        original_product = open_box_module.find_product(client, product_id)
+        if not original_product:
+            return json.dumps({"error": f"Product not found: {product_id}"}, indent=2)
+        
+        # Create the open box product
+        result = open_box_module.create_open_box_product(
+            client=client,
+            original=original_product,
             discount_percentage=discount_percentage,
             condition_notes=condition_notes,
             inventory_quantity=inventory_quantity
@@ -218,7 +240,7 @@ async def update_pricing(
 ) -> str:
     """Update product or variant pricing."""
     try:
-        result = pricing_module.update_product_pricing(
+        result = pricing_module.update_variant_pricing(
             product_id=product_id if product_id else None,
             variant_id=variant_id if variant_id else None,
             price=price if price else None,
@@ -236,10 +258,10 @@ async def add_tags_to_product(
 ) -> str:
     """Add tags to a product."""
     try:
-        result = tags_module.manage_product_tags(
-            product_id=product_id,
-            add_tags=tags,
-            remove_tags=[]
+        result = tags_module.manage_tags(
+            action="add",
+            identifier=product_id,
+            tags=tags
         )
         return json.dumps(result, indent=2)
     except Exception as e:
@@ -253,10 +275,10 @@ async def remove_tags_from_product(
 ) -> str:
     """Remove tags from a product."""
     try:
-        result = tags_module.manage_product_tags(
-            product_id=product_id,
-            add_tags=[],
-            remove_tags=tags
+        result = tags_module.manage_tags(
+            action="remove",
+            identifier=product_id,
+            tags=tags
         )
         return json.dumps(result, indent=2)
     except Exception as e:
@@ -271,11 +293,24 @@ async def manage_tags(
 ) -> str:
     """Add or remove multiple tags from a product in one operation."""
     try:
-        result = tags_module.manage_product_tags(
-            product_id=product_id,
-            add_tags=add_tags if add_tags else [],
-            remove_tags=remove_tags if remove_tags else []
-        )
+        # Handle adding tags first
+        if add_tags:
+            result = tags_module.manage_tags(
+                action="add",
+                identifier=product_id,
+                tags=add_tags
+            )
+            if result.get('error'):
+                return json.dumps(result, indent=2)
+        
+        # Then handle removing tags
+        if remove_tags:
+            result = tags_module.manage_tags(
+                action="remove",
+                identifier=product_id,
+                tags=remove_tags
+            )
+            
         return json.dumps(result, indent=2)
     except Exception as e:
         return json.dumps({"error": f"Manage tags failed: {str(e)}"}, indent=2)
@@ -288,8 +323,8 @@ async def update_product_status(
 ) -> str:
     """Update product status (ACTIVE, DRAFT, ARCHIVED)."""
     try:
-        result = status_module.update_product_status(
-            product_id=product_id,
+        result = status_module.update_status(
+            identifier=product_id,
             status=status
         )
         return json.dumps(result, indent=2)
@@ -306,13 +341,9 @@ async def manage_map_sales(
 ) -> str:
     """Manage MAP (Minimum Advertised Price) sales for products."""
     try:
-        result = map_module.manage_map_pricing(
-            product_id=product_id,
-            enable_map=enable_map,
-            map_price=map_price if map_price else None,
-            sale_price=sale_price if sale_price else None
-        )
-        return json.dumps(result, indent=2)
+        # manage_map_sales.py is a CLI tool, need to call it differently
+        # For now, return not implemented
+        return json.dumps({"error": "MAP sales management not yet implemented in native mode"}, indent=2)
     except Exception as e:
         return json.dumps({"error": f"MAP management failed: {str(e)}"}, indent=2)
 
@@ -326,12 +357,17 @@ async def manage_variant_links(
 ) -> str:
     """Manage variant links between products."""
     try:
-        result = variant_links_module.manage_variant_relationships(
-            product_id=product_id,
-            linked_product_ids=linked_product_ids if linked_product_ids else [],
-            link_type=link_type,
-            unlink=unlink
-        )
+        if unlink:
+            result = variant_links_module.unlink_products(
+                product_id=product_id,
+                linked_product_ids=linked_product_ids if linked_product_ids else []
+            )
+        else:
+            result = variant_links_module.link_products(
+                product_id=product_id,
+                linked_product_ids=linked_product_ids if linked_product_ids else [],
+                link_type=link_type
+            )
         return json.dumps(result, indent=2)
     except Exception as e:
         return json.dumps({"error": f"Variant link management failed: {str(e)}"}, indent=2)
@@ -348,7 +384,7 @@ async def manage_inventory_policy(
     """Update inventory policy for products."""
     try:
         result = inventory_policy_module.update_inventory_policy(
-            product_id=product_id,
+            identifier=product_id,
             policy=policy,
             apply_to_all_variants=apply_to_all_variants
         )
@@ -366,13 +402,9 @@ async def upload_to_skuvault(
 ) -> str:
     """Upload product data to SkuVault inventory management system."""
     try:
-        result = skuvault_module.upload_products_to_skuvault(
-            product_id=product_id if product_id else None,
-            sku=sku if sku else None,
-            all_products=all_products,
-            sync_inventory=sync_inventory
-        )
-        return json.dumps(result, indent=2)
+        # upload_to_skuvault.py is a CLI tool, need to handle differently
+        # For now, return not implemented
+        return json.dumps({"error": "SkuVault upload not yet implemented in native mode"}, indent=2)
     except Exception as e:
         return json.dumps({"error": f"SkuVault upload failed: {str(e)}"}, indent=2)
 
@@ -395,11 +427,22 @@ async def bulk_price_update(
                 "compare_at_price": u.compare_at_price
             })
         
-        result = bulk_price_module.bulk_update_prices(
-            updates=update_data,
-            price_list_id=price_list_id if price_list_id else None
-        )
-        return json.dumps(result, indent=2)
+        # bulk_price_update uses CSV, so we need to handle it differently
+        # For now, update each price individually
+        results = []
+        for update in update_data:
+            try:
+                result = pricing_module.update_variant_pricing(
+                    product_id=update.get('product_id'),
+                    variant_id=update.get('variant_id'),
+                    price=update.get('price'),
+                    compare_at_price=update.get('compare_at_price')
+                )
+                results.append(result)
+            except Exception as e:
+                results.append({"error": str(e), "update": update})
+        
+        return json.dumps({"results": results, "total": len(update_data)}, indent=2)
     except Exception as e:
         return json.dumps({"error": f"Bulk price update failed: {str(e)}"}, indent=2)
 
@@ -425,10 +468,9 @@ async def run_graphql_query(
             pass
     
     try:
-        result = gql_query_module.run_graphql_query(
-            query=query,
-            variables=vars if vars else None
-        )
+        # Since graphql_query.py is a CLI tool, we execute it directly
+        client = base.ShopifyClient()
+        result = client.execute_graphql(query, vars if vars else None)
         return json.dumps(result, indent=2)
     except Exception as e:
         return json.dumps({"error": f"GraphQL query failed: {str(e)}"}, indent=2)
@@ -453,10 +495,9 @@ async def run_graphql_mutation(
             pass
     
     try:
-        result = gql_mutation_module.run_graphql_mutation(
-            mutation=mutation,
-            variables=vars if vars else None
-        )
+        # Since graphql_mutation.py is a CLI tool, we execute it directly
+        client = base.ShopifyClient()
+        result = client.execute_graphql(mutation, vars if vars else None)
         return json.dumps(result, indent=2)
     except Exception as e:
         return json.dumps({"error": f"GraphQL mutation failed: {str(e)}"}, indent=2)
