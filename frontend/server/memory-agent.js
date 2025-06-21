@@ -1,7 +1,8 @@
-import { Agent } from '@openai/agents';
+import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { memoryStore } from './memory-store.js';
 import OpenAI from 'openai';
+import { z } from 'zod';
 
 // Set the OpenAI API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -35,9 +36,14 @@ const MEMORY_PATTERNS = {
 };
 
 // Create memory tool for the agent
-const createMemoryTool = {
+const createMemoryTool = tool({
   name: 'create_memory',
   description: 'Save important information about the user or their preferences for future reference',
+  parameters: z.object({
+    content: z.string().describe('The information to remember'),
+    category: z.enum(['preference', 'configuration', 'workflow', 'constraint', 'context', 'general']).describe('The category of information'),
+    importance: z.enum(['high', 'medium', 'low']).describe('How important this information is')
+  }),
   execute: async ({ content, category, importance }) => {
     try {
       // Generate embedding for the memory
@@ -64,28 +70,8 @@ const createMemoryTool = {
       console.error('Error creating memory:', error);
       return 'Failed to save memory';
     }
-  },
-  parameters: {
-    type: 'object',
-    properties: {
-      content: {
-        type: 'string',
-        description: 'The information to remember'
-      },
-      category: {
-        type: 'string',
-        enum: ['preference', 'configuration', 'workflow', 'constraint', 'context', 'general'],
-        description: 'The category of information'
-      },
-      importance: {
-        type: 'string',
-        enum: ['high', 'medium', 'low'],
-        description: 'How important this information is'
-      }
-    },
-    required: ['content', 'category', 'importance']
   }
-};
+});
 
 // Memory agent that analyzes conversations and extracts important information
 export const memoryAgent = new Agent({
@@ -135,7 +121,7 @@ export async function analyzeForMemories(message, userId = 1, conversationId = n
     }
     
     // Run the memory agent
-    const result = await memoryAgent.run(`
+    const result = await run(memoryAgent, `
 Analyze this message for important information to remember:
 
 "${message}"
@@ -173,7 +159,7 @@ Focus on:
 For each piece of important information, use the create_memory tool.
 `;
 
-    const result = await memoryAgent.run(prompt);
+    const result = await run(memoryAgent, prompt);
     console.log('Memory extraction completed');
     
     // Prune memories if needed

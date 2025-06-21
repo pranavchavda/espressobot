@@ -1,6 +1,6 @@
 import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
-import { mcpToolDiscovery } from './mcp-tool-discovery.js';
+import { customToolDiscovery } from './custom-tool-discovery.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dirname } from 'node:path';
@@ -20,14 +20,13 @@ setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 // Reuse previously discovered tools to embed all tool names into the prompt
 let allToolNames = [];
 try {
-  if (!mcpToolDiscovery.allTools.length) {
-    await mcpToolDiscovery.discoverTools();
+  if (!customToolDiscovery.allTools.length) {
+    await customToolDiscovery.discoverTools();
   }
-  allToolNames = mcpToolDiscovery.allTools.map(t => t.name);
+  allToolNames = customToolDiscovery.allTools.map(t => t.name);
 } catch (err) {
-  console.error('TaskGen: Failed to get tool names, using fallback:', err.message);
-  const fallback = mcpToolDiscovery.getFallbackTools();
-  allToolNames = fallback.allTools.map(t => t.name);
+  console.error('TaskGen: Failed to get tool names:', err.message);
+  allToolNames = [];
 }
 
 const toolNameList = allToolNames.join(', ');
