@@ -1,5 +1,104 @@
 # Claude Development Log
 
+## 🚀 EspressoBot v0.2 - Native Tools Integration Complete!
+
+### Current State (December 21, 2024)
+EspressoBot v0.2 is now fully functional with:
+- **7 specialized Shopify agents** using OpenAI Agents SDK
+- **25+ native Python tools** imported directly (no subprocess overhead)
+- **Clean architecture** based on OpenAI CS Agents Demo
+- **Working agent handoffs** and context management
+- **Native tool execution** for better performance and debugging
+
+### Architecture Overview
+```
+/home/pranav/espressobot/espressobot-v2/
+├── python-backend/
+│   ├── shopify_agents/       # 7 specialized agents
+│   ├── tools/                # All native Python tools
+│   │   ├── shopify_tools.py  # Main wrapper with function_tool decorators
+│   │   └── [25+ tool files]  # Copied from /home/pranav/idc/tools
+│   ├── api.py                # FastAPI endpoints
+│   ├── context.py            # ShopifyAgentContext
+│   └── main.py               # Agent setup (guardrails disabled)
+└── ui/                       # Next.js 15 frontend
+```
+
+### Running EspressoBot v0.2
+```bash
+cd /home/pranav/espressobot/espressobot-v2
+./start.sh  # Starts both backend (port 8000) and frontend (port 3000)
+```
+
+### Native Tools Status
+✅ **Working Tools:**
+- search_products, get_product, perplexity_search
+- product_create_full, create_combo, create_open_box
+- update_pricing, manage_tags, update_status
+- manage_inventory_policy, manage_variant_links
+- run_graphql_query, run_graphql_mutation
+- bulk_price_update (implemented as individual updates)
+
+⚠️ **CLI-Only Tools** (return "not implemented" errors):
+- manage_map_sales
+- upload_to_skuvault
+
+### Important Function Name Mappings
+When calling tools, use these corrected function names:
+- `create_combo` → calls `create_combo_listing()`
+- `update_pricing` → calls `update_variant_pricing()`
+- `manage_tags` → calls `manage_tags(action, identifier, tags)`
+- `update_product_status` → calls `update_status(identifier, status)`
+- `manage_variant_links` → calls `link_products()` or `unlink_products()`
+
+### Testing Tools
+```python
+# Test native tool imports
+cd /home/pranav/espressobot/espressobot-v2/python-backend
+python test_native_tools.py
+
+# Test API with native tools
+python test_native_api.py
+```
+
+### Next Steps for Improvement
+1. **Re-enable Guardrails**: Wait for openai-agents SDK fix for the `.tripwire_triggered` bug
+2. **Implement CLI-only tools**: Convert manage_map_sales and upload_to_skuvault to native functions
+3. **Add streaming responses**: Implement SSE for real-time agent responses
+4. **Enhance error handling**: Add better error messages and recovery strategies
+5. **Add more agents**: Consider agents for customer service, reporting, etc.
+6. **Implement memory**: Add conversation persistence and context retrieval
+7. **Add authentication**: Secure the API endpoints
+8. **Performance monitoring**: Add logging and metrics
+9. **Test coverage**: Add unit tests for all tools and agents
+10. **Documentation**: Create API docs and user guides
+
+### Common Issues & Solutions
+
+#### Tool Function Errors
+If you get errors like `module 'X' has no attribute 'Y'`:
+1. Check the actual function name in the tool file: `grep "^def " /path/to/tool.py`
+2. Update the function call in shopify_tools.py
+3. See "Important Function Name Mappings" above
+
+#### Environment Variables
+Tools expect these environment variables:
+- `SHOPIFY_SHOP_URL`: Your Shopify store URL
+- `SHOPIFY_ACCESS_TOKEN`: Admin API access token
+- `OPENAI_API_KEY`: For agents and Perplexity tool
+- `PERPLEXITY_API_KEY`: For product research
+
+#### Virtual Environment
+Make sure the virtual environment is activated:
+```bash
+cd /home/pranav/espressobot/espressobot-v2/python-backend
+source venv/bin/activate
+```
+
+---
+
+# Claude Development Log
+
 ## ⚠️ Known Issues
 
 ### Guardrails Compatibility Issue with openai-agents SDK
