@@ -5,7 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const MEMORIES_DIR = join(__dirname, '../memories');
+// Store memories outside of the frontend directory to avoid Vite reloads
+const MEMORIES_DIR = join(__dirname, '../../.memories');
 const MEMORIES_FILE = join(MEMORIES_DIR, 'user_memories.json');
 
 // Ensure memories directory exists

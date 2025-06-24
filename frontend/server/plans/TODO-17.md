@@ -1,0 +1,3 @@
+- [x] 🔄 search_products to locate product with handle 'sumatran-swp-decaf'
+- [x] 🔄 🔄 get_product to retrieve variant and inventory item details
+- [x] 🔄 🔄 🔄 manage_inventory_policy to set inventory policy to DENY for all variants

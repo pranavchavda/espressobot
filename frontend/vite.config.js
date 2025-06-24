@@ -66,9 +66,9 @@ export default defineConfig({
         }
         const express = (await import('express')).default;
         const bodyParser = (await import('body-parser')).default;
-        const chatHandler = (await import('./server/chat')).default;
+        // const chatHandler = (await import('./server/chat')).default;
         const convHandler = (await import('./server/conversations')).default;
-        const streamChatHandler = (await import('./server/stream_chat')).default;
+        // const streamChatHandler = (await import('./server/stream_chat')).default;
         // Unified orchestrator (new simplified architecture)
         const unifiedOrchestratorRouter = (await import('./server/unified-orchestrator')).default;
 
@@ -76,8 +76,8 @@ export default defineConfig({
         apiApp.use(bodyParser.json({ limit: '50mb' }));
         apiApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
         apiApp.use('/api/conversations', convHandler);
-        apiApp.use('/api/chat', chatHandler);
-        apiApp.use('/stream_chat', streamChatHandler);
+        // apiApp.use('/api/chat', chatHandler);
+        // apiApp.use('/stream_chat', streamChatHandler);
         // Master Agent endpoint: use unified orchestrator for all agent mode requests
         apiApp.use('/api/agent', unifiedOrchestratorRouter);
         server.middlewares.use(apiApp);
@@ -86,7 +86,7 @@ export default defineConfig({
   ],
   server: {
     watch: {
-      ignored: ['**/dev.db', '**/prisma/migrations/**'],
+      ignored: ['**/dev.db', '**/prisma/migrations/**', '**/.memories/**', '**/memories/**'],
     },
     port: 5173,
     open: true,
