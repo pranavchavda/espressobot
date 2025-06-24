@@ -14,6 +14,9 @@ const __dirname = path.dirname(__filename);
 
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_USE_MULTI_AGENT': JSON.stringify(process.env.USE_MULTI_AGENT || 'false')
+  },
   plugins: [
     react(),
     tailwindcss({
@@ -69,8 +72,14 @@ export default defineConfig({
         // const chatHandler = (await import('./server/chat')).default;
         const convHandler = (await import('./server/conversations')).default;
         // const streamChatHandler = (await import('./server/stream_chat')).default;
-        // Unified orchestrator (new simplified architecture)
-        const unifiedOrchestratorRouter = (await import('./server/unified-orchestrator')).default;
+        
+        // Choose orchestrator based on environment variable
+        const useMultiAgent = process.env.USE_MULTI_AGENT === 'true';
+        console.log(`Using ${useMultiAgent ? 'Multi-Agent' : 'Unified'} Orchestrator`);
+        
+        const orchestratorRouter = useMultiAgent 
+          ? (await import('./server/multi-agent-orchestrator')).default
+          : (await import('./server/unified-orchestrator')).default;
 
         const apiApp = express();
         apiApp.use(bodyParser.json({ limit: '50mb' }));
@@ -78,8 +87,8 @@ export default defineConfig({
         apiApp.use('/api/conversations', convHandler);
         // apiApp.use('/api/chat', chatHandler);
         // apiApp.use('/stream_chat', streamChatHandler);
-        // Master Agent endpoint: use unified orchestrator for all agent mode requests
-        apiApp.use('/api/agent', unifiedOrchestratorRouter);
+        // Master Agent endpoint
+        apiApp.use('/api/agent', orchestratorRouter);
         server.middlewares.use(apiApp);
       },
     },

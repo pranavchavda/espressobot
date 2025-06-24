@@ -29,7 +29,9 @@ function StreamingChatPage({ convId }) {
   const [currentPlan, setCurrentPlan] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [showImageUrlInput, setShowImageUrlInput] = useState(false);
-  const [useBasicAgent, setUseBasicAgent] = useState(true);
+  // Check if we're in multi-agent mode from the build environment
+  const isMultiAgentMode = import.meta.env.VITE_USE_MULTI_AGENT === 'true';
+  const [useBasicAgent, setUseBasicAgent] = useState(!isMultiAgentMode);
   const [hasShownTasks, setHasShownTasks] = useState(false);
   const [taskMarkdown, setTaskMarkdown] = useState(null);
   const [forceTaskGen, setForceTaskGen] = useState(false);
@@ -442,18 +444,82 @@ function StreamingChatPage({ convId }) {
                 break;
               }
             
-              if (useBasicAgent) {
+              // Handle conversation ID events regardless of agent mode
+              if (eventName === 'conv_id') {
+                if (actualEventPayload.conversationId && activeConv !== actualEventPayload.conversationId) {
+                  setActiveConv(actualEventPayload.conversationId);
+                }
+              } else if (eventName === 'conversation_id') {
+                if (actualEventPayload.conv_id && activeConv !== actualEventPayload.conv_id) {
+                  setActiveConv(actualEventPayload.conv_id);
+                }
+              }
+              
+              // Handle multi-agent specific events
+              if (!useBasicAgent) {
                 switch (eventName) {
-                case 'conv_id':
-                  if (actualEventPayload.conversationId && activeConv !== actualEventPayload.conversationId) {
-                    setActiveConv(actualEventPayload.conversationId);
+                case 'start':
+                  console.log("FRONTEND: Multi-agent system started", actualEventPayload);
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: actualEventPayload.message || "Processing with multi-agent system...", 
+                    isStreaming: true, 
+                    isComplete: false 
+                  }));
+                  break;
+                case 'handoff':
+                  console.log("FRONTEND: Agent handoff", actualEventPayload);
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: prev.content + `\n[Handoff: ${actualEventPayload.from} → ${actualEventPayload.to}]`, 
+                    isStreaming: true, 
+                    isComplete: false 
+                  }));
+                  break;
+                case 'tool_call':
+                  console.log("FRONTEND: Tool call by agent", actualEventPayload);
+                  setToolCallStatus(`${actualEventPayload.agent}: ${actualEventPayload.tool} (${actualEventPayload.status})`);
+                  break;
+                case 'agent_message':
+                  console.log("FRONTEND: Agent message", actualEventPayload);
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: actualEventPayload.content, 
+                    isStreaming: false, 
+                    isComplete: false 
+                  }));
+                  break;
+                case 'task_summary':
+                  console.log("FRONTEND: Task summary", actualEventPayload);
+                  if (actualEventPayload.tasks && actualEventPayload.tasks.length > 0) {
+                    setCurrentTasks(actualEventPayload.tasks.map(task => ({
+                      ...task,
+                      conversation_id: actualEventPayload.conversation_id || activeConv || convId
+                    })));
+                    setHasShownTasks(true);
                   }
                   break;
-                case 'conversation_id':
-                  if (actualEventPayload.conv_id && activeConv !== actualEventPayload.conv_id) {
-                    setActiveConv(actualEventPayload.conv_id);
-                  }
+                case 'memory_summary':
+                  console.log("FRONTEND: Memory summary", actualEventPayload);
+                  // Could display memory count in UI if desired
                   break;
+                case 'error':
+                  setToolCallStatus(`Error: ${actualEventPayload.message}`);
+                  console.error("Multi-agent Error:", actualEventPayload);
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: (prev?.content || "") + `\n\n**Error:** ${actualEventPayload.message}`, 
+                    isStreaming: false, 
+                    isComplete: true 
+                  }));
+                  setIsSending(false);
+                  shouldStop = true;
+                  break;
+                default:
+                  console.log("Unknown multi-agent SSE event type:", eventName, "Payload:", actualEventPayload);
+                }
+              } else if (useBasicAgent) {
+                switch (eventName) {
                 case 'agent_status':
                   const { status, tool } = actualEventPayload;
                   console.log('FRONTEND: agent_status event, status:', status, 'tool:', tool);
