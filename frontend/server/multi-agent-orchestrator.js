@@ -185,6 +185,14 @@ router.post('/run', async (req, res) => {
       });
       
       if (image.type === 'data_url' && image.data) {
+        // Check data URL format
+        const dataUrlMatch = image.data.match(/^data:([^;]+);base64,(.+)$/);
+        if (dataUrlMatch) {
+          console.log('[MULTI-AGENT] Data URL MIME type:', dataUrlMatch[1]);
+          console.log('[MULTI-AGENT] Base64 data length:', dataUrlMatch[2].length);
+          console.log('[MULTI-AGENT] First 100 chars of base64:', dataUrlMatch[2].substring(0, 100));
+        }
+        
         // Append image as markdown to the message
         agentInput = `${message}\n\n![User uploaded image](${image.data})`;
         console.log('[MULTI-AGENT] Added data URL image, total input length:', agentInput.length);
