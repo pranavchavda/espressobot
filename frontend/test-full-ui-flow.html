@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent UI Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .event-log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>🤖 Multi-Agent UI Test</h1>
+    
+    <div class="test-section">
+        <h2>Configuration Check</h2>
+        <div id="config-status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Multi-Agent Flow</h2>
+        <button id="test-button" onclick="testMultiAgent()">Run Test</button>
+        <div id="test-status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Event Log</h2>
+        <div id="event-log" class="event-log"></div>
+    </div>
+
+    <script>
+        // Check configuration
+        async function checkConfig() {
+            const configDiv = document.getElementById('config-status');
+            
+            // Check if we're in multi-agent mode
+            const isMultiAgent = localStorage.getItem('USE_MULTI_AGENT') === 'true';
+            
+            configDiv.innerHTML = `
+                <div class="status ${isMultiAgent ? 'success' : 'warning'}">
+                    Multi-Agent Mode: ${isMultiAgent ? 'Enabled ✅' : 'Disabled ⚠️'}
+                </div>
+                <div class="status info">
+                    Endpoint: /api/agent/run
+                </div>
+                <div class="status info">
+                    To enable multi-agent mode, run: USE_MULTI_AGENT=true npm run dev
+                </div>
+            `;
+        }
+        
+        // Test multi-agent flow
+        async function testMultiAgent() {
+            const button = document.getElementById('test-button');
+            const statusDiv = document.getElementById('test-status');
+            const logDiv = document.getElementById('event-log');
+            
+            button.disabled = true;
+            statusDiv.innerHTML = '<div class="status info">🔄 Starting test...</div>';
+            logDiv.innerHTML = '';
+            
+            const testMessage = "Please use the task planner to create a plan for searching Eureka Mignon products and showing their prices.";
+            
+            try {
+                const response = await fetch('/api/agent/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: testMessage,
+                        conv_id: 'test_' + Date.now()
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                let eventCount = 0;
+                let hasAgentProcessing = false;
+                let hasTaskPlanCreated = false;
+                let hasHandoff = false;
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        
+                        if (line.startsWith('event: ')) {
+                            eventCount++;
+                            const eventName = line.substring(7);
+                            const timestamp = new Date().toLocaleTimeString();
+                            
+                            // Get the data line
+                            let eventData = null;
+                            if (i + 1 < lines.length && lines[i + 1].startsWith('data: ')) {
+                                try {
+                                    eventData = JSON.parse(lines[i + 1].substring(6));
+                                } catch (e) {
+                                    eventData = lines[i + 1].substring(6);
+                                }
+                            }
+                            
+                            // Log the event
+                            logDiv.innerHTML += `[${timestamp}] <strong>${eventName}</strong>`;
+                            if (eventData) {
+                                logDiv.innerHTML += ': ' + JSON.stringify(eventData, null, 2);
+                            }
+                            logDiv.innerHTML += '\n';
+                            logDiv.scrollTop = logDiv.scrollHeight;
+                            
+                            // Check for specific events
+                            if (eventName === 'agent_processing') {
+                                hasAgentProcessing = true;
+                                statusDiv.innerHTML += `<div class="status success">✅ Agent Processing: ${eventData?.message || 'Working...'}</div>`;
+                            } else if (eventName === 'task_plan_created') {
+                                hasTaskPlanCreated = true;
+                                statusDiv.innerHTML += `<div class="status success">✅ Task Plan Created: ${eventData?.taskCount || 0} tasks</div>`;
+                            } else if (eventName === 'handoff') {
+                                hasHandoff = true;
+                                statusDiv.innerHTML += `<div class="status success">✅ Handoff: ${eventData?.from} → ${eventData?.to}</div>`;
+                            }
+                        }
+                    }
+                }
+                
+                // Summary
+                statusDiv.innerHTML += `
+                    <div class="status ${eventCount > 0 ? 'success' : 'error'}">
+                        Total Events: ${eventCount}
+                    </div>
+                    <div class="status ${hasAgentProcessing ? 'success' : 'warning'}">
+                        Agent Processing Events: ${hasAgentProcessing ? 'Yes ✅' : 'No ⚠️'}
+                    </div>
+                    <div class="status ${hasTaskPlanCreated ? 'success' : 'warning'}">
+                        Task Plan Created: ${hasTaskPlanCreated ? 'Yes ✅' : 'No ⚠️'}
+                    </div>
+                    <div class="status ${hasHandoff ? 'success' : 'warning'}">
+                        Agent Handoffs: ${hasHandoff ? 'Yes ✅' : 'No ⚠️'}
+                    </div>
+                `;
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="status error">❌ Error: ${error.message}</div>`;
+            } finally {
+                button.disabled = false;
+            }
+        }
+        
+        // Initialize
+        checkConfig();
+    </script>
+</body>
+</html>

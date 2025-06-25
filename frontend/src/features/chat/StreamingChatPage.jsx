@@ -6,6 +6,7 @@ import { Loader2, Send, ImageIcon, X, ListTodo, Square } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { TaskProgress } from "@components/chat/TaskProgress";
 import { TaskMarkdownProgress } from "@components/chat/TaskMarkdownProgress";
+import TaskMarkdownDisplay from "@components/chat/TaskMarkdownDisplay";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import { Switch, SwitchField } from "@common/switch";
@@ -35,6 +36,7 @@ function StreamingChatPage({ convId }) {
   const [hasShownTasks, setHasShownTasks] = useState(false);
   const [taskMarkdown, setTaskMarkdown] = useState(null);
   const [forceTaskGen, setForceTaskGen] = useState(false);
+  const [agentProcessingStatus, setAgentProcessingStatus] = useState("");
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -156,12 +158,18 @@ function StreamingChatPage({ convId }) {
       if (content) {
         setMessages(prev => [
           ...prev,
-          { id: `msg-${Date.now()}`, role: "assistant", content, timestamp }
+          { 
+            id: `msg-${Date.now()}`, 
+            role: "assistant", 
+            content, 
+            timestamp,
+            taskMarkdown: taskMarkdown // Save current task markdown with the message
+          }
         ]);
       }
       setStreamingMessage(null);
     }
-  }, [streamingMessage?.isComplete]);
+  }, [streamingMessage?.isComplete, taskMarkdown]);
 
   // Handle image paste from clipboard
   useEffect(() => {
@@ -315,6 +323,8 @@ function StreamingChatPage({ convId }) {
     setImageAttachment(null); // Clear attachment after sending
     setImageUrl("");
     setShowImageUrlInput(false);
+    setAgentProcessingStatus(""); // Clear previous agent status
+    setTaskMarkdown(null); // Clear previous task markdown
 
     setStreamingMessage({
       role: "assistant",
@@ -460,9 +470,10 @@ function StreamingChatPage({ convId }) {
                 switch (eventName) {
                 case 'start':
                   console.log("FRONTEND: Multi-agent system started", actualEventPayload);
+                  // Don't overwrite content, just update the message
                   setStreamingMessage(prev => ({ 
                     ...prev, 
-                    content: actualEventPayload.message || "Processing with multi-agent system...", 
+                    content: prev?.content || "", 
                     isStreaming: true, 
                     isComplete: false 
                   }));
@@ -484,7 +495,7 @@ function StreamingChatPage({ convId }) {
                   console.log("FRONTEND: Agent message", actualEventPayload);
                   setStreamingMessage(prev => ({ 
                     ...prev, 
-                    content: actualEventPayload.content, 
+                    content: (prev?.content || "") + "\n\n" + actualEventPayload.content, 
                     isStreaming: false, 
                     isComplete: false 
                   }));
@@ -502,6 +513,25 @@ function StreamingChatPage({ convId }) {
                 case 'memory_summary':
                   console.log("FRONTEND: Memory summary", actualEventPayload);
                   // Could display memory count in UI if desired
+                  break;
+                case 'task_plan_creating':
+                  console.log("FRONTEND: Task plan being created", actualEventPayload);
+                  setToolCallStatus('Task Planner is creating a structured plan...');
+                  break;
+                case 'task_plan_created':
+                  console.log("FRONTEND: Task plan created", actualEventPayload);
+                  setTaskMarkdown({
+                    markdown: actualEventPayload.markdown,
+                    filename: actualEventPayload.filename,
+                    taskCount: actualEventPayload.taskCount,
+                    conversation_id: actualEventPayload.conversation_id
+                  });
+                  setToolCallStatus(`Task plan created with ${actualEventPayload.taskCount} tasks`);
+                  break;
+                case 'agent_processing':
+                  console.log("FRONTEND: Agent processing", actualEventPayload);
+                  setAgentProcessingStatus(actualEventPayload.message || `${actualEventPayload.agent} is processing...`);
+                  setToolCallStatus(""); // Clear tool status when agent message is shown
                   break;
                 case 'error':
                   setToolCallStatus(`Error: ${actualEventPayload.message}`);
@@ -809,6 +839,7 @@ function StreamingChatPage({ convId }) {
                   }
                   
                   setSynthesizerStatus("Synthesizer: completed.");
+                  setAgentProcessingStatus(""); // Clear agent status
                   console.log("FRONTEND: 'done' event fully processed");
                   break;
                 default:
@@ -961,6 +992,13 @@ function StreamingChatPage({ convId }) {
                               )}
                             </div>
                           )}
+                          {/* Show task markdown if available for this message */}
+                          {msg.role === "assistant" && msg.taskMarkdown && (
+                            <TaskMarkdownDisplay 
+                              taskMarkdown={msg.taskMarkdown} 
+                              isExpanded={false}
+                            />
+                          )}
                           <MarkdownRenderer isAgent={msg.role === "assistant"}>
                             {String(msg.content || "")}
                           </MarkdownRenderer>
@@ -991,8 +1029,8 @@ function StreamingChatPage({ convId }) {
               })}
 
 
-              {/* Render streaming message if present */}
-              {streamingMessage && (
+              {/* Render streaming message if present and has content */}
+              {streamingMessage && (streamingMessage.content || streamingMessage.isStreaming) && (
                 <div className="flex items-start gap-2">
                   <div className="flex-shrink-0">
                     <Avatar
@@ -1053,6 +1091,14 @@ function StreamingChatPage({ convId }) {
                     )}
 
                     {/* Old Task Progress - commented out in favor of TaskMarkdownProgress */}
+                    {/* Show task markdown if available */}
+                    {taskMarkdown && taskMarkdown.conversation_id === (activeConv || convId) && (
+                      <TaskMarkdownDisplay 
+                        taskMarkdown={taskMarkdown} 
+                        isExpanded={true}
+                      />
+                    )}
+                    
                     {/* {useBasicAgent && (
                       <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                         <div className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">Task Progress</div>
@@ -1078,7 +1124,7 @@ function StreamingChatPage({ convId }) {
                       {streamingMessage.isStreaming && !streamingMessage.isError && (
                         <span className="flex items-center">
                           <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          {toolCallStatus ? toolCallStatus : "Generating..."}
+                          {agentProcessingStatus || toolCallStatus || "Generating..."}
                         </span>
                       )}
                       {streamingMessage.timestamp && (

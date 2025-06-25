@@ -27,7 +27,55 @@ router.post('/run', async (req, res) => {
   
   // Helper to send SSE events
   const sendEvent = (eventName, data) => {
+    console.log(`[MULTI-AGENT] Sending SSE event: ${eventName}`, data);
     res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Helper to get agent-specific status messages
+  const getAgentStatusMessage = (agentName, toolName = null) => {
+    const messages = {
+      'EspressoBot_Orchestrator': {
+        default: 'EspressoBot Orchestrator is analyzing your request...',
+        'transfer_to_Memory_Agent': 'EspressoBot is routing to Memory Agent...',
+        'transfer_to_Task_Planner_Agent': 'EspressoBot is routing to Task Planner...',
+        'transfer_to_Product_Creation_Agent': 'EspressoBot is routing to Product Creation Agent...',
+        'transfer_to_Product_Update_Agent': 'EspressoBot is routing to Product Update Agent...'
+      },
+      'Memory_Agent': {
+        default: 'Memory Agent is retrieving relevant memories...',
+        'search_memories': 'Memory Agent is searching through conversation history...',
+        'store_memory': 'Memory Agent is storing important information...',
+        'transfer_to_EspressoBot_Orchestrator': 'Memory Agent is returning to orchestrator...'
+      },
+      'Task_Planner_Agent': {
+        default: 'Task Planner is creating an execution plan...',
+        'create_task_plan': 'Task Planner is structuring your tasks...',
+        'update_task_status': 'Task Planner is updating task progress...',
+        'get_current_tasks': 'Task Planner is retrieving current tasks...',
+        'transfer_to_EspressoBot_Orchestrator': 'Task Planner is handing off for execution...'
+      },
+      'Product_Creation_Agent': {
+        default: 'Product Creation Agent is creating products...',
+        'product_create_full': 'Creating new product listing...',
+        'create_combo': 'Creating combo product bundle...',
+        'create_open_box': 'Creating open box listing...',
+        'transfer_to_EspressoBot_Orchestrator': 'Product Creation Agent is returning results...'
+      },
+      'Product_Update_Agent': {
+        default: 'Product Update Agent is searching for products...',
+        'search_products': 'Searching product catalog...',
+        'get_product': 'Retrieving product details...',
+        'update_pricing': 'Updating product prices...',
+        'manage_tags': 'Managing product tags...',
+        'transfer_to_EspressoBot_Orchestrator': 'Product Update Agent is returning results...'
+      }
+    };
+    
+    const agentMessages = messages[agentName] || { default: `${agentName} is processing...` };
+    if (toolName && agentMessages[toolName]) {
+      return agentMessages[toolName];
+    }
+    return agentMessages.default;
   };
 
   // Send initial event
@@ -133,10 +181,13 @@ router.post('/run', async (req, res) => {
     
     let result;
     try {
+      console.log('[MULTI-AGENT] Starting agent run with input:', agentInput.substring(0, 100) + '...');
       result = await run(espressoBotOrchestrator, agentInput, {
         maxTurns: 10,
         context,
         onStepStart: (step) => {
+        console.log('[MULTI-AGENT] onStepStart called:', step.type, step.agent?.name);
+        const agentName = step.agent?.name || 'Unknown';
         
         if (step.type === 'handoff') {
           sendEvent('handoff', {
@@ -149,17 +200,42 @@ router.post('/run', async (req, res) => {
           if (step.tool_name && step.tool_name.includes('transfer_to_')) {
             const toAgent = step.tool_name.replace('transfer_to_', '');
             sendEvent('handoff', {
-              from: step.agent?.name || 'EspressoBot_Orchestrator',
+              from: agentName,
               to: toAgent,
               reason: 'Agent handoff via transfer tool'
             });
           } else {
+            // Send agent processing event with specific message
+            const statusMessage = getAgentStatusMessage(agentName, step.tool_name);
+            sendEvent('agent_processing', {
+              agent: agentName,
+              tool: step.tool_name,
+              message: statusMessage,
+              status: 'processing'
+            });
+            
             sendEvent('tool_call', {
-              agent: step.agent?.name || 'Unknown',
+              agent: agentName,
               tool: step.tool_name,
               status: 'started'
             });
+            
+            // Check if Task Planner is creating a task plan
+            if (agentName === 'Task_Planner_Agent' && step.tool_name === 'create_task_plan') {
+              sendEvent('task_plan_creating', {
+                agent: 'Task_Planner_Agent',
+                status: 'creating'
+              });
+            }
           }
+        } else if (step.type === 'agent_start') {
+          // Send processing event when agent starts
+          const statusMessage = getAgentStatusMessage(agentName);
+          sendEvent('agent_processing', {
+            agent: agentName,
+            message: statusMessage,
+            status: 'started'
+          });
         }
       },
       onStepFinish: (step) => {
@@ -170,6 +246,29 @@ router.post('/run', async (req, res) => {
             status: 'completed',
             result: step.result
           });
+          
+          // Check if Task Planner created a task plan
+          if (step.agent?.name === 'Task_Planner_Agent' && step.tool_name === 'create_task_plan' && step.result) {
+            const result = step.result;
+            if (result.success && result.filepath) {
+              // Read the markdown file and send it
+              const fs = require('fs');
+              const path = require('path');
+              
+              try {
+                const markdownContent = fs.readFileSync(result.filepath, 'utf-8');
+                sendEvent('task_plan_created', {
+                  agent: 'Task_Planner_Agent',
+                  filename: result.filename,
+                  markdown: markdownContent,
+                  taskCount: result.taskCount,
+                  conversation_id: conversationId
+                });
+              } catch (err) {
+                console.error('Error reading task plan markdown:', err);
+              }
+            }
+          }
         }
       }
     });
