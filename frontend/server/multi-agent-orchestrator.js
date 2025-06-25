@@ -182,86 +182,78 @@ router.post('/run', async (req, res) => {
     let result;
     try {
       console.log('[MULTI-AGENT] Starting agent run with input:', agentInput.substring(0, 100) + '...');
-      result = await run(espressoBotOrchestrator, agentInput, {
+      
+      // Use streaming mode to get real-time updates
+      const stream = run(espressoBotOrchestrator, agentInput, {
         maxTurns: 10,
         context,
-        onStepStart: (step) => {
-          console.log('[MULTI-AGENT] onStepStart called:', step.type, step.agent?.name);
-          const agentName = step.agent?.name || 'Unknown';
+        stream: true
+      });
+      
+      let finalResult = null;
+      for await (const event of stream) {
+        console.log('[MULTI-AGENT] Stream event:', event.type || 'unknown', event);
+        
+        // Handle different event types
+        if (event.type === 'tool_call') {
+          const agentName = event.agent?.name || 'Unknown';
           
-          if (step.type === 'handoff') {
-          sendEvent('handoff', {
-            from: step.fromAgent?.name || 'Unknown',
-            to: step.toAgent?.name || 'Unknown',
-            reason: step.reason || 'Agent handoff'
-          });
-          } else if (step.type === 'tool_call') {
           // Check if it's a transfer tool (handoff)
-          if (step.tool_name && step.tool_name.includes('transfer_to_')) {
-            const toAgent = step.tool_name.replace('transfer_to_', '');
+          if (event.tool_name && event.tool_name.includes('transfer_to_')) {
+            const toAgent = event.tool_name.replace('transfer_to_', '');
             sendEvent('handoff', {
               from: agentName,
               to: toAgent,
-              reason: 'Agent handoff via transfer tool'
+              reason: 'Agent handoff'
             });
           } else {
-            // Send agent processing event with specific message
-            const statusMessage = getAgentStatusMessage(agentName, step.tool_name);
+            // Send agent processing event
+            const statusMessage = getAgentStatusMessage(agentName, event.tool_name);
             sendEvent('agent_processing', {
               agent: agentName,
-              tool: step.tool_name,
+              tool: event.tool_name,
               message: statusMessage,
               status: 'processing'
             });
             
             sendEvent('tool_call', {
               agent: agentName,
-              tool: step.tool_name,
+              tool: event.tool_name,
               status: 'started'
             });
             
             // Check if Task Planner is creating a task plan
-            if (agentName === 'Task_Planner_Agent' && step.tool_name === 'create_task_plan') {
+            if (agentName === 'Task_Planner_Agent' && event.tool_name === 'create_task_plan') {
               sendEvent('task_plan_creating', {
                 agent: 'Task_Planner_Agent',
                 status: 'creating'
               });
             }
           }
-          } else if (step.type === 'agent_start') {
-          // Send processing event when agent starts
-          const statusMessage = getAgentStatusMessage(agentName);
-          sendEvent('agent_processing', {
-            agent: agentName,
-            message: statusMessage,
-            status: 'started'
-          });
-          }
-        },
-      onStepFinish: (step) => {
-        if (step.type === 'tool_call') {
+        } else if (event.type === 'tool_result') {
+          const agentName = event.agent?.name || 'Unknown';
+          
           sendEvent('tool_call', {
-            agent: step.agent?.name || 'Unknown',
-            tool: step.tool_name,
+            agent: agentName,
+            tool: event.tool_name,
             status: 'completed',
-            result: step.result
+            result: event.result
           });
           
           // Check if Task Planner created a task plan
-          if (step.agent?.name === 'Task_Planner_Agent' && step.tool_name === 'create_task_plan' && step.result) {
-            const result = step.result;
-            if (result.success && result.filepath) {
+          if (agentName === 'Task_Planner_Agent' && event.tool_name === 'create_task_plan' && event.result) {
+            const taskResult = event.result;
+            if (taskResult.success && taskResult.filepath) {
               // Read the markdown file and send it
               const fs = require('fs');
-              const path = require('path');
               
               try {
-                const markdownContent = fs.readFileSync(result.filepath, 'utf-8');
+                const markdownContent = fs.readFileSync(taskResult.filepath, 'utf-8');
                 sendEvent('task_plan_created', {
                   agent: 'Task_Planner_Agent',
-                  filename: result.filename,
+                  filename: taskResult.filename,
                   markdown: markdownContent,
-                  taskCount: result.taskCount,
+                  taskCount: taskResult.taskCount,
                   conversation_id: conversationId
                 });
               } catch (err) {
@@ -269,14 +261,40 @@ router.post('/run', async (req, res) => {
               }
             }
           }
+        } else if (event.type === 'message') {
+          // Agent messages during execution
+          sendEvent('agent_message_partial', {
+            agent: event.agent?.name || 'Unknown',
+            content: event.content,
+            timestamp: new Date().toISOString()
+          });
+        } else if (event.type === 'handoff') {
+          sendEvent('handoff', {
+            from: event.from_agent?.name || 'Unknown',
+            to: event.to_agent?.name || 'Unknown',
+            reason: event.reason || 'Agent handoff'
+          });
+        } else if (event.type === 'result' || event.type === 'done') {
+          // Final result
+          finalResult = event;
         }
       }
-    });
+      
+      result = finalResult;
+      
+      // Callback-based approach didn't work, using streaming instead
     } catch (runError) {
       throw runError;
     }
     
 
+    console.log('[MULTI-AGENT] Run completed. Result structure:', Object.keys(result || {}));
+    if (result?.state) {
+      console.log('[MULTI-AGENT] State keys:', Object.keys(result.state));
+      console.log('[MULTI-AGENT] Current agent:', result.state._currentAgent?.name);
+      console.log('[MULTI-AGENT] Steps taken:', result.state._steps?.length || 0);
+    }
+    
     // Extract the final response
     let finalResponse = '';
     let lastAgent = 'EspressoBot_Orchestrator';

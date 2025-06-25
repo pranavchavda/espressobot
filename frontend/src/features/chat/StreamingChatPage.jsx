@@ -537,6 +537,16 @@ function StreamingChatPage({ convId }) {
                   setAgentProcessingStatus(actualEventPayload.message || `${actualEventPayload.agent} is processing...`);
                   setToolCallStatus(""); // Clear tool status when agent message is shown
                   break;
+                case 'agent_message_partial':
+                  console.log("FRONTEND: Agent partial message", actualEventPayload);
+                  // For partial messages during streaming
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: (prev?.content || "") + actualEventPayload.content,
+                    isStreaming: true, 
+                    isComplete: false 
+                  }));
+                  break;
                 case 'error':
                   setToolCallStatus(`Error: ${actualEventPayload.message}`);
                   console.error("Multi-agent Error:", actualEventPayload);
