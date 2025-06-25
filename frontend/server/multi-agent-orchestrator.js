@@ -4,6 +4,12 @@ import { espressoBotOrchestrator } from './agents/espressobot-orchestrator.js';
 // import { simpleOrchestrator as espressoBotOrchestrator } from './agents/simple-orchestrator.js';
 import EventEmitter from 'events';
 import { PrismaClient } from '@prisma/client';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -179,14 +185,54 @@ router.post('/run', async (req, res) => {
     // Add conversation ID to the input for task planning
     agentInput = `[Conversation ID: ${conversationId}]\n${agentInput}`;
     
+    // Set up markdown file polling like unified orchestrator does
+    let pollMarkdownInterval = null;
+    let lastMarkdownContent = '';
+    const plansDir = path.join(__dirname, '../plans');
+    
+    // Function to poll for task markdown files
+    const pollTaskMarkdown = () => {
+      try {
+        const fs = require('fs');
+        const files = fs.readdirSync(plansDir);
+        // Don't log every poll, too noisy
+        
+        // Look for markdown files for this conversation
+        // Make sure conversationId is a string for comparison
+        const convIdStr = String(conversationId);
+        const taskFile = files.find(f => f.startsWith(`${convIdStr}_`) && f.endsWith('.md'));
+        
+        if (taskFile) {
+          const filePath = path.join(plansDir, taskFile);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          
+          // Only send if content has changed
+          if (content !== lastMarkdownContent) {
+            lastMarkdownContent = content;
+            sendEvent('task_plan_created', {
+              agent: 'Task_Planner_Agent',
+              filename: taskFile,
+              markdown: content,
+              taskCount: (content.match(/- \[ \]/g) || []).length,
+              conversation_id: conversationId
+            });
+            console.log(`[MULTI-AGENT] Task markdown update sent via polling - ${taskFile} (${taskCount} tasks)`);
+          }
+        }
+      } catch (err) {
+        // Ignore errors, will try again next poll
+      }
+    };
+    
+    // Start polling every 500ms
+    pollMarkdownInterval = setInterval(pollTaskMarkdown, 500);
+    console.log('[MULTI-AGENT] Started task markdown polling');
+    
     let result;
     try {
       console.log('[MULTI-AGENT] Starting agent run with input:', agentInput.substring(0, 100) + '...');
       
-      // For now, use regular mode until we figure out streaming
-      // The OpenAI agents SDK might not support streaming in v0.0.9
-      
-      // Send initial processing event since we can't get real-time updates
+      // Send initial processing event
       sendEvent('agent_processing', {
         agent: 'EspressoBot_Orchestrator',
         message: 'EspressoBot Orchestrator is analyzing your request...',
@@ -195,37 +241,92 @@ router.post('/run', async (req, res) => {
       
       result = await run(espressoBotOrchestrator, agentInput, {
         maxTurns: 10,
-        context
-      });
-      
-      // Since we can't get real-time updates, let's at least check the result
-      // to see if we can extract task plan info
-      if (result?.state?._steps) {
-        console.log('[MULTI-AGENT] Checking steps for task plan creation...');
-        for (const step of result.state._steps) {
-          if (step.tool_name === 'create_task_plan' && step.result?.success) {
-            // Task plan was created, read and send it
-            const fs = require('fs');
-            try {
-              const markdownContent = fs.readFileSync(step.result.filepath, 'utf-8');
-              sendEvent('task_plan_created', {
-                agent: 'Task_Planner_Agent',
-                filename: step.result.filename,
-                markdown: markdownContent,
-                taskCount: step.result.taskCount,
-                conversation_id: conversationId
+        context,
+        trace: {
+          workflow_name: 'Multi-Agent Workflow',
+          metadata: { conversation_id: conversationId }
+        },
+        onStepStart: (step) => {
+          console.log('[MULTI-AGENT] onStepStart triggered');
+          console.log('Step type:', step.type);
+          console.log('Step agent:', step.agent?.name);
+          console.log('Step tool:', step.tool_name);
+          
+          const agentName = step.agent?.name || 'Unknown';
+          
+          if (step.type === 'tool_call') {
+            // Check if it's a transfer tool (handoff)
+            if (step.tool_name && step.tool_name.includes('transfer_to_')) {
+              const toAgent = step.tool_name.replace('transfer_to_', '');
+              sendEvent('handoff', {
+                from: agentName,
+                to: toAgent,
+                reason: 'Agent handoff'
               });
-              console.log('[MULTI-AGENT] Task plan event sent');
-            } catch (err) {
-              console.error('Error reading task plan markdown:', err);
+              
+              // Send agent processing for the new agent
+              const statusMessage = getAgentStatusMessage(toAgent);
+              sendEvent('agent_processing', {
+                agent: toAgent,
+                message: statusMessage,
+                status: 'processing'
+              });
+            } else {
+              // Send tool status
+              const statusMessage = getAgentStatusMessage(agentName, step.tool_name);
+              sendEvent('agent_processing', {
+                agent: agentName,
+                tool: step.tool_name,
+                message: statusMessage,
+                status: 'processing'
+              });
+              
+              sendEvent('tool_call', {
+                agent: agentName,
+                tool: step.tool_name,
+                status: 'started'
+              });
             }
           }
+        },
+        onStepFinish: (step) => {
+          console.log('[MULTI-AGENT] onStepFinish triggered');
+          console.log('Step type:', step.type);
+          console.log('Step result:', step.result ? 'has result' : 'no result');
+          
+          if (step.type === 'tool_call') {
+            sendEvent('tool_call', {
+              agent: step.agent?.name || 'Unknown',
+              tool: step.tool_name,
+              status: 'completed',
+              result: step.result
+            });
+          }
+        },
+        onMessage: (message) => {
+          console.log('[MULTI-AGENT] onMessage triggered');
+          console.log('Message:', JSON.stringify(message, null, 2).substring(0, 500));
+          
+          // Stream partial content if available
+          if (message.content) {
+            sendEvent('agent_message_partial', {
+              agent: 'Current',
+              content: message.content,
+              timestamp: new Date().toISOString()
+            });
+          }
         }
-      }
+      });
       
-      // End of streaming code removal */
     } catch (runError) {
+      clearInterval(pollMarkdownInterval);
       throw runError;
+    } finally {
+      // Always clean up the polling interval
+      if (pollMarkdownInterval) {
+        clearInterval(pollMarkdownInterval);
+        console.log('[MULTI-AGENT] Stopped task markdown polling');
+      }
     }
     
 
