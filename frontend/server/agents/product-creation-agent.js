@@ -38,7 +38,7 @@ export const productCreationAgent = new Agent({
   name: 'Product_Creation_Agent',
   instructions: productCreationInstructions,
   handoffDescription: 'Hand off to Product Creation Agent for creating new products, bundles, or combo listings',
-  model: 'gpt-4.1-mini',  // Using gpt-4.1-mini as it doesn't need heavy reasoning
+  model: 'gpt-4.1-mini',  // Using gpt-4.1-mini which supports vision
   tools: productCreationTools,
   mcpServers: [shopifyDevMCP],  // Add MCP server for documentation access
   modelSettings: {

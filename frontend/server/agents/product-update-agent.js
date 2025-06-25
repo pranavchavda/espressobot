@@ -40,7 +40,7 @@ export const productUpdateAgent = new Agent({
   name: 'Product_Update_Agent',
   instructions: productUpdateInstructions,
   handoffDescription: 'Hand off to Product Update Agent for modifying existing products, bulk updates, or inventory management',
-  model: 'gpt-4.1-mini',  // Using gpt-4.1-mini as it doesn't need heavy reasoning
+  model: 'gpt-4.1-mini',  // Using gpt-4.1-mini as it supports vision
   tools: productUpdateTools,
   mcpServers: [shopifyDevMCP],  // Add MCP server for documentation access
   modelSettings: {
