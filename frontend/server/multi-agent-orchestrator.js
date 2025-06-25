@@ -319,14 +319,8 @@ router.post('/run', async (req, res) => {
       });
       
     } catch (runError) {
-      clearInterval(pollMarkdownInterval);
+      // Don't clear interval yet, we need it for final polling
       throw runError;
-    } finally {
-      // Always clean up the polling interval
-      if (pollMarkdownInterval) {
-        clearInterval(pollMarkdownInterval);
-        console.log('[MULTI-AGENT] Stopped task markdown polling');
-      }
     }
     
 
@@ -461,6 +455,15 @@ router.post('/run', async (req, res) => {
       }
     }
 
+    // Give polling one last chance to detect any files
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Clean up polling before sending done event
+    if (pollMarkdownInterval) {
+      clearInterval(pollMarkdownInterval);
+      console.log('[MULTI-AGENT] Stopped task markdown polling');
+    }
+    
     // Send completion event
     sendEvent('done', {
       finalResponse,
@@ -473,6 +476,10 @@ router.post('/run', async (req, res) => {
     });
 
   } catch (error) {
+    // Clean up polling on error
+    if (pollMarkdownInterval) {
+      clearInterval(pollMarkdownInterval);
+    }
     console.error('Multi-agent orchestrator error:', error);
     sendEvent('error', {
       message: error.message,
