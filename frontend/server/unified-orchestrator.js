@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
 import { run } from '@openai/agents';
+import { runWithVisionRetry } from './vision-retry-wrapper.js';
+import { validateAndFixBase64 } from './vision-preprocessor.js';
 import { unifiedAgent } from './basic-agent-custom.js';
 import { taskGeneratorAgent, writePlanMdTool, readPlanMdTool, getTodosTool, generateTodosTool } from './task-generator-agent.js';
 import { runMemoryExtraction } from './memory-agent.js';
@@ -79,7 +81,7 @@ async function sendTaskMarkdown(res, conversationId) {
 
 router.post('/run', async (req, res) => {
   console.log('\n========= UNIFIED ORCHESTRATOR REQUEST RECEIVED =========');
-  const { message, conv_id: existing_conv_id, forceTaskGen } = req.body || {};
+  const { message, conv_id: existing_conv_id, forceTaskGen, image } = req.body || {};
   let conversationId = existing_conv_id;
 
   // Setup SSE
@@ -150,25 +152,115 @@ router.post('/run', async (req, res) => {
     const relevantMemories = await findRelevantMemories(message, USER_ID);
     const memoryContext = formatMemoriesForContext(relevantMemories);
     
-    let agentInput = message;
-    if (historyText) {
-      agentInput = `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+    let agentInput;
+    
+    // Handle image input if present
+    if (image && (image.type === 'data_url' || image.type === 'url')) {
+      console.log('Processing image input:', image.type);
+      
+      // Create content array for multimodal input
+      const contentArray = [];
+      
+      // Build text content
+      let textContent = message;
+      if (historyText) {
+        textContent = `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+      }
+      
+      // Add memories if available
+      if (memoryContext) {
+        textContent = memoryContext + '\n' + textContent;
+      }
+      
+      // Add conversation ID context
+      textContent += `\n\n[SYSTEM CONTEXT]\nconversation_id=${conversationId}\n`;
+      
+      // Add force task generation instruction if enabled
+      if (forceTaskGen) {
+        textContent += `\nIMPORTANT: The user has explicitly requested that you MUST use task generation for this request. Call generate_todos immediately, regardless of task complexity.\n`;
+      }
+      
+      textContent += `[/SYSTEM CONTEXT]`;
+      
+      contentArray.push({
+        type: 'input_text',
+        text: textContent
+      });
+      
+      // Add image content
+      if (image.type === 'data_url' && image.data) {
+        // Validate and fix base64 format
+        const validatedDataUrl = validateAndFixBase64(image.data);
+        
+        // Check size
+        const base64Match = validatedDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (base64Match) {
+          const base64Data = base64Match[2];
+          const sizeKB = (base64Data.length * 0.75 / 1024).toFixed(0);
+          console.log('Image size:', sizeKB, 'KB');
+          
+          if (base64Data.length > 500 * 1024) {
+            sendSse(res, 'error', {
+              message: `Image too large (${sizeKB}KB). Please use images under 375KB.`,
+              type: 'image_size_error'
+            });
+          } else {
+            if (base64Data.length > 200 * 1024) {
+              sendSse(res, 'status', {
+                message: `Processing large image (${sizeKB}KB). This may take 30-60 seconds...`,
+                type: 'warning'
+              });
+            }
+            
+            contentArray.push({
+              type: 'input_image',
+              image: validatedDataUrl
+            });
+            
+            console.log('Added validated base64 image to content array');
+            sendSse(res, 'status', {
+              message: 'Processing screenshot with enhanced vision capabilities...',
+              type: 'info'
+            });
+          }
+        }
+      } else if (image.type === 'url' && image.url) {
+        contentArray.push({
+          type: 'input_image',
+          image: image.url
+        });
+        console.log('Added URL image to content array');
+      }
+      
+      // Create proper user message format for multimodal input
+      agentInput = [{
+        role: 'user',
+        content: contentArray
+      }];
+      
+      console.log('Created multimodal input with', contentArray.length, 'content items');
+    } else {
+      // Text-only input (original logic)
+      agentInput = message;
+      if (historyText) {
+        agentInput = `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+      }
+      
+      // Add memories if available
+      if (memoryContext) {
+        agentInput = memoryContext + '\n' + agentInput;
+      }
+      
+      // Add conversation ID context for the agent
+      agentInput += `\n\n[SYSTEM CONTEXT]\nconversation_id=${conversationId}\n`;
+      
+      // Add force task generation instruction if enabled
+      if (forceTaskGen) {
+        agentInput += `\nIMPORTANT: The user has explicitly requested that you MUST use task generation for this request. Call generate_todos immediately, regardless of task complexity.\n`;
+      }
+      
+      agentInput += `[/SYSTEM CONTEXT]`;
     }
-    
-    // Add memories if available
-    if (memoryContext) {
-      agentInput = memoryContext + '\n' + agentInput;
-    }
-    
-    // Add conversation ID context for the agent
-    agentInput += `\n\n[SYSTEM CONTEXT]\nconversation_id=${conversationId}\n`;
-    
-    // Add force task generation instruction if enabled
-    if (forceTaskGen) {
-      agentInput += `\nIMPORTANT: The user has explicitly requested that you MUST use task generation for this request. Call generate_todos immediately, regardless of task complexity.\n`;
-    }
-    
-    agentInput += `[/SYSTEM CONTEXT]`;
     
     console.log('Agent input prepared, forceTaskGen:', forceTaskGen);
     
@@ -230,7 +322,13 @@ router.post('/run', async (req, res) => {
     activeAgentRuns.set(conversationId, runController);
     console.log(`Stored active agent run for conversation ${conversationId}`);
     
-    const result = await run(unifiedAgent, agentInput, {
+    // Use retry wrapper for vision requests
+    const runFn = Array.isArray(agentInput) && 
+      agentInput[0]?.content?.some(c => c.type === 'input_image') 
+      ? runWithVisionRetry 
+      : run;
+    
+    const result = await runFn(unifiedAgent, agentInput, {
       maxTurns: MAX_TURNS,
       trace: {
         workflow_name: 'EspressoBot Workflow',

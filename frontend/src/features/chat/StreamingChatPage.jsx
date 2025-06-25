@@ -11,6 +11,7 @@ import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import { Switch, SwitchField } from "@common/switch";
 import logo from "../../../static/EspressoBotLogo.png";
+import { autoUploadImage } from "@lib/image-upload";
 
 
 function StreamingChatPage({ convId }) {
@@ -197,6 +198,34 @@ function StreamingChatPage({ convId }) {
   // Function to handle image attachments
   const handleImageAttachment = (file) => {
     if (file) {
+      // Check file size (larger images take longer to process)
+      const MAX_FILE_SIZE = 375 * 1024; // 375KB (500KB base64)
+      const WARN_FILE_SIZE = 150 * 1024; // 150KB (200KB base64)
+      
+      if (file.size > MAX_FILE_SIZE) {
+        // Show error message
+        setStreamingMessage({
+          role: "system",
+          content: `⚠️ Image too large (${(file.size / 1024).toFixed(0)}KB). Maximum supported size is 375KB.\n\n**Important**: Due to OpenAI agents SDK limitations, base64 images may not render properly. We strongly recommend using image URLs instead.\n\n**Alternatives:**\n1. Use the image URL option (highly recommended)\n2. Upload to an image host (imgur, imgbb, etc.) and paste the URL\n3. Compress your image to under 100KB if you must use direct upload`,
+          isStreaming: false,
+          isComplete: true,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Don't attach the image
+        return;
+      } else if (file.size > WARN_FILE_SIZE) {
+        // Show warning for large images but still attach it
+        setStreamingMessage({
+          role: "system", 
+          content: `⚠️ Large image (${(file.size / 1024).toFixed(0)}KB) detected.\n\n**Note**: Base64 images may not render properly due to OpenAI agents SDK limitations. The agent might not see your image correctly.\n\n**Strongly recommended**: Use the image URL option instead for reliable vision processing.`,
+          isStreaming: false,
+          isComplete: true,
+          timestamp: new Date().toISOString()
+        });
+        // Continue to attach the image
+      }
+      
       const reader = new FileReader();
       reader.onload = (e) => {
         setImageAttachment({

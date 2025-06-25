@@ -1,5 +1,7 @@
 import express from 'express';
 import { run } from '@openai/agents';
+import { runWithVisionRetry } from './vision-retry-wrapper.js';
+import { validateAndFixBase64 } from './vision-preprocessor.js';
 import { espressoBotOrchestrator } from './agents/espressobot-orchestrator.js';
 // import { simpleOrchestrator as espressoBotOrchestrator } from './agents/simple-orchestrator.js';
 import EventEmitter from 'events';
@@ -172,9 +174,9 @@ router.post('/run', async (req, res) => {
     };
 
     // Build agent input (handle both text and multimodal)
-    let agentInput = message;
+    let agentInput;
     
-    // Handle image input if provided - use markdown format
+    // Handle image input if provided - use proper OpenAI agents SDK format
     if (image) {
       console.log('[MULTI-AGENT] Image provided:', {
         type: image.type,
@@ -184,43 +186,127 @@ router.post('/run', async (req, res) => {
         urlLength: image.url ? image.url.length : 0
       });
       
+      // Create content array for multimodal input
+      const contentArray = [];
+      
+      // Add text content with conversation ID and history
+      let textContent = `[Conversation ID: ${conversationId}]\n`;
+      
+      // Add conversation history if available
+      if (messages.length > 1) {
+        const historyText = messages.slice(0, -1)
+          .map(m => {
+            // Handle messages that might contain images
+            if (typeof m.content === 'object' && Array.isArray(m.content)) {
+              // Extract just the text part from multimodal messages
+              const textPart = m.content.find(c => c.type === 'text' || c.type === 'input_text');
+              return `${m.role === 'user' ? 'User' : 'Assistant'}: ${textPart ? (textPart.text || textPart.content) : '[Image]'}`;
+            }
+            return `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
+          })
+          .join('\n');
+        textContent += `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+      } else {
+        textContent += message;
+      }
+      
+      contentArray.push({
+        type: 'input_text',
+        text: textContent
+      });
+      
+      // Add image content
       if (image.type === 'data_url' && image.data) {
-        // Check data URL format
+        // Check data URL format and size
         const dataUrlMatch = image.data.match(/^data:([^;]+);base64,(.+)$/);
         if (dataUrlMatch) {
-          console.log('[MULTI-AGENT] Data URL MIME type:', dataUrlMatch[1]);
-          console.log('[MULTI-AGENT] Base64 data length:', dataUrlMatch[2].length);
-          console.log('[MULTI-AGENT] First 100 chars of base64:', dataUrlMatch[2].substring(0, 100));
-        }
-        
-        // Append image as markdown to the message
-        agentInput = `${message}\n\n![User uploaded image](${image.data})`;
-        console.log('[MULTI-AGENT] Added data URL image, total input length:', agentInput.length);
-      } else if (image.type === 'url' && image.url) {
-        // Append image URL as markdown
-        agentInput = `${message}\n\n![User uploaded image](${image.url})`;
-        console.log('[MULTI-AGENT] Added URL image, total input length:', agentInput.length);
-      }
-    }
-    
-    // Add conversation history if available (ALWAYS, not just when no image)
-    if (messages.length > 1) {
-      const historyText = messages.slice(0, -1)
-        .map(m => {
-          // Handle messages that might contain images
-          if (typeof m.content === 'object' && Array.isArray(m.content)) {
-            // Extract just the text part from multimodal messages
-            const textPart = m.content.find(c => c.type === 'text');
-            return `${m.role === 'user' ? 'User' : 'Assistant'}: ${textPart ? textPart.text : '[Image]'}`;
+          const mimeType = dataUrlMatch[1];
+          const base64Data = dataUrlMatch[2];
+          
+          console.log('[MULTI-AGENT] Data URL MIME type:', mimeType);
+          console.log('[MULTI-AGENT] Base64 data length:', base64Data.length);
+          console.log('[MULTI-AGENT] Estimated size:', (base64Data.length * 0.75 / 1024).toFixed(2), 'KB');
+          
+          // Size limit checks remain the same
+          const MAX_BASE64_LENGTH = 500 * 1024; // 500KB base64 (~375KB decoded)
+          
+          if (base64Data.length > MAX_BASE64_LENGTH) {
+            console.warn('[MULTI-AGENT] ⚠️  Image too large:', (base64Data.length / 1024).toFixed(0), 'KB base64');
+            sendEvent('error', {
+              message: `Image is large (${(base64Data.length * 0.75 / 1024).toFixed(0)}KB). For better performance, please use images under 200KB or use an image URL instead.`,
+              type: 'image_size_warning'
+            });
+            // Don't include the image
+          } else {
+            if (base64Data.length > 200 * 1024) {
+              // Warn about slow processing
+              sendEvent('agent_processing', {
+                agent: 'System',
+                message: `Processing large image (${(base64Data.length * 0.75 / 1024).toFixed(0)}KB). This may take 30-60 seconds...`,
+                status: 'warning'
+              });
+            }
+            
+            // Validate and fix base64 format before adding
+            const validatedDataUrl = validateAndFixBase64(image.data);
+            
+            // Add image using correct format
+            contentArray.push({
+              type: 'input_image',
+              image: validatedDataUrl
+            });
+            console.log('[MULTI-AGENT] Added validated image to content array');
+            console.log('[MULTI-AGENT] Using retry logic for base64 images to handle intermittent SDK issues');
+            
+            // Notify user that we're using enhanced processing
+            sendEvent('status', {
+              message: 'Processing screenshot with enhanced vision capabilities...',
+              type: 'info'
+            });
           }
-          return `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
-        })
-        .join('\n');
-      agentInput = `Previous conversation:\n${historyText}\n\nUser: ${agentInput}`;
+        } else {
+          console.error('[MULTI-AGENT] Invalid data URL format');
+        }
+      } else if (image.type === 'url' && image.url) {
+        // URL images
+        contentArray.push({
+          type: 'input_image',
+          image: image.url
+        });
+        console.log('[MULTI-AGENT] Added URL image to content array');
+      }
+      
+      // Create proper user message format
+      agentInput = [{
+        role: 'user',
+        content: contentArray
+      }];
+      
+      console.log('[MULTI-AGENT] Created multimodal input with', contentArray.length, 'content items');
+    } else {
+      // Text-only input
+      let textContent = `[Conversation ID: ${conversationId}]\n`;
+      
+      // Add conversation history if available
+      if (messages.length > 1) {
+        const historyText = messages.slice(0, -1)
+          .map(m => {
+            // Handle messages that might contain images
+            if (typeof m.content === 'object' && Array.isArray(m.content)) {
+              // Extract just the text part from multimodal messages
+              const textPart = m.content.find(c => c.type === 'text' || c.type === 'input_text');
+              return `${m.role === 'user' ? 'User' : 'Assistant'}: ${textPart ? (textPart.text || textPart.content) : '[Image]'}`;
+            }
+            return `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
+          })
+          .join('\n');
+        textContent += `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+      } else {
+        textContent += message;
+      }
+      
+      agentInput = textContent;
     }
-    
-    // Always add conversation ID to the input for task planning
-    agentInput = `[Conversation ID: ${conversationId}]\n${agentInput}`;
     
     // Set up markdown file polling like unified orchestrator does
     let pollMarkdownInterval = null;
@@ -268,23 +354,20 @@ router.post('/run', async (req, res) => {
     let result;
     try {
       // Log the input
-      console.log('[MULTI-AGENT] Starting agent run with input length:', agentInput.length);
-      console.log('[MULTI-AGENT] Input preview:', agentInput.substring(0, 200) + '...');
-      
-      // Check if the image markdown is actually in the input
-      if (image) {
-        const hasImageMarkdown = agentInput.includes('![User uploaded image]');
-        console.log('[MULTI-AGENT] Image markdown present in input:', hasImageMarkdown);
-        
-        // Check if it's a data URL
-        if (image.type === 'data_url') {
-          const dataUrlIndex = agentInput.indexOf('data:image');
-          console.log('[MULTI-AGENT] Data URL found at index:', dataUrlIndex);
-          if (dataUrlIndex > -1) {
-            const dataUrlPreview = agentInput.substring(dataUrlIndex, dataUrlIndex + 100);
-            console.log('[MULTI-AGENT] Data URL preview:', dataUrlPreview + '...');
+      if (Array.isArray(agentInput)) {
+        console.log('[MULTI-AGENT] Starting agent run with multimodal input');
+        console.log('[MULTI-AGENT] Content items:', agentInput[0].content.length);
+        agentInput[0].content.forEach((item, idx) => {
+          if (item.type === 'input_text') {
+            console.log(`[MULTI-AGENT] Content[${idx}]: text (${item.text.length} chars)`);
+          } else if (item.type === 'input_image') {
+            const isDataUrl = item.image.startsWith('data:');
+            console.log(`[MULTI-AGENT] Content[${idx}]: image (${isDataUrl ? 'base64' : 'URL'})`);
           }
-        }
+        });
+      } else {
+        console.log('[MULTI-AGENT] Starting agent run with text input length:', agentInput.length);
+        console.log('[MULTI-AGENT] Input preview:', agentInput.substring(0, 200) + '...');
       }
       
       // Send initial processing event
@@ -294,7 +377,13 @@ router.post('/run', async (req, res) => {
         status: 'processing'
       });
       
-      result = await run(espressoBotOrchestrator, agentInput, {
+      // Use retry wrapper for vision requests
+      const runFn = Array.isArray(agentInput) && 
+        agentInput[0]?.content?.some(c => c.type === 'input_image') 
+        ? runWithVisionRetry 
+        : run;
+      
+      result = await runFn(espressoBotOrchestrator, agentInput, {
         maxTurns: 10,
         context,
         trace: {
