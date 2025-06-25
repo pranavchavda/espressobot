@@ -19,7 +19,7 @@ class SSEEmitter extends EventEmitter {}
 
 // Main orchestrator endpoint
 router.post('/run', async (req, res) => {
-  const { conv_id, message, forceTaskGen, imageData, imageUrl } = req.body;
+  const { conv_id, message, forceTaskGen, image } = req.body;
   
   // Set up SSE
   res.writeHead(200, {
@@ -137,7 +137,7 @@ router.post('/run', async (req, res) => {
     
     // Prepare the user message
     let userMessage = message;
-    if (imageData || imageUrl) {
+    if (image) {
       userMessage = {
         role: 'user',
         content: [
@@ -145,15 +145,15 @@ router.post('/run', async (req, res) => {
         ]
       };
       
-      if (imageData) {
-        userMessage.content.push({
-          type: 'image',
-          image: imageData
-        });
-      } else if (imageUrl) {
+      if (image.type === 'data_url' && image.data) {
         userMessage.content.push({
           type: 'image_url',
-          image_url: { url: imageUrl }
+          image_url: { url: image.data }
+        });
+      } else if (image.type === 'url' && image.url) {
+        userMessage.content.push({
+          type: 'image_url',
+          image_url: { url: image.url }
         });
       }
     }
@@ -171,18 +171,37 @@ router.post('/run', async (req, res) => {
       results: {}
     };
 
-    // Build agent input string (similar to unified orchestrator)
+    // Build agent input (handle both text and multimodal)
     let agentInput = message;
     
-    // Add conversation history if available
-    if (messages.length > 1) {
-      const historyText = messages.slice(0, -1)
-        .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${typeof m.content === 'object' ? JSON.stringify(m.content) : m.content}`)
-        .join('\n');
-      agentInput = `Previous conversation:\n${historyText}\n\nUser: ${message}`;
+    // Handle image input if provided - use markdown format
+    if (image) {
+      if (image.type === 'data_url' && image.data) {
+        // Append image as markdown to the message
+        agentInput = `${message}\n\n![User uploaded image](${image.data})`;
+      } else if (image.type === 'url' && image.url) {
+        // Append image URL as markdown
+        agentInput = `${message}\n\n![User uploaded image](${image.url})`;
+      }
     }
     
-    // Add conversation ID to the input for task planning
+    // Add conversation history if available (ALWAYS, not just when no image)
+    if (messages.length > 1) {
+      const historyText = messages.slice(0, -1)
+        .map(m => {
+          // Handle messages that might contain images
+          if (typeof m.content === 'object' && Array.isArray(m.content)) {
+            // Extract just the text part from multimodal messages
+            const textPart = m.content.find(c => c.type === 'text');
+            return `${m.role === 'user' ? 'User' : 'Assistant'}: ${textPart ? textPart.text : '[Image]'}`;
+          }
+          return `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
+        })
+        .join('\n');
+      agentInput = `Previous conversation:\n${historyText}\n\nUser: ${agentInput}`;
+    }
+    
+    // Always add conversation ID to the input for task planning
     agentInput = `[Conversation ID: ${conversationId}]\n${agentInput}`;
     
     // Set up markdown file polling like unified orchestrator does
@@ -230,7 +249,11 @@ router.post('/run', async (req, res) => {
     
     let result;
     try {
+      // Log the input
       console.log('[MULTI-AGENT] Starting agent run with input:', agentInput.substring(0, 100) + '...');
+      if (image) {
+        console.log('[MULTI-AGENT] Image attached:', image.type);
+      }
       
       // Send initial processing event
       sendEvent('agent_processing', {
