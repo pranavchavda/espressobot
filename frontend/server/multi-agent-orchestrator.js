@@ -176,12 +176,22 @@ router.post('/run', async (req, res) => {
     
     // Handle image input if provided - use markdown format
     if (image) {
+      console.log('[MULTI-AGENT] Image provided:', {
+        type: image.type,
+        hasData: !!image.data,
+        hasUrl: !!image.url,
+        dataLength: image.data ? image.data.length : 0,
+        urlLength: image.url ? image.url.length : 0
+      });
+      
       if (image.type === 'data_url' && image.data) {
         // Append image as markdown to the message
         agentInput = `${message}\n\n![User uploaded image](${image.data})`;
+        console.log('[MULTI-AGENT] Added data URL image, total input length:', agentInput.length);
       } else if (image.type === 'url' && image.url) {
         // Append image URL as markdown
         agentInput = `${message}\n\n![User uploaded image](${image.url})`;
+        console.log('[MULTI-AGENT] Added URL image, total input length:', agentInput.length);
       }
     }
     
@@ -250,9 +260,23 @@ router.post('/run', async (req, res) => {
     let result;
     try {
       // Log the input
-      console.log('[MULTI-AGENT] Starting agent run with input:', agentInput.substring(0, 100) + '...');
+      console.log('[MULTI-AGENT] Starting agent run with input length:', agentInput.length);
+      console.log('[MULTI-AGENT] Input preview:', agentInput.substring(0, 200) + '...');
+      
+      // Check if the image markdown is actually in the input
       if (image) {
-        console.log('[MULTI-AGENT] Image attached:', image.type);
+        const hasImageMarkdown = agentInput.includes('![User uploaded image]');
+        console.log('[MULTI-AGENT] Image markdown present in input:', hasImageMarkdown);
+        
+        // Check if it's a data URL
+        if (image.type === 'data_url') {
+          const dataUrlIndex = agentInput.indexOf('data:image');
+          console.log('[MULTI-AGENT] Data URL found at index:', dataUrlIndex);
+          if (dataUrlIndex > -1) {
+            const dataUrlPreview = agentInput.substring(dataUrlIndex, dataUrlIndex + 100);
+            console.log('[MULTI-AGENT] Data URL preview:', dataUrlPreview + '...');
+          }
+        }
       }
       
       // Send initial processing event
