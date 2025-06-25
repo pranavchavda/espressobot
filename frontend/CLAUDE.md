@@ -357,4 +357,131 @@ The core functionality is working - tasks are created, tracked, and displayed in
 
 ---
 
-*Last Updated: December 20, 2025*
+## December 22, 2024 - Shopify Dev MCP Server Integration
+
+### 🎯 **Objective**
+Integrated the Shopify Dev MCP server to provide documentation search and schema introspection capabilities to the multi-agent system.
+
+### 🔧 **Implementation Details**
+
+#### 1. **Shopify Dev MCP Server Setup**
+- Added `@shopify/dev-mcp` package (v1.1.0) to dependencies
+- Created MCP wrapper at `/server/shopify-dev-tools/shopify-dev-mcp-wrapper.js`
+- Implemented proper MCP protocol communication via subprocess
+- Handles tool execution with timeout and error handling
+
+#### 2. **Tool Registry Integration**
+- Extended `tool-registry-extended.js` with generic `registerTool()` method
+- Updated `custom-tool-discovery.js` to register Shopify Dev tools
+- Tools now available alongside existing Python tools
+- Fallback mechanism when MCP server unavailable
+
+#### 3. **Available Shopify Dev Tools**
+1. **search_dev_docs** - Search Shopify.dev documentation
+2. **introspect_admin_schema** - Explore GraphQL schema types
+3. **fetch_docs_by_path** - Retrieve specific documentation
+4. **get_started** - Overview of Shopify APIs
+
+#### 4. **Agent Updates**
+- **Product Creation Agent**: 
+  - Added schema introspection tools
+  - Can verify field types before creating products
+  - Example: `introspect_admin_schema({type: "ProductInput"})`
+  
+- **Product Update Agent**:
+  - Added documentation search capabilities
+  - Can lookup proper mutation formats
+  - Example: `search_dev_docs({query: "productUpdate mutation"})`
+
+#### 5. **Enhanced Agent Instructions**
+Updated agent instructions with examples:
+```javascript
+// Product Creation Agent
+- Use introspect_admin_schema to verify field types before creating products
+- Use search_dev_docs when uncertain about API capabilities
+- Always check schema before using new field types or mutations
+
+// Product Update Agent  
+- Use search_dev_docs to find proper mutation formats
+- Use fetch_docs_by_path for specific API documentation
+- Reference documentation before complex GraphQL operations
+```
+
+### 📁 **New Files Created**
+- `/server/shopify-dev-tools/shopify-dev-mcp-wrapper.js` - MCP server wrapper
+- `/server/shopify-dev-tools/index.js` - Tool registration helper
+- `/server/test-shopify-dev-mcp.js` - Integration test suite
+
+### 🔄 **Modified Files**
+- `package.json` - Added @shopify/dev-mcp dependency
+- `/server/custom-tool-discovery.js` - Integrated Shopify Dev tools
+- `/server/custom-tools/tool-registry-extended.js` - Added registerTool method
+- `/server/agents/product-creation-agent.js` - Added dev tools
+- `/server/agents/product-update-agent.js` - Added dev tools
+- `/server/agents/enhanced-instructions.js` - Added tool usage examples
+
+### ✅ **Benefits**
+1. **Better API Understanding**: Agents can introspect schema before operations
+2. **Reduced Errors**: Documentation lookup prevents incorrect API usage
+3. **Self-Learning**: Agents can discover new API capabilities
+4. **Type Safety**: Schema introspection ensures correct field types
+5. **Best Practices**: Access to official Shopify documentation
+
+### 🚀 **Usage Examples**
+```javascript
+// Before creating a product, check the schema
+await introspect_admin_schema({ type: "ProductInput" });
+
+// Look up how to update metafields
+await search_dev_docs({ query: "productUpdate metafields" });
+
+// Get specific mutation documentation
+await fetch_docs_by_path({ 
+  path: "/api/admin-graphql/2024-10/mutations/productCreate" 
+});
+```
+
+### 🔄 **Updated: Direct MCP Integration** (December 25, 2024)
+
+Simplified to use OpenAI agents SDK's native MCP support:
+
+```javascript
+import { Agent, MCPServerStdio } from '@openai/agents';
+
+// Create MCP server
+const shopifyDevMCP = new MCPServerStdio({
+  name: 'Shopify Dev Docs',
+  fullCommand: 'npx -y @shopify/dev-mcp',
+  cacheToolsList: true
+});
+
+// Add to agent
+const agent = new Agent({
+  name: 'Product_Agent',
+  tools: [...customTools],
+  mcpServers: [shopifyDevMCP]  // Native MCP support!
+});
+```
+
+**Benefits**:
+- No custom wrappers needed
+- Automatic tool discovery
+- Works alongside custom tools
+- Built-in error handling
+
+### 📝 **Environment Variables**
+Optional configuration:
+- `SHOPIFY_DEV_POLARIS=true` - Enable Polaris component docs
+- `SHOPIFY_DEV_OPT_OUT_INSTRUMENTATION=true` - Disable telemetry
+
+### 🧪 **Testing**
+Run integration tests:
+```bash
+node test-mcp-direct.js
+```
+
+**Status**: Shopify Dev MCP integration **complete** ✅ (using native SDK support)
+
+---
+
+*Last Updated: December 25, 2024*

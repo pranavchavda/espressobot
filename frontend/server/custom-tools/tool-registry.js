@@ -1,9 +1,37 @@
 import PythonToolWrapper from './python-tool-wrapper.js';
+import { createToolWrapper } from '../native-tools/base-tool.js';
 
 class CustomToolRegistry {
   constructor() {
     this.pythonWrapper = new PythonToolWrapper();
+    this.nativeTools = new Map(); // Store native tool instances
     this.tools = this.initializeTools();
+  }
+
+  /**
+   * Register a native JavaScript tool
+   * @param {BaseTool} toolInstance - Instance of a native tool
+   */
+  registerNativeTool(toolInstance) {
+    const metadata = toolInstance.metadata;
+    this.nativeTools.set(metadata.name, toolInstance);
+    
+    // Add to tools array with native handler
+    const toolConfig = {
+      name: metadata.name,
+      description: metadata.description,
+      inputSchema: metadata.inputSchema,
+      type: 'native',
+      handler: async (args) => toolInstance.run(args)
+    };
+    
+    // Replace existing tool or add new one
+    const existingIndex = this.tools.findIndex(t => t.name === metadata.name);
+    if (existingIndex >= 0) {
+      this.tools[existingIndex] = toolConfig;
+    } else {
+      this.tools.push(toolConfig);
+    }
   }
 
   initializeTools() {
@@ -20,6 +48,7 @@ class CustomToolRegistry {
           },
           required: ['query']
         },
+        type: 'python', // Mark as Python tool
         handler: async (args) => {
           // Extract query as positional argument
           const { query, ...options } = args;
@@ -45,6 +74,7 @@ class CustomToolRegistry {
             { required: ['sku'] }
           ]
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.getProduct(args)
       },
       {
@@ -73,6 +103,7 @@ class CustomToolRegistry {
           },
           required: ['title']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.createProduct(args)
       },
       {
@@ -91,6 +122,7 @@ class CustomToolRegistry {
             { required: ['variant_id', 'price'] }
           ]
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.updatePricing(args)
       },
       {
@@ -104,6 +136,7 @@ class CustomToolRegistry {
           },
           required: ['product_id', 'tags']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.manageTags(args.product_id, args.tags, [])
       },
       {
@@ -117,6 +150,7 @@ class CustomToolRegistry {
           },
           required: ['product_id', 'tags']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.manageTags(args.product_id, [], args.tags)
       },
       {
@@ -130,6 +164,7 @@ class CustomToolRegistry {
           },
           required: ['product_id', 'status']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.updateStatus(args.product_id, args.status)
       },
       {
@@ -143,6 +178,7 @@ class CustomToolRegistry {
           },
           required: ['query']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.runGraphQLQuery(args.query, args.variables || {})
       },
       {
@@ -156,6 +192,7 @@ class CustomToolRegistry {
           },
           required: ['mutation']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.runGraphQLMutation(args.mutation, args.variables || {})
       },
       {
@@ -170,6 +207,7 @@ class CustomToolRegistry {
           },
           required: ['product_id', 'policy']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.executeTool('manage_inventory_policy', args)
       },
       {
@@ -184,6 +222,7 @@ class CustomToolRegistry {
           },
           required: ['product_id']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.executeTool('manage_tags', args)
       },
       {
@@ -197,6 +236,7 @@ class CustomToolRegistry {
           },
           required: ['query']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.executeTool('pplx', args)
       },
       {
@@ -222,6 +262,7 @@ class CustomToolRegistry {
           },
           required: ['updates']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.executeTool('bulk_price_update', args)
       },
       {
@@ -237,6 +278,7 @@ class CustomToolRegistry {
           },
           required: ['title', 'product_ids', 'combo_price']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.executeTool('create_combo', args)
       },
       {
@@ -252,6 +294,7 @@ class CustomToolRegistry {
           },
           required: ['product_id']
         },
+        type: 'python',
         handler: async (args) => this.pythonWrapper.executeTool('create_open_box', args)
       }
     ];

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import { ENHANCED_MEMORY_INSTRUCTIONS } from './enhanced-instructions.js';
 
 // Set the OpenAI API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -127,40 +128,17 @@ const checkDuplicateTool = tool({
   }
 });
 
-const memoryAgentInstructions = `You are the Memory Agent, responsible for intelligent memory management in the EspressoBot system.
-
-CRITICAL: You handle ONLY conversation memories and knowledge management. You do NOT have access to:
-- Product catalogs or inventories
-- Shopify data
-- Current product listings or prices
-- Any e-commerce operational data
-
-If asked to search for products (like "Eureka Mignon Zero"), immediately:
-1. Respond: "I only manage conversation memories. For product searches, I need to hand you back to the orchestrator."
-2. Hand off to EspressoBot_Orchestrator with message: "User needs product search for [product name]. Please route to Product Update Agent."
-
-Your responsibilities:
-1. Evaluate which information should be preserved in long-term memory
-2. Check for duplicates before storing new memories to avoid redundancy
-3. Search and retrieve relevant memories from past conversations
-4. Maintain memory quality through intelligent curation
-
-Memory Storage Guidelines:
-- Store important insights and learnings from conversations
-- Store successful task completions and their approaches
-- Store user preferences and recurring patterns
-- Avoid storing trivial or temporary information
-- Always check for duplicates with a high threshold (0.85+) before storing
+// Use enhanced instructions with domain knowledge
+const memoryAgentInstructions = ENHANCED_MEMORY_INSTRUCTIONS + `
 
 Deduplication Process:
 1. Before storing any new memory, use check_duplicate to see if similar content exists
 2. If highly similar content exists (>0.85 similarity), don't store unless it adds significant new information
 3. Consider merging similar memories rather than creating duplicates
 
-Search Guidelines:
-- Only search for conversation memories, insights, and stored knowledge
-- NEVER attempt to search for products or inventory items
-- Return organized, relevant information to the orchestrator`;
+If asked to search for products (like "Eureka Mignon Zero"), immediately:
+1. Respond: "I only manage conversation memories. For product searches, I need to hand you back to the orchestrator."
+2. Hand off to EspressoBot_Orchestrator with message: "User needs product search for [product name]. Please route to Product Update Agent."`;
 
 // Create the Memory Agent
 export const memoryAgent = new Agent({

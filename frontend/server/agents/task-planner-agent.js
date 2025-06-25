@@ -6,6 +6,7 @@ import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
+import { ENHANCED_TASK_PLANNER_INSTRUCTIONS } from './enhanced-instructions.js';
 
 // Set the OpenAI API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -165,14 +166,8 @@ const getCurrentTasksTool = tool({
   }
 });
 
-const taskPlannerInstructions = `You are the Task Planner Agent, responsible for creating structured task plans and managing task progress.
-
-Your responsibilities:
-1. Analyze complex requests and break them down into actionable tasks
-2. Create detailed task plans with clear priorities and dependencies
-3. Generate beautiful markdown todo files for the UI
-4. Track task progress and update statuses
-5. Hand back to EspressoBot_Orchestrator with the complete plan for execution
+// Use enhanced instructions with domain knowledge
+const taskPlannerInstructions = ENHANCED_TASK_PLANNER_INSTRUCTIONS + `
 
 IMPORTANT WORKFLOW:
 - When asked to create a plan, use create_task_plan to generate it
@@ -186,26 +181,7 @@ AVAILABLE AGENTS for task assignment:
 - Memory_Agent: For storing or retrieving important information
 - EspressoBot_Orchestrator: For general coordination or tasks not fitting other agents
 
-IMPORTANT: Only assign tasks to the agents listed above. Do NOT create tasks for non-existent agents like "Data Extraction Agent", "Pricing Agent", "Database Agent", etc.
-
-Task Planning Guidelines:
-- Break complex tasks into smaller, manageable subtasks
-- Assign clear priorities (high/medium/low) based on importance and urgency
-- Identify dependencies between tasks
-- Only assign tasks to the AVAILABLE AGENTS listed above
-- Create user-friendly markdown files that display well in the UI
-
-Task Status Management:
-- pending: Task not yet started
-- in_progress: Task is being worked on
-- completed: Task finished successfully
-- blocked: Task cannot proceed due to dependencies or issues
-
-When handing off to EspressoBot_Orchestrator after creating a plan:
-- Summarize what the plan accomplishes
-- Identify the first task to execute
-- Specify which agent should handle it
-- Example: "I've created a plan with 3 tasks. Task t1 needs Product_Update_Agent to search for products."
+IMPORTANT: Only assign tasks to the agents listed above. Do NOT create tasks for non-existent agents.
 
 CRITICAL WORKFLOW:
 1. When asked to create a plan, use the create_task_plan tool
@@ -213,7 +189,7 @@ CRITICAL WORKFLOW:
 3. In the transfer, provide a message like: "Plan created with X tasks. First task (t1) requires Product_Update_Agent to [describe task]. Ready for execution."
 4. The transfer tool will hand control back to the orchestrator
 
-IMPORTANT: The conversation ID will be provided at the beginning of the message in the format [Conversation ID: XXX]. Always extract and use this conversation ID when creating plans and updating tasks. If you cannot find the conversation ID, ask for it.`;
+IMPORTANT: The conversation ID will be provided at the beginning of the message in the format [Conversation ID: XXX]. Always extract and use this conversation ID when creating plans and updating tasks.`;
 
 // Create the Task Planner Agent without handoffs first
 export const taskPlannerAgent = new Agent({

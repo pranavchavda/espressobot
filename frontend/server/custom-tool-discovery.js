@@ -1,4 +1,5 @@
-import CustomToolRegistry from './custom-tools/tool-registry.js';
+import ExtendedToolRegistry from './custom-tools/tool-registry-extended.js';
+import { registerNativeTools } from './native-tools/index.js';
 
 /**
  * Discovers available tools from custom tool implementations
@@ -6,7 +7,7 @@ import CustomToolRegistry from './custom-tools/tool-registry.js';
  */
 export class CustomToolDiscovery {
   constructor() {
-    this.toolRegistry = new CustomToolRegistry();
+    this.toolRegistry = new ExtendedToolRegistry();
     this.shopifyTools = [];
     this.shopifyDevTools = [];
     this.todoTools = [];
@@ -20,6 +21,9 @@ export class CustomToolDiscovery {
     console.log('🔍 Starting custom tool discovery...');
 
     try {
+      // Register native JavaScript tools if enabled
+      registerNativeTools(this.toolRegistry);
+      
       // Get all custom tools
       const customTools = this.toolRegistry.getTools();
       

@@ -1,9 +1,15 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 class PythonToolWrapper {
-  constructor(toolsPath = '/home/pranav/idc/tools') {
-    this.toolsPath = toolsPath;
+  constructor(toolsPath = null) {
+    // Use local python-tools directory by default
+    this.toolsPath = toolsPath || path.join(__dirname, '../python-tools');
   }
 
   async executeTool(toolName, args = {}, positionalArgs = []) {
