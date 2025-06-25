@@ -183,106 +183,47 @@ router.post('/run', async (req, res) => {
     try {
       console.log('[MULTI-AGENT] Starting agent run with input:', agentInput.substring(0, 100) + '...');
       
-      // Use streaming mode to get real-time updates
-      const stream = run(espressoBotOrchestrator, agentInput, {
-        maxTurns: 10,
-        context,
-        stream: true
+      // For now, use regular mode until we figure out streaming
+      // The OpenAI agents SDK might not support streaming in v0.0.9
+      
+      // Send initial processing event since we can't get real-time updates
+      sendEvent('agent_processing', {
+        agent: 'EspressoBot_Orchestrator',
+        message: 'EspressoBot Orchestrator is analyzing your request...',
+        status: 'processing'
       });
       
-      let finalResult = null;
-      for await (const event of stream) {
-        console.log('[MULTI-AGENT] Stream event:', event.type || 'unknown', event);
-        
-        // Handle different event types
-        if (event.type === 'tool_call') {
-          const agentName = event.agent?.name || 'Unknown';
-          
-          // Check if it's a transfer tool (handoff)
-          if (event.tool_name && event.tool_name.includes('transfer_to_')) {
-            const toAgent = event.tool_name.replace('transfer_to_', '');
-            sendEvent('handoff', {
-              from: agentName,
-              to: toAgent,
-              reason: 'Agent handoff'
-            });
-          } else {
-            // Send agent processing event
-            const statusMessage = getAgentStatusMessage(agentName, event.tool_name);
-            sendEvent('agent_processing', {
-              agent: agentName,
-              tool: event.tool_name,
-              message: statusMessage,
-              status: 'processing'
-            });
-            
-            sendEvent('tool_call', {
-              agent: agentName,
-              tool: event.tool_name,
-              status: 'started'
-            });
-            
-            // Check if Task Planner is creating a task plan
-            if (agentName === 'Task_Planner_Agent' && event.tool_name === 'create_task_plan') {
-              sendEvent('task_plan_creating', {
+      result = await run(espressoBotOrchestrator, agentInput, {
+        maxTurns: 10,
+        context
+      });
+      
+      // Since we can't get real-time updates, let's at least check the result
+      // to see if we can extract task plan info
+      if (result?.state?._steps) {
+        console.log('[MULTI-AGENT] Checking steps for task plan creation...');
+        for (const step of result.state._steps) {
+          if (step.tool_name === 'create_task_plan' && step.result?.success) {
+            // Task plan was created, read and send it
+            const fs = require('fs');
+            try {
+              const markdownContent = fs.readFileSync(step.result.filepath, 'utf-8');
+              sendEvent('task_plan_created', {
                 agent: 'Task_Planner_Agent',
-                status: 'creating'
+                filename: step.result.filename,
+                markdown: markdownContent,
+                taskCount: step.result.taskCount,
+                conversation_id: conversationId
               });
+              console.log('[MULTI-AGENT] Task plan event sent');
+            } catch (err) {
+              console.error('Error reading task plan markdown:', err);
             }
           }
-        } else if (event.type === 'tool_result') {
-          const agentName = event.agent?.name || 'Unknown';
-          
-          sendEvent('tool_call', {
-            agent: agentName,
-            tool: event.tool_name,
-            status: 'completed',
-            result: event.result
-          });
-          
-          // Check if Task Planner created a task plan
-          if (agentName === 'Task_Planner_Agent' && event.tool_name === 'create_task_plan' && event.result) {
-            const taskResult = event.result;
-            if (taskResult.success && taskResult.filepath) {
-              // Read the markdown file and send it
-              const fs = require('fs');
-              
-              try {
-                const markdownContent = fs.readFileSync(taskResult.filepath, 'utf-8');
-                sendEvent('task_plan_created', {
-                  agent: 'Task_Planner_Agent',
-                  filename: taskResult.filename,
-                  markdown: markdownContent,
-                  taskCount: taskResult.taskCount,
-                  conversation_id: conversationId
-                });
-              } catch (err) {
-                console.error('Error reading task plan markdown:', err);
-              }
-            }
-          }
-        } else if (event.type === 'message') {
-          // Agent messages during execution
-          sendEvent('agent_message_partial', {
-            agent: event.agent?.name || 'Unknown',
-            content: event.content,
-            timestamp: new Date().toISOString()
-          });
-        } else if (event.type === 'handoff') {
-          sendEvent('handoff', {
-            from: event.from_agent?.name || 'Unknown',
-            to: event.to_agent?.name || 'Unknown',
-            reason: event.reason || 'Agent handoff'
-          });
-        } else if (event.type === 'result' || event.type === 'done') {
-          // Final result
-          finalResult = event;
         }
       }
       
-      result = finalResult;
-      
-      // Callback-based approach didn't work, using streaming instead
+      // End of streaming code removal */
     } catch (runError) {
       throw runError;
     }
