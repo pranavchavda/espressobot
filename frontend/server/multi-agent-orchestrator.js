@@ -469,11 +469,17 @@ router.post('/run', async (req, res) => {
           }
         }
         
+        // Save message with image indicator if present
+        let messageToSave = userMessageContent;
+        if (image) {
+          messageToSave = userMessageContent + ' [Image attached]';
+        }
+        
         await prisma.messages.create({
           data: {
             conv_id: parseInt(conversationId),
             role: 'user',
-            content: userMessageContent,
+            content: messageToSave,
             created_at: new Date()
           }
         });
