@@ -326,13 +326,17 @@ function StreamingChatPage({ convId }) {
     setAgentProcessingStatus(""); // Clear previous agent status
     setTaskMarkdown(null); // Clear previous task markdown
 
-    setStreamingMessage({
-      role: "assistant",
-      content: "",
-      timestamp: new Date().toISOString(),
-      isStreaming: true,
-      isComplete: false,
-    });
+    // Only initialize streaming message for basic agent mode
+    // Multi-agent mode will set it when events arrive
+    if (useBasicAgent) {
+      setStreamingMessage({
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        isStreaming: true,
+        isComplete: false,
+      });
+    }
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();

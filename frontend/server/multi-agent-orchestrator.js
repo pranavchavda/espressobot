@@ -186,16 +186,16 @@ router.post('/run', async (req, res) => {
         maxTurns: 10,
         context,
         onStepStart: (step) => {
-        console.log('[MULTI-AGENT] onStepStart called:', step.type, step.agent?.name);
-        const agentName = step.agent?.name || 'Unknown';
-        
-        if (step.type === 'handoff') {
+          console.log('[MULTI-AGENT] onStepStart called:', step.type, step.agent?.name);
+          const agentName = step.agent?.name || 'Unknown';
+          
+          if (step.type === 'handoff') {
           sendEvent('handoff', {
             from: step.fromAgent?.name || 'Unknown',
             to: step.toAgent?.name || 'Unknown',
             reason: step.reason || 'Agent handoff'
           });
-        } else if (step.type === 'tool_call') {
+          } else if (step.type === 'tool_call') {
           // Check if it's a transfer tool (handoff)
           if (step.tool_name && step.tool_name.includes('transfer_to_')) {
             const toAgent = step.tool_name.replace('transfer_to_', '');
@@ -228,7 +228,7 @@ router.post('/run', async (req, res) => {
               });
             }
           }
-        } else if (step.type === 'agent_start') {
+          } else if (step.type === 'agent_start') {
           // Send processing event when agent starts
           const statusMessage = getAgentStatusMessage(agentName);
           sendEvent('agent_processing', {
@@ -236,8 +236,8 @@ router.post('/run', async (req, res) => {
             message: statusMessage,
             status: 'started'
           });
-        }
-      },
+          }
+        },
       onStepFinish: (step) => {
         if (step.type === 'tool_call') {
           sendEvent('tool_call', {
