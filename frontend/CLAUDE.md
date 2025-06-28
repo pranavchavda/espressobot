@@ -484,4 +484,75 @@ node test-mcp-direct.js
 
 ---
 
-*Last Updated: December 25, 2024*
+## June 28, 2025 - Enhanced Multi-Agent System with Specialized Agents
+
+### 🎯 **Primary Objective Achieved**
+Successfully updated the agentic architecture to use 9 specialized agents from `/server/agents/specialized/` with proper tool distribution and integration.
+
+### 🔧 **Major Changes Implemented**
+
+#### 1. **Multi-Agent Integration**
+- Integrated 9 specialized agents into the enhanced orchestrator:
+  - **Catalog_Query_Agent**: Product searches and lookups
+  - **Product_Creation_Agent**: New products, combos, open box items
+  - **Product_Update_Agent**: Pricing, tags, status modifications
+  - **Inventory_Agent**: Stock management and SkuVault sync
+  - **Channel_Specials_Agent**: MAP sales and vendor promotions
+  - **Secure_Data_Agent**: Sensitive order/customer data access
+  - **System_Health_Agent**: Diagnostics and health checks
+  - **Task_Planning_Agent**: Complex multi-step request handling
+  - **User_Clarification_Agent**: Ambiguous request clarification
+
+#### 2. **Tool System Overhaul**
+- Added 36 tools total (32 Shopify + 4 Shopify Dev tools)
+- Converted all tools to OpenAI SDK format using Zod schemas
+- Fixed parameter mapping issues throughout
+- Created proper tool assignment to specialized agents
+
+#### 3. **Critical Bug Fixes**
+- **create_product.py**: Fixed GraphQL schema error with variants field
+- **Tool Parameter Mapping**: Fixed mismatches (e.g., `product_type` → `type`)
+- **update_pricing**: Created wrapper for identifier resolution
+- **pollMarkdownInterval**: Fixed scope error in multi-agent-orchestrator.js
+
+#### 4. **New Infrastructure**
+- Created comprehensive API test suites
+- Built tool execution diagnostics
+- Added parameter mapping tests
+- Implemented proper error handling
+
+### ✅ **Current Working State**
+- Product creation via API: **Working** ✅
+- Product search functionality: **Working** ✅
+- Agent handoffs: **Working** ✅
+- Tool execution through agents: **Working** ✅
+- Update pricing with wrapper: **Working** ✅
+
+### 📁 **Key Files Modified/Created**
+- `/server/enhanced-multi-agent-orchestrator-v2.js` - Main orchestrator
+- `/server/tools/openai-tool-converter.js` - Tool format conversion
+- `/server/custom-tools/tool-registry-extended.js` - Extended tool registry
+- `/server/python-tools/update_pricing_wrapper.py` - Identifier resolution
+- Various test files for comprehensive testing
+
+### 🚀 **Next Steps**
+1. **Complete Tool Testing**: Test remaining tools (inventory, GraphQL, channel-specific)
+2. **Create More Wrappers**: Similar identifier resolution for other update tools
+3. **Performance Optimization**: Monitor and optimize agent response times
+4. **Error Recovery**: Implement better error handling and recovery strategies
+5. **Documentation**: Update API docs with new multi-agent system
+
+### 🐛 **Known Issues**
+- Some update tools still need wrapper functions for identifier resolution
+- Bulk operations need CSV file handling implementation
+- Channel-specific tools (MAP sales) need thorough testing
+
+### 💡 **Architecture Benefits**
+- Clear separation of concerns with specialized agents
+- Better maintainability with focused agent responsibilities
+- Improved error isolation and debugging
+- Scalable design for adding new agents/tools
+
+---
+
+*Last Updated: June 28, 2025*

@@ -37,13 +37,9 @@ def get_product_info(product_id: str) -> Dict:
             title
             handle
             status
-            metafields(first: 1, namespace: "new", key: "varLinks") {
-                edges {
-                    node {
-                        id
-                        value
-                    }
-                }
+            metafield(namespace: "new", key: "varLinks") {
+                id
+                value
             }
         }
     }
@@ -68,11 +64,13 @@ def get_product_info(product_id: str) -> Dict:
 def update_variant_links(product_id: str, linked_products: List[str]) -> bool:
     """Update the varLinks metafield for a product."""
     mutation = """
-    mutation updateProductMetafields($input: ProductInput!) {
-        productUpdate(input: $input) {
-            product {
+    mutation setMetafield($input: MetafieldsSetInput!) {
+        metafieldsSet(metafields: [$input]) {
+            metafields {
                 id
-                title
+                namespace
+                key
+                value
             }
             userErrors {
                 field
@@ -90,15 +88,17 @@ def update_variant_links(product_id: str, linked_products: List[str]) -> bool:
         else:
             formatted_ids.append(pid)
     
+    # Ensure product_id is in GID format
+    if not product_id.startswith('gid://'):
+        product_id = f"gid://shopify/Product/{product_id}"
+    
     variables = {
         "input": {
-            "id": product_id,
-            "metafields": [{
-                "namespace": "new",
-                "key": "varLinks",
-                "value": json.dumps(formatted_ids),
-                "type": "list.product_reference"
-            }]
+            "ownerId": product_id,
+            "namespace": "new",
+            "key": "varLinks",
+            "value": json.dumps(formatted_ids),
+            "type": "list.product_reference"
         }
     }
     
@@ -108,8 +108,13 @@ def update_variant_links(product_id: str, linked_products: List[str]) -> bool:
     })
     
     result = response.json()
-    if result.get('data', {}).get('productUpdate', {}).get('userErrors'):
-        print(f"Error updating {product_id}: {result['data']['productUpdate']['userErrors']}")
+    
+    if 'errors' in result:
+        print(f"GraphQL errors: {result['errors']}")
+        return False
+    
+    if result.get('data', {}).get('metafieldsSet', {}).get('userErrors'):
+        print(f"Error updating {product_id}: {result['data']['metafieldsSet']['userErrors']}")
         return False
     
     return True
@@ -178,12 +183,12 @@ def check_links(product_id: str):
     print("-" * 50)
     
     # Get current varLinks
-    varlinks_data = product.get('metafields', {}).get('edges', [])
-    if not varlinks_data:
+    varlinks_metafield = product.get('metafield')
+    if not varlinks_metafield or not varlinks_metafield.get('value'):
         print("No variant links found")
         return
     
-    linked_ids = json.loads(varlinks_data[0]['node']['value'])
+    linked_ids = json.loads(varlinks_metafield['value'])
     print(f"Linked to {len(linked_ids)} products:")
     
     # Fetch details for each linked product
@@ -206,12 +211,12 @@ def sync_group(sample_product_id: str):
         print(f"Product not found: {sample_product_id}")
         return
     
-    varlinks_data = product.get('metafields', {}).get('edges', [])
-    if not varlinks_data:
+    varlinks_metafield = product.get('metafield')
+    if not varlinks_metafield or not varlinks_metafield.get('value'):
         print("No variant links found on sample product")
         return
     
-    linked_ids = json.loads(varlinks_data[0]['node']['value'])
+    linked_ids = json.loads(varlinks_metafield['value'])
     print(f"Found {len(linked_ids)} products in group")
     
     # Update all products in the group

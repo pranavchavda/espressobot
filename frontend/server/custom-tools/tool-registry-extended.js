@@ -133,12 +133,12 @@ class ExtendedToolRegistry {
         },
         type: 'python',
         handler: async (args) => {
-          const options = {
-            price: args.price,
-            'compare-at': args.compare_at_price,
-            cost: args.cost
-          };
-          return this.pythonWrapper.executeTool('update_pricing', options, [args.identifier]);
+          const options = {};
+          if (args.price) options.price = args.price;
+          if (args.compare_at_price !== undefined) options['compare-at'] = args.compare_at_price;
+          if (args.cost) options.cost = args.cost;
+          
+          return this.pythonWrapper.executeTool('update_pricing_wrapper', options, [args.identifier]);
         }
       },
       {
@@ -466,6 +466,371 @@ class ExtendedToolRegistry {
               error: error.message
             };
           }
+        }
+      },
+      
+      // Additional tools not previously included
+      {
+        name: 'manage_map_sales',
+        description: 'Manage MAP (Minimum Advertised Price) sales based on calendar data',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            command: { 
+              type: 'string', 
+              enum: ['check', 'apply', 'revert', 'summary'],
+              description: 'Action to perform' 
+            },
+            calendar: { 
+              type: 'string', 
+              default: 'resources/breville_espresso_sales_2025_enhanced.md',
+              description: 'Path to enhanced calendar file' 
+            },
+            date: { type: 'string', description: 'Specific date (YYYY-MM-DD) for check/apply' },
+            date_range: { type: 'string', description: 'Date range for revert (e.g., "30 May - 05 Jun")' },
+            dry_run: { type: 'boolean', default: false, description: 'Preview changes without applying' }
+          },
+          required: ['command']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.calendar) options.calendar = args.calendar;
+          if (args.dry_run) options['dry-run'] = true;
+          if (args.date) options.date = args.date;
+          
+          const positional = [args.command];
+          if (args.command === 'revert' && args.date_range) {
+            positional.push(args.date_range);
+          }
+          
+          return this.pythonWrapper.executeTool('manage_map_sales', options, positional);
+        }
+      },
+      {
+        name: 'manage_miele_sales',
+        description: 'Manage Miele MAP sales based on the 2025 calendar',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { 
+              type: 'string', 
+              enum: ['check', 'apply', 'revert', 'status'],
+              description: 'Action to perform' 
+            },
+            date: { type: 'string', description: 'Override date (YYYY-MM-DD)' },
+            dry_run: { type: 'boolean', default: false, description: 'Preview mode' }
+          },
+          required: ['action']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.date) options.date = args.date;
+          if (args.dry_run) options['dry-run'] = true;
+          
+          return this.pythonWrapper.executeTool('manage_miele_sales', options, [args.action]);
+        }
+      },
+      {
+        name: 'manage_skuvault_kits',
+        description: 'Manage SkuVault kits (bundles/combos)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { 
+              type: 'string', 
+              enum: ['create', 'update', 'remove', 'list', 'get', 'create-bulk'],
+              description: 'Kit management action' 
+            },
+            kit_sku: { type: 'string', description: 'Kit SKU' },
+            components: { type: 'string', description: 'Components in format "SKU1:QTY1,SKU2:QTY2"' },
+            title: { type: 'string', description: 'Kit title' },
+            file: { type: 'string', description: 'CSV file for bulk operations' }
+          },
+          required: ['action']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = { action: args.action };
+          if (args.kit_sku) options['kit-sku'] = args.kit_sku;
+          if (args.components) options.components = args.components;
+          if (args.title) options.title = args.title;
+          if (args.file) options.file = args.file;
+          
+          return this.pythonWrapper.executeTool('manage_skuvault_kits', options);
+        }
+      },
+      {
+        name: 'update_skuvault_prices',
+        description: 'Update SkuVault prices from Shopify or CSV',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            source: { 
+              type: 'string', 
+              enum: ['shopify', 'csv'],
+              default: 'shopify',
+              description: 'Price data source' 
+            },
+            csv_file: { type: 'string', description: 'CSV file path (if source is csv)' },
+            sku: { type: 'string', description: 'Update specific SKU only' },
+            dry_run: { type: 'boolean', default: false, description: 'Preview changes' }
+          }
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.source) options.source = args.source;
+          if (args.csv_file) options['csv-file'] = args.csv_file;
+          if (args.sku) options.sku = args.sku;
+          if (args.dry_run) options['dry-run'] = true;
+          
+          return this.pythonWrapper.executeTool('update_skuvault_prices', options);
+        }
+      },
+      {
+        name: 'update_skuvault_prices_v2',
+        description: 'Update SkuVault prices (version 2 with enhanced features)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            source: { 
+              type: 'string', 
+              enum: ['shopify', 'csv'],
+              default: 'shopify',
+              description: 'Price data source' 
+            },
+            csv_file: { type: 'string', description: 'CSV file path (if source is csv)' },
+            sku: { type: 'string', description: 'Update specific SKU only' },
+            dry_run: { type: 'boolean', default: false, description: 'Preview changes' },
+            force: { type: 'boolean', default: false, description: 'Force update even if prices match' }
+          }
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.source) options.source = args.source;
+          if (args.csv_file) options['csv-file'] = args.csv_file;
+          if (args.sku) options.sku = args.sku;
+          if (args.dry_run) options['dry-run'] = true;
+          if (args.force) options.force = true;
+          
+          return this.pythonWrapper.executeTool('update_skuvault_prices_v2', options);
+        }
+      },
+      {
+        name: 'update_skuvault_costs',
+        description: 'Update SkuVault costs from CSV file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            csv_file: { type: 'string', description: 'CSV file with SKU and cost columns' },
+            dry_run: { type: 'boolean', default: false, description: 'Preview changes' }
+          },
+          required: ['csv_file']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.dry_run) options['dry-run'] = true;
+          
+          return this.pythonWrapper.executeTool('update_skuvault_costs', options, [args.csv_file]);
+        }
+      },
+      {
+        name: 'update_skuvault_costs_v2',
+        description: 'Update SkuVault costs (version 2 with validation)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            csv_file: { type: 'string', description: 'CSV file with SKU and cost columns' },
+            dry_run: { type: 'boolean', default: false, description: 'Preview changes' },
+            validate_only: { type: 'boolean', default: false, description: 'Only validate without updating' }
+          },
+          required: ['csv_file']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.dry_run) options['dry-run'] = true;
+          if (args.validate_only) options['validate-only'] = true;
+          
+          return this.pythonWrapper.executeTool('update_skuvault_costs_v2', options, [args.csv_file]);
+        }
+      },
+      {
+        name: 'create_product',
+        description: 'Create a simple product with single variant in Shopify',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Product title' },
+            vendor: { type: 'string', description: 'Product vendor' },
+            product_type: { type: 'string', description: 'Product type' },
+            description: { type: 'string', description: 'Product description' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Product tags' },
+            price: { type: 'string', default: '0.00', description: 'Product price' },
+            sku: { type: 'string', description: 'SKU' },
+            barcode: { type: 'string', description: 'Barcode' },
+            weight: { type: 'number', description: 'Weight' },
+            weight_unit: { type: 'string', default: 'KILOGRAMS', enum: ['KILOGRAMS', 'POUNDS', 'GRAMS', 'OUNCES'] },
+            inventory_quantity: { type: 'number', default: 0, description: 'Starting inventory' },
+            track_inventory: { type: 'boolean', default: true, description: 'Track inventory' },
+            status: { type: 'string', default: 'DRAFT', enum: ['DRAFT', 'ACTIVE'], description: 'Product status' }
+          },
+          required: ['title', 'vendor', 'product_type']
+        },
+        type: 'python',
+        handler: async (args) => {
+          // Use create_full_product instead of broken create_product
+          // create_full_product requires price, so ensure it's set
+          const options = {
+            title: args.title,
+            vendor: args.vendor,
+            type: args.product_type,
+            price: args.price || '0.00',
+            status: args.status || 'DRAFT'
+          };
+          
+          // Optional parameters
+          if (args.description) options.description = args.description;
+          if (args.tags && args.tags.length > 0) options.tags = args.tags.join(',');
+          if (args.sku) options.sku = args.sku;
+          if (args.barcode) options.barcode = args.barcode;
+          if (args.weight) options.weight = args.weight;
+          if (args.weight_unit) options['weight-unit'] = args.weight_unit;
+          // Note: create_full_product doesn't support inventory quantity directly
+          // It would need to be set via a separate update
+          
+          return this.pythonWrapper.executeTool('create_full_product', options);
+        }
+      },
+      {
+        name: 'manage_features_json',
+        description: 'Manage product features box metafield (JSON format)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { 
+              type: 'string', 
+              enum: ['add', 'update', 'remove', 'reorder', 'get', 'clear'],
+              description: 'Feature management action' 
+            },
+            identifier: { type: 'string', description: 'Product ID, handle, SKU, or title' },
+            feature: { type: 'string', description: 'Feature text to add/update' },
+            index: { type: 'number', description: 'Feature index (0-based)' },
+            new_index: { type: 'number', description: 'New position for reorder' }
+          },
+          required: ['action', 'identifier']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.feature) options.feature = args.feature;
+          if (args.index !== undefined) options.index = args.index;
+          if (args.new_index !== undefined) options['new-index'] = args.new_index;
+          
+          return this.pythonWrapper.executeTool('manage_features_json', 
+            options, 
+            [args.action, args.identifier]
+          );
+        }
+      },
+      {
+        name: 'manage_features_metaobjects',
+        description: 'Manage product features box using Shopify metaobjects',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { 
+              type: 'string', 
+              enum: ['add', 'update', 'remove', 'reorder', 'get', 'clear', 'migrate'],
+              description: 'Feature management action' 
+            },
+            identifier: { type: 'string', description: 'Product ID, handle, SKU, or title' },
+            feature: { type: 'string', description: 'Feature text to add/update' },
+            index: { type: 'number', description: 'Feature index (0-based)' },
+            new_index: { type: 'number', description: 'New position for reorder' }
+          },
+          required: ['action', 'identifier']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = {};
+          if (args.feature) options.feature = args.feature;
+          if (args.index !== undefined) options.index = args.index;
+          if (args.new_index !== undefined) options['new-index'] = args.new_index;
+          
+          return this.pythonWrapper.executeTool('manage_features_metaobjects', 
+            options, 
+            [args.action, args.identifier]
+          );
+        }
+      },
+      {
+        name: 'update_status',
+        description: 'Update product status in Shopify',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            identifier: { type: 'string', description: 'Product ID, handle, SKU, or title' },
+            status: { type: 'string', enum: ['ACTIVE', 'DRAFT', 'ARCHIVED'], description: 'New status' }
+          },
+          required: ['identifier', 'status']
+        },
+        type: 'python',
+        handler: async (args) => {
+          return this.pythonWrapper.executeTool('update_status', 
+            { status: args.status }, 
+            [args.identifier]
+          );
+        }
+      },
+      {
+        name: 'graphql_query',
+        description: 'Execute a GraphQL query against Shopify Admin API',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'GraphQL query' },
+            variables: { type: 'object', description: 'Query variables' }
+          },
+          required: ['query']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = args.variables ? { variables: JSON.stringify(args.variables) } : {};
+          return this.pythonWrapper.executeTool('graphql_query', options, [args.query]);
+        }
+      },
+      {
+        name: 'graphql_mutation',
+        description: 'Execute a GraphQL mutation against Shopify Admin API',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mutation: { type: 'string', description: 'GraphQL mutation' },
+            variables: { type: 'object', description: 'Mutation variables' }
+          },
+          required: ['mutation']
+        },
+        type: 'python',
+        handler: async (args) => {
+          const options = args.variables ? { variables: JSON.stringify(args.variables) } : {};
+          return this.pythonWrapper.executeTool('graphql_mutation', options, [args.mutation]);
+        }
+      },
+      {
+        name: 'test_connection',
+        description: 'Test Shopify API connection and credentials',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        },
+        type: 'python',
+        handler: async () => {
+          return this.pythonWrapper.executeTool('test_connection', {});
         }
       }
     ];

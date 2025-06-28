@@ -2,8 +2,8 @@ import express from 'express';
 import { run } from '@openai/agents';
 import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
-import { espressoBotOrchestrator } from './agents/espressobot-orchestrator.js';
-// import { simpleOrchestrator as espressoBotOrchestrator } from './agents/simple-orchestrator.js';
+// import { espressoBotOrchestrator } from './agents/espressobot-orchestrator.js';
+import enhancedOrchestrator from './enhanced-multi-agent-orchestrator-v2.js';
 import EventEmitter from 'events';
 import { PrismaClient } from '@prisma/client';
 import path from 'path';
@@ -42,6 +42,14 @@ router.post('/run', async (req, res) => {
   // Helper to get agent-specific status messages
   const getAgentStatusMessage = (agentName, toolName = null) => {
     const messages = {
+      'Enhanced_EspressoBot_Orchestrator': {
+        default: 'Enhanced EspressoBot Orchestrator is analyzing your request...',
+        'transfer_to_Catalog_Query_Agent': 'Routing to Catalog Query Agent...',
+        'transfer_to_Product_Creation_Agent': 'Routing to Product Creation Agent...',
+        'transfer_to_Product_Update_Agent': 'Routing to Product Update Agent...',
+        'transfer_to_Inventory_Agent': 'Routing to Inventory Agent...',
+        'transfer_to_Memory_Agent': 'Routing to Memory Agent...'
+      },
       'EspressoBot_Orchestrator': {
         default: 'EspressoBot Orchestrator is analyzing your request...',
         'transfer_to_Memory_Agent': 'EspressoBot is routing to Memory Agent...',
@@ -91,6 +99,7 @@ router.post('/run', async (req, res) => {
 
   let conversationId = conv_id;
   const USER_ID = 1; // Default user ID, same as unified orchestrator
+  let pollMarkdownInterval = null; // Define outside try block to be accessible in catch
   
   try {
     // Handle conversation creation/retrieval
@@ -309,7 +318,7 @@ router.post('/run', async (req, res) => {
     }
     
     // Set up markdown file polling like unified orchestrator does
-    let pollMarkdownInterval = null;
+    // pollMarkdownInterval already declared outside try block
     let lastMarkdownContent = '';
     const plansDir = path.join(__dirname, '../plans');
     
@@ -372,8 +381,8 @@ router.post('/run', async (req, res) => {
       
       // Send initial processing event
       sendEvent('agent_processing', {
-        agent: 'EspressoBot_Orchestrator',
-        message: 'EspressoBot Orchestrator is analyzing your request...',
+        agent: 'Enhanced_EspressoBot_Orchestrator',
+        message: 'Enhanced EspressoBot Orchestrator is analyzing your request...',
         status: 'processing'
       });
       
@@ -383,7 +392,7 @@ router.post('/run', async (req, res) => {
         ? runWithVisionRetry 
         : run;
       
-      result = await runFn(espressoBotOrchestrator, agentInput, {
+      result = await runFn(enhancedOrchestrator, agentInput, {
         maxTurns: 10,
         context,
         trace: {
@@ -645,11 +654,17 @@ router.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     agents: [
-      'EspressoBot_Orchestrator',
-      'Memory_Agent',
-      'Task_Planner_Agent',
+      'Enhanced_EspressoBot_Orchestrator',
+      'Catalog_Query_Agent',
       'Product_Creation_Agent',
-      'Product_Update_Agent'
+      'Product_Update_Agent',
+      'Inventory_Agent',
+      'Channel_Specials_Agent',
+      'Secure_Data_Agent',
+      'System_Health_Agent',
+      'Task_Planning_Agent',
+      'User_Clarification_Agent',
+      'Memory_Agent'
     ]
   });
 });
@@ -657,7 +672,7 @@ router.get('/health', (req, res) => {
 // Test endpoint
 router.post('/test', async (req, res) => {
   try {
-    const result = await run(espressoBotOrchestrator, 'Hello test', {
+    const result = await run(enhancedOrchestrator, 'Hello test', {
       maxTurns: 1
     });
     
