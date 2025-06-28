@@ -325,17 +325,18 @@ function StreamingChatPage({ convId }) {
 
     if ((!textToSend && !imageAttachment) || isSending) return;
 
-    if (streamingMessage?.isComplete) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          role: "assistant",
-          content: streamingMessage.content,
-          timestamp: streamingMessage.timestamp,
-        }
-      ]);
-    }
+    // Remove this check - streaming messages are now moved to messages array in the 'done' handler
+    // if (streamingMessage?.isComplete) {
+    //   setMessages(prev => [
+    //     ...prev,
+    //     {
+    //       id: `msg-${Date.now()}`,
+    //       role: "assistant",
+    //       content: streamingMessage.content,
+    //       timestamp: streamingMessage.timestamp,
+    //     }
+    //   ]);
+    // }
 
     const userMessage = {
       role: "user",
@@ -355,17 +356,14 @@ function StreamingChatPage({ convId }) {
     setAgentProcessingStatus(""); // Clear previous agent status
     setTaskMarkdown(null); // Clear previous task markdown
 
-    // Only initialize streaming message for basic agent mode
-    // Multi-agent mode will set it when events arrive
-    if (useBasicAgent) {
-      setStreamingMessage({
-        role: "assistant",
-        content: "",
-        timestamp: new Date().toISOString(),
-        isStreaming: true,
-        isComplete: false,
-      });
-    }
+    // Initialize streaming message for all modes
+    setStreamingMessage({
+      role: "assistant",
+      content: "",
+      timestamp: new Date().toISOString(),
+      isStreaming: true,
+      isComplete: false,
+    });
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -834,7 +832,14 @@ function StreamingChatPage({ convId }) {
                   setToolCallStatus("");
                   setCurrentTasks(prev => prev.map(t => (t.status === 'running' ? {...t, status:'completed_implicit'} : t) ));
                   console.log("FRONTEND: Received 'assistant_delta' event payload:", JSON.stringify(actualEventPayload)); // DEBUG
-                  setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + actualEventPayload.delta, isStreaming: true, isComplete: false }));
+                  setStreamingMessage(prev => {
+                    const newContent = (prev?.content || "") + actualEventPayload.delta;
+                    console.log("FRONTEND: Updating streamingMessage, new content length:", newContent.length);
+                    console.log("FRONTEND: streamingMessage state before update:", prev);
+                    const newState = { ...prev, content: newContent, isStreaming: true, isComplete: false };
+                    console.log("FRONTEND: streamingMessage state after update:", newState);
+                    return newState;
+                  });
                   break;
                 case 'interrupted':
                   console.log("FRONTEND: Received 'interrupted' event", JSON.stringify(actualEventPayload));
@@ -859,10 +864,16 @@ function StreamingChatPage({ convId }) {
                 case 'done':
                   console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
                   
-                  // Force immediate state updates for UI
+                  // Mark streaming message as complete - the useEffect will handle moving it to messages
                   setStreamingMessage(prev => {
                     console.log("Setting message to complete, prev state:", prev);
-                    return { ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() };
+                    if (!prev) return null;
+                    return {
+                      ...prev,
+                      isStreaming: false,
+                      isComplete: true,
+                      timestamp: new Date().toISOString()
+                    };
                   });
                   
                   setIsSending(false);

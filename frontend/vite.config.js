@@ -75,11 +75,19 @@ export default defineConfig({
         
         // Choose orchestrator based on environment variable
         const useMultiAgent = process.env.USE_MULTI_AGENT === 'true';
-        console.log(`Using ${useMultiAgent ? 'Multi-Agent' : 'Unified'} Orchestrator`);
+        const useBashOrchestrator = process.env.USE_BASH_ORCHESTRATOR === 'true';
         
-        const orchestratorRouter = useMultiAgent 
-          ? (await import('./server/multi-agent-orchestrator')).default
-          : (await import('./server/unified-orchestrator')).default;
+        let orchestratorType = 'Unified';
+        if (useBashOrchestrator) orchestratorType = 'Bash';
+        else if (useMultiAgent) orchestratorType = 'Multi-Agent';
+        
+        console.log(`Using ${orchestratorType} Orchestrator`);
+        
+        const orchestratorRouter = useBashOrchestrator
+          ? (await import('./server/bash-orchestrator-api')).default
+          : useMultiAgent 
+            ? (await import('./server/multi-agent-orchestrator')).default
+            : (await import('./server/unified-orchestrator')).default;
 
         const apiApp = express();
         apiApp.use(bodyParser.json({ limit: '50mb' }));

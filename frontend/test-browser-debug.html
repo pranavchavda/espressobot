@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Debug Test</title>
+</head>
+<body>
+    <h1>SSE Event Stream Debug</h1>
+    <button onclick="testSSE()">Test SSE</button>
+    <pre id="output"></pre>
+    
+    <script>
+        function log(msg) {
+            document.getElementById('output').textContent += msg + '\n';
+        }
+        
+        async function testSSE() {
+            log('Starting test...');
+            
+            try {
+                const response = await fetch('http://localhost:5173/api/agent/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'Hello, test message' })
+                });
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    // Process complete events in buffer
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep incomplete line
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            log(`EVENT: ${line.substring(7)}`);
+                        } else if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                log(`  DATA: ${JSON.stringify(data)}`);
+                            } catch (e) {
+                                log(`  DATA: [parse error]`);
+                            }
+                        }
+                    }
+                }
+                
+                log('Stream complete');
+            } catch (e) {
+                log(`Error: ${e.message}`);
+            }
+        }
+    </script>
+</body>
+</html>

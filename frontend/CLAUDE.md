@@ -1,5 +1,46 @@
 # Claude Development Log
 
+## December 28, 2024 - Fixed Bash Orchestrator Display Issue
+
+### 🐛 **Issue**
+The bash orchestrator responses were being saved to the database but not displaying in real-time in the UI. Users would only see the response after refreshing the page.
+
+### 🔍 **Root Cause**
+The bash orchestrator was trying to use OpenAI agents SDK callbacks (`onMessage`, `onStepFinish`) to stream responses, but these callbacks weren't firing. The issue was that:
+1. The callbacks don't seem to work as expected in the current OpenAI agents SDK version
+2. The bash orchestrator was sending `assistant_delta` events, but the working multi-agent orchestrator uses `agent_message` events
+
+### ✅ **Solution**
+Updated the bash orchestrator to follow the same pattern as the working multi-agent orchestrator:
+- After the agent completes, extract the final response
+- Send it as an `agent_message` event (not `assistant_delta`)
+- The frontend already has a handler for `agent_message` that properly displays content
+
+### 📝 **Code Changes**
+In `/server/bash-orchestrator-api.js`:
+```javascript
+// Instead of:
+sendEvent('assistant_delta', { delta: textResponse });
+
+// Now using:
+sendEvent('agent_message', {
+  agent: 'Dynamic_Bash_Orchestrator',
+  content: textResponse,
+  timestamp: new Date().toISOString()
+});
+```
+
+### 🎯 **Result**
+The bash orchestrator now displays responses in real-time, matching the behavior of other orchestrators.
+
+### 🐛 **Additional Fix - Dynamic Agent Spawning**
+Fixed "Dynamic require not supported" error when spawning bash agents:
+- Changed from `const { Agent } = require('@openai/agents')` inside function
+- To importing `Agent` at the top: `import { Agent, tool } from '@openai/agents'`
+- This avoids dynamic require of ES modules which isn't supported
+
+---
+
 ## 🚀 EspressoBot v0.2 - Native Tools Integration Complete!
 
 ### Current State (December 21, 2024)

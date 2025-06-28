@@ -1,5 +1,3 @@
-#\!/usr/bin/env node
-
 console.log('🔍 Testing Orchestrator Flow\n');
 
 const fetch = (await import('node-fetch')).default;
@@ -63,4 +61,4 @@ async function testOrchestratorFlow(message) {
 // Test with a simple question that should trigger the orchestrator
 await testOrchestratorFlow("What is 2+2?");
 
-console.log('\n✅ Test completed\!');
+console.log('\n✅ Test completed!');
