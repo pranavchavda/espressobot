@@ -288,7 +288,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
             isStreaming = true;
             sseEmitter('agent_status', { status: 'responding' });
           }
-          sseEmitter('assistant_delta', { delta: message.content });
+          // Don't send deltas during streaming - let the final response handle it
+          // sseEmitter('assistant_delta', { delta: message.content });
         }
         
         // Handle tool calls

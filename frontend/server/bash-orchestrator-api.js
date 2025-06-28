@@ -95,6 +95,7 @@ router.post('/run', async (req, res) => {
     console.log('Result type:', typeof result);
     console.log('Result keys:', result ? Object.keys(result) : 'null');
     console.log('Has finalOutput:', result?.finalOutput ? 'YES' : 'NO');
+    console.log('finalOutput value:', result?.finalOutput ? result.finalOutput.substring(0, 100) + '...' : 'NONE');
     console.log('Has state:', result?.state ? 'YES' : 'NO');
     
     // Log all state keys and their values
@@ -168,11 +169,16 @@ router.post('/run', async (req, res) => {
     
     // Send the final response as agent_message event (like multi-agent orchestrator)
     if (textResponse) {
+      console.log('=== SENDING AGENT_MESSAGE EVENT ===');
+      console.log('Content:', textResponse.substring(0, 100) + '...');
       sendEvent('agent_message', {
         agent: 'Dynamic_Bash_Orchestrator',
         content: textResponse,
         timestamp: new Date().toISOString()
       });
+      console.log('=== AGENT_MESSAGE EVENT SENT ===');
+    } else {
+      console.log('=== WARNING: No textResponse to send ===');
     }
     
     // Send completion

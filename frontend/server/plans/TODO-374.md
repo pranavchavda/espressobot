@@ -1,4 +1,0 @@
-- [x] Search Profitec Go products via shopifySearchProducts
-- [x] 🔄 Fetch variants of Profitec Go products via shopifyGetProductVariants
-- [ ] 🔄 🔄 Extract prices for each colour variant
-- [ ] 🔄 🔄 Present results in a clear table

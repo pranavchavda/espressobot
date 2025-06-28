@@ -1,6 +1,0 @@
-- [x] 🔄 Inspect the GraphQL schema for Order queries using introspect_admin_schema
-- [x] 🔄 🔄 Search Shopify dev docs for examples of filtering orders by date with search_dev_docs
-- [x] 🔄 🔄 🔄 Fetch GraphQL Order object documentation via fetch_docs_by_path
-- [x] 🔄 🔄 🔄 Construct a GraphQL query to fetch orders placed on 2025-06-16 including total revenue, order time, and line items
-- [x] 🔄 🔄 🔄 Execute the GraphQL query and retrieve today's orders data
-- [x] 🔄 🔄 🔄 Compile and format the report of today's orders with revenue, order time, and line items

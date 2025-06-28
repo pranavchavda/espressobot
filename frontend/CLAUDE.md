@@ -1,5 +1,114 @@
 # Claude Development Log
 
+## June 28, 2025 - Shell Agency: Unix Philosophy Architecture
+
+### 🎯 **Primary Objective Achieved**
+Successfully implemented a revolutionary "Shell Agency" architecture where agents are given direct bash access instead of wrapped tools, following Unix philosophy of composable commands.
+
+### 🔧 **Major Architecture Change**
+- **Before**: Complex tool-wrapping system with 30+ individually wrapped Python tools
+- **After**: Agents with bash access can execute tools directly, chain commands, and even create new tools
+- **Philosophy**: "Do one thing well" - agents compose simple tools into complex solutions
+
+### 🚀 **Key Implementation Details**
+
+#### 1. **Bash Tool with Safety Checks**
+Created `/server/tools/bash-tool.js` with:
+- Dangerous command pattern detection (rm -rf /, fork bombs, etc.)
+- Configurable timeout (default 5 minutes)
+- Working directory management
+- Real-time progress SSE events
+
+#### 2. **Dynamic Agent Spawning**
+The orchestrator can spawn specialized bash agents:
+```javascript
+// Single agent for focused task
+await spawnBashAgent({
+  agentName: "Price_Updater",
+  task: "Update prices for products X, Y, Z",
+  context: "Use update_pricing.py tool"
+});
+
+// Parallel agents for independent tasks
+await spawnParallelBashAgents([
+  { agentName: "Search_Agent", task: "Find coffee products" },
+  { agentName: "Analytics_Agent", task: "Generate sales report" }
+]);
+```
+
+#### 3. **Conversation History Context**
+- Bash orchestrator now loads full conversation history
+- Agents have context from previous messages
+- Proper conversation continuity maintained
+
+### ✅ **Problems Solved**
+1. **SSE Streaming Issue**: Fixed by sending `agent_message` events instead of `assistant_delta`
+2. **Frontend Display**: Messages now appear in real-time
+3. **Dynamic Import Error**: Fixed ES module import issue in bash-tool.js
+4. **Timeout Configuration**: Made bash timeout configurable (was hardcoded 30s)
+5. **Progress Updates**: Added real-time progress messages during execution
+
+### 🛠️ **Technical Fixes Applied**
+
+#### Frontend SSE Handler Fix
+```javascript
+// Moved agent_message handler outside multi-agent block
+if (eventName === 'agent_message') {
+  setStreamingMessage(prev => ({ 
+    role: 'assistant',
+    content: actualEventPayload.content, 
+    isStreaming: false, 
+    isComplete: true,  // Critical: was false before
+    timestamp: new Date().toISOString()
+  }));
+}
+```
+
+#### Bash Tool ES Module Fix
+```javascript
+// Fixed dynamic require error
+import { Agent, tool } from '@openai/agents';  // At top of file
+// Instead of: const { Agent } = require('@openai/agents')
+```
+
+### 📁 **Architecture Cleanup**
+- Removed all old orchestrators (multi-agent, unified, v2 variants)
+- Deleted 30+ test files (moved to tests/ directory)
+- Removed specialized agents directory
+- Made bash orchestrator the only orchestrator
+- Simplified to single, clean architecture
+
+### 💡 **Benefits of Shell Agency**
+1. **Flexibility**: Agents can create new tools on the fly
+2. **Composability**: Chain multiple tools with pipes and scripts
+3. **Debugging**: Direct command output visibility
+4. **Extensibility**: No need to wrap every new tool
+5. **Unix Philosophy**: Small tools that do one thing well
+
+### 🚀 **Usage Examples**
+```bash
+# Agent can now do complex operations
+cat products.csv | grep "coffee" | python update_pricing.py --discount 10
+
+# Create temporary tools
+echo "import sys; print(len(sys.stdin.read().split()))" > count_words.py
+cat description.txt | python count_words.py
+
+# Parallel operations
+python search_products.py "coffee" > results.json &
+python analytics.py --last-7-days > report.json &
+wait
+```
+
+### 🔄 **Next Steps (TODO.md)**
+1. Integrate Task Manager as bash orchestrator tool
+2. Integrate Memory Agent for context persistence
+3. Add visual indicators for spawned agents
+4. Create agent templates for common patterns
+5. Implement caching for frequently used commands
+
+---
+
 ## December 28, 2024 - Fixed Bash Orchestrator Display Issue
 
 ### 🐛 **Issue**
@@ -522,6 +631,57 @@ node test-mcp-direct.js
 ```
 
 **Status**: Shopify Dev MCP integration **complete** ✅ (using native SDK support)
+
+---
+
+## June 28, 2025 - Unified Bash Orchestrator as Default System
+
+### 🎯 **Primary Objective Achieved**
+Successfully replaced the multi-agent orchestrator with the bash orchestrator as the default and only orchestrator for EspressoBot. This simplification provides a more maintainable and performant system.
+
+### 🔧 **Major Changes Implemented**
+
+#### 1. **Orchestrator Unification**
+- Removed multi-agent orchestrator (`/server/multi-agent-orchestrator.js`)
+- Renamed `bash-orchestrator-api.js` to `espressobot-orchestrator.js`
+- Updated all references to use the new unified orchestrator
+- Made dynamic bash agent the sole agent handling all requests
+
+#### 2. **Code Cleanup**
+- Removed unused test files (30+ test files)
+- Removed old plan files (`MEMORY_SYSTEM_PLAN.md`, `server/plans/TODO-*.md`)
+- Cleaned up duplicate and outdated agent implementations
+- Removed specialized agent directory (`/server/agents/specialized/`)
+
+#### 3. **Architecture Simplification**
+- Single orchestrator pattern for better maintainability
+- Direct tool execution via bash orchestrator
+- Simplified conversation management
+- Cleaner codebase with focused functionality
+
+### ✅ **Benefits of Bash Orchestrator**
+1. **Performance**: Direct tool execution without agent handoff overhead
+2. **Simplicity**: Single agent handles all requests dynamically
+3. **Flexibility**: Can spawn specialized agents when needed
+4. **Maintainability**: One orchestrator to maintain instead of multiple
+5. **Debugging**: Clearer execution flow and easier troubleshooting
+
+### 📁 **Key Changes**
+- **Renamed**: `bash-orchestrator-api.js` → `espressobot-orchestrator.js`
+- **Updated**: `server/conversations.js` to import new orchestrator
+- **Removed**: Multi-agent orchestrator and specialized agents
+- **Cleaned**: 30+ test files and old plan documents
+
+### 🚀 **Current Architecture**
+```
+EspressoBot Frontend
+├── server/
+│   ├── espressobot-orchestrator.js  # Main orchestrator (formerly bash)
+│   ├── dynamic-bash-orchestrator.js  # Dynamic agent spawning
+│   ├── conversations.js              # Conversation management
+│   └── custom-tools/                 # Tool implementations
+└── src/                              # React frontend
+```
 
 ---
 

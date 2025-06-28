@@ -1,7 +1,0 @@
-- [x] 🔄 Use introspect_admin_schema to identify Order fields for total_price, created_at, and line_items
-- [x] 🔄 🔄 Search_dev_docs for GraphQL query examples filtering orders by date
-- [x] 🔄 🔄 🔄 Draft a GraphQL query to fetch the top 10 orders from yesterday sorted by total_price
-- [x] 🔄 🔄 🔄 🔄 Execute the GraphQL query to retrieve revenue amount, order time, and line items
-- [x] 🔄 🔄 🔄 🔄 🔄 Query or calculate the total revenue for all orders from yesterday
-- [x] 🔄 🔄 🔄 🔄 🔄 🔄 Format the data into a report listing each order’s revenue amount, time, and line items
-- [x] 🔄 🔄 🔄 🔄 🔄 🔄 🔄 Include the total revenue summary in the final report

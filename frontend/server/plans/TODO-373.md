@@ -1,3 +1,0 @@
-- [x] 🔄 Search for Profitec Go via shopifySearchProducts
-- [x] 🔄 🔄 Retrieve variants and prices via shopifyGetProductVariants
-- [ ] 🔄 🔄 🔄 Present prices by colour

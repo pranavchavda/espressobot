@@ -73,21 +73,10 @@ export default defineConfig({
         const convHandler = (await import('./server/conversations')).default;
         // const streamChatHandler = (await import('./server/stream_chat')).default;
         
-        // Choose orchestrator based on environment variable
-        const useMultiAgent = process.env.USE_MULTI_AGENT === 'true';
-        const useBashOrchestrator = process.env.USE_BASH_ORCHESTRATOR === 'true';
+        // Use bash orchestrator as the default and only orchestrator
+        console.log('Using Bash Orchestrator (Shell Agency)');
         
-        let orchestratorType = 'Unified';
-        if (useBashOrchestrator) orchestratorType = 'Bash';
-        else if (useMultiAgent) orchestratorType = 'Multi-Agent';
-        
-        console.log(`Using ${orchestratorType} Orchestrator`);
-        
-        const orchestratorRouter = useBashOrchestrator
-          ? (await import('./server/bash-orchestrator-api')).default
-          : useMultiAgent 
-            ? (await import('./server/multi-agent-orchestrator')).default
-            : (await import('./server/unified-orchestrator')).default;
+        const orchestratorRouter = (await import('./server/bash-orchestrator-api')).default;
 
         const apiApp = express();
         apiApp.use(bodyParser.json({ limit: '50mb' }));

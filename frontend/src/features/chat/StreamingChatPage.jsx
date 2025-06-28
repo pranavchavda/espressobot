@@ -458,6 +458,9 @@ function StreamingChatPage({ convId }) {
               let parsedData = rawJsonDataString ? JSON.parse(rawJsonDataString) : {};
               let actualEventPayload = parsedData;
 
+              // Debug: Log raw event before processing
+              console.log("FRONTEND: Raw SSE event - eventName from header:", eventName, "rawJsonDataString:", rawJsonDataString);
+
               // If eventName wasn't set by an 'event:' line, 
               // and we are using the agent, try to get it from the parsed data structure.
               if (!eventName && useBasicAgent && parsedData.type) {
@@ -496,6 +499,18 @@ function StreamingChatPage({ convId }) {
                 }
               }
               
+              // Handle agent_message event for both basic and multi-agent modes
+              if (eventName === 'agent_message') {
+                console.log("FRONTEND: Agent message", actualEventPayload);
+                setStreamingMessage(prev => ({ 
+                  role: 'assistant',
+                  content: actualEventPayload.content, 
+                  isStreaming: false, 
+                  isComplete: true,
+                  timestamp: new Date().toISOString()
+                }));
+              }
+              
               // Handle multi-agent specific events
               if (!useBasicAgent) {
                 switch (eventName) {
@@ -521,15 +536,6 @@ function StreamingChatPage({ convId }) {
                 case 'tool_call':
                   console.log("FRONTEND: Tool call by agent", actualEventPayload);
                   setToolCallStatus(`${actualEventPayload.agent}: ${actualEventPayload.tool} (${actualEventPayload.status})`);
-                  break;
-                case 'agent_message':
-                  console.log("FRONTEND: Agent message", actualEventPayload);
-                  setStreamingMessage(prev => ({ 
-                    ...prev, 
-                    content: (prev?.content || "") + "\n\n" + actualEventPayload.content, 
-                    isStreaming: false, 
-                    isComplete: false 
-                  }));
                   break;
                 case 'task_summary':
                   console.log("FRONTEND: Task summary", actualEventPayload);
