@@ -57,7 +57,12 @@ function StreamingChatPage({ convId }) {
       return;
     }
     setLoading(true);
-    fetch(`/api/conversations/${convId}`)
+    const token = localStorage.getItem('authToken');
+    fetch(`/api/conversations/${convId}`, {
+      headers: {
+        'Authorization': token ? `Bearer ${token}` : ''
+      }
+    })
       .then((res) => res.json())
       .then(({ messages: fetchedMessages, tasks: persistedTasks }) => {
         setMessages(fetchedMessages);
@@ -402,9 +407,13 @@ function StreamingChatPage({ convId }) {
         }
       }
 
+      const token = localStorage.getItem('authToken');
       const response = await fetch(fetchUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify(requestData),
       });
 

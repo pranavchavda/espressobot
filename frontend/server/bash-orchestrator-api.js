@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
 import { runDynamicOrchestrator } from './dynamic-bash-orchestrator.js';
+import { authenticateToken } from './auth.js';
 
 const router = Router();
 const { PrismaClient } = prismaClient;
@@ -9,7 +10,7 @@ const prisma = new PrismaClient();
 /**
  * SSE endpoint for bash orchestrator
  */
-router.post('/run', async (req, res) => {
+router.post('/run', authenticateToken, async (req, res) => {
   console.log('\n========= BASH ORCHESTRATOR API REQUEST =========');
   const { message, conv_id: existing_conv_id } = req.body || {};
   let conversationId = existing_conv_id;
@@ -27,8 +28,8 @@ router.post('/run', async (req, res) => {
   };
   
   try {
-    // Handle conversation
-    const USER_ID = 1;
+    // Handle conversation - get user ID from authenticated request
+    const USER_ID = req.user?.id || 1;
     
     if (!conversationId) {
       const conversation = await prisma.conversations.create({

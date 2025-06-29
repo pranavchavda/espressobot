@@ -5,13 +5,15 @@ import { Router } from 'express';
 // Fix CommonJS import issue with Prisma
 import pkg from '@prisma/client';
 const { PrismaClient } = pkg;
+import { authenticateToken } from './auth.js';
 
 const prisma = new PrismaClient();
 const router = Router();
 
-// List all conversations for the single local user (ID = 1)
-router.get('/', async (req, res) => {
-  const USER_ID = 1;
+// List all conversations for the authenticated user
+router.get('/', authenticateToken, async (req, res) => {
+  // Use the authenticated user's ID, fallback to 1 for local development
+  const USER_ID = req.user?.id || 1;
   const conversations = await prisma.conversations.findMany({
     where: { user_id: USER_ID },
     orderBy: { created_at: 'desc' },
@@ -20,11 +22,23 @@ router.get('/', async (req, res) => {
 });
 
 // Get all messages for a given conversation
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   const convId = Number(req.params.id);
+  const USER_ID = req.user?.id || 1;
+  
   if (!convId) {
     return res.status(400).json({ error: 'Invalid conversation ID' });
   }
+  
+  // Verify the conversation belongs to the user
+  const conversation = await prisma.conversations.findFirst({
+    where: { id: convId, user_id: USER_ID }
+  });
+  
+  if (!conversation) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+  
   const messages = await prisma.messages.findMany({
     where: { conv_id: convId },
     orderBy: { created_at: 'asc' },
@@ -37,12 +51,24 @@ router.get('/:id', async (req, res) => {
 });
 
 // Delete a conversation and its messages
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const convId = Number(req.params.id);
+  const USER_ID = req.user?.id || 1;
+  
   if (!convId) {
     return res.status(400).json({ error: 'Invalid conversation ID' });
   }
+  
   try {
+    // Verify the conversation belongs to the user
+    const conversation = await prisma.conversations.findFirst({
+      where: { id: convId, user_id: USER_ID }
+    });
+    
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    
     // Delete related agent_runs first
     await prisma.agent_runs.deleteMany({ where: { conv_id: convId } });
     // Then delete messages

@@ -46,3 +46,16 @@ prisma/dev.db-journal
 # Misc
 .cache/
 .vercel
+
+# Google OAuth credentials
+client_secret_*.json
+*client_secret*.json
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Memory files
+memories/
+.memories/

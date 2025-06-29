@@ -72,11 +72,13 @@ model user_memory_embeddings {
 model users {
   id                     Int                      @id @default(autoincrement())
   email                  String                   @unique(map: "ix_users_email")
-  password_hash          String
+  password_hash          String?
   name                   String?
   bio                    String?
-  is_whitelisted         Boolean
+  is_whitelisted         Boolean                  @default(true)
   created_at             DateTime?
+  google_id              String?                  @unique
+  profile_picture        String?
   conversations          conversations[]
   user_memories          user_memories[]
   user_memory_embeddings user_memory_embeddings[]

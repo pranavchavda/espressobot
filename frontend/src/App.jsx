@@ -4,8 +4,10 @@ import { SidebarLayout } from "@common/sidebar-layout";
 import { Button } from "@common/button";
 import StreamingChatPage from "./features/chat/StreamingChatPage";
 import AboutPage from './pages/AboutPage';
-import { Routes, Route, Link, Outlet, NavLink } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon } from 'lucide-react';
+import LoginPage from './pages/LoginPage';
+import RestrictedPage from './pages/RestrictedPage';
+import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
@@ -17,12 +19,61 @@ function App() {
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [loading, setLoading] = useState(true); // For conversations loading
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  // Fetch conversations list on mount
-  const fetchConversations = async () => {
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      // Check for token in URL (from OAuth callback)
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('token');
+      
+      if (token) {
+        // Store token and remove from URL
+        localStorage.setItem('authToken', token);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+      
+      // Check if user is authenticated
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken) {
+        try {
+          const res = await fetch('/api/auth/me', {
+            headers: {
+              'Authorization': `Bearer ${storedToken}`
+            }
+          });
+          
+          if (res.ok) {
+            const userData = await res.json();
+            setUser(userData);
+            fetchConversations(storedToken);
+          } else {
+            // Invalid token, remove it
+            localStorage.removeItem('authToken');
+          }
+        } catch (error) {
+          console.error('Auth check failed:', error);
+          localStorage.removeItem('authToken');
+        }
+      }
+      
+      setAuthLoading(false);
+    };
+    
+    checkAuth();
+  }, []);
+
+  // Fetch conversations list with auth token
+  const fetchConversations = async (token = localStorage.getItem('authToken')) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/conversations");
+      const res = await fetch("/api/conversations", {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
       const data = await res.json();
       setConversations(data || []);
       // Keep current selection if still present; otherwise default to the most recent conversation (if any)
@@ -40,22 +91,17 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
   // Function to handle deleting a conversation
   const handleDeleteConversation = async (convIdToDelete) => {
     if (!convIdToDelete) return;
 
-    // Optional: Add a confirmation dialog here
-    // if (!window.confirm("Are you sure you want to delete this conversation?")) {
-    //   return;
-    // }
-
+    const token = localStorage.getItem('authToken');
     try {
       const response = await fetch(`/api/conversations/${convIdToDelete}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
       });
 
       if (response.ok) {
@@ -76,6 +122,51 @@ function App() {
     }
   };
 
+  // Handle logout
+  const handleLogout = async () => {
+    const token = localStorage.getItem('authToken');
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    
+    // Clear local state
+    localStorage.removeItem('authToken');
+    setUser(null);
+    setConversations([]);
+    setSelectedChat(null);
+  };
+
+
+  // Show loading screen while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900">
+        <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  // Show restricted page if user is not whitelisted
+  if (!user.is_whitelisted) {
+    return <RestrictedPage user={user} onLogout={handleLogout} />;
+  }
 
   return (
     <Routes>
@@ -94,7 +185,22 @@ function App() {
                 </NavLink>
               </div>
               <div className="flex items-center space-x-4">
-                {/* Profile, Tasks, Logout removed, About remains */}
+                {/* User info */}
+                <div className="flex items-center space-x-2 px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-md">
+                  {user.profile_picture ? (
+                    <img 
+                      src={user.profile_picture} 
+                      alt={user.name} 
+                      className="h-6 w-6 rounded-full"
+                    />
+                  ) : (
+                    <UserIcon className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
+                  )}
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    {user.name || user.email}
+                  </span>
+                </div>
+                
                 <NavLink 
                   to="/about" 
                   className={({ isActive }) => 
@@ -107,6 +213,16 @@ function App() {
                 >
                   About
                 </NavLink>
+                
+                <Button
+                  onClick={handleLogout}
+                  outline
+                  small
+                  className="flex items-center"
+                >
+                  <LogOutIcon className="h-4 w-4 mr-1" />
+                  Logout
+                </Button>
               </div>
             </div>
           }

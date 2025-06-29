@@ -41,6 +41,9 @@ export default defineConfig({
         console.log('OPENAI_API_KEY available:', !!process.env.OPENAI_API_KEY);
         console.log('OPENAI_MODEL:', process.env.OPENAI_MODEL);
         console.log('DATABASE_URL:', process.env.DATABASE_URL);
+        console.log('GOOGLE_CLIENT_ID available:', !!process.env.GOOGLE_CLIENT_ID);
+        console.log('GOOGLE_CLIENT_SECRET available:', !!process.env.GOOGLE_CLIENT_SECRET);
+        
         if (!process.env.SKIP_MEMORY_SERVER) {
           const { spawn } = await import('child_process');
           console.log('Starting local memory server for agent context...');
@@ -69,9 +72,14 @@ export default defineConfig({
         }
         const express = (await import('express')).default;
         const bodyParser = (await import('body-parser')).default;
-        // const chatHandler = (await import('./server/chat')).default;
+        const session = (await import('express-session')).default;
+        const cookieParser = (await import('cookie-parser')).default;
+        const passport = (await import('passport')).default;
+        
+        // Import auth configuration
+        const configureGoogleStrategy = (await import('./server/config/auth')).default;
+        const authRoutes = (await import('./server/auth')).default;
         const convHandler = (await import('./server/conversations')).default;
-        // const streamChatHandler = (await import('./server/stream_chat')).default;
         
         // Use bash orchestrator as the default and only orchestrator
         console.log('Using Bash Orchestrator (Shell Agency)');
@@ -79,13 +87,38 @@ export default defineConfig({
         const orchestratorRouter = (await import('./server/bash-orchestrator-api')).default;
 
         const apiApp = express();
+        
+        // Cookie parser middleware
+        apiApp.use(cookieParser());
+        
+        // Session configuration
+        apiApp.use(session({
+          secret: process.env.SESSION_SECRET || 'your-session-secret-change-this',
+          resave: false,
+          saveUninitialized: false,
+          cookie: {
+            secure: process.env.NODE_ENV === 'production',
+            httpOnly: true,
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+          }
+        }));
+        
+        // Initialize passport
+        apiApp.use(passport.initialize());
+        apiApp.use(passport.session());
+        
+        // Configure Google OAuth strategy
+        configureGoogleStrategy();
+        
+        // Body parser middleware
         apiApp.use(bodyParser.json({ limit: '50mb' }));
         apiApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+        
+        // Routes
+        apiApp.use('/api/auth', authRoutes);
         apiApp.use('/api/conversations', convHandler);
-        // apiApp.use('/api/chat', chatHandler);
-        // apiApp.use('/stream_chat', streamChatHandler);
-        // Master Agent endpoint
         apiApp.use('/api/agent', orchestratorRouter);
+        
         server.middlewares.use(apiApp);
       },
     },
