@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 import { memoryAgent } from './agents/memory-agent.js';
+import { sweAgent, createSWEAgent } from './agents/swe-agent.js';
 import logger from './logger.js';
+import fs from 'fs/promises';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -216,24 +218,29 @@ export const dynamicOrchestrator = new Agent({
     You have access to:
     - Task Manager (to plan and track tasks)
     - Memory Manager (to store important information)
+    - SWE Agent (Software Engineering Agent for creating/modifying tools)
     - Bash Agent Spawner (to create agents for specific tasks)
     - Direct bash access (for simple commands)
     
     Best practices:
     - Use Task Manager to plan complex operations
-    - Spawn specialized agents for distinct tasks (e.g., one for search, one for updates)
+    - Handoff to SWE Agent for any tool creation or modification requests
+    - Spawn specialized bash agents for distinct tasks (e.g., one for search, one for updates)
     - Run independent tasks in parallel
     - Use Memory Manager to store important results
     - Only use direct bash for quick checks (ls, cat, etc.)
     
     Example patterns:
+    - For "create a new tool to do X" → handoff to SWE Agent
+    - For "improve/fix the search tool" → handoff to SWE Agent
     - For "update prices for products X, Y, Z" → spawn parallel agents
     - For "search then update" → spawn sequential agents
     - For "check if tool exists" → use direct bash
     - For "run ls in two directories" → use spawn_parallel_bash_agents
     - When user asks for "multiple agents" → always use spawn_parallel_bash_agents
     
-    Remember: Each bash agent has full access to Python tools and command line utilities.`,
+    Remember: Each bash agent has full access to Python tools in /home/pranav/espressobot/frontend/python-tools/
+    For detailed tool usage, see /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md`,
   tools: [
     taskManagerAgent.asTool({
       toolName: 'task_manager',
@@ -242,6 +249,10 @@ export const dynamicOrchestrator = new Agent({
     memoryAgent.asTool({
       toolName: 'memory_manager', 
       toolDescription: 'Store and retrieve important information from conversation memory'
+    }),
+    sweAgent.asTool({
+      toolName: 'swe_agent',
+      toolDescription: 'Software Engineering Agent - handoff for creating new tools, modifying existing tools, or any code-related tasks'
     }),
     spawnBashAgent,
     spawnParallelBashAgents,

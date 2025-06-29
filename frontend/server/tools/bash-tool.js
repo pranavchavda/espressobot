@@ -2,6 +2,7 @@ import { Agent, tool } from '@openai/agents';
 import { z } from 'zod';
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs/promises';
 
 /**
  * Core bash execution function
@@ -164,27 +165,24 @@ export const bashTool = tool({
 /**
  * Create a bash-enabled agent
  */
-export function createBashAgent(name, task) {
+export async function createBashAgent(name, task) {
+  // Load the bash agent prompt template
+  let bashAgentPrompt;
+  try {
+    const promptPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent.md');
+    bashAgentPrompt = await fs.readFile(promptPath, 'utf-8');
+  } catch (error) {
+    // Fallback to inline prompt if file not found
+    bashAgentPrompt = `You are a bash-enabled agent with full access to Python tools in /home/pranav/espressobot/frontend/python-tools/.
+    
+Best practices: Check tool existence, use --help, handle errors, use absolute paths, chain commands with &&.`;
+  }
+  
   return new Agent({
     name,
-    instructions: `You are a bash-enabled agent. Your task: ${task}
+    instructions: `${bashAgentPrompt}
     
-    You have full bash access with Python tools available at:
-    - /home/pranav/espressobot/frontend/python-tools/
-    
-    Best practices:
-    1. Always check if a tool exists before using it: ls -la /path/to/tool.py
-    2. Use --help to understand tool parameters: python3 tool.py --help
-    3. Check exit codes and stderr for errors
-    4. Use temporary files in /tmp/ when needed
-    5. Chain commands with && for sequential operations
-    6. Use jq for JSON parsing when needed
-    
-    Example workflow:
-    - First explore available tools: ls /home/pranav/espressobot/frontend/python-tools/*.py
-    - Check tool usage: python3 /home/pranav/espressobot/frontend/python-tools/search_products.py --help
-    - Execute tool: python3 /home/pranav/espressobot/frontend/python-tools/search_products.py "query" --status active
-    - Process results: ... | jq '.[] | select(.vendor == "Test")'`,
+Your specific task: ${task}`,
     tools: [bashTool],
     model: 'gpt-4.1-mini'
   });
