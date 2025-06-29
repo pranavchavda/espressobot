@@ -16,7 +16,11 @@ const createAdHocTool = tool({
     description: z.string().describe('Brief description of what the tool does')
   }),
   execute: async ({ toolName, code, description }) => {
-    const tmpPath = `/tmp/${toolName}.py`;
+    const tmpDir = '/home/pranav/espressobot/frontend/tmp';
+    // Ensure tmp directory exists
+    await fs.mkdir(tmpDir, { recursive: true });
+    
+    const tmpPath = `${tmpDir}/${toolName}.py`;
     
     // Add shebang and make executable
     const fullCode = `#!/usr/bin/env python3

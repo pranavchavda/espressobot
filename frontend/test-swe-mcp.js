@@ -9,31 +9,28 @@ async function testSWEWithMCP() {
   console.log('Testing SWE Agent with MCP servers...\n');
   
   try {
-    // Test 1: Use Shopify Dev MCP to introspect GraphQL schema
-    console.log('Test 1: Introspecting Shopify GraphQL schema for Product type');
+    // Test 1: Create a tool using Shopify API documentation
+    console.log('Test 1: Create a tool using Shopify Dev MCP');
+    console.log('Prompt: Use the Shopify Dev MCP to look up the productCreate mutation and create a tool that validates product input');
+    
     const result1 = await run(sweAgent, 
-      "Use the Shopify Dev MCP to introspect the ProductInput type in the GraphQL schema. I want to understand what fields are available when creating a product."
+      `Use the Shopify Dev MCP to introspect the ProductInput type schema, then create an ad-hoc tool called 'validate_product_input' that validates a product's data before creation. The tool should check required fields based on the actual GraphQL schema.`
     );
     console.log('Result:', result1.finalOutput || result1);
     console.log('\n---\n');
     
-    // Test 2: Search Shopify documentation
-    console.log('Test 2: Searching Shopify documentation');
+    // Test 2: Use Context7 to explore a library
+    console.log('Test 2: Use Context7 MCP to explore a library');
+    console.log('Prompt: Use Context7 to explore the requests library and create a simple HTTP client tool');
+    
     const result2 = await run(sweAgent,
-      "Use the Shopify Dev MCP to search for documentation about productUpdate mutation. I need to know how to update product metafields."
+      `Use Context7 to explore the Python requests library documentation, then create an ad-hoc tool called 'simple_http_client' that makes GET and POST requests with proper error handling.`
     );
     console.log('Result:', result2.finalOutput || result2);
-    console.log('\n---\n');
-    
-    // Test 3: Use Context7 to explore a library
-    console.log('Test 3: Using Context7 to explore a library');
-    const result3 = await run(sweAgent,
-      "Use Context7 MCP to explore the documentation for the 'requests' Python library. I want to understand how to make authenticated API calls."
-    );
-    console.log('Result:', result3.finalOutput || result3);
     
   } catch (error) {
     console.error('Error:', error);
+    console.error('Stack:', error.stack);
   }
 }
 

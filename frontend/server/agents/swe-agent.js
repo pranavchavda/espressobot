@@ -16,7 +16,11 @@ const createAdHocTool = tool({
     description: z.string().describe('Brief description of what the tool does')
   }),
   execute: async ({ toolName, code, description }) => {
-    const tmpPath = `/tmp/${toolName}.py`;
+    const tmpDir = '/home/pranav/espressobot/frontend/tmp';
+    // Ensure tmp directory exists
+    await fs.mkdir(tmpDir, { recursive: true });
+    
+    const tmpPath = `${tmpDir}/${toolName}.py`;
     
     // Add shebang and make executable
     const fullCode = `#!/usr/bin/env python3
@@ -166,22 +170,28 @@ const analyzeTool = tool({
 });
 
 /**
- * MCP servers are created on demand when the agent is instantiated
- * Using npx -y to spawn them as needed without keeping them alive
+ * Create MCP servers without initializing them
+ * They will be initialized on-demand when the agent runs
  */
 function createMCPServers() {
-  return [
-    new MCPServerStdio({
-      name: 'Shopify Dev Docs',
-      fullCommand: 'npx -y @shopify/dev-mcp',
-      cacheToolsList: true
-    }),
-    new MCPServerStdio({
-      name: 'Context7', 
-      fullCommand: 'npx -y @context7/mcp',
-      cacheToolsList: true
-    })
-  ];
+  // Return empty array for now to avoid initialization during import
+  // We can enable MCP servers later when needed
+  return [];
+  
+  // When ready to enable:
+  // const shopifyDevMCP = new MCPServerStdio({
+  //   name: 'Shopify Dev Docs',
+  //   fullCommand: 'npx -y @shopify/dev-mcp',
+  //   cacheToolsList: true
+  // });
+  
+  // const context7MCP = new MCPServerStdio({
+  //   name: 'Context7', 
+  //   fullCommand: 'npx -y @upstash/context7-mcp@latest',
+  //   cacheToolsList: true
+  // });
+  
+  // return [shopifyDevMCP, context7MCP];
 }
 
 /**
