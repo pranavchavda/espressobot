@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 import { memoryAgent } from './agents/memory-agent.js';
-import { sweAgent } from './agents/swe-agent.js';
+// import { sweAgent } from './agents/swe-agent.js';
+import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
 
@@ -12,6 +13,16 @@ setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
 // Store the current SSE emitter for access by spawned agents
 let currentSseEmitter = null;
+
+// Create connected SWE agent instance
+let connectedSWEAgent = null;
+async function getSWEAgent() {
+  if (!connectedSWEAgent) {
+    console.log('[Orchestrator] Creating connected SWE Agent with MCP...');
+    connectedSWEAgent = await createConnectedSWEAgent();
+  }
+  return connectedSWEAgent;
+}
 
 /**
  * Task Manager Agent - keeps track of tasks and their status
@@ -210,10 +221,20 @@ export const dynamicOrchestrator = new Agent({
   name: 'Dynamic_Bash_Orchestrator',
   instructions: `You are the main orchestrator for a dynamic bash-based system. Your role is to:
     
-    1. Analyze user requests and break them into tasks
-    2. Spawn specialized bash agents to complete tasks
+    1. Analyze user requests and route them to the appropriate agent/tool
+    2. Spawn specialized bash agents to complete tasks (but NOT for MCP tasks)
     3. Coordinate parallel execution when possible
     4. Aggregate results and provide coherent responses
+    
+    CRITICAL: You CANNOT access MCP tools directly. When users ask about:
+    - Context7 library resolution or documentation
+    - Shopify GraphQL schema introspection
+    - Shopify Dev documentation search
+    - ANY MCP-related functionality
+    
+    You MUST use the swe_agent tool (handoff to SWE Agent) because only it has MCP access.
+    
+    To handoff to SWE Agent, use the swe_agent tool with the user's request as the prompt.
     
     You have access to:
     - Task Manager (to plan and track tasks)
@@ -259,9 +280,17 @@ export const dynamicOrchestrator = new Agent({
       toolName: 'memory_manager', 
       toolDescription: 'Store and retrieve important information from conversation memory'
     }),
-    sweAgent.asTool({
-      toolName: 'swe_agent',
-      toolDescription: 'Software Engineering Agent - handoff for creating new tools, modifying existing tools, or any code-related tasks'
+    tool({
+      name: 'swe_agent',
+      description: 'Software Engineering Agent - handoff for creating new tools, modifying existing tools, MCP access (Shopify docs, Context7), or any code-related tasks',
+      parameters: z.object({
+        prompt: z.string().describe('The task or request to pass to the SWE Agent')
+      }),
+      execute: async ({ prompt }) => {
+        const sweAgent = await getSWEAgent();
+        const result = await run(sweAgent, prompt);
+        return result.finalOutput || result;
+      }
     }),
     spawnBashAgent,
     spawnParallelBashAgents,
