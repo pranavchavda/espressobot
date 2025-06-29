@@ -133,7 +133,7 @@ function App() {
                   <>
 
                   <ul className="flex flex-col max-h-[50vh] overflow-y-auto h-[50vh]">
-                    {[...conversations].reverse().map((chat) => (
+                    {conversations.map((chat) => (
                       <li key={chat.id} className="group relative pr-4">                        
                       
                       <Button

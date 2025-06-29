@@ -1,57 +1,84 @@
-# Shell Agency TODO List
+# EspressoBot TODO
 
-## 🎯 Immediate Tasks
+## ✅ Completed
+- [x] Integrate Task Manager as bash orchestrator tool
+- [x] Integrate Memory Agent for context persistence  
+- [x] Add visual indicators for spawned agents (real-time SSE status updates)
+- [x] Fix conversation history sorting (newest on top)
+- [x] Implement Shell Agency architecture with bash orchestrator
+- [x] Fix SSE streaming for real-time updates
+- [x] Create SWE Agent with MCP integration
+- [x] Move Python tools to frontend repository for portability
 
-### 1. Integrate Task Manager with Bash Orchestrator
-- [ ] Enable task-generator-agent.js as a tool for the bash orchestrator
-- [ ] Test task creation and tracking functionality
-- [ ] Ensure task markdown files are created correctly
-- [ ] Add UI components to display task progress
-- [ ] Test task persistence across conversations
+## 🚀 Current Priority
 
-### 2. Integrate Memory Agent with Bash Orchestrator
-- [ ] Enable memory-agent.js as a tool for the bash orchestrator
-- [ ] Test memory storage and retrieval
-- [ ] Add conversation context from memories
-- [ ] Create UI indicators for stored memories
-- [ ] Implement memory search functionality
+### 1. Google Auth Login System
+- [ ] Set up Google OAuth 2.0 credentials
+- [ ] Implement backend auth endpoints
+- [ ] Create login/logout UI components
+- [ ] Add session management
+- [ ] Support Google Workspace accounts
+- [ ] Prepare hooks for future integrations (Gmail, Tasks, Drive, Calendar)
 
-### 3. UI Enhancements
-- [x] Add visual indicators for spawned agents (show which agents are running)
-- [ ] Create a panel showing active bash agents and their tasks
-- [ ] Add progress bars for long-running commands
-- [ ] Show agent hierarchy when agents spawn sub-agents
+### 2. iDrinkCoffee.com E-commerce Assistant Prompting
+- [ ] Update system prompts for coffee/e-commerce focus
+- [ ] Add coffee industry specific knowledge
+- [ ] Include inventory management best practices
+- [ ] Add customer service templates
+- [ ] Configure for order processing workflows
+- [ ] Include Shopify-specific optimizations
 
-## 🔧 Technical Improvements
+## 📋 Next Up
 
-### 4. System Prompt Engineering
-- [ ] Create a comprehensive system prompt for the bash orchestrator
-- [ ] Import relevant instructions from /home/pranav/idc/CLAUDE.md
-- [ ] Make prompt dynamic based on available tools
-- [ ] Optimize for token efficiency
+### 3. Enhanced Logging System
+- [ ] Add "expand logs" button to UI
+- [ ] Show detailed command outputs on demand
+- [ ] Display step-by-step agent actions
+- [ ] Include debug information toggle
+- [ ] Store logs for session replay
 
-### 5. Performance & Architecture
-- [ ] Add caching for frequently used Python tool outputs
-- [ ] Implement agent result aggregation strategies
-- [ ] Add retry logic for failed bash commands
-- [ ] Create agent templates for common patterns
+### 4. Agent Templates & Patterns
+- [ ] Bulk product update template
+- [ ] Inventory sync workflow
+- [ ] Price adjustment patterns
+- [ ] Product creation wizard
+- [ ] Order fulfillment automation
+- [ ] Customer inquiry handler
 
-## 🚀 Future Features
+### 5. Performance Optimizations
+- [ ] Cache frequently used Python tool outputs
+- [ ] Implement smart cache invalidation
+- [ ] Add performance metrics dashboard
+- [ ] Optimize token usage
+- [ ] Reduce redundant tool calls
 
-### 6. Advanced Agent Capabilities
-- [ ] Allow agents to create and save new Python tools
-- [ ] Implement agent collaboration patterns
-- [ ] Add agent specialization through dynamic instructions
-- [ ] Create agent marketplace for sharing agent templates
+## 🔮 Future Enhancements
 
-### 7. Monitoring & Analytics
-- [ ] Track agent performance metrics
-- [ ] Log tool usage statistics
-- [ ] Create dashboard for agent activity
-- [ ] Implement cost tracking per conversation
+### Google Workspace Integration (Post-Auth)
+- [ ] Gmail integration
+  - [ ] Read customer emails
+  - [ ] Send automated responses
+  - [ ] Order confirmation handling
+- [ ] Google Tasks
+  - [ ] Sync with internal task system
+  - [ ] Create tasks from customer requests
+- [ ] Google Drive
+  - [ ] Access product images
+  - [ ] Store reports and exports
+- [ ] Google Calendar
+  - [ ] Schedule inventory updates
+  - [ ] Plan promotional events
 
-## 📝 Documentation
-- [ ] Create comprehensive agent spawning examples
-- [ ] Document all available bash tools and Python tools
-- [ ] Write troubleshooting guide
-- [ ] Create video tutorials for complex workflows
+### Advanced Features
+- [ ] Multi-tenant support for different stores
+- [ ] Webhook integration for real-time updates
+- [ ] Advanced analytics and reporting
+- [ ] AI-powered demand forecasting
+- [ ] Automated customer segmentation
+
+## 📝 Documentation Needs
+- [ ] API documentation
+- [ ] Tool usage guide updates
+- [ ] Deployment instructions
+- [ ] Security best practices
+- [ ] Integration tutorials
