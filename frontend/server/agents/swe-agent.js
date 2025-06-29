@@ -173,19 +173,9 @@ const analyzeTool = tool({
  * Create MCP servers that will be initialized when the agent runs
  */
 function createMCPServers() {
-  const shopifyDevMCP = new MCPServerStdio({
-    name: 'Shopify Dev Docs',
-    fullCommand: 'npx -y @shopify/dev-mcp',
-    cacheToolsList: true
-  });
-  
-  const context7MCP = new MCPServerStdio({
-    name: 'Context7', 
-    fullCommand: 'npx -y @upstash/context7-mcp@latest',
-    cacheToolsList: true
-  });
-  
-  return [shopifyDevMCP, context7MCP];
+  // For now, return empty array to avoid initialization issues
+  // MCP servers can be added later when the initialization issue is resolved
+  return [];
 }
 
 /**

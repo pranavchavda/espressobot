@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 import { memoryAgent } from './agents/memory-agent.js';
-import { sweAgent, createSWEAgent } from './agents/swe-agent.js';
+import { sweAgent } from './agents/swe-agent.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
 
