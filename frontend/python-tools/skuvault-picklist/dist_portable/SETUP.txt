@@ -1,0 +1,31 @@
+SETUP INSTRUCTIONS FOR WINDOWS
+==============================
+
+Option 1: If Python is already installed
+----------------------------------------
+1. Double-click 'SkuVault_Picklist.bat'
+2. The app will start automatically
+
+Option 2: If Python is NOT installed
+------------------------------------
+1. Download Python from https://python.org/downloads/
+2. During installation, CHECK "Add Python to PATH"
+3. After installation, double-click 'SkuVault_Picklist.bat'
+
+Option 3: Using PowerShell
+-------------------------
+1. Right-click 'SkuVault_Picklist.ps1'
+2. Select "Run with PowerShell"
+
+First Run:
+----------
+1. The app will ask for SkuVault API credentials
+2. Enter your Tenant Token and User Token
+3. Click "Test Connection" to verify
+4. Credentials are saved securely for future use
+
+Troubleshooting:
+---------------
+- If you see "Python is not installed", install Python 3.8+
+- Make sure to check "Add Python to PATH" during installation
+- If dependencies fail to install, run as Administrator

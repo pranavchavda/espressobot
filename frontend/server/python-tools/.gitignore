@@ -1,4 +1,0 @@
-# Ignore temporary scripts directory
-tmp/
-*.pyc
-__pycache__/

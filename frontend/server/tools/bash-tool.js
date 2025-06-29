@@ -135,15 +135,15 @@ export const executeBashCommand = async ({ command, cwd = '/tmp', timeout = 3000
 export const bashTool = tool({
   name: 'bash',
   description: `Execute bash commands. You have access to:
-    - Python tools in /home/pranav/idc/tools/ and /home/pranav/espressobot/frontend/server/python-tools/
+    - Python tools in /home/pranav/espressobot/frontend/python-tools/
     - Standard Unix utilities (grep, awk, sed, jq, etc.)
     - Python 3 with all Shopify/e-commerce libraries installed
     - Can read/write temporary files in /tmp/
     
     Examples:
-    - python3 /home/pranav/idc/tools/search_products.py "coffee" --status active
-    - python3 /home/pranav/idc/tools/get_product.py SKU123 | jq '.price'
-    - echo "SKU123,49.99" > /tmp/price_updates.csv && python3 /home/pranav/idc/tools/bulk_price_update.py /tmp/price_updates.csv
+    - python3 /home/pranav/espressobot/frontend/python-tools/search_products.py "coffee" --status active
+    - python3 /home/pranav/espressobot/frontend/python-tools/get_product.py SKU123 | jq '.price'
+    - echo "SKU123,49.99" > /tmp/price_updates.csv && python3 /home/pranav/espressobot/frontend/python-tools/bulk_price_update.py /tmp/price_updates.csv
     
     Safety notes:
     - Always use absolute paths for tools
@@ -170,8 +170,7 @@ export function createBashAgent(name, task) {
     instructions: `You are a bash-enabled agent. Your task: ${task}
     
     You have full bash access with Python tools available at:
-    - /home/pranav/idc/tools/ (main tools)
-    - /home/pranav/espressobot/frontend/server/python-tools/ (additional tools)
+    - /home/pranav/espressobot/frontend/python-tools/
     
     Best practices:
     1. Always check if a tool exists before using it: ls -la /path/to/tool.py
@@ -182,9 +181,9 @@ export function createBashAgent(name, task) {
     6. Use jq for JSON parsing when needed
     
     Example workflow:
-    - First explore available tools: ls /home/pranav/idc/tools/*.py
-    - Check tool usage: python3 /home/pranav/idc/tools/search_products.py --help
-    - Execute tool: python3 /home/pranav/idc/tools/search_products.py "query" --status active
+    - First explore available tools: ls /home/pranav/espressobot/frontend/python-tools/*.py
+    - Check tool usage: python3 /home/pranav/espressobot/frontend/python-tools/search_products.py --help
+    - Execute tool: python3 /home/pranav/espressobot/frontend/python-tools/search_products.py "query" --status active
     - Process results: ... | jq '.[] | select(.vendor == "Test")'`,
     tools: [bashTool],
     model: 'gpt-4.1-mini'
