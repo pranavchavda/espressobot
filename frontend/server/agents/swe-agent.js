@@ -170,28 +170,22 @@ const analyzeTool = tool({
 });
 
 /**
- * Create MCP servers without initializing them
- * They will be initialized on-demand when the agent runs
+ * Create MCP servers that will be initialized when the agent runs
  */
 function createMCPServers() {
-  // Return empty array for now to avoid initialization during import
-  // We can enable MCP servers later when needed
-  return [];
+  const shopifyDevMCP = new MCPServerStdio({
+    name: 'Shopify Dev Docs',
+    fullCommand: 'npx -y @shopify/dev-mcp',
+    cacheToolsList: true
+  });
   
-  // When ready to enable:
-  // const shopifyDevMCP = new MCPServerStdio({
-  //   name: 'Shopify Dev Docs',
-  //   fullCommand: 'npx -y @shopify/dev-mcp',
-  //   cacheToolsList: true
-  // });
+  const context7MCP = new MCPServerStdio({
+    name: 'Context7', 
+    fullCommand: 'npx -y @upstash/context7-mcp@latest',
+    cacheToolsList: true
+  });
   
-  // const context7MCP = new MCPServerStdio({
-  //   name: 'Context7', 
-  //   fullCommand: 'npx -y @upstash/context7-mcp@latest',
-  //   cacheToolsList: true
-  // });
-  
-  // return [shopifyDevMCP, context7MCP];
+  return [shopifyDevMCP, context7MCP];
 }
 
 /**
@@ -200,6 +194,11 @@ function createMCPServers() {
 export const sweAgent = new Agent({
   name: 'SWE_Agent',
   instructions: `You are a Software Engineering Agent specialized in creating and maintaining tools for the EspressoBot system. You use advanced reasoning to analyze requirements, design solutions, and implement high-quality code.
+
+## Your Capabilities:
+- You have access to MCP servers (Shopify Dev Docs and Context7)
+- When you need documentation or API information, the MCP tools will be automatically available
+- You can introspect GraphQL schemas, search documentation, and explore external libraries
 
 ## Your Responsibilities:
 1. Create new Python tools (both ad-hoc and permanent)
