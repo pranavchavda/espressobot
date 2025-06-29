@@ -109,6 +109,51 @@ wait
 
 ---
 
+## June 28, 2025 - MCP Integration Success with SWE Agent
+
+### 🎯 **Achievement Unlocked**
+Successfully integrated MCP (Model Context Protocol) servers with the SWE Agent, enabling real-time API schema introspection and documentation access.
+
+### 🔧 **Implementation Details**
+
+#### 1. **The Connection Challenge**
+- **Issue**: MCP servers require explicit connection before use
+- **Error**: "Server not initialized. Make sure you call connect() first"
+- **Solution**: Pre-connect MCP servers before agent creation
+
+#### 2. **Working Pattern**
+Created `swe-agent-connected.js` with:
+```javascript
+// Connect FIRST
+await shopifyDevMCP.connect();
+// THEN create agent with connected servers
+const agent = new Agent({ mcpServers: [shopifyDevMCP] });
+```
+
+#### 3. **Successful Test Flow**
+1. SWE Agent connects to Shopify Dev MCP
+2. Uses `introspect_admin_schema` to get ProductInput schema
+3. Creates validation tool based on real GraphQL data
+4. Tool correctly validates field names and types
+5. Provides helpful error messages
+
+### ✅ **MCP Tools Available**
+- **introspect_admin_schema**: Get GraphQL schema types
+- **search_dev_docs**: Search Shopify documentation
+- **fetch_docs_by_path**: Get specific docs
+- **get_started**: API overviews
+
+### 🚀 **Benefits**
+- Tools are created with accurate, up-to-date schema information
+- No hardcoded assumptions about API structure
+- Automatic type validation based on real GraphQL schema
+- Access to official documentation during tool creation
+
+### 📝 **Key Learning**
+MCP servers cannot be lazily initialized - they must be connected before the agent attempts to list tools. The pre-connection pattern is reliable and works consistently.
+
+---
+
 ## December 28, 2024 - Fixed Bash Orchestrator Display Issue
 
 ### 🐛 **Issue**
