@@ -1,4 +1,4 @@
-import { Agent, tool } from '@openai/agents';
+import { Agent, tool, MCPServerStdio } from '@openai/agents';
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
@@ -166,11 +166,30 @@ const analyzeTool = tool({
 });
 
 /**
+ * MCP servers are created on demand when the agent is instantiated
+ * Using npx -y to spawn them as needed without keeping them alive
+ */
+function createMCPServers() {
+  return [
+    new MCPServerStdio({
+      name: 'Shopify Dev Docs',
+      fullCommand: 'npx -y @shopify/dev-mcp',
+      cacheToolsList: true
+    }),
+    new MCPServerStdio({
+      name: 'Context7', 
+      fullCommand: 'npx -y @context7/mcp',
+      cacheToolsList: true
+    })
+  ];
+}
+
+/**
  * SWE Agent - Software Engineering Agent
  */
 export const sweAgent = new Agent({
   name: 'SWE_Agent',
-  instructions: `You are a Software Engineering Agent specialized in creating and maintaining tools for the EspressoBot system.
+  instructions: `You are a Software Engineering Agent specialized in creating and maintaining tools for the EspressoBot system. You use advanced reasoning to analyze requirements, design solutions, and implement high-quality code.
 
 ## Your Responsibilities:
 1. Create new Python tools (both ad-hoc and permanent)
@@ -201,16 +220,28 @@ export const sweAgent = new Agent({
 ## When Creating Tools:
 1. Understand the exact requirements
 2. Check if similar tools exist (avoid duplication)
-3. Design for composability (Unix philosophy)
-4. Test the tool thoroughly
-5. Document usage with examples
-6. Consider edge cases and error scenarios
+3. Use Shopify Dev MCP to verify API fields and mutations before implementing
+4. Design for composability (Unix philosophy)
+5. Test the tool thoroughly
+6. Document usage with examples
+7. Consider edge cases and error scenarios
+
+## Using MCP Servers:
+- **Before creating Shopify tools**: Always introspect the GraphQL schema to ensure correct field names and types
+- **When unsure about API**: Search Shopify docs using search_dev_docs
+- **For external integrations**: Use Context7 to explore library documentation (e.g., for SkuVault, Perplexity APIs)
 
 ## Available Resources:
 - Python 3 with all Shopify/e-commerce libraries
 - Access to existing tools in /home/pranav/espressobot/frontend/python-tools/
 - Bash for testing and file operations
 - Tool documentation directory at /home/pranav/espressobot/frontend/server/tool-docs/
+- Shopify Dev MCP for API documentation and GraphQL schema introspection
+- Context7 MCP for exploring external repositories and documentation
+
+## MCP Tools Available:
+- **Shopify Dev MCP**: Use search_dev_docs, introspect_admin_schema, fetch_docs_by_path for Shopify API reference
+- **Context7 MCP**: Use resolve-library-id and get-library-docs to explore external libraries and frameworks
 
 Remember: Good tools are simple, focused, and composable. One tool should do one thing well.`,
   tools: [
@@ -227,7 +258,8 @@ Remember: Good tools are simple, focused, and composable. One tool should do one
       execute: executeBashCommand
     }
   ],
-  model: 'gpt-4o' // Use the latest available model - update this as needed
+  mcpServers: createMCPServers(),
+  model: 'o3' // Using o3 reasoning model for complex software engineering tasks
 });
 
 /**
@@ -238,6 +270,7 @@ export function createSWEAgent(task) {
     name: 'SWE_Agent_Specialized',
     instructions: `${sweAgent.instructions}\n\nYour specific task: ${task}`,
     tools: sweAgent.tools,
-    model: 'gpt-4o' // Or whatever the latest model is
+    mcpServers: createMCPServers(), // Create fresh MCP instances on demand
+    model: 'o3' // Using o3 reasoning model for complex software engineering tasks
   });
 }
