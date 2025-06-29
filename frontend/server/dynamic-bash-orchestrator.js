@@ -70,7 +70,7 @@ const spawnBashAgent = tool({
     }
     
     // Create the bash agent
-    const bashAgent = createBashAgent(agentName, task);
+    const bashAgent = await createBashAgent(agentName, task);
     
     // Run the agent with the task
     try {
@@ -147,7 +147,7 @@ const spawnParallelBashAgents = tool({
     
     // Create and run all agents in parallel
     const promises = tasks.map(async ({ agentName, task, context }) => {
-      const bashAgent = createBashAgent(agentName, task);
+      const bashAgent = await createBashAgent(agentName, task);
       
       try {
         const fullPrompt = context ? `${task}\n\nContext: ${context}` : task;
