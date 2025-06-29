@@ -19,6 +19,13 @@ let connectedSWEAgent = null;
 async function getSWEAgent() {
   if (!connectedSWEAgent) {
     console.log('[Orchestrator] Creating connected SWE Agent with MCP...');
+    if (currentSseEmitter) {
+      currentSseEmitter('agent_processing', {
+        agent: 'Orchestrator',
+        message: 'Creating connected SWE Agent with MCP...',
+        status: 'initializing'
+      });
+    }
     connectedSWEAgent = await createConnectedSWEAgent();
   }
   return connectedSWEAgent;

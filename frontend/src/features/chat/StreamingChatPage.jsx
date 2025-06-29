@@ -511,19 +511,38 @@ function StreamingChatPage({ convId }) {
                 }));
               }
               
-              // Handle multi-agent specific events
-              if (!useBasicAgent) {
-                switch (eventName) {
-                case 'start':
-                  console.log("FRONTEND: Multi-agent system started", actualEventPayload);
-                  // Don't overwrite content, just update the message
+              // Handle start event for all modes
+              if (eventName === 'start') {
+                console.log("FRONTEND: System started", actualEventPayload);
+                setStreamingMessage(prev => ({ 
+                  ...prev, 
+                  content: prev?.content || "", 
+                  isStreaming: true, 
+                  isComplete: false 
+                }));
+                // Clear previous status
+                setAgentProcessingStatus("");
+                setToolCallStatus("");
+              }
+              
+              // Handle agent_processing event for all modes
+              if (eventName === 'agent_processing') {
+                console.log("FRONTEND: Agent processing", actualEventPayload);
+                setAgentProcessingStatus(actualEventPayload.message || `${actualEventPayload.agent} is processing...`);
+                setToolCallStatus(""); // Clear tool status when agent message is shown
+                // Ensure streaming state is active to show the status
+                if (!streamingMessage || !streamingMessage.isStreaming) {
                   setStreamingMessage(prev => ({ 
                     ...prev, 
-                    content: prev?.content || "", 
                     isStreaming: true, 
                     isComplete: false 
                   }));
-                  break;
+                }
+              }
+              
+              // Handle multi-agent specific events
+              if (!useBasicAgent) {
+                switch (eventName) {
                 case 'handoff':
                   console.log("FRONTEND: Agent handoff", actualEventPayload);
                   setStreamingMessage(prev => ({ 
@@ -564,11 +583,6 @@ function StreamingChatPage({ convId }) {
                     conversation_id: actualEventPayload.conversation_id
                   });
                   setToolCallStatus(`Task plan created with ${actualEventPayload.taskCount} tasks`);
-                  break;
-                case 'agent_processing':
-                  console.log("FRONTEND: Agent processing", actualEventPayload);
-                  setAgentProcessingStatus(actualEventPayload.message || `${actualEventPayload.agent} is processing...`);
-                  setToolCallStatus(""); // Clear tool status when agent message is shown
                   break;
                 case 'agent_message_partial':
                   console.log("FRONTEND: Agent partial message", actualEventPayload);

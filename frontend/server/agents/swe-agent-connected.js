@@ -49,7 +49,17 @@ async function initializeMCPServers() {
     return mcpServers;
   }
   
+  // Get SSE emitter if available
+  const sseEmitter = global.currentSseEmitter || null;
+  
   console.log('[SWE Agent Connected] Initializing MCP servers...');
+  if (sseEmitter) {
+    sseEmitter('agent_processing', {
+      agent: 'SWE_Agent_Connected',
+      message: 'Initializing MCP servers...',
+      status: 'initializing'
+    });
+  }
   
   try {
     const shopifyDevMCP = new MCPServerStdio({
@@ -60,8 +70,24 @@ async function initializeMCPServers() {
     
     // Connect to the server
     console.log('[SWE Agent Connected] Connecting to Shopify Dev MCP...');
+    if (sseEmitter) {
+      sseEmitter('agent_processing', {
+        agent: 'SWE_Agent_Connected',
+        message: 'Connecting to Shopify Dev MCP...',
+        status: 'connecting'
+      });
+    }
+    
     await shopifyDevMCP.connect();
+    
     console.log('[SWE Agent Connected] ✓ Shopify Dev MCP connected');
+    if (sseEmitter) {
+      sseEmitter('agent_processing', {
+        agent: 'SWE_Agent_Connected',
+        message: '✓ Shopify Dev MCP connected',
+        status: 'connected'
+      });
+    }
     
     mcpServers = [shopifyDevMCP];
     mcpInitialized = true;
@@ -69,6 +95,13 @@ async function initializeMCPServers() {
     return mcpServers;
   } catch (error) {
     console.error('[SWE Agent Connected] Failed to initialize MCP:', error.message);
+    if (sseEmitter) {
+      sseEmitter('agent_processing', {
+        agent: 'SWE_Agent_Connected',
+        message: `Failed to initialize MCP: ${error.message}`,
+        status: 'error'
+      });
+    }
     mcpServers = [];
     mcpInitialized = true;
     return [];
