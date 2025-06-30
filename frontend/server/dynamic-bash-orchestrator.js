@@ -310,7 +310,7 @@ export const dynamicOrchestrator = new Agent({
  * Run the dynamic orchestrator with a user message
  */
 export async function runDynamicOrchestrator(message, options = {}) {
-  const { conversationId, sseEmitter } = options;
+  const { conversationId, sseEmitter, taskUpdater } = options;
   
   console.log('\n========= DYNAMIC BASH ORCHESTRATOR =========');
   console.log(`Message: ${message}`);
@@ -322,6 +322,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
   currentSseEmitter = sseEmitter;
   // Also set globally for bash tools
   global.currentSseEmitter = sseEmitter;
+  // Set taskUpdater globally if provided
+  global.currentTaskUpdater = taskUpdater;
   
   try {
     // Add conversation context if provided

@@ -1,0 +1,8 @@
+- [ ] Define the complex task goal (planning_agent)
+- [ ] Analyze system requirements (read_only)
+- [ ] Outline task decomposition (planning_agent)
+- [ ] Write bash scripts for setup (bash_agent)
+- [ ] Validate environment configuration (read_only)
+- [ ] Execute setup scripts (bash_agent)
+- [ ] Review execution logs (read_only)
+- [ ] Finalize task report (planning_agent)

@@ -1,0 +1,5 @@
+- [ ] Run disk usage command on root directory to collect data
+- [ ] Save the disk usage output to a file (e.g., /root/disk_usage_report.txt)
+- [ ] Verify the disk usage report file exists and contains the expected data
+- [ ] Compress the disk usage report file to save storage space
+- [ ] Set up a cron job to periodically save root directory disk usage data

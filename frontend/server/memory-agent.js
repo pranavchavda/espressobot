@@ -31,6 +31,10 @@ const MEMORY_PATTERNS = {
   }
 };
 
+// Store global context for tool execution
+let globalUserId = 1;
+let globalConversationId = null;
+
 // Create memory tool for the agent
 const createMemoryTool = tool({
   name: 'create_memory',
@@ -40,7 +44,7 @@ const createMemoryTool = tool({
     category: z.enum(['preference', 'configuration', 'workflow', 'constraint', 'context', 'general']).describe('The category of information'),
     importance: z.enum(['high', 'medium', 'low']).describe('How important this information is')
   }),
-  execute: async ({ content, category, importance }, { userId = 1, conversationId = null }) => {
+  execute: async ({ content, category, importance }) => {
     try {
       // Generate embedding for the memory (uses local or OpenAI based on config)
       const embedding = await generateEmbedding(content);
@@ -51,7 +55,7 @@ const createMemoryTool = tool({
       }
       
       const memory = await memoryStore.createMemory(
-        userId,
+        globalUserId,
         content,
         {
           category,
@@ -61,7 +65,7 @@ const createMemoryTool = tool({
             ? (process.env.LOCAL_EMBEDDING_MODEL || 'local')
             : 'text-embedding-3-small',
           source: 'memory_agent',
-          conversation_id: conversationId
+          conversation_id: globalConversationId
         }
       );
       
@@ -91,12 +95,14 @@ Rules:
 - Deduplicate similar memories
 - Categorize memories appropriately
 - Assign importance based on how likely it is to be needed again
+- Extract ONLY the most important 3-5 memories per conversation to avoid overload
 
 When you identify something worth remembering, use the create_memory tool.`,
   model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   modelSettings: { 
     temperature: 0.3, // Lower temperature for more consistent extraction
-    parallelToolCalls: false
+    parallelToolCalls: false,
+    maxOutputTokens: 2000 // Limit response size
   },
   tools: [createMemoryTool]
 });
@@ -104,6 +110,10 @@ When you identify something worth remembering, use the create_memory tool.`,
 // Function to analyze a message for memory-worthy content
 export async function analyzeForMemories(message, userId = 1, conversationId = null) {
   try {
+    // Set global context for tool execution
+    globalUserId = userId;
+    globalConversationId = conversationId;
+    
     // Quick pattern matching to see if message might contain memorable info
     const lowerMessage = message.toLowerCase();
     let hasMemoryPattern = false;
@@ -139,6 +149,10 @@ Extract any preferences, configurations, workflows, constraints, or business con
 // Function to run memory agent in parallel with main conversation
 export async function runMemoryExtraction(conversationHistory, userId = 1, conversationId = null) {
   try {
+    // Set global context for tool execution
+    globalUserId = userId;
+    globalConversationId = conversationId;
+    
     // Format conversation history for analysis
     const formattedHistory = conversationHistory
       .map(msg => `${msg.role}: ${msg.content}`)
@@ -157,20 +171,20 @@ Focus on:
 - Business context
 
 For each piece of important information, use the create_memory tool.
+IMPORTANT: Extract only the 3-5 most important memories to avoid overload.
 `;
 
-    // Create a modified agent with context
-    const contextualAgent = new Agent({
-      ...memoryAgent,
-      tools: [
-        tool({
-          ...createMemoryTool,
-          execute: (params) => createMemoryTool.execute(params, { userId, conversationId })
-        })
-      ]
+    // Create a timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Memory extraction timeout')), 25000);
     });
-
-    const result = await run(contextualAgent, prompt);
+    
+    // Race between memory extraction and timeout
+    const result = await Promise.race([
+      run(memoryAgent, prompt),
+      timeoutPromise
+    ]);
+    
     console.log('Memory extraction completed');
     
     // Prune memories if needed
@@ -178,7 +192,11 @@ For each piece of important information, use the create_memory tool.
     
     return result;
   } catch (error) {
-    console.error('Error in memory extraction:', error);
+    if (error.message === 'Memory extraction timeout') {
+      console.error('Memory extraction timed out after 25 seconds');
+    } else {
+      console.error('Error in memory extraction:', error);
+    }
     return null;
   }
 }

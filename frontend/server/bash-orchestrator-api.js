@@ -101,9 +101,20 @@ router.post('/run', authenticateToken, async (req, res) => {
       { role: 'user', content: message }
     ];
     
+    // Add timeout to prevent infinite memory extraction
+    const memoryTimeout = setTimeout(() => {
+      console.error('[Memory] Extraction timeout after 30 seconds');
+    }, 30000);
+    
     runMemoryExtraction(conversationForMemory, USER_ID, conversationId)
-      .then(() => console.log('[Memory] Extraction completed'))
-      .catch(err => console.error('[Memory] Extraction error:', err));
+      .then(() => {
+        clearTimeout(memoryTimeout);
+        console.log('[Memory] Extraction completed');
+      })
+      .catch(err => {
+        clearTimeout(memoryTimeout);
+        console.error('[Memory] Extraction error:', err);
+      });
     
     // Check if request needs planning (complex or multi-step)
     const needsPlanning = analyzeComplexity(message);
@@ -128,6 +139,20 @@ router.post('/run', authenticateToken, async (req, res) => {
           })),
           conversation_id: conversationId
         });
+        
+        // Also send task_plan_created event for TaskMarkdownDisplay
+        try {
+          const planPath = path.join(__dirname, 'plans', `TODO-${conversationId}.md`);
+          const planContent = await fs.readFile(planPath, 'utf-8');
+          sendEvent('task_plan_created', {
+            markdown: planContent,
+            filename: `TODO-${conversationId}.md`,
+            taskCount: planResult.tasks.length,
+            conversation_id: conversationId
+          });
+        } catch (err) {
+          console.log('[Bash Orchestrator] Could not read plan file:', err.message);
+        }
       }
     }
     
@@ -153,6 +178,20 @@ router.post('/run', authenticateToken, async (req, res) => {
               })),
               conversation_id: conversationId
             });
+            
+            // Also send the markdown update
+            try {
+              const planPath = path.join(__dirname, 'plans', `TODO-${conversationId}.md`);
+              const planContent = await fs.readFile(planPath, 'utf-8');
+              sendEvent('task_plan_created', {
+                markdown: planContent,
+                filename: `TODO-${conversationId}.md`,
+                taskCount: currentTasks.tasks.length,
+                conversation_id: conversationId
+              });
+            } catch (err) {
+              // Ignore if file doesn't exist
+            }
           }
         } catch (error) {
           console.error('Error monitoring tasks:', error);

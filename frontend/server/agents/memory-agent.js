@@ -86,10 +86,11 @@ const searchMemoryTool = tool({
     try {
       // Use the memory embeddings search functionality
       const memoryEmbeddings = await import('../memory-embeddings.js');
-      const results = await memoryEmbeddings.memorySearch(query, limit);
+      // Use findRelevantMemories instead of the non-existent memorySearch
+      const results = await memoryEmbeddings.findRelevantMemories(query, 1, limit); // userId defaults to 1
       
-      // Filter by threshold
-      const filteredResults = results.filter(r => r.similarity >= threshold);
+      // Filter by threshold (relevance_score is returned by findRelevantMemories)
+      const filteredResults = results.filter(r => (r.relevance_score || r.similarity) >= threshold);
       
       return {
         success: true,
@@ -113,9 +114,10 @@ const checkDuplicateTool = tool({
   execute: async ({ content, threshold }) => {
     try {
       const memoryEmbeddings = await import('../memory-embeddings.js');
-      const results = await memoryEmbeddings.memorySearch(content, 3);
+      // Use findRelevantMemories instead of the non-existent memorySearch
+      const results = await memoryEmbeddings.findRelevantMemories(content, 1, 3); // userId defaults to 1
       
-      const duplicates = results.filter(r => r.similarity >= threshold);
+      const duplicates = results.filter(r => (r.relevance_score || r.similarity) >= threshold);
       
       return {
         hasDuplicates: duplicates.length > 0,
