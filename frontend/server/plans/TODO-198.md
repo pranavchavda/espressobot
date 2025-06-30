@@ -1,0 +1,4 @@
+- [ ] Search dev docs for memory agent removal announcement (use search_dev_docs)
+- [ ] Test memory agent endpoint connectivity (use test_connection)
+- [ ] Inspect application logs for memory agent errors
+- [ ] Summarize memory agent availability status

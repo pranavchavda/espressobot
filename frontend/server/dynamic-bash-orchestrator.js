@@ -2,7 +2,8 @@ import { Agent, run, tool } from '@openai/agents';
 import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
-import { memoryAgent } from './agents/memory-agent.js';
+// MEMORY SYSTEM DISABLED - Causing infinite loops
+// import { memoryAgent } from './agents/memory-agent.js';
 // import { sweAgent } from './agents/swe-agent.js';
 import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
 import logger from './logger.js';
@@ -245,7 +246,6 @@ export const dynamicOrchestrator = new Agent({
     
     You have access to:
     - Task Manager (to plan and track tasks)
-    - Memory Manager (to store important information)
     - SWE Agent (Software Engineering Agent for creating/modifying tools AND for MCP access)
     - Bash Agent Spawner (to create agents for specific tasks - NOTE: these do NOT have MCP access)
     - Direct bash access (for simple commands)
@@ -256,7 +256,6 @@ export const dynamicOrchestrator = new Agent({
     - Handoff to SWE Agent for ANY MCP-related tasks (Context7, Shopify Dev docs, GraphQL introspection)
     - Spawn specialized bash agents for distinct tasks (e.g., one for search, one for updates)
     - Run independent tasks in parallel
-    - Use Memory Manager to store important results
     - Only use direct bash for quick checks (ls, cat, etc.)
     
     IMPORTANT: Bash agents do NOT have MCP access. For any MCP tasks, you MUST handoff to SWE Agent.
@@ -283,10 +282,11 @@ export const dynamicOrchestrator = new Agent({
       toolName: 'task_manager',
       toolDescription: 'Manage and track tasks for the current operation'
     }),
-    memoryAgent.asTool({
-      toolName: 'memory_manager', 
-      toolDescription: 'Store and retrieve important information from conversation memory'
-    }),
+    // MEMORY SYSTEM DISABLED - Causing infinite loops
+    // memoryAgent.asTool({
+    //   toolName: 'memory_manager', 
+    //   toolDescription: 'Store and retrieve important information from conversation memory'
+    // }),
     tool({
       name: 'swe_agent',
       description: 'Software Engineering Agent - handoff for creating new tools, modifying existing tools, MCP access (Shopify docs, Context7), or any code-related tasks',
