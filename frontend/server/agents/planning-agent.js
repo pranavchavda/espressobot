@@ -66,14 +66,24 @@ Remember to:
     console.log('[Planning Agent] Task plan created');
     
     // Also return the tasks for immediate use
-    const todoResult = await getTodosTool.execute({ conversation_id: conversationId });
-    const tasks = JSON.parse(todoResult);
-    
-    return {
-      success: true,
-      tasks,
-      agentResponse: result
-    };
+    try {
+      const todoResult = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
+      const tasks = JSON.parse(todoResult);
+      
+      return {
+        success: true,
+        tasks,
+        agentResponse: result
+      };
+    } catch (toolError) {
+      console.log('[Planning Agent] Could not retrieve tasks immediately:', toolError.message);
+      // Still return success if the agent ran successfully
+      return {
+        success: true,
+        tasks: [],
+        agentResponse: result
+      };
+    }
   } catch (error) {
     console.error('[Planning Agent] Error creating task plan:', error);
     return {
@@ -87,11 +97,12 @@ Remember to:
 // Function to update task status
 export async function updateTaskStatus(conversationId, taskIndex, status) {
   try {
-    const result = await updateTaskStatusTool.execute({
+    // Call the invoke method on the tool with JSON string
+    const result = await updateTaskStatusTool.invoke(null, JSON.stringify({
       conversation_id: conversationId,
       task_index: taskIndex,
       status
-    });
+    }));
     
     return {
       success: true,
@@ -109,7 +120,8 @@ export async function updateTaskStatus(conversationId, taskIndex, status) {
 // Function to get current tasks
 export async function getCurrentTasks(conversationId) {
   try {
-    const result = await getTodosTool.execute({ conversation_id: conversationId });
+    // Call the invoke method on the tool with JSON string
+    const result = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
     const tasks = JSON.parse(result);
     
     return {

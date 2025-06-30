@@ -63,8 +63,8 @@ model user_memory_embeddings {
   memory_key         String
   embedding_cache_id Int
   created_at         DateTime?
-  users              users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   embedding_cache    embedding_cache @relation(fields: [embedding_cache_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users              users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([user_id, memory_key], map: "unique_user_memory_embedding")
 }
@@ -77,7 +77,7 @@ model users {
   bio                    String?
   is_whitelisted         Boolean                  @default(true)
   created_at             DateTime?
-  google_id              String?                  @unique
+  google_id              String?                  @unique(map: "idx_users_google_id")
   profile_picture        String?
   conversations          conversations[]
   user_memories          user_memories[]

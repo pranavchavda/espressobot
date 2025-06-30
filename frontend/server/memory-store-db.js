@@ -169,22 +169,35 @@ class DatabaseMemoryStore {
   // Get memories with embeddings for semantic search
   async getMemoriesWithEmbeddings(userId) {
     try {
-      const memoriesWithEmbeddings = await prisma.user_memories.findMany({
+      // First get all user memories
+      const memories = await prisma.user_memories.findMany({
         where: { user_id: userId },
-        include: {
-          user_memory_embeddings: {
-            include: {
-              embedding_cache: true
-            }
-          }
-        },
         orderBy: { created_at: 'desc' }
       });
       
-      return memoriesWithEmbeddings
-        .filter(m => m.user_memory_embeddings.length > 0)
+      // Then get embeddings for these memories
+      const memoryKeys = memories.map(m => m.key);
+      const embeddings = await prisma.user_memory_embeddings.findMany({
+        where: {
+          user_id: userId,
+          memory_key: { in: memoryKeys }
+        },
+        include: {
+          embedding_cache: true
+        }
+      });
+      
+      // Create a map of memory_key to embedding for quick lookup
+      const embeddingMap = new Map();
+      embeddings.forEach(e => {
+        embeddingMap.set(e.memory_key, e);
+      });
+      
+      // Join memories with their embeddings
+      return memories
+        .filter(m => embeddingMap.has(m.key))
         .map(m => {
-          const embedding = m.user_memory_embeddings[0].embedding_cache;
+          const embedding = embeddingMap.get(m.key).embedding_cache;
           return {
             id: m.key,
             user_id: m.user_id,
