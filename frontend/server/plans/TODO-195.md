@@ -1,4 +1,7 @@
-- [ ] Fetch Ethernet interface details using run_python_script
-- [ ] Extract IPv4 address from interface details
-- [ ] Format IP address for storage
-- [ ] Save formatted IP address to user memory
+- [ ] Collect error logs related to conversation restarts
+- [ ] Reproduce conversation restart issue on older threads
+- [ ] Analyze logs and stack traces to identify root cause
+- [ ] Search development documentation for relevant changes (search_dev_docs)
+- [ ] Run automated test suite to catch restart regression
+- [ ] Verify if issue persists after tests
+- [ ] Document findings and update stakeholders

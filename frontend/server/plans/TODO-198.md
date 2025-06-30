@@ -1,4 +1,5 @@
-- [ ] Search dev docs for memory agent removal announcement (use search_dev_docs)
-- [ ] Test memory agent endpoint connectivity (use test_connection)
-- [ ] Inspect application logs for memory agent errors
-- [ ] Summarize memory agent availability status
+- [ ] Search for the specified item or issue using search_products
+- [ ] Fetch detailed item information with get_product
+- [ ] Run a run_graphql_query to check the current status of the item or issue
+- [ ] Verify removal or resolution by checking redirects with manage_redirects
+- [ ] Compile and deliver a confirmation report to the user

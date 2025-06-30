@@ -56,6 +56,8 @@ function StreamingChatPage({ convId }) {
       setActiveConv(null);
       return;
     }
+    // Update activeConv when convId changes
+    setActiveConv(convId);
     setLoading(true);
     const token = localStorage.getItem('authToken');
     fetch(`/api/conversations/${convId}`, {
@@ -388,7 +390,7 @@ function StreamingChatPage({ convId }) {
       }
 
       const requestData = {
-        conv_id: activeConv || undefined,
+        conv_id: convId || activeConv || undefined,
         message: textToSend,
         forceTaskGen: forceTaskGen,
       };
