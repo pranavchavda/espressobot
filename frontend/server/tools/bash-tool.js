@@ -165,7 +165,7 @@ export const bashTool = tool({
 /**
  * Create a bash-enabled agent
  */
-export async function createBashAgent(name, task) {
+export async function createBashAgent(name, task, conversationId = null) {
   // Load the bash agent prompt template
   let bashAgentPrompt;
   try {
@@ -178,12 +178,57 @@ export async function createBashAgent(name, task) {
 Best practices: Check tool existence, use --help, handle errors, use absolute paths, chain commands with &&.`;
   }
   
+  // If conversationId is provided, read tasks and inject them
+  let taskContext = '';
+  if (conversationId) {
+    try {
+      const { readTasksForConversation, formatTasksForPrompt } = await import('../utils/task-reader.js');
+      const { tasks } = await readTasksForConversation(conversationId);
+      if (tasks && tasks.length > 0) {
+        taskContext = '\n\n' + formatTasksForPrompt(tasks);
+      }
+    } catch (error) {
+      console.log(`[Bash Agent] Could not read tasks for conversation ${conversationId}:`, error.message);
+    }
+  }
+  
+  // Create tools array with bash tool
+  const tools = [bashTool];
+  
+  // Add task update tool if conversationId is provided
+  if (conversationId && taskContext) {
+    const updateTaskTool = tool({
+      name: 'update_task_status',
+      description: 'Update the status of a task in the current conversation. Use this to mark tasks as in_progress or completed.',
+      parameters: z.object({
+        taskIndex: z.number().describe('The index of the task (0-based) from the task list'),
+        status: z.enum(['pending', 'in_progress', 'completed']).describe('New status for the task')
+      }),
+      execute: async ({ taskIndex, status }) => {
+        try {
+          const { updateTaskStatusTool } = await import('../task-generator-agent.js');
+          const result = await updateTaskStatusTool.invoke(null, JSON.stringify({
+            conversation_id: conversationId,
+            task_index: taskIndex,
+            status
+          }));
+          console.log(`[Bash Agent] Updated task ${taskIndex} to ${status}`);
+          return result;
+        } catch (error) {
+          console.error(`[Bash Agent] Error updating task status:`, error);
+          return `Failed to update task status: ${error.message}`;
+        }
+      }
+    });
+    tools.push(updateTaskTool);
+  }
+  
   return new Agent({
     name,
     instructions: `${bashAgentPrompt}
     
-Your specific task: ${task}`,
-    tools: [bashTool],
+Your specific task: ${task}${taskContext}`,
+    tools,
     model: 'gpt-4.1-mini'
   });
 }

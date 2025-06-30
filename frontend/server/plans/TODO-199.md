@@ -1,5 +1,6 @@
-- [ ] Search Dev Docs for Memory Agent Availability Endpoints (search_dev_docs)
-- [ ] Inspect Admin Schema for Memory Agent Operations (introspect_admin_schema)
-- [ ] Run Python Script to Ping Memory Agent Health Endpoint (run_python_script)
-- [ ] Execute GraphQL Query to Verify Memory Agent Response (run_graphql_query)
-- [ ] Evaluate Ping and Query Results to Confirm Memory Agent Availability
+- [ ] Outline script requirements for coffee preference memory operations
+- [ ] Configure memory_operations tool in the script environment
+- [ ] Implement addCoffeePreferenceMemory function using memory_operations
+- [ ] Implement queryCoffeePreferences function using memory_operations
+- [ ] Write tests for adding and querying coffee preference memories
+- [ ] Handle errors and logging in memory_operations calls

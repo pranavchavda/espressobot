@@ -59,3 +59,9 @@ venv/
 # Memory files
 memories/
 .memories/
+server/memory/data/
+server/memory/venv/
+
+# Task planning files
+server/plans/
+TODO-*.md

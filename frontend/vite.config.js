@@ -125,7 +125,18 @@ export default defineConfig({
   ],
   server: {
     watch: {
-      ignored: ['**/dev.db', '**/prisma/migrations/**', '**/.memories/**', '**/memories/**'],
+      ignored: [
+        '**/dev.db', 
+        '**/prisma/migrations/**', 
+        '**/.memories/**', 
+        '**/memories/**',
+        '**/server/memory/data/**',  // Ignore mem0 database files
+        '**/server/memory/venv/**',   // Ignore Python virtual environment
+        '**/server/plans/**',         // Ignore TaskGen TODO files
+        '**/TODO-*.md',               // Ignore TODO markdown files
+        '**/*.db',                    // Ignore all database files
+        '**/*.sqlite'                 // Ignore SQLite files
+      ],
     },
     port: 5173,
     open: true,

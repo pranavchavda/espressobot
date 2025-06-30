@@ -3,9 +3,7 @@ import * as prismaClient from '@prisma/client';
 import { runDynamicOrchestrator } from './dynamic-bash-orchestrator.js';
 import { authenticateToken } from './auth.js';
 import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/planning-agent.js';
-import { findRelevantMemories, formatMemoriesForContext, generateEmbedding } from './memory-embeddings.js';
-import { runMemoryExtraction } from './memory-agent.js';
-import { memoryStore } from './memory-store-db.js';
+import { memoryOperations } from './tools/memory-tool.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -70,43 +68,55 @@ router.post('/run', authenticateToken, async (req, res) => {
       }
     });
     
-    // Build conversation context
+    // Build conversation context with mem0
     
-    // MEMORY RETRIEVAL DISABLED - Part of temporary memory system disable
-    // TODO: Re-enable when memory system is redesigned
-    /*
+    // Retrieve relevant memories using mem0
     sendEvent('agent_processing', {
       agent: 'Memory_System',
       message: 'Retrieving relevant memories...'
     });
     
-    const relevantMemories = await findRelevantMemories(
-      message + (conversationMessages.length > 0 ? '\n' + conversationMessages.slice(-3).map(m => m.content).join('\n') : ''),
-      USER_ID,
-      3 // Top 3 memories
-    );
+    let memoryContext = '';
+    try {
+      // Search for relevant memories
+      const searchQuery = message + (conversationMessages.length > 0 ? 
+        '\n' + conversationMessages.slice(-3).map(m => m.content).join('\n') : '');
+      
+      console.log(`[Mem0] Searching memories for user ${USER_ID} with query: "${searchQuery.substring(0, 100)}..."`);
+      
+      // Use actual user ID for cross-conversation memory persistence
+      const memoryUserId = `user_${USER_ID}`;
+      
+      const memoryResult = await memoryOperations.search(
+        searchQuery,
+        memoryUserId,  // Use user ID instead of conversation ID
+        5 // Top 5 memories
+      );
+      
+      console.log(`[Mem0] Found ${memoryResult.memories?.length || 0} memories`);
+      
+      if (memoryResult.success && memoryResult.memories.length > 0) {
+        memoryContext = '\n\nRelevant context from previous conversations:\n' +
+          memoryResult.memories.map(m => `- ${m.memory}`).join('\n') + '\n';
+        console.log(`[Mem0] Retrieved ${memoryResult.memories.length} relevant memories`);
+      } else {
+        console.log(`[Mem0] No memories found for user ${USER_ID}`);
+      }
+    } catch (error) {
+      console.error('[Mem0] Error retrieving memories:', error);
+      // Continue without memories if retrieval fails
+    }
     
-    const memoryContext = formatMemoriesForContext(relevantMemories);
-    */
-    
-    // Create context without memory
+    // Create context with memories
     let fullContext;
     if (conversationMessages.length > 0) {
       const history = conversationMessages.map(msg => 
         `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
       ).join('\n\n');
-      fullContext = `Previous conversation:\n${history}\n\nUser: ${message}`;
+      fullContext = `${memoryContext}Previous conversation:\n${history}\n\nUser: ${message}`;
     } else {
-      fullContext = `User: ${message}`;
+      fullContext = `${memoryContext}User: ${message}`;
     }
-    
-    // MEMORY SYSTEM TEMPORARILY DISABLED
-    // TODO: Re-implement memory system with better architecture:
-    // 1. Use a queue system to prevent concurrent memory operations
-    // 2. Implement proper cancellation tokens
-    // 3. Add circuit breaker pattern to prevent infinite retries
-    // 4. Consider using a separate service/worker for memory operations
-    console.log('[Memory] System temporarily disabled - needs redesign');
     
     // Check if request needs planning (complex or multi-step)
     const needsPlanning = analyzeComplexity(message);
@@ -299,8 +309,41 @@ router.post('/run', authenticateToken, async (req, res) => {
       });
       console.log('=== AGENT_MESSAGE EVENT SENT ===');
       
-      // MEMORY SAVE DISABLED - Part of temporary memory system disable
-      // TODO: Re-enable when memory system is redesigned
+      // Store conversation in mem0 for future retrieval
+      try {
+        // Create conversation summary for memory
+        const conversationSummary = `User: ${message}\nAssistant: ${textResponse}`;
+        
+        console.log(`[Mem0] Storing memory for conversation ${conversationId}`);
+        console.log(`[Mem0] Message: "${message.substring(0, 100)}..."`);
+        console.log(`[Mem0] Response: "${textResponse.substring(0, 100)}..."`);
+        
+        // Use actual user ID for cross-conversation memory persistence
+        const memoryUserId = `user_${USER_ID}`;
+        
+        const memoryAddResult = await memoryOperations.add(
+          conversationSummary,
+          memoryUserId,  // Use user ID instead of conversation ID
+          {
+            timestamp: new Date().toISOString(),
+            type: 'conversation',
+            conversationId: conversationId.toString(),
+            userMessage: message,
+            assistantResponse: textResponse
+          }
+        );
+        
+        console.log(`[Mem0] Add result:`, JSON.stringify(memoryAddResult, null, 2));
+        
+        if (memoryAddResult.success) {
+          console.log(`[Mem0] Stored conversation memory: ${memoryAddResult.memory_id}`);
+        } else {
+          console.log(`[Mem0] Failed to store memory`);
+        }
+      } catch (error) {
+        console.error('[Mem0] Error storing memory:', error);
+        // Continue even if memory storage fails
+      }
     } else {
       console.log('=== WARNING: No textResponse to send ===');
     }

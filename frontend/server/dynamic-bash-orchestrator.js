@@ -77,8 +77,11 @@ const spawnBashAgent = tool({
       });
     }
     
-    // Create the bash agent
-    const bashAgent = await createBashAgent(agentName, task);
+    // Get conversation ID from global context or options
+    const conversationId = global.currentConversationId || null;
+    
+    // Create the bash agent with conversation awareness
+    const bashAgent = await createBashAgent(agentName, task, conversationId);
     
     // Run the agent with the task
     try {
@@ -155,7 +158,9 @@ const spawnParallelBashAgents = tool({
     
     // Create and run all agents in parallel
     const promises = tasks.map(async ({ agentName, task, context }) => {
-      const bashAgent = await createBashAgent(agentName, task);
+      // Get conversation ID from global context
+      const conversationId = global.currentConversationId || null;
+      const bashAgent = await createBashAgent(agentName, task, conversationId);
       
       try {
         const fullPrompt = context ? `${task}\n\nContext: ${context}` : task;
@@ -233,6 +238,7 @@ export const dynamicOrchestrator = new Agent({
     2. Spawn specialized bash agents to complete tasks (but NOT for MCP tasks)
     3. Coordinate parallel execution when possible
     4. Aggregate results and provide coherent responses
+    5. Track and update task progress when tasks are present
     
     CRITICAL: You CANNOT access MCP tools directly. When users ask about:
     - Context7 library resolution or documentation
@@ -276,7 +282,14 @@ export const dynamicOrchestrator = new Agent({
     NEVER spawn bash agents for MCP tasks - they will fail!
     
     Remember: Each bash agent has full access to Python tools in /home/pranav/espressobot/frontend/python-tools/
-    For detailed tool usage, see /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md`,
+    For detailed tool usage, see /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md
+    
+    Task Management:
+    - If tasks are present in the conversation context, you'll see them listed
+    - Use get_current_tasks to check the current task list
+    - Use update_task_status to mark tasks as in_progress or completed
+    - Spawned bash agents also have access to task information and can update tasks
+    - Always update task status as you work through them`,
   tools: [
     taskManagerAgent.asTool({
       toolName: 'task_manager',
@@ -301,7 +314,62 @@ export const dynamicOrchestrator = new Agent({
     }),
     spawnBashAgent,
     spawnParallelBashAgents,
-    orchestratorBash
+    orchestratorBash,
+    // Task reading and updating tools
+    tool({
+      name: 'get_current_tasks',
+      description: 'Get the current task list for this conversation',
+      parameters: z.object({}),
+      execute: async () => {
+        const conversationId = global.currentConversationId;
+        if (!conversationId) return 'No conversation ID available';
+        
+        try {
+          const { getTodosTool } = await import('./task-generator-agent.js');
+          const result = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
+          return result;
+        } catch (error) {
+          return `Error getting tasks: ${error.message}`;
+        }
+      }
+    }),
+    tool({
+      name: 'update_task_status',
+      description: 'Update the status of a task in the current conversation',
+      parameters: z.object({
+        taskIndex: z.number().describe('The index of the task (0-based)'),
+        status: z.enum(['pending', 'in_progress', 'completed']).describe('New status for the task')
+      }),
+      execute: async ({ taskIndex, status }) => {
+        const conversationId = global.currentConversationId;
+        if (!conversationId) return 'No conversation ID available';
+        
+        try {
+          const { updateTaskStatus, readTasksForConversation } = await import('./utils/task-reader.js');
+          const result = await updateTaskStatus(conversationId, taskIndex, status);
+          
+          if (result.success && currentSseEmitter) {
+            // Read updated tasks and emit SSE event
+            const tasksResult = await readTasksForConversation(conversationId);
+            if (tasksResult.success) {
+              currentSseEmitter('task_summary', {
+                tasks: tasksResult.tasks.map((task, index) => ({
+                  id: `task_${conversationId}_${index}`,
+                  title: task.description,
+                  status: task.status,
+                  index: index
+                })),
+                conversationId: conversationId
+              });
+            }
+          }
+          
+          return result.message || result;
+        } catch (error) {
+          return `Error updating task: ${error.message}`;
+        }
+      }
+    })
   ],
   model: 'gpt-4.1'
 });
@@ -324,11 +392,28 @@ export async function runDynamicOrchestrator(message, options = {}) {
   global.currentSseEmitter = sseEmitter;
   // Set taskUpdater globally if provided
   global.currentTaskUpdater = taskUpdater;
+  // Set conversation ID globally for bash agents
+  global.currentConversationId = conversationId;
   
   try {
+    // Read tasks if conversation ID is provided
+    let taskContext = '';
+    if (conversationId) {
+      try {
+        const { readTasksForConversation, formatTasksForPrompt } = await import('./utils/task-reader.js');
+        const { tasks } = await readTasksForConversation(conversationId);
+        if (tasks && tasks.length > 0) {
+          taskContext = '\n\n' + formatTasksForPrompt(tasks);
+          console.log(`[Orchestrator] Found ${tasks.length} tasks for conversation ${conversationId}`);
+        }
+      } catch (error) {
+        console.log(`[Orchestrator] Could not read tasks:`, error.message);
+      }
+    }
+    
     // Add conversation context if provided
     const contextualMessage = conversationId 
-      ? `[Conversation ID: ${conversationId}]\n${message}`
+      ? `[Conversation ID: ${conversationId}]\n${message}${taskContext}`
       : message;
     
     // Run the orchestrator with callbacks for real-time streaming
@@ -384,5 +469,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Clear the SSE emitter reference
     currentSseEmitter = null;
     global.currentSseEmitter = null;
+    global.currentConversationId = null;
+    global.currentTaskUpdater = null;
   }
 }

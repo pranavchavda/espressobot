@@ -56,6 +56,8 @@ function StreamingChatPage({ convId }) {
       setActiveConv(null);
       return;
     }
+    // Clear task markdown when switching conversations
+    setTaskMarkdown(null);
     // Update activeConv when convId changes
     setActiveConv(convId);
     setLoading(true);
@@ -66,11 +68,20 @@ function StreamingChatPage({ convId }) {
       }
     })
       .then((res) => res.json())
-      .then(({ messages: fetchedMessages, tasks: persistedTasks }) => {
+      .then(({ messages: fetchedMessages, tasks: persistedTasks, taskMarkdown: fetchedTaskMarkdown }) => {
         setMessages(fetchedMessages);
         setCurrentTasks(persistedTasks);
         setHasShownTasks(persistedTasks && persistedTasks.length > 0); // Set based on existing tasks
         setActiveConv(convId);
+        
+        // Set task markdown if it exists
+        if (fetchedTaskMarkdown) {
+          console.log('FRONTEND: Setting task markdown for conversation:', convId, 'markdown length:', fetchedTaskMarkdown.markdown?.length);
+          setTaskMarkdown(fetchedTaskMarkdown);
+        } else {
+          console.log('FRONTEND: No task markdown fetched for conversation:', convId);
+        }
+        
         const lastMessage = fetchedMessages[fetchedMessages.length - 1];
         if (
           lastMessage &&
@@ -164,6 +175,12 @@ function StreamingChatPage({ convId }) {
     if (streamingMessage?.isComplete) {
       const { content, timestamp } = streamingMessage;
       if (content) {
+        // Only save task markdown if it belongs to the current conversation
+        const currentTaskMarkdown = taskMarkdown && 
+          String(taskMarkdown.conversation_id) === String(activeConv || convId) 
+          ? taskMarkdown 
+          : null;
+          
         setMessages(prev => [
           ...prev,
           { 
@@ -171,13 +188,13 @@ function StreamingChatPage({ convId }) {
             role: "assistant", 
             content, 
             timestamp,
-            taskMarkdown: taskMarkdown // Save current task markdown with the message
+            taskMarkdown: currentTaskMarkdown // Save current task markdown with the message
           }
         ]);
       }
       setStreamingMessage(null);
     }
-  }, [streamingMessage?.isComplete, taskMarkdown]);
+  }, [streamingMessage?.isComplete, taskMarkdown, activeConv, convId]);
 
   // Handle image paste from clipboard
   useEffect(() => {
@@ -1030,7 +1047,9 @@ function StreamingChatPage({ convId }) {
           ) : (
             <>
               {/* Show task markdown progress if available */}
-              {taskMarkdown && taskMarkdown.markdown && (
+              {console.log('FRONTEND: Render - taskMarkdown:', taskMarkdown?.conversation_id, 'activeConv:', activeConv, 'convId:', convId)}
+              {taskMarkdown && taskMarkdown.markdown && 
+               String(taskMarkdown.conversation_id) === String(activeConv || convId) && (
                 <TaskMarkdownProgress 
                   markdown={taskMarkdown.markdown} 
                   conversationId={activeConv || convId}

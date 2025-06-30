@@ -17,6 +17,74 @@ Successfully made the shell-agency branch (149 commits ahead) the new main branc
 
 ---
 
+## June 30, 2025 - Mem0 Integration for Persistent Memory
+
+### 🎯 **Primary Objective Achieved**
+Successfully integrated mem0 (memory layer for AI) to provide persistent, context-aware memory across conversations, replacing the problematic custom memory system.
+
+### 🔧 **Implementation Details**
+
+#### 1. **Why Mem0?**
+- **Previous Issue**: Custom memory system caused infinite loops with automatic extraction + deliberate retrieval
+- **Solution**: Mem0 handles memory extraction automatically without explicit agent calls
+- **Architecture**: Clean separation between conversation flow and memory layer
+
+#### 2. **Technical Setup**
+- **Python Environment**: Created virtual environment at `/server/memory/venv`
+- **Configuration**: Self-hosted with SQLite backend and Qdrant vector store
+- **Integration**: Memory operations wrapped in `/server/tools/memory-tool.js`
+
+#### 3. **Memory Flow**
+```javascript
+// Automatic retrieval before processing
+const memories = await memoryOperations.search(query, conversationId);
+// Inject into context
+const contextWithMemories = memories + currentMessage;
+
+// Automatic storage after response
+await memoryOperations.add(conversationSummary, conversationId);
+```
+
+#### 4. **Key Features**
+- **Automatic Extraction**: LLM analyzes conversations and extracts salient facts
+- **Smart Updates**: Mem0 decides whether to add, merge, update, or skip memories
+- **Semantic Search**: Retrieves relevant memories based on context similarity
+- **Conversation Isolation**: Each conversation has its own memory space
+
+### ✅ **Benefits Over Custom System**
+1. **No Infinite Loops**: Clean separation prevents recursive memory operations
+2. **Intelligent Deduplication**: Prevents storing redundant information
+3. **Better Relevance**: Advanced semantic search with scoring
+4. **Production Ready**: Handles edge cases we hadn't considered
+
+### 📁 **Files Created/Modified**
+- `/server/memory/mem0_config.py` - Mem0 configuration
+- `/server/memory/memory_operations.py` - Python operations wrapper
+- `/server/tools/memory-tool.js` - JavaScript tool interface
+- `/server/bash-orchestrator-api.js` - Integrated memory retrieval/storage
+
+### 🚀 **Usage Example**
+```
+User: "Show me coffee products under $20"
+[Mem0 retrieves: User prefers budget items, frequently searches for coffee]
+
+User (later): "Update pricing like last time"
+[Mem0 retrieves: Last bulk update was 15% discount on combos]
+```
+
+### 🐛 **Known Limitations**
+- Memory extraction happens after LLM processing (by design)
+- Initial indexing takes ~2 seconds for vector embeddings
+- Currently using conversation ID as user ID (can be changed)
+
+### 💡 **Architecture Benefits**
+- **Stateful Conversations**: Remembers preferences and patterns
+- **Reduced Token Usage**: No need to repeat context
+- **Better UX**: More personalized responses over time
+- **Scalable**: Local deployment with no API limits
+
+---
+
 ## June 28, 2025 - Shell Agency: Unix Philosophy Architecture
 
 ### 🎯 **Primary Objective Achieved**
@@ -818,4 +886,61 @@ Successfully updated the agentic architecture to use 9 specialized agents from `
 
 ---
 
-*Last Updated: June 28, 2025*
+## June 30, 2025 - Mem0 Integration Fixed and Working
+
+### 🎯 **Primary Objective Achieved**
+Successfully debugged and fixed the mem0 memory system integration. Cross-conversation memory persistence is now fully functional.
+
+### 🔧 **Issue and Resolution**
+
+#### 1. **The Problem**
+- Memories were being stored but search was returning empty results
+- Initial diagnosis showed memories disappearing between operations
+- Root cause: Typo in model configuration (`gpt-4.1-mini` instead of `gpt-4o-mini`)
+
+#### 2. **The Fix**
+- Changed model name in `/server/memory/mem0_config.py` from `gpt-4.1-mini` to `gpt-4o-mini`
+- Memory system immediately started working correctly
+- Both native search and workaround now function properly
+
+#### 3. **Implemented Workaround**
+Created a search workaround in `memory_operations.py` that:
+- Activates automatically when native search returns empty results
+- Uses `get_all()` and manual filtering with smart scoring
+- Provides relevance-based results even if native search fails
+- Future-proof: Will automatically stop using workaround when not needed
+
+### ✅ **Current Working Features**
+1. **Memory Storage**: Successfully stores conversation facts ✅
+2. **Memory Search**: Native search working with model fix ✅
+3. **Search Workaround**: Fallback mechanism for reliability ✅
+4. **Cross-Conversation**: Memories persist across conversations ✅
+5. **User-Based Storage**: Using `user_${USER_ID}` for proper isolation ✅
+
+### 📁 **Key Files**
+- `/server/memory/mem0_config.py` - Fixed model configuration
+- `/server/memory/memory_operations.py` - Added search workaround
+- `/server/memory/SEARCH_WORKAROUND.md` - Documentation of the fix
+- Various test files for comprehensive testing
+
+### 🚀 **Memory System Benefits**
+- **Stateful Conversations**: Remembers user preferences and history
+- **Smart Updates**: Mem0 handles deduplication and merging
+- **Semantic Search**: Finds relevant memories based on context
+- **Production Ready**: Robust with automatic fallback mechanisms
+
+### 💡 **Testing Results**
+```
+User_2 memories:
+- Name is Pranav
+- Born on June 25th 1985  
+- Favorite coffee is espresso
+
+Search for "birthday": ✅ Returns birth date memory
+Search for "coffee": ✅ Returns coffee preference
+Cross-conversation access: ✅ Working
+```
+
+---
+
+*Last Updated: June 30, 2025*

@@ -179,7 +179,9 @@ export const updateTaskStatusTool = tool({
           updated = true;
           const checkbox = status === 'completed' ? 'x' : ' ';
           const prefix = status === 'in_progress' ? '🔄 ' : '';
-          return `- [${checkbox}] ${prefix}${match[2]}`;
+          // Remove existing status prefixes from the text
+          const cleanText = match[2].replace(/^🔄 /, '').trim();
+          return `- [${checkbox}] ${prefix}${cleanText}`;
         }
         taskCount++;
       }

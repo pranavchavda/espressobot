@@ -1,5 +1,6 @@
 import ExtendedToolRegistry from './custom-tools/tool-registry-extended.js';
 import { registerNativeTools } from './native-tools/index.js';
+import { memoryTool } from './tools/memory-tool.js';
 
 /**
  * Discovers available tools from custom tool implementations
@@ -23,6 +24,9 @@ export class CustomToolDiscovery {
     try {
       // Register native JavaScript tools if enabled
       registerNativeTools(this.toolRegistry);
+      
+      // Register memory tool
+      this.toolRegistry.registerTool('memory_operations', memoryTool);
       
       // Get all custom tools
       const customTools = this.toolRegistry.getTools();

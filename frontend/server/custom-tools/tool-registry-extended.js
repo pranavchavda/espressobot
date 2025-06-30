@@ -30,23 +30,42 @@ class ExtendedToolRegistry {
   }
 
   /**
-   * Register a generic tool (used by Shopify Dev MCP tools)
+   * Register a generic tool (used by Shopify Dev MCP tools and OpenAI SDK tools)
    */
   registerTool(name, toolInstance) {
-    // Extract tool configuration from the OpenAI tool instance
-    const toolConfig = {
-      name: name,
-      description: toolInstance.description || '',
-      inputSchema: toolInstance.parameters ? toolInstance.parameters.shape : {},
-      type: 'mcp',
-      handler: async (args) => toolInstance.execute(args)
-    };
-    
-    const existingIndex = this.tools.findIndex(t => t.name === name);
-    if (existingIndex >= 0) {
-      this.tools[existingIndex] = toolConfig;
+    // Handle OpenAI SDK tool format
+    if (toolInstance._spec) {
+      const spec = toolInstance._spec;
+      const toolConfig = {
+        name: spec.name,
+        description: spec.description || '',
+        inputSchema: spec.parameters || {},
+        type: 'openai-sdk',
+        handler: async (args) => toolInstance.execute(args)
+      };
+      
+      const existingIndex = this.tools.findIndex(t => t.name === spec.name);
+      if (existingIndex >= 0) {
+        this.tools[existingIndex] = toolConfig;
+      } else {
+        this.tools.push(toolConfig);
+      }
     } else {
-      this.tools.push(toolConfig);
+      // Original MCP tool format
+      const toolConfig = {
+        name: name,
+        description: toolInstance.description || '',
+        inputSchema: toolInstance.parameters ? toolInstance.parameters.shape : {},
+        type: 'mcp',
+        handler: async (args) => toolInstance.execute(args)
+      };
+      
+      const existingIndex = this.tools.findIndex(t => t.name === name);
+      if (existingIndex >= 0) {
+        this.tools[existingIndex] = toolConfig;
+      } else {
+        this.tools.push(toolConfig);
+      }
     }
   }
 

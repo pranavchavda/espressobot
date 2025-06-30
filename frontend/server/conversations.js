@@ -6,7 +6,11 @@ import { Router } from 'express';
 import pkg from '@prisma/client';
 const { PrismaClient } = pkg;
 import { authenticateToken } from './auth.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -47,7 +51,28 @@ router.get('/:id', authenticateToken, async (req, res) => {
     where: { conv_id: convId },
     orderBy: { created_at: 'desc' },
   });
-  res.json({ messages, tasks: latestRun ? JSON.parse(latestRun.tasks) : [] });
+  
+  // Load task markdown file if it exists
+  let taskMarkdown = null;
+  try {
+    const planPath = path.join(__dirname, 'plans', `TODO-${convId}.md`);
+    const planContent = await fs.readFile(planPath, 'utf-8');
+    const taskCount = (planContent.match(/^\s*-\s*\[/gm) || []).length;
+    taskMarkdown = {
+      markdown: planContent,
+      filename: `TODO-${convId}.md`,
+      taskCount: taskCount,
+      conversation_id: convId
+    };
+  } catch (err) {
+    // No task plan file, that's okay
+  }
+  
+  res.json({ 
+    messages, 
+    tasks: latestRun ? JSON.parse(latestRun.tasks) : [],
+    taskMarkdown: taskMarkdown
+  });
 });
 
 // Delete a conversation and its messages
