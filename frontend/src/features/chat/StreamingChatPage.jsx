@@ -1028,9 +1028,9 @@ function StreamingChatPage({ convId }) {
           ) : (
             <>
               {/* Show task markdown progress if available */}
-              {taskMarkdown && (
+              {taskMarkdown && taskMarkdown.markdown && (
                 <TaskMarkdownProgress 
-                  markdown={taskMarkdown} 
+                  markdown={taskMarkdown.markdown} 
                   conversationId={activeConv || convId}
                 />
               )}

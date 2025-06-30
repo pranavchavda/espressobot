@@ -1,0 +1,4 @@
+- [ ] Fetch Ethernet interface details using run_python_script
+- [ ] Extract IPv4 address from interface details
+- [ ] Format IP address for storage
+- [ ] Save formatted IP address to user memory

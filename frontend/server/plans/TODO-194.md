@@ -1,0 +1,6 @@
+- [ ] Define requirements for bash agents and read-only tasks
+- [ ] Configure bash agent environment
+- [ ] Create read-only task templates
+- [ ] Implement communication protocol between agents
+- [ ] Simulate and test agent workflows
+- [ ] Document task design and usage
