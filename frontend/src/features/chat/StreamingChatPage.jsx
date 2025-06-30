@@ -665,6 +665,18 @@ function StreamingChatPage({ convId }) {
                     return prevTasks;
                   });
                   break;
+                case 'task_plan_created':
+                  console.log("FRONTEND: Task plan created (basic agent)", actualEventPayload);
+                  console.log("FRONTEND: Current activeConv:", activeConv, "convId:", convId);
+                  console.log("FRONTEND: Task conversation_id:", actualEventPayload.conversation_id);
+                  setTaskMarkdown({
+                    markdown: actualEventPayload.markdown,
+                    filename: actualEventPayload.filename,
+                    taskCount: actualEventPayload.taskCount,
+                    conversation_id: actualEventPayload.conversation_id
+                  });
+                  setToolCallStatus(`Task plan created with ${actualEventPayload.taskCount || 'multiple'} tasks`);
+                  break;
                 case 'task_summary':
                   console.log('FRONTEND: task_summary event:', actualEventPayload);
                   if (
