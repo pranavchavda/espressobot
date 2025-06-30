@@ -58,6 +58,14 @@ function StreamingChatPage({ convId }) {
     }
     // Clear task markdown when switching conversations
     setTaskMarkdown(null);
+    // Also clear any stale task markdown that doesn't match the new conversation
+    setTaskMarkdown(prev => {
+      if (prev && String(prev.conversation_id) !== String(convId)) {
+        console.log('FRONTEND: Clearing stale task markdown from conversation:', prev.conversation_id);
+        return null;
+      }
+      return prev;
+    });
     // Update activeConv when convId changes
     setActiveConv(convId);
     setLoading(true);
@@ -118,6 +126,14 @@ function StreamingChatPage({ convId }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingMessage]);
+
+  // Clear stale task markdown if it doesn't match current conversation
+  useEffect(() => {
+    if (taskMarkdown && activeConv && String(taskMarkdown.conversation_id) !== String(activeConv)) {
+      console.log('FRONTEND: Detected stale task markdown, clearing. Task conv:', taskMarkdown.conversation_id, 'Active conv:', activeConv);
+      setTaskMarkdown(null);
+    }
+  }, [taskMarkdown, activeConv]);
 
   // Format timestamp to readable format
   const formatTimestamp = (timestamp) => {
