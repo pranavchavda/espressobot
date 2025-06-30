@@ -27,10 +27,12 @@
 - [x] Create Planning Agent that analyzes requests and creates task plans
 - [x] Integrate task planning into bash orchestrator
 - [x] Add real-time task progress updates via SSE
-- [x] Implement database-backed memory store using Prisma
-- [x] Create memory extraction agent
-- [x] Add memory injection into prompts (top 3 relevant memories)
-- [x] Support local embeddings option via .env configuration
+- [ ] **MEMORY SYSTEM DISABLED** - Needs complete redesign to fix infinite loops
+  - [ ] Use queue system to prevent concurrent memory operations
+  - [ ] Implement proper cancellation tokens
+  - [ ] Add circuit breaker pattern to prevent infinite retries
+  - [ ] Consider using a separate service/worker for memory operations
+  - [ ] Fix memory agent tool invocation issues
 - [x] Add complexity analyzer for automatic planning decisions
 
 ### 3. iDrinkCoffee.com E-commerce Assistant Prompting

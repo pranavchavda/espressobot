@@ -71,9 +71,10 @@ router.post('/run', authenticateToken, async (req, res) => {
     });
     
     // Build conversation context
-    let fullContext = '';
     
-    // Find relevant memories for this conversation
+    // MEMORY RETRIEVAL DISABLED - Part of temporary memory system disable
+    // TODO: Re-enable when memory system is redesigned
+    /*
     sendEvent('agent_processing', {
       agent: 'Memory_System',
       message: 'Retrieving relevant memories...'
@@ -86,45 +87,26 @@ router.post('/run', authenticateToken, async (req, res) => {
     );
     
     const memoryContext = formatMemoriesForContext(relevantMemories);
+    */
     
+    // Create context without memory
+    let fullContext;
     if (conversationMessages.length > 0) {
       const history = conversationMessages.map(msg => 
         `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
       ).join('\n\n');
-      fullContext = `${memoryContext}\n\nPrevious conversation:\n${history}\n\nUser: ${message}`;
+      fullContext = `Previous conversation:\n${history}\n\nUser: ${message}`;
     } else {
-      fullContext = `${memoryContext}\n\nUser: ${message}`;
+      fullContext = `User: ${message}`;
     }
     
-    // Run memory extraction only for explicit memory requests
-    const isMemoryRequest = message.toLowerCase().includes('save') && 
-                           (message.toLowerCase().includes('memory') || 
-                            message.toLowerCase().includes('remember'));
-    
-    if (isMemoryRequest) {
-      console.log('[Memory] Explicit memory request detected');
-      const conversationForMemory = [
-        ...conversationMessages,
-        { role: 'user', content: message }
-      ];
-      
-      // Add timeout to prevent infinite memory extraction
-      const memoryTimeout = setTimeout(() => {
-        console.error('[Memory] Extraction timeout after 30 seconds');
-      }, 30000);
-      
-      runMemoryExtraction(conversationForMemory, USER_ID, conversationId)
-        .then(() => {
-          clearTimeout(memoryTimeout);
-          console.log('[Memory] Extraction completed');
-        })
-        .catch(err => {
-          clearTimeout(memoryTimeout);
-          console.error('[Memory] Extraction error:', err);
-        });
-    } else {
-      console.log('[Memory] Skipping automatic extraction for this message');
-    }
+    // MEMORY SYSTEM TEMPORARILY DISABLED
+    // TODO: Re-implement memory system with better architecture:
+    // 1. Use a queue system to prevent concurrent memory operations
+    // 2. Implement proper cancellation tokens
+    // 3. Add circuit breaker pattern to prevent infinite retries
+    // 4. Consider using a separate service/worker for memory operations
+    console.log('[Memory] System temporarily disabled - needs redesign');
     
     // Check if request needs planning (complex or multi-step)
     const needsPlanning = analyzeComplexity(message);
@@ -317,37 +299,8 @@ router.post('/run', authenticateToken, async (req, res) => {
       });
       console.log('=== AGENT_MESSAGE EVENT SENT ===');
       
-      // Handle simple memory save if it was an explicit request
-      if (isMemoryRequest && textResponse.toLowerCase().includes('saved')) {
-        // Extract what to save from the user's message
-        const memoryMatch = message.match(/save.*?that\s+(.+)/i) || 
-                           message.match(/remember\s+that\s+(.+)/i) ||
-                           message.match(/save.*?memory.*?that\s+(.+)/i);
-        
-        if (memoryMatch && memoryMatch[1]) {
-          const memoryContent = memoryMatch[1].trim();
-          console.log('[Memory] Saving explicit memory:', memoryContent);
-          
-          try {
-            const embedding = await generateEmbedding(memoryContent);
-            await memoryStore.createMemory(
-              USER_ID,
-              memoryContent,
-              {
-                category: 'context',
-                importance: 'high',
-                embedding,
-                embedding_model: 'text-embedding-3-small',
-                source: 'explicit_request',
-                conversation_id: conversationId
-              }
-            );
-            console.log('[Memory] Explicit memory saved successfully');
-          } catch (err) {
-            console.error('[Memory] Failed to save explicit memory:', err);
-          }
-        }
-      }
+      // MEMORY SAVE DISABLED - Part of temporary memory system disable
+      // TODO: Re-enable when memory system is redesigned
     } else {
       console.log('=== WARNING: No textResponse to send ===');
     }
