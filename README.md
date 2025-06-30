@@ -1,126 +1,234 @@
 <!-- markdownlint-disable MD041 MD025 -->
-# Shopify Agent Chatbot (Frontend Only)
+# EspressoBot - Shell Agency Architecture
 
-> A modern, AI-powered chat interface for your Shopify store, built as a full-stack React Router 7 application with Node.js, Prisma, and the OpenAI Agents SDK & Responses API.
+> A revolutionary AI-powered e-commerce assistant for iDrinkCoffee.com, featuring a "Shell Agency" architecture where agents are given direct bash access instead of wrapped tools, following Unix philosophy of composable commands.
 
-## Features
+## 🚀 Features
 
-- **Basic Chat**: Uses the OpenAI Responses API with built‑in tools (e.g., `web_search_preview`)
-- **Streaming Responses**: Real-time token updates via Server-Sent Events (SSE) for a live chat experience
-- **Title Creator**: Automatically generate concise titles for chat conversations in the history sidebar
-- **Agentic Workflows**: Leverages the OpenAI Agents JS SDK for multi-agent orchestration (planner, dispatcher, synthesizer) with full SSE streaming of statuses and token-by-token assistant responses.
-- **Persistent Storage**: Conversations and messages stored in SQLite (local dev) or Postgres via Prisma
-- **React Router 7 (Framework Edition)**: File-based routing with loaders & actions (no Flask)
-- **Single-User Local Dev**: No auth—runs locally for user ID 1 only
+### Shell Agency Architecture
+- **Dynamic Bash Orchestrator**: Main orchestrator that spawns specialized bash agents on demand
+- **Unix Philosophy**: Agents compose simple tools into complex solutions  
+- **Direct Tool Access**: Agents execute Python tools directly via bash
+- **Parallel Execution**: Spawn multiple agents for independent tasks
+- **Real-time Progress**: SSE streaming shows live agent actions
+
+### Core Capabilities
+- **Shopify Integration**: Full access to 30+ Shopify tools for product, inventory, and order management
+- **Planning Agent**: Breaks down complex requests into structured task plans
+- **SWE Agent**: Software engineering agent with MCP integration for tool creation/modification
+- **Memory System**: (Currently disabled - needs redesign)
+- **Google OAuth**: Authentication with workspace account support
+- **Real-time Streaming**: Live updates via Server-Sent Events (SSE)
+- **Task Tracking**: Visual progress indicators for multi-step operations
 
 ## Prerequisites
 
-- **nvm** (Node.js Version Manager) configured in your shell (e.g. `source ~/.nvm/nvm.sh`)
-- **Node.js** (>=22) and **npm**
-- **SQLite** (file-based, for local development) or **PostgreSQL** (Neon DB or compatible) for persistence
-- **OpenAI API Key** for both Responses API and Agents SDK
+- **Node.js** (v22+) and **pnpm** (recommended) or **npm**
+- **SQLite** (for local development) or **PostgreSQL** (for production)
+- **OpenAI API Key** with access to o3-mini and gpt-4 models
+- **Shopify Store** with Admin API access token
+- **Google OAuth** credentials (for authentication)
 
 ## Getting Started
 
-1. **Clone the repo**
+1. **Clone the repository**
    ```bash
-   git clone <repo-url>
-   cd <project-root>
+   git clone https://github.com/pranavchavda/flask-shopifybot.git
+   cd flask-shopifybot
    ```
 
-2. **Copy and configure environment variables**
-   ```bash
-   cp .env frontend/.env.local
-# Edit frontend/.env.local and set:
-#   • DATABASE_URL (e.g. `file:./dev.db` for SQLite or a Postgres URL)
-#   • OPENAI_API_KEY, OPENAI_MODEL
-#   • (optional) PLANNER_AGENT_MODEL (default: o4-mini)
-#   • (optional) MEMORY_FILE_PATH (path to your memory file, e.g. storage/memory.json)
-   ```
-
-3. **Switch to the correct Node version**
-   ```bash
-   source ~/.nvm/nvm.sh && nvm use 22
-   ```
-
-4. **Install dependencies**
+2. **Set up environment variables**
    ```bash
    cd frontend
-   npm install
+   cp .env.example .env
    ```
+   
+   Edit `.env` and configure:
+   - `DATABASE_URL` - SQLite or PostgreSQL connection string
+   - `OPENAI_API_KEY` - Your OpenAI API key
+   - `OPENAI_MODEL` - Model to use (e.g., `gpt-4o-mini`)
+   - `SHOPIFY_SHOP_URL` - Your Shopify store URL
+   - `SHOPIFY_ACCESS_TOKEN` - Shopify Admin API token
+   - `GOOGLE_CLIENT_ID` - Google OAuth client ID
+   - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
+   - `SESSION_SECRET` - Random string for session encryption
 
-5. **Set up Prisma**
+3. **Install dependencies**
    ```bash
-   npx prisma migrate dev --name init  # run initial migration (creates dev.db for SQLite)
-   npx prisma generate               # generate the Prisma client
+   cd frontend
+   pnpm install  # or npm install
    ```
 
-6. **Run the dev server**
-```bash
-npm run dev             # starts Vite on http://localhost:5173
+4. **Set up the database**
+   ```bash
+   npx prisma migrate dev --name init
+   npx prisma generate
+   ```
+
+5. **Run the development server**
+   ```bash
+   pnpm dev  # or npm run dev
+   ```
+
+6. **Access the application**
+   - Open `http://localhost:5173` in your browser
+   - Log in with your Google workspace account
+
+## Architecture Overview
+
+### Shell Agency Design
+```
+User Request
+    ↓
+Dynamic Bash Orchestrator
+    ↓
+Spawns Specialized Agents ←→ Direct Bash Access
+    ↓                            ↓
+Task Execution              Python Tools
+    ↓                            ↓
+Results Aggregation         Tool Results
+    ↓
+Response to User
 ```
 
-7. **(Optional) Start a local memory server for agent context**
-```bash
-# Only needed for Agent Mode and memory-based tools:
-npx -y @modelcontextprotocol/server-memory
+### Key Components
+
+1. **Dynamic Bash Orchestrator** (`/frontend/server/dynamic-bash-orchestrator.js`)
+   - Analyzes user requests
+   - Spawns specialized bash agents
+   - Coordinates parallel execution
+   - Aggregates results
+
+2. **Bash Tool** (`/frontend/server/tools/bash-tool.js`)
+   - Safety checks for dangerous commands
+   - Configurable timeout (default 5 minutes)
+   - Real-time progress updates
+   - Working directory management
+
+3. **Python Tools** (`/frontend/python-tools/`)
+   - 30+ Shopify-specific tools
+   - Direct execution via bash
+   - No wrapper overhead
+   - Composable via pipes and scripts
+
+4. **Planning Agent** (`/frontend/server/agents/planning-agent.js`)
+   - Analyzes request complexity
+   - Creates structured task plans
+   - Updates task status in real-time
+
+5. **SWE Agent** (`/frontend/server/agents/swe-agent-connected.js`)
+   - Software engineering capabilities
+   - MCP integration for:
+     - Shopify Dev documentation search
+     - GraphQL schema introspection
+     - Context7 library resolution
+   - Can create and modify tools
+
+## Available Tools
+
+### Shopify Tools
+- **Product Management**: search_products, get_product, create_product, update_pricing, manage_tags
+- **Inventory**: manage_inventory_policy, update_product_status, bulk_operations
+- **Special Features**: create_combo, create_open_box, manage_variant_links
+- **GraphQL**: run_graphql_query, run_graphql_mutation
+
+### MCP Tools (via SWE Agent)
+- **Shopify Dev**: search_dev_docs, introspect_admin_schema, fetch_docs_by_path
+- **Context7**: resolve-library-id, get-library-docs
+
+## Usage Examples
+
+### Simple Task
 ```
-# The server uses the MEMORY_FILE_PATH environment variable (set in frontend/.env.local) to persist memory.
+User: "Update the price of SKU ABC123 to $29.99"
+→ Orchestrator spawns single bash agent
+→ Agent runs: python update_pricing.py --sku ABC123 --price 29.99
+```
 
-8. **Open the app (and test the chat API stub)**
-   - Visit `http://localhost:5173/api/chat` → it should return:
-     ```json
-     { "message": "Chat API is working" }
-     ```
-   - Then navigate to `http://localhost:5173` to launch the React UI.
+### Complex Task
+```
+User: "Find all coffee products under $20 and increase their prices by 10%"
+→ Orchestrator spawns Task Manager to plan
+→ Spawns parallel agents:
+  - Search_Agent: python search_products.py --query "coffee" --max-price 20
+  - Price_Update_Agent: python bulk_price_update.py --increase 10
+```
 
-9. **(Optional) Test the conversation endpoints**
-   ```bash
-   curl http://localhost:5173/api/conversations        # list all conversations
-   curl http://localhost:5173/api/conversations/1      # fetch messages for conversation ID 1
-   ```
-
-10. **(Optional) Test the Planner agent endpoint**
-   ```bash
-   curl -X POST http://localhost:5173/api/agent/planner \
-     -H 'Content-Type: application/json' \
-     -d '{"conv_id": 1}'
-   ```
-
-11. **(Optional) Test the Master Agent orchestration endpoint**
-   ```bash
-   curl -N -X POST http://localhost:5173/api/agent/run \
-     -H 'Content-Type: application/json' \
-     -d '{"message": "Upload product Widget 3000 to SkuVault"}'
-   ```
+### Tool Creation
+```
+User: "Create a tool to export product data to CSV"
+→ Orchestrator hands off to SWE Agent
+→ SWE Agent creates new Python tool with proper error handling
+```
 
 ## Project Structure
 
-```text
-<project-root>/
-├── frontend/             # React Router 7 app (Vite)
-│   ├── prisma/           # Prisma schema & migrations
-│   │   └── schema.prisma
-│   ├── src/              # Components, routes, and client code
-│   ├── .env.local        # Local env vars (gitignored)
-│   ├── package.json
-│   └── vite.config.js
-├── TODO.md               # Roadmap & next steps
-├── .gitignore            # Ignore patterns
-└── README.md             # This file
+```
+espressobot/
+├── frontend/                 # Main application
+│   ├── server/              # Backend services
+│   │   ├── agents/          # Agent implementations
+│   │   ├── tools/           # Tool wrappers
+│   │   └── *.js            # API endpoints
+│   ├── src/                 # React frontend
+│   ├── python-tools/        # Python tool collection
+│   ├── prisma/             # Database schema
+│   └── package.json        
+├── CLAUDE.md               # Development log
+├── TODO.md                 # Future enhancements
+└── README.md               # This file
 ```
 
-## Next Steps
+## Development
 
-	- [x] Scaffold Planner agent endpoint and UI toggle for agentic planning workflows
-	- [x] Add support for custom MCP servers and Node-based MCP via NPX
-	- [x] Add end-to-end tests for front-end UI and API middleware
-	- [x] Polish UI/UX (styling, loading states, error handling)
-   - [ ] Restore and verify planner status display and `TaskProgress` UI component in Agent Mode.
-   - [ ] Reintroduce memory storage, retrival and proactive injection of memory into the system prompt based on the conversation history and context
-   - [ ] Strengthen agentic architecture and be more agentic
-   - [ ] Add Google tasks, Gmail, Calendar, Drive, and Sheets integration
-   - [ ] Add Klaviyo, Attentive, Yotpo and Recharge integration for admin tasks
-   - [ ] Add Google Ads and GA4 integration for marketing tasks
-   - [ ] Display yesterday's and today's Sales, Ads, and Marketing metrics in the UI (Sidebar?)
-   - [ ] Reintroduce the authentication flow for multiple users - use Google OAuth + Whitelist defined in .env
+### Adding New Tools
+1. Create Python script in `/frontend/python-tools/`
+2. Follow existing patterns for argument parsing
+3. No registration needed - agents discover tools automatically
+
+### Testing
+```bash
+# Test basic agent
+node test-basic-agent.js
+
+# Test SWE agent with MCP
+node test-swe-mcp.js
+
+# Test specific tools
+cd frontend/python-tools
+python search_products.py --help
+```
+
+### Debugging
+- Check server logs for agent actions
+- Use `VERBOSE=true` for detailed bash output
+- Monitor SSE events in browser DevTools
+
+## Known Issues
+
+1. **Memory System**: Currently disabled due to infinite loops. Needs:
+   - Queue system for operations
+   - Cancellation tokens
+   - Circuit breaker pattern
+
+2. **Large Images**: Base64 image handling has limitations in OpenAI agents SDK
+   - Recommend using image URLs instead
+   - Keep uploads under 375KB
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## License
+
+This project is proprietary software for iDrinkCoffee.com.
+
+## Acknowledgments
+
+- Built with OpenAI Agents SDK
+- Inspired by Unix philosophy
+- Powered by Shopify APIs
