@@ -3,8 +3,9 @@ import * as prismaClient from '@prisma/client';
 import { runDynamicOrchestrator } from './dynamic-bash-orchestrator.js';
 import { authenticateToken } from './auth.js';
 import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/planning-agent.js';
-import { findRelevantMemories, formatMemoriesForContext } from './memory-embeddings.js';
+import { findRelevantMemories, formatMemoriesForContext, generateEmbedding } from './memory-embeddings.js';
 import { runMemoryExtraction } from './memory-agent.js';
+import { memoryStore } from './memory-store-db.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -95,26 +96,35 @@ router.post('/run', authenticateToken, async (req, res) => {
       fullContext = `${memoryContext}\n\nUser: ${message}`;
     }
     
-    // Run memory extraction in parallel (non-blocking)
-    const conversationForMemory = [
-      ...conversationMessages,
-      { role: 'user', content: message }
-    ];
+    // Run memory extraction only for explicit memory requests
+    const isMemoryRequest = message.toLowerCase().includes('save') && 
+                           (message.toLowerCase().includes('memory') || 
+                            message.toLowerCase().includes('remember'));
     
-    // Add timeout to prevent infinite memory extraction
-    const memoryTimeout = setTimeout(() => {
-      console.error('[Memory] Extraction timeout after 30 seconds');
-    }, 30000);
-    
-    runMemoryExtraction(conversationForMemory, USER_ID, conversationId)
-      .then(() => {
-        clearTimeout(memoryTimeout);
-        console.log('[Memory] Extraction completed');
-      })
-      .catch(err => {
-        clearTimeout(memoryTimeout);
-        console.error('[Memory] Extraction error:', err);
-      });
+    if (isMemoryRequest) {
+      console.log('[Memory] Explicit memory request detected');
+      const conversationForMemory = [
+        ...conversationMessages,
+        { role: 'user', content: message }
+      ];
+      
+      // Add timeout to prevent infinite memory extraction
+      const memoryTimeout = setTimeout(() => {
+        console.error('[Memory] Extraction timeout after 30 seconds');
+      }, 30000);
+      
+      runMemoryExtraction(conversationForMemory, USER_ID, conversationId)
+        .then(() => {
+          clearTimeout(memoryTimeout);
+          console.log('[Memory] Extraction completed');
+        })
+        .catch(err => {
+          clearTimeout(memoryTimeout);
+          console.error('[Memory] Extraction error:', err);
+        });
+    } else {
+      console.log('[Memory] Skipping automatic extraction for this message');
+    }
     
     // Check if request needs planning (complex or multi-step)
     const needsPlanning = analyzeComplexity(message);
@@ -306,6 +316,38 @@ router.post('/run', authenticateToken, async (req, res) => {
         timestamp: new Date().toISOString()
       });
       console.log('=== AGENT_MESSAGE EVENT SENT ===');
+      
+      // Handle simple memory save if it was an explicit request
+      if (isMemoryRequest && textResponse.toLowerCase().includes('saved')) {
+        // Extract what to save from the user's message
+        const memoryMatch = message.match(/save.*?that\s+(.+)/i) || 
+                           message.match(/remember\s+that\s+(.+)/i) ||
+                           message.match(/save.*?memory.*?that\s+(.+)/i);
+        
+        if (memoryMatch && memoryMatch[1]) {
+          const memoryContent = memoryMatch[1].trim();
+          console.log('[Memory] Saving explicit memory:', memoryContent);
+          
+          try {
+            const embedding = await generateEmbedding(memoryContent);
+            await memoryStore.createMemory(
+              USER_ID,
+              memoryContent,
+              {
+                category: 'context',
+                importance: 'high',
+                embedding,
+                embedding_model: 'text-embedding-3-small',
+                source: 'explicit_request',
+                conversation_id: conversationId
+              }
+            );
+            console.log('[Memory] Explicit memory saved successfully');
+          } catch (err) {
+            console.error('[Memory] Failed to save explicit memory:', err);
+          }
+        }
+      }
     } else {
       console.log('=== WARNING: No textResponse to send ===');
     }
