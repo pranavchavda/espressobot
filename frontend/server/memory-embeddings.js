@@ -1,9 +1,16 @@
 import OpenAI from 'openai';
-import { memoryStore } from './memory-store.js';
+import { memoryStore } from './memory-store-db.js';
+import { createEmbeddingsProvider } from './local-embeddings.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+// Initialize embeddings provider
+let localEmbeddings = null;
+(async () => {
+  localEmbeddings = await createEmbeddingsProvider();
+})();
 
 // Calculate cosine similarity between two vectors
 export function cosineSimilarity(vecA, vecB) {
@@ -34,12 +41,18 @@ export function cosineSimilarity(vecA, vecB) {
 // Generate embedding for a text
 export async function generateEmbedding(text) {
   try {
-    const response = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: text,
-    });
-    
-    return response.data[0].embedding;
+    if (localEmbeddings) {
+      // Use local embeddings
+      return await localEmbeddings.generateEmbedding(text);
+    } else {
+      // Use OpenAI embeddings
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: text,
+      });
+      
+      return response.data[0].embedding;
+    }
   } catch (error) {
     console.error('Error generating embedding:', error);
     return null;
@@ -57,7 +70,7 @@ export async function findRelevantMemories(query, userId, topK = 3) {
     }
     
     // Get all memories with embeddings for this user
-    const memories = memoryStore.getMemoriesWithEmbeddings(userId);
+    const memories = await memoryStore.getMemoriesWithEmbeddings(userId);
     
     if (memories.length === 0) {
       return [];
@@ -92,14 +105,17 @@ export async function findRelevantMemories(query, userId, topK = 3) {
 // Update embeddings for memories that don't have them
 export async function updateMissingEmbeddings(userId) {
   try {
-    const memories = memoryStore.getMemoriesByUser(userId);
+    const memories = await memoryStore.getMemoriesByUser(userId);
     let updated = 0;
     
     for (const memory of memories) {
       if (!memory.embedding) {
         const embedding = await generateEmbedding(memory.content);
         if (embedding) {
-          memoryStore.updateMemory(memory.id, { embedding });
+          await memoryStore.updateMemory(memory.id, { 
+            embedding,
+            embedding_model: 'text-embedding-3-small'
+          });
           updated++;
         }
         

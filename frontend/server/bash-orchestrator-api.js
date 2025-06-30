@@ -2,6 +2,11 @@ import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
 import { runDynamicOrchestrator } from './dynamic-bash-orchestrator.js';
 import { authenticateToken } from './auth.js';
+import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/planning-agent.js';
+import { findRelevantMemories, formatMemoriesForContext } from './memory-embeddings.js';
+import { runMemoryExtraction } from './memory-agent.js';
+import fs from 'fs/promises';
+import path from 'path';
 
 const router = Router();
 const { PrismaClient } = prismaClient;
@@ -66,25 +71,107 @@ router.post('/run', authenticateToken, async (req, res) => {
     
     // Build conversation context
     let fullContext = '';
+    
+    // Find relevant memories for this conversation
+    sendEvent('agent_processing', {
+      agent: 'Memory_System',
+      message: 'Retrieving relevant memories...'
+    });
+    
+    const relevantMemories = await findRelevantMemories(
+      message + (conversationMessages.length > 0 ? '\n' + conversationMessages.slice(-3).map(m => m.content).join('\n') : ''),
+      USER_ID,
+      3 // Top 3 memories
+    );
+    
+    const memoryContext = formatMemoriesForContext(relevantMemories);
+    
     if (conversationMessages.length > 0) {
       const history = conversationMessages.map(msg => 
         `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
       ).join('\n\n');
-      fullContext = `Previous conversation:\n${history}\n\nUser: ${message}`;
+      fullContext = `${memoryContext}\n\nPrevious conversation:\n${history}\n\nUser: ${message}`;
     } else {
-      fullContext = message;
+      fullContext = `${memoryContext}\n\nUser: ${message}`;
+    }
+    
+    // Run memory extraction in parallel (non-blocking)
+    const conversationForMemory = [
+      ...conversationMessages,
+      { role: 'user', content: message }
+    ];
+    
+    runMemoryExtraction(conversationForMemory, USER_ID, conversationId)
+      .then(() => console.log('[Memory] Extraction completed'))
+      .catch(err => console.error('[Memory] Extraction error:', err));
+    
+    // Check if request needs planning (complex or multi-step)
+    const needsPlanning = analyzeComplexity(message);
+    
+    if (needsPlanning) {
+      sendEvent('agent_processing', {
+        agent: 'Planning_Agent',
+        message: 'Creating task plan...'
+      });
+      
+      // Create task plan
+      const planResult = await createTaskPlan(message, conversationId.toString());
+      
+      if (planResult.success && planResult.tasks.length > 0) {
+        // Send task summary to frontend
+        sendEvent('task_summary', {
+          tasks: planResult.tasks.map((task, index) => ({
+            id: `task_${conversationId}_${index}`,
+            content: task.title || task,
+            status: task.status || 'pending',
+            conversation_id: conversationId
+          })),
+          conversation_id: conversationId
+        });
+      }
     }
     
     // Run orchestrator with full context
     sendEvent('agent_processing', {
       agent: 'Dynamic_Bash_Orchestrator',
-      message: 'Analyzing request and planning tasks...'
+      message: 'Analyzing request and executing tasks...'
     });
+    
+    // Start task progress monitoring if we have tasks
+    let taskMonitorInterval;
+    if (needsPlanning) {
+      taskMonitorInterval = setInterval(async () => {
+        try {
+          const currentTasks = await getCurrentTasks(conversationId.toString());
+          if (currentTasks.success) {
+            sendEvent('task_summary', {
+              tasks: currentTasks.tasks.map((task, index) => ({
+                id: `task_${conversationId}_${index}`,
+                content: task.title || task,
+                status: task.status || 'pending',
+                conversation_id: conversationId
+              })),
+              conversation_id: conversationId
+            });
+          }
+        } catch (error) {
+          console.error('Error monitoring tasks:', error);
+        }
+      }, 2000); // Check every 2 seconds
+    }
     
     const result = await runDynamicOrchestrator(fullContext, {
       conversationId,
-      sseEmitter: sendEvent
+      sseEmitter: sendEvent,
+      taskUpdater: needsPlanning ? async (taskIndex, status) => {
+        await updateTaskStatus(conversationId.toString(), taskIndex, status);
+      } : null
     });
+    
+    // Stop task monitoring
+    if (taskMonitorInterval) {
+      clearInterval(taskMonitorInterval);
+    }
     
     // Not using streaming, no need to wait for completion
     
@@ -198,5 +285,53 @@ router.post('/run', authenticateToken, async (req, res) => {
     res.end();
   }
 });
+
+// Function to analyze if a request needs planning
+function analyzeComplexity(message) {
+  const complexityIndicators = [
+    // Multi-step indicators
+    'and then', 'after that', 'followed by', 'next', 'finally',
+    'first', 'second', 'third', 'step', 'steps',
+    
+    // Bulk operation indicators
+    'all', 'every', 'each', 'multiple', 'bulk', 'batch',
+    'all products', 'all items', 'everything',
+    
+    // Complex action indicators
+    'create.*bundle', 'create.*combo', 'update.*prices',
+    'sync', 'migrate', 'analyze', 'report', 'compare',
+    'find.*and.*update', 'search.*and.*modify',
+    
+    // Conditional indicators
+    'if', 'when', 'unless', 'except', 'but not',
+    
+    // Multiple entity indicators
+    'products', 'items', 'variants', 'collections'
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  
+  // Check for multiple actions in one request
+  const actionWords = ['create', 'update', 'delete', 'find', 'search', 'modify', 'add', 'remove', 'change'];
+  const actionCount = actionWords.filter(action => lowerMessage.includes(action)).length;
+  
+  // Check for complexity indicators
+  const hasComplexityIndicator = complexityIndicators.some(indicator => {
+    if (indicator.includes('.*')) {
+      // Handle regex patterns
+      const regex = new RegExp(indicator, 'i');
+      return regex.test(lowerMessage);
+    }
+    return lowerMessage.includes(indicator);
+  });
+  
+  // Check message length (longer messages often indicate complex requests)
+  const isLongMessage = message.length > 100;
+  
+  // Check for numbered lists
+  const hasNumberedList = /\d+[\.\)]/g.test(message);
+  
+  return actionCount >= 2 || hasComplexityIndicator || isLongMessage || hasNumberedList;
+}
 
 export default router;

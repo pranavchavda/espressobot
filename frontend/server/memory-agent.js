@@ -1,15 +1,11 @@
 import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
-import { memoryStore } from './memory-store.js';
-import OpenAI from 'openai';
+import { memoryStore } from './memory-store-db.js';
+import { generateEmbedding } from './memory-embeddings.js';
 import { z } from 'zod';
 
 // Set the OpenAI API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
 
 // Memory detection patterns
 const MEMORY_PATTERNS = {
@@ -44,24 +40,28 @@ const createMemoryTool = tool({
     category: z.enum(['preference', 'configuration', 'workflow', 'constraint', 'context', 'general']).describe('The category of information'),
     importance: z.enum(['high', 'medium', 'low']).describe('How important this information is')
   }),
-  execute: async ({ content, category, importance }) => {
+  execute: async ({ content, category, importance }, { userId = 1, conversationId = null }) => {
     try {
-      // Generate embedding for the memory
-      const embeddingResponse = await openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: content,
-      });
+      // Generate embedding for the memory (uses local or OpenAI based on config)
+      const embedding = await generateEmbedding(content);
       
-      const embedding = embeddingResponse.data[0].embedding;
+      if (!embedding) {
+        console.error('Failed to generate embedding for memory');
+        // Still save the memory without embedding
+      }
       
-      const memory = memoryStore.createMemory(
-        1, // Default user ID - should be passed from context
+      const memory = await memoryStore.createMemory(
+        userId,
         content,
         {
           category,
           importance,
           embedding,
-          source: 'memory_agent'
+          embedding_model: process.env.USE_LOCAL_EMBEDDINGS === 'true' 
+            ? (process.env.LOCAL_EMBEDDING_MODEL || 'local')
+            : 'text-embedding-3-small',
+          source: 'memory_agent',
+          conversation_id: conversationId
         }
       );
       
@@ -159,11 +159,22 @@ Focus on:
 For each piece of important information, use the create_memory tool.
 `;
 
-    const result = await run(memoryAgent, prompt);
+    // Create a modified agent with context
+    const contextualAgent = new Agent({
+      ...memoryAgent,
+      tools: [
+        tool({
+          ...createMemoryTool,
+          execute: (params) => createMemoryTool.execute(params, { userId, conversationId })
+        })
+      ]
+    });
+
+    const result = await run(contextualAgent, prompt);
     console.log('Memory extraction completed');
     
     // Prune memories if needed
-    memoryStore.pruneMemories(userId);
+    await memoryStore.pruneMemories(userId);
     
     return result;
   } catch (error) {

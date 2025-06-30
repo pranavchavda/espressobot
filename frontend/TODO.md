@@ -23,7 +23,17 @@
 - [ ] Add user profile page
 - [ ] Implement role-based access control
 
-### 2. iDrinkCoffee.com E-commerce Assistant Prompting
+### 2. Planning Agent & Memory System
+- [x] Create Planning Agent that analyzes requests and creates task plans
+- [x] Integrate task planning into bash orchestrator
+- [x] Add real-time task progress updates via SSE
+- [x] Implement database-backed memory store using Prisma
+- [x] Create memory extraction agent
+- [x] Add memory injection into prompts (top 3 relevant memories)
+- [x] Support local embeddings option via .env configuration
+- [x] Add complexity analyzer for automatic planning decisions
+
+### 3. iDrinkCoffee.com E-commerce Assistant Prompting
 - [ ] Update system prompts for coffee/e-commerce focus
 - [ ] Add coffee industry specific knowledge
 - [ ] Include inventory management best practices
