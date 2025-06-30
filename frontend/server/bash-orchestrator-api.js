@@ -144,6 +144,8 @@ router.post('/run', authenticateToken, async (req, res) => {
         try {
           const planPath = path.join(__dirname, 'plans', `TODO-${conversationId}.md`);
           const planContent = await fs.readFile(planPath, 'utf-8');
+          console.log('[Bash Orchestrator] Sending task_plan_created event for conversation:', conversationId);
+          console.log('[Bash Orchestrator] Plan content length:', planContent.length);
           sendEvent('task_plan_created', {
             markdown: planContent,
             filename: `TODO-${conversationId}.md`,

@@ -1,0 +1,8 @@
+- [ ] Define planning agent objectives and responsibilities
+- [ ] Catalogue read-only operations for bash agents
+- [ ] Design communication protocol between planning agent and bash agents
+- [ ] Implement bash scripts for each read-only task
+- [ ] Package bash scripts into executable bash agents
+- [ ] Develop planning agent workflow to orchestrate bash agents
+- [ ] Configure centralized logging and monitoring for agent interactions
+- [ ] Test end-to-end agent workflow with sample read-only tasks

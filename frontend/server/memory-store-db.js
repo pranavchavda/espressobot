@@ -197,13 +197,30 @@ class DatabaseMemoryStore {
       return memories
         .filter(m => embeddingMap.has(m.key))
         .map(m => {
-          const embedding = embeddingMap.get(m.key).embedding_cache;
+          const embeddingEntry = embeddingMap.get(m.key).embedding_cache;
+          let embeddingData = null;
+          
+          try {
+            // Handle Buffer data properly
+            if (Buffer.isBuffer(embeddingEntry.embedding_data)) {
+              const embeddingString = embeddingEntry.embedding_data.toString('utf8');
+              embeddingData = JSON.parse(embeddingString);
+            } else if (typeof embeddingEntry.embedding_data === 'string') {
+              embeddingData = JSON.parse(embeddingEntry.embedding_data);
+            } else {
+              embeddingData = embeddingEntry.embedding_data;
+            }
+          } catch (parseError) {
+            console.error(`Failed to parse embedding for memory ${m.key}:`, parseError.message);
+            embeddingData = null;
+          }
+          
           return {
             id: m.key,
             user_id: m.user_id,
             ...JSON.parse(m.value),
             created_at: m.created_at,
-            embedding: JSON.parse(embedding.embedding_data.toString())
+            embedding: embeddingData
           };
         });
     } catch (error) {

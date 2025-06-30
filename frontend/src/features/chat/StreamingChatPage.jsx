@@ -585,13 +585,15 @@ function StreamingChatPage({ convId }) {
                   break;
                 case 'task_plan_created':
                   console.log("FRONTEND: Task plan created", actualEventPayload);
+                  console.log("FRONTEND: Current activeConv:", activeConv, "convId:", convId);
+                  console.log("FRONTEND: Task conversation_id:", actualEventPayload.conversation_id);
                   setTaskMarkdown({
                     markdown: actualEventPayload.markdown,
                     filename: actualEventPayload.filename,
                     taskCount: actualEventPayload.taskCount,
                     conversation_id: actualEventPayload.conversation_id
                   });
-                  setToolCallStatus(`Task plan created with ${actualEventPayload.taskCount} tasks`);
+                  setToolCallStatus(`Task plan created with ${actualEventPayload.taskCount || 'multiple'} tasks`);
                   break;
                 case 'agent_message_partial':
                   console.log("FRONTEND: Agent partial message", actualEventPayload);
@@ -1175,7 +1177,13 @@ function StreamingChatPage({ convId }) {
 
                     {/* Old Task Progress - commented out in favor of TaskMarkdownProgress */}
                     {/* Show task markdown if available */}
-                    {taskMarkdown && taskMarkdown.conversation_id === (activeConv || convId) && (
+                    {taskMarkdown && console.log("FRONTEND: Checking taskMarkdown display:", 
+                      "taskMarkdown.conversation_id:", taskMarkdown.conversation_id,
+                      "activeConv:", activeConv, 
+                      "convId:", convId,
+                      "comparison:", String(taskMarkdown.conversation_id) === String(activeConv || convId)
+                    )}
+                    {taskMarkdown && String(taskMarkdown.conversation_id) === String(activeConv || convId) && (
                       <TaskMarkdownDisplay 
                         taskMarkdown={taskMarkdown} 
                         isExpanded={true}
