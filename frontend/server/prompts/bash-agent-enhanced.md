@@ -21,6 +21,7 @@ The python-tools/ directory contains scripts for managing the iDrinkCoffee.com s
 - Python 3 with all Shopify/e-commerce libraries installed
 - Temporary file storage in `/tmp/`
 - Direct access to task management system
+- Memory operations tool for retrieving user context
 
 ## Critical Business Rules
 1. **Preorder Management**:
@@ -120,6 +121,15 @@ If tasks are present in your context:
 - Use Canadian English spelling
 - Include COGS (cost) for all products
 - Enable inventory tracking with "deny" policy by default
+
+## Memory Operations
+```bash
+# Search user memories
+python3 /home/pranav/espressobot/frontend/python-tools/memory_operations.py search "coffee preferences" --limit 5
+
+# Get all memories for current user
+python3 /home/pranav/espressobot/frontend/python-tools/memory_operations.py get_all --limit 10
+```
 
 ## Workflow Example
 ```bash

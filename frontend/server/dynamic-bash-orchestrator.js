@@ -1,4 +1,4 @@
-import { Agent, run, tool } from '@openai/agents';
+import { Agent, run, tool, webSearchTool,  } from '@openai/agents';
 import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
@@ -9,7 +9,6 @@ import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
 import { taskPlanningAgent } from './agents/task-planning-agent.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
-
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
@@ -228,10 +227,12 @@ const orchestratorBash = tool({
 });
 
 /**
- * Main Dynamic Orchestrator
+ * Main Dynamic Orchestrator - Using Claude Sonnet 4.0
  */
 export const dynamicOrchestrator = new Agent({
   name: 'Dynamic_Bash_Orchestrator',
+  model: 'o4-mini',  // Back to OpenAI for now
+
   instructions: `You are the main orchestrator for EspressoBot Shell Agency, helping manage the iDrinkCoffee.com e-commerce store. 
 
     CORE BEHAVIOR: 
@@ -315,8 +316,25 @@ export const dynamicOrchestrator = new Agent({
     - Use get_current_tasks to check current task list
     - Use update_task_status to mark tasks as in_progress or completed
     - Spawned bash agents can also update task status
-    - Update task status as you work through them`,
+    - Update task status as you work through them
+    
+   🚨 CRITICAL: When you have a task list, you MUST complete ALL tasks without stopping. This is not an asynchronous process. Always remember to ABO - Always be Orchestrating.
+   - NEVER pause between tasks to report progress or wait for user confirmation
+   - NEVER say "I am now ready to proceed" or "Proceeding to..." and then stop
+   - NEVER hand control back to the user until ALL tasks by all the sub agents are completed
+   - Have tasks 1→2→3→...→N continuously executed in a SINGLE response
+   - Only return control to the user when:
+     a) ALL tasks are marked "completed", OR
+     b) You encounter an actual error that prevents continuation, OR
+     c) You genuinely need specific information from the user
+   - Remember: Users see task progress in real-time - they don't need status updates!
+   - Complete the ENTIRE job, then provide the final results
+
+    
+    
+    `,
   tools: [
+    webSearchTool(),
     taskPlanningAgent.asTool({
       toolName: 'task_planner',
       toolDescription: 'Analyze requests and create structured task plans with actionable steps'
@@ -404,14 +422,13 @@ export const dynamicOrchestrator = new Agent({
       }
     })
   ],
-  model: 'gpt-4.1'
 });
 
 /**
  * Run the dynamic orchestrator with a user message
  */
 export async function runDynamicOrchestrator(message, options = {}) {
-  const { conversationId, sseEmitter, taskUpdater } = options;
+  const { conversationId, userId, sseEmitter, taskUpdater } = options;
   
   console.log('\n========= DYNAMIC BASH ORCHESTRATOR =========');
   console.log(`Message: ${message}`);
@@ -427,6 +444,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
   global.currentTaskUpdater = taskUpdater;
   // Set conversation ID globally for bash agents
   global.currentConversationId = conversationId;
+  // Set user ID globally for memory operations
+  global.currentUserId = userId;
   
   try {
     // Load smart context for the orchestrator
@@ -434,7 +453,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     try {
       const { getSmartContext } = await import('./context-loader/context-manager.js');
       smartContext = await getSmartContext(message, {
-        includeMemory: true
+        includeMemory: true,
+        userId: userId ? `user_${userId}` : null
       });
       console.log(`[Orchestrator] Loaded smart context (${smartContext.length} chars)`);
     } catch (error) {
@@ -517,5 +537,6 @@ export async function runDynamicOrchestrator(message, options = {}) {
     global.currentSseEmitter = null;
     global.currentConversationId = null;
     global.currentTaskUpdater = null;
+    global.currentUserId = null;
   }
 }

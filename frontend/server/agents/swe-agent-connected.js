@@ -137,6 +137,7 @@ Your responsibilities:
 3. Write comprehensive documentation
 4. Ensure code quality and best practices`,
     tools: [
+      webSearchTool(),
       createAdHocTool,
       tool({
         name: 'bash',
@@ -149,7 +150,7 @@ Your responsibilities:
       })
     ],
     mcpServers: servers,
-    model: 'o3'
+    model: 'o3',
   });
   
   return agent;

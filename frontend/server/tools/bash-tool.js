@@ -51,6 +51,9 @@ export const executeBashCommand = async ({ command, cwd = '/tmp', timeout = 3000
         SHOPIFY_ACCESS_TOKEN: process.env.SHOPIFY_ACCESS_TOKEN,
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,
         PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
+        // Pass user and conversation IDs for memory operations
+        ESPRESSOBOT_USER_ID: global.currentUserId || process.env.ESPRESSOBOT_USER_ID || '2',
+        ESPRESSOBOT_CONVERSATION_ID: global.currentConversationId || process.env.ESPRESSOBOT_CONVERSATION_ID || '',
       },
       // Capture output
       shell: false

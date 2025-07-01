@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Edit2, Trash2, RefreshCw, Database, Users } from 'lucide-react';
+import { X, Search, Edit2, Trash2, RefreshCw, Database, Users, CheckSquare, Square } from 'lucide-react';
 import { Button } from '@common/button';
 import { Input } from '@common/input';
 import { Textarea } from '@common/textarea';
@@ -7,6 +7,7 @@ import { Dialog } from '@common/dialog';
 import { Heading } from '@common/heading';
 import { Text } from '@common/text';
 import { Badge } from '@common/badge';
+import { Checkbox } from '@common/checkbox';
 
 export function MemoryManagementModal({ isOpen, onClose }) {
   const [memories, setMemories] = useState([]);
@@ -17,6 +18,7 @@ export function MemoryManagementModal({ isOpen, onClose }) {
   const [stats, setStats] = useState({ total: 0, byUser: [] });
   const [editingMemory, setEditingMemory] = useState(null);
   const [editContent, setEditContent] = useState('');
+  const [selectedMemories, setSelectedMemories] = useState(new Set());
 
   // Fetch all users with memories
   const fetchUsers = async () => {
@@ -155,6 +157,54 @@ export function MemoryManagementModal({ isOpen, onClose }) {
     }
   };
 
+  // Bulk delete selected memories
+  const bulkDeleteMemories = async () => {
+    if (selectedMemories.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedMemories.size} selected memories? This cannot be undone.`)) return;
+    
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      
+      // Delete each selected memory
+      const deletePromises = Array.from(selectedMemories).map(memoryId =>
+        fetch(`/api/memory/${memoryId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      );
+      
+      await Promise.all(deletePromises);
+      
+      setSelectedMemories(new Set()); // Clear selection
+      fetchMemories(); // Refresh list
+    } catch (error) {
+      console.error('Error bulk deleting memories:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Toggle memory selection
+  const toggleMemorySelection = (memoryId) => {
+    const newSelection = new Set(selectedMemories);
+    if (newSelection.has(memoryId)) {
+      newSelection.delete(memoryId);
+    } else {
+      newSelection.add(memoryId);
+    }
+    setSelectedMemories(newSelection);
+  };
+
+  // Select/deselect all visible memories
+  const toggleSelectAll = () => {
+    if (selectedMemories.size === memories.length) {
+      setSelectedMemories(new Set());
+    } else {
+      setSelectedMemories(new Set(memories.map(m => m.id)));
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchUsers();
@@ -176,10 +226,10 @@ export function MemoryManagementModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <Dialog open={isOpen} onClose={onClose}>
+    <Dialog open={isOpen} onClose={onClose} size="5xl">
       <div className="fixed inset-0 z-50 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4">
-          <div className="relative bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-full max-w-[95vw] max-h-[90vh] overflow-hidden">
+          <div className="relative bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-full max-h-[90vh] overflow-hidden" style={{ maxWidth: '1400px' }}>
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-zinc-200 dark:border-zinc-700">
               <div>
@@ -236,6 +286,35 @@ export function MemoryManagementModal({ isOpen, onClose }) {
                   </Button>
                 )}
               </div>
+              {/* Bulk selection controls */}
+              {memories.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <Button 
+                      onClick={toggleSelectAll} 
+                      outline
+                      className="flex items-center gap-2"
+                    >
+                      {selectedMemories.size === memories.length ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                      {selectedMemories.size === memories.length ? 'Deselect All' : 'Select All'}
+                    </Button>
+                    {selectedMemories.size > 0 && (
+                      <Text className="text-sm text-zinc-600 dark:text-zinc-400">
+                        {selectedMemories.size} selected
+                      </Text>
+                    )}
+                  </div>
+                  {selectedMemories.size > 0 && (
+                    <Button 
+                      onClick={bulkDeleteMemories} 
+                      color="red"
+                      disabled={loading}
+                    >
+                      Delete Selected ({selectedMemories.size})
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Memory List */}
@@ -274,7 +353,19 @@ export function MemoryManagementModal({ isOpen, onClose }) {
                         </div>
                       ) : (
                         <>
-                          <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-4">
+                            <div className="pt-1">
+                              <button
+                                onClick={() => toggleMemorySelection(memory.id)}
+                                className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded transition-colors"
+                              >
+                                {selectedMemories.has(memory.id) ? (
+                                  <CheckSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                                ) : (
+                                  <Square className="h-5 w-5 text-zinc-400" />
+                                )}
+                              </button>
+                            </div>
                             <div className="flex-1">
                               <Text className="text-zinc-900 dark:text-zinc-100 text-base leading-relaxed">
                                 {memory.memory || memory.content}

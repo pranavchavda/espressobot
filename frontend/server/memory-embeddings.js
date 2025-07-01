@@ -47,7 +47,7 @@ export async function generateEmbedding(text) {
     } else {
       // Use OpenAI embeddings
       const response = await openai.embeddings.create({
-        model: 'text-embedding-3-small',
+        model: 'text-embedding-3-large',
         input: text,
       });
       
@@ -114,7 +114,7 @@ export async function updateMissingEmbeddings(userId) {
         if (embedding) {
           await memoryStore.updateMemory(memory.id, { 
             embedding,
-            embedding_model: 'text-embedding-3-small'
+            embedding_model: 'text-embedding-3-large'
           });
           updated++;
         }

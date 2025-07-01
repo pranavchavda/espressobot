@@ -2,6 +2,7 @@ import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { z } from 'zod';
 import fs from 'node:fs';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -168,10 +169,10 @@ Examples:
 
 IMPORTANT: When generating tasks, call the generate_todos tool with the array of task descriptions.`,
   
-  model: process.env.PLANNING_MODEL || 'gpt-4o',
+  model: process.env.PLANNING_MODEL || 'o3',
   modelSettings: { 
-    temperature: 0.3,
     parallelToolCalls: false
+    
   },
   tools: [generateTodosTool, getTodosTool, updateTaskStatusTool]
 });
@@ -198,7 +199,7 @@ Remember to:
     
     // Also return the tasks for immediate use
     try {
-      const todoResult = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
+      const todoResult = await getTodosTool.execute({ conversation_id: conversationId });
       const tasks = JSON.parse(todoResult);
       
       return {
@@ -248,7 +249,39 @@ export async function updateTaskStatus(conversationId, taskIndex, status) {
 
 export async function getCurrentTasks(conversationId) {
   try {
-    const result = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
+    // Check if getTodosTool is properly initialized
+    if (!getTodosTool || typeof getTodosTool.execute !== 'function') {
+      console.error('[Task Planning] getTodosTool not properly initialized');
+      // Fallback to direct file reading
+      const filePath = path.resolve(plansDir, `TODO-${conversationId}.md`);
+      if (!fsSync.existsSync(filePath)) {
+        return { success: true, tasks: [] };
+      }
+      
+      const content = fsSync.readFileSync(filePath, 'utf-8');
+      const tasks = [];
+      
+      for (const line of content.split(/\r?\n/)) {
+        const match = line.match(/^\s*-\s*\[( |x)\]\s*(.+)$/i);
+        if (match) {
+          const isCompleted = match[1].toLowerCase() === 'x';
+          const description = match[2].trim();
+          const inProgress = description.startsWith('🔄 ');
+          const cleanDescription = inProgress ? description.substring(3).trim() : description;
+          
+          tasks.push({
+            title: cleanDescription,
+            description: cleanDescription,
+            status: isCompleted ? 'completed' : (inProgress ? 'in_progress' : 'pending')
+          });
+        }
+      }
+      
+      return { success: true, tasks };
+    }
+    
+    // Call the tool's execute function directly
+    const result = await getTodosTool.execute({ conversation_id: conversationId });
     const tasks = JSON.parse(result);
     
     return {

@@ -1,4 +1,4 @@
-# EspressoBot Tool Usage Guide
+# EspressoBot Tool Usage GuideLearn
 
 ## Overview
 This guide provides comprehensive documentation for all Python tools available in the `/home/pranav/espressobot/frontend/python-tools/` directory. These tools interact with Shopify Admin API and other e-commerce systems to manage iDrinkCoffee.com.

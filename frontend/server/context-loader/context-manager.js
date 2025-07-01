@@ -314,7 +314,7 @@ export function formatContext(loadedContext, taskDescription = '') {
  * Main function to get smart context for a given message/task
  */
 export async function getSmartContext(message, options = {}) {
-  const { includeMemory = true, taskDescription = '', useContextStore = true } = options;
+  const { includeMemory = true, taskDescription = '', useContextStore = true, userId = null } = options;
   
   let contextNeeds;
   
@@ -363,7 +363,9 @@ export async function getSmartContext(message, options = {}) {
         }
       }
       
-      const memories = await memoryOperations.search(searchQuery, 'global');
+      // Use the provided userId or fall back to 'global' for backward compatibility
+      const memoryUserId = userId || 'global';
+      const memories = await memoryOperations.search(searchQuery, memoryUserId);
       
       if (memories && memories.length > 0) {
         const memoryContext = memories

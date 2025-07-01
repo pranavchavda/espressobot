@@ -1,6 +1,6 @@
 /**
- * Memory tool wrapper for mem0 integration
- * Provides memory operations for EspressoBot using JavaScript SDK
+ * Memory tool wrapper for local memory system
+ * Provides memory operations for EspressoBot using SQLite and embeddings
  */
 
 import { z } from 'zod';

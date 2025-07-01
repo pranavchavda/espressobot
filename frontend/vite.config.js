@@ -135,7 +135,6 @@ export default defineConfig({
         '**/.memories/**', 
         '**/memories/**',
         '**/server/memory/data/**',        // Ignore local memory database files
-        '**/server/memory/venv/**',        // Ignore Python virtual environment
         '**/server/plans/**',              // Ignore TaskGen TODO files
         '**/TODO-*.md',                    // Ignore TODO markdown files
         '**/*.db',                         // Ignore all database files
@@ -144,7 +143,6 @@ export default defineConfig({
         '**/*.db-wal',                     // Ignore SQLite WAL files
         '**/*.db-shm',                     // Ignore SQLite shared memory files
         '**/espressobot_memory.db*',       // Ignore our specific memory database
-        '**/mem0_history.db*',             // Ignore mem0 history database
         '**/server/memory/test-*.js',      // Ignore memory test files
         '**/server/context-loader/**',     // Ignore context loader cache
         '**/server/prompts/**',            // Ignore prompt files (static)

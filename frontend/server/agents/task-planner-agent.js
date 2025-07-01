@@ -196,7 +196,7 @@ export const taskPlannerAgent = new Agent({
   name: 'Task_Planner_Agent',
   instructions: taskPlannerInstructions,
   handoffDescription: 'Hand off to Task Planner Agent to create structured task plans, generate todo lists, or update task progress',
-  model: 'o4-mini',  // Using o4-mini for reasoning capabilities
+  model: 'o3',  // Using o4-mini for reasoning capabilities
   tools: [
     createTaskPlanTool,
     updateTaskStatusTool,

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.9",
     "@headlessui/react": "^2.2.4",
     "@openai/agents": "^0.0.9",
     "@openai/agents-core": "^0.0.9",
@@ -32,7 +33,6 @@
     "js-md5": "^0.8.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.510.0",
-    "mem0ai": "^2.1.33",
     "node-fetch": "^3.3.2",
     "openai": "^5.7.0",
     "passport": "^0.7.0",

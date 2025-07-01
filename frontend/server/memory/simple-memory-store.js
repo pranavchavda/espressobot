@@ -52,7 +52,7 @@ function cosineSimilarity(vec1, vec2) {
 async function extractMemory(messages) {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4.1-mini",
       temperature: 0.1,
       messages: [
         {

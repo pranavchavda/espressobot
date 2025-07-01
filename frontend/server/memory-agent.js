@@ -98,7 +98,7 @@ Rules:
 - Extract ONLY the most important 3-5 memories per conversation to avoid overload
 
 When you identify something worth remembering, use the create_memory tool.`,
-  model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
   modelSettings: { 
     temperature: 0.3, // Lower temperature for more consistent extraction
     parallelToolCalls: false,

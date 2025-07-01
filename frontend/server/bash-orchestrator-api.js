@@ -72,9 +72,9 @@ router.post('/run', authenticateToken, async (req, res) => {
     global.currentSseEmitter = sendEvent;
     global.currentConversationId = conversationId;
     
-    // Build conversation context with mem0
+    // Build conversation context with memory system
     
-    // Retrieve relevant memories using mem0
+    // Retrieve relevant memories
     sendEvent('agent_processing', {
       agent: 'Memory_System',
       message: 'Retrieving relevant memories...'
@@ -86,7 +86,7 @@ router.post('/run', authenticateToken, async (req, res) => {
       const searchQuery = message + (conversationMessages.length > 0 ? 
         '\n' + conversationMessages.slice(-3).map(m => m.content).join('\n') : '');
       
-      console.log(`[Mem0] Searching memories for user ${USER_ID} with query: "${searchQuery.substring(0, 100)}..."`);
+      console.log(`[Memory] Searching memories for user ${USER_ID} with query: "${searchQuery.substring(0, 100)}..."`);
       
       // Use actual user ID for cross-conversation memory persistence
       const memoryUserId = `user_${USER_ID}`;
@@ -97,17 +97,17 @@ router.post('/run', authenticateToken, async (req, res) => {
         5 // Top 5 memories
       );
       
-      console.log(`[Mem0] Found ${memoryResult.length || 0} memories`);
+      console.log(`[Memory] Found ${memoryResult.length || 0} memories`);
       
       if (memoryResult && memoryResult.length > 0) {
         memoryContext = '\n\nRelevant context from previous conversations:\n' +
           memoryResult.map(m => `- ${m.memory}`).join('\n') + '\n';
-        console.log(`[Mem0] Retrieved ${memoryResult.length} relevant memories`);
+        console.log(`[Memory] Retrieved ${memoryResult.length} relevant memories`);
       } else {
-        console.log(`[Mem0] No memories found for user ${USER_ID}`);
+        console.log(`[Memory] No memories found for user ${USER_ID}`);
       }
     } catch (error) {
-      console.error('[Mem0] Error retrieving memories:', error);
+      console.error('[Memory] Error retrieving memories:', error);
       // Continue without memories if retrieval fails
     }
     
@@ -180,7 +180,7 @@ router.post('/run', authenticateToken, async (req, res) => {
             sendEvent('task_summary', {
               tasks: currentTasks.tasks.map((task, index) => ({
                 id: `task_${conversationId}_${index}`,
-                content: task.title || task,
+                content: task.title || task.description || task,
                 status: task.status || 'pending',
                 conversation_id: conversationId
               })),
@@ -195,6 +195,7 @@ router.post('/run', authenticateToken, async (req, res) => {
     
     const result = await runDynamicOrchestrator(fullContext, {
       conversationId,
+      userId: USER_ID,
       sseEmitter: sendEvent,
       taskUpdater: needsPlanning ? async (taskIndex, status) => {
         await updateTaskStatus(conversationId.toString(), taskIndex, status);
@@ -299,43 +300,49 @@ router.post('/run', authenticateToken, async (req, res) => {
       });
       console.log('=== AGENT_MESSAGE EVENT SENT ===');
       
-      // Store conversation in mem0 for future retrieval
+      // Store conversation in memory for future retrieval
       try {
-        // Create conversation summary for memory
+        // Create conversation summary for memory extraction
         const conversationSummary = `User: ${message}\nAssistant: ${textResponse}`;
         
-        console.log(`[Mem0] Storing memory for conversation ${conversationId}`);
-        console.log(`[Mem0] Message: "${message.substring(0, 100)}..."`);
-        console.log(`[Mem0] Response: "${textResponse.substring(0, 100)}..."`);
+        console.log(`[Memory] Extracting facts for conversation ${conversationId}`);
+        console.log(`[Memory] Message: "${message.substring(0, 100)}..."`);
+        console.log(`[Memory] Response: "${textResponse.substring(0, 100)}..."`);
         
         // Use actual user ID for cross-conversation memory persistence
         const memoryUserId = `user_${USER_ID}`;
         
-        // Limit metadata size to prevent mem0 errors (2000 char limit)
-        const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
-        const truncatedResponse = textResponse.length > 500 ? textResponse.substring(0, 500) + '...' : textResponse;
+        // Extract facts using GPT-4.1-mini
+        const extractedFacts = await memoryOperations.extractMemorySummary(conversationSummary, {
+          conversationId: conversationId.toString(),
+          agent: 'Dynamic_Bash_Orchestrator'
+        });
         
-        const memoryAddResult = await memoryOperations.add(
-          conversationSummary,
-          memoryUserId,  // Use user ID instead of conversation ID
-          {
-            timestamp: new Date().toISOString(),
-            type: 'conversation',
-            conversationId: conversationId.toString(),
-            userMessage: truncatedMessage,
-            assistantResponse: truncatedResponse
+        console.log(`[Memory] Extracted ${extractedFacts.length} facts`);
+        
+        // Store each extracted fact as a separate memory
+        let successCount = 0;
+        for (const fact of extractedFacts) {
+          try {
+            const memoryAddResult = await memoryOperations.add(
+              fact.content,
+              memoryUserId,
+              fact.metadata
+            );
+            
+            if (memoryAddResult.success) {
+              successCount++;
+              console.log(`[Memory] Stored fact: "${fact.content.substring(0, 50)}..."`);
+            }
+          } catch (factError) {
+            console.error(`[Memory] Error storing fact:`, factError);
           }
-        );
-        
-        console.log(`[Mem0] Add result:`, JSON.stringify(memoryAddResult, null, 2));
-        
-        if (memoryAddResult.success) {
-          console.log(`[Mem0] Stored conversation memory: ${memoryAddResult.memory_id}`);
-        } else {
-          console.log(`[Mem0] Failed to store memory`);
         }
+        
+        console.log(`[Memory] Successfully stored ${successCount}/${extractedFacts.length} facts`);
+        
       } catch (error) {
-        console.error('[Mem0] Error storing memory:', error);
+        console.error('[Memory] Error extracting/storing memory:', error);
         // Continue even if memory storage fails
       }
     } else {
