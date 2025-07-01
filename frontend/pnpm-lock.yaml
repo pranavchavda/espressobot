@@ -116,6 +116,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      sqlite3:
+        specifier: ^5.1.7
+        version: 5.1.7
       tailwind-merge:
         specifier: ^3.3.0
         version: 3.3.0

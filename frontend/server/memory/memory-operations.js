@@ -4,20 +4,67 @@
  */
 
 import { memoryClient, isPlatformAvailable } from './mem0-platform-config.js';
+import { memory as selfHostedMemory, initializeMemory } from './mem0-config.js';
 import { simpleMemoryStore } from './simple-memory-store.js';
 
 // Determine which memory system to use
-const usingPlatform = isPlatformAvailable && memoryClient;
-const activeMemory = usingPlatform ? memoryClient : simpleMemoryStore;
+// Priority: Self-hosted > Platform > Simple fallback
+let activeMemory;
+let memoryType;
 
-console.log(`[Memory Operations] Using ${usingPlatform ? 'Mem0 Platform (hosted)' : 'simple memory store'}`);
+// Initialize memory system
+async function ensureMemoryInitialized() {
+  if (activeMemory) return;
+  
+  // Try self-hosted first
+  const selfHosted = await initializeMemory();
+  if (selfHosted) {
+    activeMemory = selfHosted;
+    memoryType = 'self-hosted Mem0';
+  } else if (isPlatformAvailable && memoryClient) {
+    activeMemory = memoryClient;
+    memoryType = 'Mem0 Platform (hosted)';
+  } else {
+    activeMemory = simpleMemoryStore;
+    memoryType = 'simple memory store';
+  }
+  
+  console.log(`[Memory Operations] Using ${memoryType}`);
+}
+
+// Initialize on module load
+await ensureMemoryInitialized();
 
 /**
  * Add a memory from conversation
  */
 export async function addMemory(messages, userId, metadata = {}) {
+  await ensureMemoryInitialized();
   try {
-    if (usingPlatform) {
+    if (memoryType === 'self-hosted Mem0') {
+      // Self-hosted mem0 API
+      const messagesArray = typeof messages === 'string' 
+        ? parseMessagesString(messages)
+        : messages;
+      
+      const result = await activeMemory.add(messagesArray, { 
+        userId: userId,  // Changed from user_id to userId
+        metadata 
+      });
+      
+      // Self-hosted returns a result object with memories array
+      const extractedMemories = result?.memories || [];
+      const memoryIds = extractedMemories.map(m => m.id).filter(Boolean);
+      const memoryTexts = extractedMemories.map(m => m.memory).filter(Boolean);
+      
+      return {
+        success: true,
+        memory_id: memoryIds[0] || 'unknown',
+        memory_ids: memoryIds,
+        memories: memoryTexts,
+        message: `Memory added successfully (${memoryIds.length} facts extracted)`
+      };
+    } else if (memoryType === 'Mem0 Platform (hosted)') {
       // Platform API expects messages array format
       const messagesArray = typeof messages === 'string' 
         ? parseMessagesString(messages)
@@ -58,8 +105,29 @@ export async function addMemory(messages, userId, metadata = {}) {
  * Search memories for a user
  */
 export async function searchMemories(query, userId, limit = 5) {
+  await ensureMemoryInitialized();
   try {
-    if (usingPlatform) {
+    if (memoryType === 'self-hosted Mem0') {
+      // Self-hosted mem0 API
+      const result = await activeMemory.search(query || "", {
+        userId: userId,  // Changed from user_id to userId
+        limit
+      });
+      
+      // Self-hosted returns object with memories array
+      const memories = (result?.memories || []).map(mem => ({
+        id: mem.id,
+        memory: mem.memory,
+        relevance: mem.score || 0,
+        metadata: mem.metadata || {}
+      }));
+      
+      return {
+        success: true,
+        memories,
+        count: memories.length
+      };
+    } else if (memoryType === 'Mem0 Platform (hosted)') {
       // Platform API requires different format
       const searchParams = {
         query: query || "",  // Ensure query is not null/undefined
@@ -101,8 +169,24 @@ export async function searchMemories(query, userId, limit = 5) {
  * Get all memories for a user
  */
 export async function getAllMemories(userId) {
+  await ensureMemoryInitialized();
   try {
-    if (usingPlatform) {
+    if (memoryType === 'self-hosted Mem0') {
+      // Self-hosted mem0 getAll
+      const result = await activeMemory.getAll({ userId: userId });  // Changed from user_id to userId
+      
+      const memories = (result?.memories || []).map(mem => ({
+        id: mem.id,
+        memory: mem.memory,
+        metadata: mem.metadata || {}
+      }));
+      
+      return {
+        success: true,
+        memories,
+        count: memories.length
+      };
+    } else if (memoryType === 'Mem0 Platform (hosted)') {
       // Platform doesn't have a direct getAll, use search with broad query
       const result = await activeMemory.search("*", {
         user_id: userId,
@@ -139,8 +223,12 @@ export async function getAllMemories(userId) {
  * Update a memory
  */
 export async function updateMemory(memoryId, memory, userId) {
+  await ensureMemoryInitialized();
   try {
-    if (usingPlatform) {
+    if (memoryType === 'self-hosted Mem0') {
+      await activeMemory.update({ memoryId: memoryId, memory });  // Changed from memory_id to memoryId
+      return { success: true, message: 'Memory updated successfully' };
+    } else if (memoryType === 'Mem0 Platform (hosted)') {
       await activeMemory.update({
         memory_id: memoryId,
         memory
@@ -159,8 +247,12 @@ export async function updateMemory(memoryId, memory, userId) {
  * Delete a memory
  */
 export async function deleteMemory(memoryId, userId) {
+  await ensureMemoryInitialized();
   try {
-    if (usingPlatform) {
+    if (memoryType === 'self-hosted Mem0') {
+      await activeMemory.delete({ memoryId: memoryId });  // Changed from memory_id to memoryId
+      return { success: true, message: 'Memory deleted successfully' };
+    } else if (memoryType === 'Mem0 Platform (hosted)') {
       await activeMemory.delete({ memory_id: memoryId });
       return { success: true, message: 'Memory deleted successfully' };
     } else {
@@ -176,8 +268,12 @@ export async function deleteMemory(memoryId, userId) {
  * Reset all memories for a user
  */
 export async function resetMemories(userId) {
+  await ensureMemoryInitialized();
   try {
-    if (usingPlatform) {
+    if (memoryType === 'self-hosted Mem0') {
+      await activeMemory.deleteAll({ userId: userId });  // Changed from user_id to userId
+      return { success: true, message: 'All memories reset' };
+    } else if (memoryType === 'Mem0 Platform (hosted)') {
       await activeMemory.deleteAll({ user_id: userId });
       return { success: true, message: 'All memories reset' };
     } else {

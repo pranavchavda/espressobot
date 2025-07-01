@@ -7,11 +7,12 @@ import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
 import RestrictedPage from './pages/RestrictedPage';
 import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon } from 'lucide-react';
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon, Database } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
 import { Heading } from "@common/heading";
+import { MemoryManagementModal } from './components/memory/MemoryManagementModal';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -21,6 +22,7 @@ function App() {
   const [loading, setLoading] = useState(true); // For conversations loading
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
 
   // Check authentication on mount
   useEffect(() => {
@@ -169,8 +171,9 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route element={
+    <>
+      <Routes>
+        <Route element={
         <SidebarLayout
           className=""
           navbar={
@@ -200,6 +203,19 @@ function App() {
                     {user.name || user.email}
                   </span>
                 </div>
+                
+                {/* Memory Management - Admin Only */}
+                {user.email === 'pranav@idrinkcoffee.com' && (
+                  <Button
+                    onClick={() => setShowMemoryModal(true)}
+                    outline
+                    small
+                    className="flex items-center"
+                  >
+                    <Database className="h-4 w-4 mr-1" />
+                    Memory
+                  </Button>
+                )}
                 
                 <NavLink 
                   to="/about" 
@@ -376,6 +392,13 @@ function App() {
         <Route path="/about" element={<AboutPage />} />
       </Route>
     </Routes>
+    
+    {/* Memory Management Modal */}
+    <MemoryManagementModal 
+      isOpen={showMemoryModal} 
+      onClose={() => setShowMemoryModal(false)} 
+    />
+    </>
   );
 }
 

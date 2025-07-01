@@ -2,8 +2,8 @@ import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
 import { runDynamicOrchestrator } from './dynamic-bash-orchestrator.js';
 import { authenticateToken } from './auth.js';
-import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/planning-agent.js';
-import { memoryOperations } from './tools/memory-tool.js';
+import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/task-planning-agent.js';
+import { memoryOperations } from './memory/memory-operations-local.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -68,6 +68,10 @@ router.post('/run', authenticateToken, async (req, res) => {
       }
     });
     
+    // Make SSE emitter and conversation ID globally available for tools
+    global.currentSseEmitter = sendEvent;
+    global.currentConversationId = conversationId;
+    
     // Build conversation context with mem0
     
     // Retrieve relevant memories using mem0
@@ -93,12 +97,12 @@ router.post('/run', authenticateToken, async (req, res) => {
         5 // Top 5 memories
       );
       
-      console.log(`[Mem0] Found ${memoryResult.memories?.length || 0} memories`);
+      console.log(`[Mem0] Found ${memoryResult.length || 0} memories`);
       
-      if (memoryResult.success && memoryResult.memories.length > 0) {
+      if (memoryResult && memoryResult.length > 0) {
         memoryContext = '\n\nRelevant context from previous conversations:\n' +
-          memoryResult.memories.map(m => `- ${m.memory}`).join('\n') + '\n';
-        console.log(`[Mem0] Retrieved ${memoryResult.memories.length} relevant memories`);
+          memoryResult.map(m => `- ${m.memory}`).join('\n') + '\n';
+        console.log(`[Mem0] Retrieved ${memoryResult.length} relevant memories`);
       } else {
         console.log(`[Mem0] No memories found for user ${USER_ID}`);
       }
@@ -131,18 +135,7 @@ router.post('/run', authenticateToken, async (req, res) => {
       const planResult = await createTaskPlan(message, conversationId.toString());
       
       if (planResult.success && planResult.tasks.length > 0) {
-        // Send task summary to frontend
-        sendEvent('task_summary', {
-          tasks: planResult.tasks.map((task, index) => ({
-            id: `task_${conversationId}_${index}`,
-            content: task.title || task,
-            status: task.status || 'pending',
-            conversation_id: conversationId
-          })),
-          conversation_id: conversationId
-        });
-        
-        // Also send task_plan_created event for TaskMarkdownDisplay
+        // Send only task_plan_created event which contains the markdown
         try {
           const planPath = path.join(__dirname, 'plans', `TODO-${conversationId}.md`);
           const planContent = await fs.readFile(planPath, 'utf-8');
@@ -156,6 +149,16 @@ router.post('/run', authenticateToken, async (req, res) => {
           });
         } catch (err) {
           console.log('[Bash Orchestrator] Could not read plan file:', err.message);
+          // Fallback to sending basic task info if markdown not available
+          sendEvent('task_summary', {
+            tasks: planResult.tasks.map((task, index) => ({
+              id: `task_${conversationId}_${index}`,
+              content: task.title || task,
+              status: task.status || 'pending',
+              conversation_id: conversationId
+            })),
+            conversation_id: conversationId
+          });
         }
       }
     }
@@ -173,6 +176,7 @@ router.post('/run', authenticateToken, async (req, res) => {
         try {
           const currentTasks = await getCurrentTasks(conversationId.toString());
           if (currentTasks.success) {
+            // Only send task_summary for live status updates
             sendEvent('task_summary', {
               tasks: currentTasks.tasks.map((task, index) => ({
                 id: `task_${conversationId}_${index}`,
@@ -182,20 +186,6 @@ router.post('/run', authenticateToken, async (req, res) => {
               })),
               conversation_id: conversationId
             });
-            
-            // Also send the markdown update
-            try {
-              const planPath = path.join(__dirname, 'plans', `TODO-${conversationId}.md`);
-              const planContent = await fs.readFile(planPath, 'utf-8');
-              sendEvent('task_plan_created', {
-                markdown: planContent,
-                filename: `TODO-${conversationId}.md`,
-                taskCount: currentTasks.tasks.length,
-                conversation_id: conversationId
-              });
-            } catch (err) {
-              // Ignore if file doesn't exist
-            }
           }
         } catch (error) {
           console.error('Error monitoring tasks:', error);
@@ -321,6 +311,10 @@ router.post('/run', authenticateToken, async (req, res) => {
         // Use actual user ID for cross-conversation memory persistence
         const memoryUserId = `user_${USER_ID}`;
         
+        // Limit metadata size to prevent mem0 errors (2000 char limit)
+        const truncatedMessage = message.length > 500 ? message.substring(0, 500) + '...' : message;
+        const truncatedResponse = textResponse.length > 500 ? textResponse.substring(0, 500) + '...' : textResponse;
+        
         const memoryAddResult = await memoryOperations.add(
           conversationSummary,
           memoryUserId,  // Use user ID instead of conversation ID
@@ -328,8 +322,8 @@ router.post('/run', authenticateToken, async (req, res) => {
             timestamp: new Date().toISOString(),
             type: 'conversation',
             conversationId: conversationId.toString(),
-            userMessage: message,
-            assistantResponse: textResponse
+            userMessage: truncatedMessage,
+            assistantResponse: truncatedResponse
           }
         );
         
@@ -361,6 +355,9 @@ router.post('/run', authenticateToken, async (req, res) => {
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   } finally {
+    // Clean up globals
+    global.currentSseEmitter = null;
+    global.currentConversationId = null;
     res.end();
   }
 });

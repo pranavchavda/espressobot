@@ -137,7 +137,7 @@ Analyze this message for important information to remember:
 "${message}"
 
 Extract any preferences, configurations, workflows, constraints, or business context that should be remembered for future conversations.
-    `);
+    `, { maxTurns: 30 });
     
     return result;
   } catch (error) {
@@ -181,7 +181,7 @@ IMPORTANT: Extract only the 3-5 most important memories to avoid overload.
     
     // Race between memory extraction and timeout
     const result = await Promise.race([
-      run(memoryAgent, prompt),
+      run(memoryAgent, prompt, { maxTurns: 30 }),
       timeoutPromise
     ]);
     

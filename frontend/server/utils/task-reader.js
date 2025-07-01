@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Define PLANS_DIR at module level
+const PLANS_DIR = path.resolve(__dirname, '../plans');
+
 /**
  * Reads tasks from a TODO markdown file for a given conversation
  * @param {string} conversationId - The conversation ID
@@ -13,8 +16,7 @@ const __dirname = dirname(__filename);
  */
 export async function readTasksForConversation(conversationId) {
   try {
-    const plansDir = path.resolve(__dirname, '../plans');
-    const filePath = path.resolve(plansDir, `TODO-${conversationId}.md`);
+    const filePath = path.resolve(PLANS_DIR, `TODO-${conversationId}.md`);
     
     // Check if file exists
     try {

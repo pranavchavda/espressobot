@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { tool } from '@openai/agents';
-import { handleMemoryOperation } from '../memory/memory-operations.js';
+import { memoryOperations } from '../memory/memory-operations-local.js';
 
 // Memory tool for agents
 export const memoryTool = tool({
@@ -32,38 +32,66 @@ export const memoryTool = tool({
   execute: async (params) => {
     try {
       console.log('[Memory Tool] Executing operation:', params.operation);
+      const userId = params.user_id || 'default_user';
       
-      // Convert null values to undefined for consistency
-      const cleanParams = {
-        operation: params.operation,
-        user_id: params.user_id,
-        ...(params.messages !== null && params.messages !== undefined && { messages: params.messages }),
-        ...(params.query !== null && params.query !== undefined && { query: params.query }),
-        ...(params.memory_id !== null && params.memory_id !== undefined && { memory_id: params.memory_id }),
-        ...(params.text !== null && params.text !== undefined && { text: params.text }),
-        ...(params.limit !== null && params.limit !== undefined && { limit: params.limit || 5 }),
-        ...(params.metadata !== null && params.metadata !== undefined && { metadata: params.metadata })
-      };
-      
-      const result = await handleMemoryOperation(cleanParams);
-      
-      // Format response based on operation
-      if (params.operation === 'search' && result.memories) {
-        // Format search results for agent consumption
-        const formattedMemories = result.memories
-          .map(m => `[${m.relevance.toFixed(2)}] ${m.memory}`)
-          .join('\n');
-        
-        return {
-          success: true,
-          message: result.count > 0 
-            ? `Found ${result.count} relevant memories:\n${formattedMemories}`
-            : 'No relevant memories found',
-          memories: result.memories
-        };
+      switch (params.operation) {
+        case 'add':
+          if (!params.messages) {
+            return { success: false, error: 'Messages required for add operation' };
+          }
+          const addResult = await memoryOperations.add(params.messages, userId, params.metadata || {});
+          return {
+            success: true,
+            message: 'Memory added successfully',
+            result: addResult
+          };
+          
+        case 'search':
+          if (!params.query) {
+            return { success: false, error: 'Query required for search operation' };
+          }
+          const memories = await memoryOperations.search(params.query, userId, params.limit || 5);
+          const formattedMemories = memories
+            .map((m, idx) => `[${idx + 1}] ${m.memory || m}`)
+            .join('\n');
+          
+          return {
+            success: true,
+            message: memories.length > 0 
+              ? `Found ${memories.length} relevant memories:\n${formattedMemories}`
+              : 'No relevant memories found',
+            memories
+          };
+          
+        case 'get_all':
+          const allMemories = await memoryOperations.getAll(userId);
+          return {
+            success: true,
+            memories: allMemories,
+            count: allMemories.length
+          };
+          
+        case 'update':
+          if (!params.memory_id || !params.text) {
+            return { success: false, error: 'Memory ID and text required for update operation' };
+          }
+          await memoryOperations.update(params.memory_id, params.text);
+          return { success: true, message: 'Memory updated successfully' };
+          
+        case 'delete':
+          if (!params.memory_id) {
+            return { success: false, error: 'Memory ID required for delete operation' };
+          }
+          await memoryOperations.delete(params.memory_id);
+          return { success: true, message: 'Memory deleted successfully' };
+          
+        case 'reset':
+          await memoryOperations.deleteAll(userId);
+          return { success: true, message: 'All memories reset successfully' };
+          
+        default:
+          return { success: false, error: `Unknown operation: ${params.operation}` };
       }
-      
-      return result;
     } catch (error) {
       console.error('[Memory Tool] Error:', error);
       return {
@@ -74,49 +102,5 @@ export const memoryTool = tool({
   }
 });
 
-// Helper functions for direct use (not through agents)
-export const memoryOperations = {
-  /**
-   * Add memory from conversation context
-   */
-  async add(messages, userId, metadata = {}) {
-    return handleMemoryOperation({
-      operation: 'add',
-      messages,
-      user_id: userId,
-      metadata
-    });
-  },
-  
-  /**
-   * Search for relevant memories
-   */
-  async search(query, userId, limit = 5) {
-    return handleMemoryOperation({
-      operation: 'search',
-      query,
-      user_id: userId,
-      limit
-    });
-  },
-  
-  /**
-   * Get all memories for a user
-   */
-  async getAll(userId) {
-    return handleMemoryOperation({
-      operation: 'get_all',
-      user_id: userId
-    });
-  },
-  
-  /**
-   * Reset all memories for a user
-   */
-  async reset(userId) {
-    return handleMemoryOperation({
-      operation: 'reset',
-      user_id: userId
-    });
-  }
-};
+// Re-export the local memory operations for direct use (not through agents)
+export { memoryOperations };

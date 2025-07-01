@@ -119,6 +119,10 @@ export default defineConfig({
         apiApp.use('/api/conversations', convHandler);
         apiApp.use('/api/agent', orchestratorRouter);
         
+        // Memory management routes (admin only)
+        const memoryManagementRoutes = (await import('./server/memory-management')).default;
+        apiApp.use('/api/memory', memoryManagementRoutes);
+        
         server.middlewares.use(apiApp);
       },
     },
@@ -130,12 +134,24 @@ export default defineConfig({
         '**/prisma/migrations/**', 
         '**/.memories/**', 
         '**/memories/**',
-        '**/server/memory/data/**',  // Ignore mem0 database files
-        '**/server/memory/venv/**',   // Ignore Python virtual environment
-        '**/server/plans/**',         // Ignore TaskGen TODO files
-        '**/TODO-*.md',               // Ignore TODO markdown files
-        '**/*.db',                    // Ignore all database files
-        '**/*.sqlite'                 // Ignore SQLite files
+        '**/server/memory/data/**',        // Ignore local memory database files
+        '**/server/memory/venv/**',        // Ignore Python virtual environment
+        '**/server/plans/**',              // Ignore TaskGen TODO files
+        '**/TODO-*.md',                    // Ignore TODO markdown files
+        '**/*.db',                         // Ignore all database files
+        '**/*.sqlite',                     // Ignore SQLite files
+        '**/*.db-journal',                 // Ignore SQLite journal files
+        '**/*.db-wal',                     // Ignore SQLite WAL files
+        '**/*.db-shm',                     // Ignore SQLite shared memory files
+        '**/espressobot_memory.db*',       // Ignore our specific memory database
+        '**/mem0_history.db*',             // Ignore mem0 history database
+        '**/server/memory/test-*.js',      // Ignore memory test files
+        '**/server/context-loader/**',     // Ignore context loader cache
+        '**/server/prompts/**',            // Ignore prompt files (static)
+        '**/server/tool-docs/**',          // Ignore tool documentation
+        '**/.env.local*',                  // Ignore local environment files
+        '**/logs/**',                      // Ignore log files
+        '**/*.log'                         // Ignore individual log files
       ],
     },
     port: 5173,

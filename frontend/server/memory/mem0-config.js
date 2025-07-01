@@ -25,7 +25,7 @@ const config = {
   llm: {
     provider: "openai",
     config: {
-      model: "gpt-4o-mini",
+      model: "gpt-4.1-mini",
       apiKey: process.env.OPENAI_API_KEY,
       modelProperties: {
         temperature: 0.1,
@@ -51,37 +51,38 @@ const config = {
 };
 
 // Initialize memory instance
-export let memory;
+export let memory = null;
 
-try {
-  memory = new Memory(config);
-  console.log('[Mem0] Memory instance initialized successfully');
-} catch (error) {
-  console.error('[Mem0] Error initializing memory:', error);
-  // Create a fallback memory instance with minimal config
-  memory = new Memory({
-    version: "v1.1",
-    llm: {
-      provider: "openai",
-      config: {
-        model: "gpt-4o-mini",
-        apiKey: process.env.OPENAI_API_KEY
-      }
-    },
-    embedder: {
-      provider: "openai",
-      config: {
-        model: "text-embedding-3-small",
-        apiKey: process.env.OPENAI_API_KEY
-      }
-    },
-    vectorStore: {
-      provider: "memory",
-      config: {}
-    },
-    disableHistory: true
-  });
+// Defer initialization to avoid SQLite issues at import time
+export async function initializeMemory() {
+  if (memory) return memory;
+  
+  try {
+    memory = new Memory(config);
+    console.log('[Mem0] Self-hosted memory instance initialized successfully');
+    return memory;
+  } catch (error) {
+    console.error('[Mem0] Error initializing self-hosted memory:', error.message);
+    
+    // If SQLite fails, try without history database
+    try {
+      const fallbackConfig = {
+        ...config,
+        historyDbPath: undefined,
+        disableHistory: true
+      };
+      memory = new Memory(fallbackConfig);
+      console.log('[Mem0] Memory initialized without history database');
+      return memory;
+    } catch (fallbackError) {
+      console.error('[Mem0] Fallback initialization also failed:', fallbackError.message);
+      return null;
+    }
+  }
 }
+
+// Call initialization asynchronously
+initializeMemory().catch(console.error);
 
 // Export configuration for reference
 export const memoryConfig = config;

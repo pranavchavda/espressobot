@@ -2,11 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send, ImageIcon, X, ListTodo, Square } from "lucide-react";
+import { Loader2, Send, ImageIcon, X, Square } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
-import { TaskProgress } from "@components/chat/TaskProgress";
-import { TaskMarkdownProgress } from "@components/chat/TaskMarkdownProgress";
-import TaskMarkdownDisplay from "@components/chat/TaskMarkdownDisplay";
+import { UnifiedTaskDisplay } from "@components/chat/UnifiedTaskDisplay";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import { Switch, SwitchField } from "@common/switch";
@@ -36,7 +34,6 @@ function StreamingChatPage({ convId }) {
   const [useBasicAgent, setUseBasicAgent] = useState(!isMultiAgentMode);
   const [hasShownTasks, setHasShownTasks] = useState(false);
   const [taskMarkdown, setTaskMarkdown] = useState(null);
-  const [forceTaskGen, setForceTaskGen] = useState(false);
   const [agentProcessingStatus, setAgentProcessingStatus] = useState("");
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
@@ -425,7 +422,6 @@ function StreamingChatPage({ convId }) {
       const requestData = {
         conv_id: convId || activeConv || undefined,
         message: textToSend,
-        forceTaskGen: forceTaskGen,
       };
 
       if (imageAttachment) {
@@ -603,10 +599,41 @@ function StreamingChatPage({ convId }) {
                 case 'task_summary':
                   console.log("FRONTEND: Task summary", actualEventPayload);
                   if (actualEventPayload.tasks && actualEventPayload.tasks.length > 0) {
-                    setCurrentTasks(actualEventPayload.tasks.map(task => ({
-                      ...task,
-                      conversation_id: actualEventPayload.conversation_id || activeConv || convId
-                    })));
+                    setCurrentTasks(prevTasks => {
+                      // If we have no tasks, initialize with the incoming tasks
+                      if (prevTasks.length === 0) {
+                        console.log('FRONTEND: Initial task load from task_summary (multi-agent)');
+                        return actualEventPayload.tasks.map(task => ({
+                          ...task,
+                          conversation_id: actualEventPayload.conversation_id || activeConv || convId
+                        }));
+                      }
+                      
+                      // Create a map of existing tasks by ID for easier lookup
+                      const existingTasksMap = new Map(prevTasks.map(t => [t.id, t]));
+                      
+                      // Update existing tasks and add new ones
+                      const updatedTasks = actualEventPayload.tasks.map(newTask => {
+                        const taskWithConvId = {
+                          ...newTask,
+                          conversation_id: actualEventPayload.conversation_id || activeConv || convId
+                        };
+                        const existingTask = existingTasksMap.get(newTask.id);
+                        if (existingTask) {
+                          // Update status if it changed
+                          if (existingTask.status !== newTask.status) {
+                            console.log(`FRONTEND: Updating task ${newTask.id} status from ${existingTask.status} to ${newTask.status} (multi-agent)`);
+                            return { ...existingTask, ...taskWithConvId };
+                          }
+                          return existingTask;
+                        }
+                        // This is a new task
+                        console.log('FRONTEND: Adding new task (multi-agent):', newTask.id);
+                        return taskWithConvId;
+                      });
+                      
+                      return updatedTasks;
+                    });
                     setHasShownTasks(true);
                   }
                   break;
@@ -641,11 +668,14 @@ function StreamingChatPage({ convId }) {
                   }));
                   break;
                 case 'error':
-                  setToolCallStatus(`Error: ${actualEventPayload.message}`);
+                  const errorMessage = actualEventPayload.message || 
+                                     actualEventPayload.description || 
+                                     (typeof actualEventPayload === 'string' ? actualEventPayload : 'An error occurred');
+                  setToolCallStatus(`Error: ${errorMessage}`);
                   console.error("Multi-agent Error:", actualEventPayload);
                   setStreamingMessage(prev => ({ 
                     ...prev, 
-                    content: (prev?.content || "") + `\n\n**Error:** ${actualEventPayload.message}`, 
+                    content: (prev?.content || "") + `\n\n**Error:** ${errorMessage}`, 
                     isStreaming: false, 
                     isComplete: true 
                   }));
@@ -720,23 +750,32 @@ function StreamingChatPage({ convId }) {
                     actualEventPayload.tasks.length > 0
                   ) {
                     setCurrentTasks(prevTasks => {
-                      // Only update if we don't have tasks yet, or if this is the initial load
+                      // If we have no tasks, initialize with the incoming tasks
                       if (prevTasks.length === 0) {
                         console.log('FRONTEND: Initial task load from task_summary');
                         return actualEventPayload.tasks;
                       }
                       
-                      // Otherwise, preserve existing task statuses and only add new tasks
-                      const existingTaskIds = new Set(prevTasks.map(t => t.id));
-                      const newTasks = actualEventPayload.tasks.filter(t => !existingTaskIds.has(t.id));
+                      // Create a map of existing tasks by ID for easier lookup
+                      const existingTasksMap = new Map(prevTasks.map(t => [t.id, t]));
                       
-                      if (newTasks.length > 0) {
-                        console.log('FRONTEND: Adding', newTasks.length, 'new tasks from task_summary');
-                        return [...prevTasks, ...newTasks];
-                      }
+                      // Update existing tasks and add new ones
+                      const updatedTasks = actualEventPayload.tasks.map(newTask => {
+                        const existingTask = existingTasksMap.get(newTask.id);
+                        if (existingTask) {
+                          // Update status if it changed
+                          if (existingTask.status !== newTask.status) {
+                            console.log(`FRONTEND: Updating task ${newTask.id} status from ${existingTask.status} to ${newTask.status}`);
+                            return { ...existingTask, ...newTask };
+                          }
+                          return existingTask;
+                        }
+                        // This is a new task
+                        console.log('FRONTEND: Adding new task:', newTask.id);
+                        return newTask;
+                      });
                       
-                      console.log('FRONTEND: Ignoring task_summary - no new tasks');
-                      return prevTasks;
+                      return updatedTasks;
                     });
                     setHasShownTasks(true);
                   }
@@ -935,9 +974,12 @@ function StreamingChatPage({ convId }) {
                   shouldStop = true; 
                   break;
                 case 'error':
-                  setToolCallStatus(`Error: ${actualEventPayload.message}`);
+                  const errorMsg = actualEventPayload.message || 
+                                  actualEventPayload.description || 
+                                  (typeof actualEventPayload === 'string' ? actualEventPayload : 'An error occurred');
+                  setToolCallStatus(`Error: ${errorMsg}`);
                   console.error("SSE Orchestrator Error:", actualEventPayload);
-                  setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + `\n\n**Error:** ${actualEventPayload.message}`, isStreaming: false, isComplete: true }));
+                  setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + `\n\n**Error:** ${errorMsg}`, isStreaming: false, isComplete: true }));
                   setIsSending(false); shouldStop = true; break;
                 case 'done':
                   console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
@@ -1062,13 +1104,20 @@ function StreamingChatPage({ convId }) {
             </div>
           ) : (
             <>
-              {/* Show task markdown progress if available */}
+              {/* Show unified task display if tasks are available */}
               {console.log('FRONTEND: Render - taskMarkdown:', taskMarkdown?.conversation_id, 'activeConv:', activeConv, 'convId:', convId)}
-              {taskMarkdown && taskMarkdown.markdown && 
-               String(taskMarkdown.conversation_id) === String(activeConv || convId) && (
-                <TaskMarkdownProgress 
-                  markdown={taskMarkdown.markdown} 
+              {((taskMarkdown && taskMarkdown.markdown && 
+                String(taskMarkdown.conversation_id) === String(activeConv || convId)) || 
+                currentTasks.length > 0) && (
+                <UnifiedTaskDisplay
+                  taskMarkdown={taskMarkdown}
+                  liveTasks={currentTasks}
+                  onInterrupt={handleInterrupt}
+                  isStreaming={isSending}
                   conversationId={activeConv || convId}
+                  plannerStatus={plannerStatus}
+                  dispatcherStatus={dispatcherStatus}
+                  synthesizerStatus={synthesizerStatus}
                 />
               )}
               
@@ -1125,13 +1174,6 @@ function StreamingChatPage({ convId }) {
                                 />
                               )}
                             </div>
-                          )}
-                          {/* Show task markdown if available for this message */}
-                          {msg.role === "assistant" && msg.taskMarkdown && (
-                            <TaskMarkdownDisplay 
-                              taskMarkdown={msg.taskMarkdown} 
-                              isExpanded={false}
-                            />
                           )}
                           <MarkdownRenderer isAgent={msg.role === "assistant"}>
                             {String(msg.content || "")}
@@ -1224,35 +1266,6 @@ function StreamingChatPage({ convId }) {
                       </div>
                     )}
 
-                    {/* Old Task Progress - commented out in favor of TaskMarkdownProgress */}
-                    {/* Show task markdown if available */}
-                    {taskMarkdown && console.log("FRONTEND: Checking taskMarkdown display:", 
-                      "taskMarkdown.conversation_id:", taskMarkdown.conversation_id,
-                      "activeConv:", activeConv, 
-                      "convId:", convId,
-                      "comparison:", String(taskMarkdown.conversation_id) === String(activeConv || convId)
-                    )}
-                    {taskMarkdown && String(taskMarkdown.conversation_id) === String(activeConv || convId) && (
-                      <TaskMarkdownDisplay 
-                        taskMarkdown={taskMarkdown} 
-                        isExpanded={true}
-                      />
-                    )}
-                    
-                    {/* {useBasicAgent && (
-                      <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                        <div className="text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">Task Progress</div>
-                        <TaskProgress
-                          tasks={currentTasks}
-                          onInterrupt={handleInterrupt}
-                          isStreaming={isSending}
-                          conversationId={activeConv || convId}
-                          plannerStatus={plannerStatus}
-                          dispatcherStatus={dispatcherStatus}
-                          synthesizerStatus={synthesizerStatus}
-                        />
-                      </div>
-                    )} */}
                       <MarkdownRenderer isAgent={true}>
                         {streamingMessage.content || ""}
                       </MarkdownRenderer>
@@ -1349,21 +1362,6 @@ function StreamingChatPage({ convId }) {
           </div>
         )}
 
-        {/* Task Generation Toggle */}
-        <div className="max-w-3xl w-full mx-auto px-4 mb-2">
-          <SwitchField>
-            <span data-slot="label" className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-              <ListTodo className="h-4 w-4" />
-              Force task generation
-            </span>
-            <Switch 
-              checked={forceTaskGen} 
-              onChange={setForceTaskGen}
-              color="blue"
-              aria-label="Force task generation"
-            />
-          </SwitchField>
-        </div>
 
         {/* Input Form */}
         <form

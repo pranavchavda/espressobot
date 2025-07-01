@@ -13,7 +13,7 @@ export const executeBashCommand = async ({ command, cwd = '/tmp', timeout = 3000
     console.log(`[BASH] Working directory: ${cwd}`);
     
     // Send real-time progress if SSE emitter is available
-    if (sseEmitter) {
+    if (sseEmitter && typeof sseEmitter === 'function') {
       sseEmitter('agent_processing', {
         agent: 'Bash_Executor',
         message: `Executing: ${command}`,
@@ -79,7 +79,7 @@ export const executeBashCommand = async ({ command, cwd = '/tmp', timeout = 3000
       if (stdout) console.log(`[BASH] stdout: ${stdout.substring(0, 200)}${stdout.length > 200 ? '...' : ''}`);
       
       // Send completion status
-      if (sseEmitter) {
+      if (sseEmitter && typeof sseEmitter === 'function') {
         if (code === 0) {
           sseEmitter('agent_processing', {
             agent: 'Bash_Executor',
@@ -157,7 +157,10 @@ export const bashTool = tool({
   }),
   execute: async (params) => {
     // Try to get SSE emitter from global context (if available)
-    const sseEmitter = global.currentSseEmitter || null;
+    let sseEmitter = null;
+    if (global.currentSseEmitter && typeof global.currentSseEmitter === 'function') {
+      sseEmitter = global.currentSseEmitter;
+    }
     return executeBashCommand(params, sseEmitter);
   }
 });
@@ -166,16 +169,35 @@ export const bashTool = tool({
  * Create a bash-enabled agent
  */
 export async function createBashAgent(name, task, conversationId = null) {
-  // Load the bash agent prompt template
+  // Load the enhanced bash agent prompt template
   let bashAgentPrompt;
   try {
-    const promptPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent.md');
+    const promptPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent-enhanced.md');
     bashAgentPrompt = await fs.readFile(promptPath, 'utf-8');
   } catch (error) {
-    // Fallback to inline prompt if file not found
-    bashAgentPrompt = `You are a bash-enabled agent with full access to Python tools in /home/pranav/espressobot/frontend/python-tools/.
+    // Try fallback to basic prompt
+    try {
+      const fallbackPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent.md');
+      bashAgentPrompt = await fs.readFile(fallbackPath, 'utf-8');
+    } catch (fallbackError) {
+      // Final fallback to inline prompt
+      bashAgentPrompt = `You are a bash-enabled agent with full access to Python tools in /home/pranav/espressobot/frontend/python-tools/.
     
 Best practices: Check tool existence, use --help, handle errors, use absolute paths, chain commands with &&.`;
+    }
+  }
+  
+  // Load smart context based on the task
+  let smartContext = '';
+  try {
+    const { getSmartContext } = await import('../context-loader/context-manager.js');
+    smartContext = await getSmartContext(task, {
+      taskDescription: task,
+      includeMemory: true
+    });
+    console.log(`[Bash Agent] Loaded smart context (${smartContext.length} chars) for task: ${task.substring(0, 50)}...`);
+  } catch (error) {
+    console.log(`[Bash Agent] Could not load smart context:`, error.message);
   }
   
   // If conversationId is provided, read tasks and inject them
@@ -213,10 +235,65 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
             status
           }));
           console.log(`[Bash Agent] Updated task ${taskIndex} to ${status}`);
+          
+          // Send SSE event to update the frontend
+          const sseEmitter = global.currentSseEmitter;
+          if (sseEmitter) {
+            // Get updated task list and send to frontend
+            const { getTodosTool } = await import('../task-generator-agent.js');
+            const tasksResult = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
+            
+            let tasks = [];
+            try {
+              tasks = JSON.parse(tasksResult);
+            } catch (parseError) {
+              console.error('[Bash Tool] Error parsing tasks result:', tasksResult);
+              // If parsing fails, try to read tasks directly
+              const { readTasksForConversation } = await import('../utils/task-reader.js');
+              const taskData = await readTasksForConversation(conversationId);
+              if (taskData.success) {
+                tasks = taskData.tasks.map(t => ({
+                  title: t.description,
+                  status: t.status
+                }));
+              }
+            }
+            
+            // Send task_summary event with updated tasks
+            sseEmitter('task_summary', {
+              tasks: tasks.map((task, index) => ({
+                id: `task_${conversationId}_${index}`,
+                content: task.title || task,
+                status: task.status || 'pending',
+                conversation_id: conversationId
+              })),
+              conversation_id: conversationId
+            });
+            
+            // Also send the markdown update
+            try {
+              const planPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../plans', `TODO-${conversationId}.md`);
+              const planContent = await fs.readFile(planPath, 'utf-8');
+              sseEmitter('task_plan_created', {
+                markdown: planContent,
+                filename: `TODO-${conversationId}.md`,
+                taskCount: tasks.length,
+                conversation_id: conversationId
+              });
+            } catch (err) {
+              // Ignore if file doesn't exist
+            }
+          }
+          
           return result;
         } catch (error) {
           console.error(`[Bash Agent] Error updating task status:`, error);
-          return `Failed to update task status: ${error.message}`;
+          // Return a JSON-compatible error response
+          return JSON.stringify({
+            success: false,
+            error: error.message,
+            message: `Failed to update task status: ${error.message}`
+          });
         }
       }
     });
@@ -227,7 +304,9 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
     name,
     instructions: `${bashAgentPrompt}
     
-Your specific task: ${task}${taskContext}`,
+Your specific task: ${task}${taskContext}
+
+${smartContext ? '\n## Additional Context\n' + smartContext : ''}`,
     tools,
     model: 'gpt-4.1-mini'
   });
