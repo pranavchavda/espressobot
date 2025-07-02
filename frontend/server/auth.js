@@ -27,6 +27,11 @@ router.get('/google', (req, res, next) => {
   const protocol = req.get('x-forwarded-proto') || req.protocol;
   console.log('OAuth request from:', `${protocol}://${host}`);
   
+  // Ensure we're using HTTPS in production (Replit)
+  if (host.includes('replit.dev') && protocol !== 'https') {
+    return res.redirect(`https://${host}${req.originalUrl}`);
+  }
+  
   passport.authenticate('google', { 
     scope: ['profile', 'email'],
     accessType: 'offline',

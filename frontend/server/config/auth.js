@@ -20,7 +20,7 @@ const configureGoogleStrategy = () => {
       {
         clientID,
         clientSecret,
-        callbackURL: '/api/auth/google/callback', // Will be resolved dynamically
+        callbackURL: process.env.GOOGLE_CALLBACK_URL || 'https://0134e98b-97a0-4b62-a174-76ed2496db88-00-1fmng1ey9lv3m.sisko.replit.dev/api/auth/google/callback',
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
