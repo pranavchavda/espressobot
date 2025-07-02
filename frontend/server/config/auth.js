@@ -8,20 +8,19 @@ const prisma = new PrismaClient();
 const configureGoogleStrategy = () => {
   const clientID = process.env.GOOGLE_CLIENT_ID || 'your-client-id';
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || 'your-client-secret';
-  const callbackURL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5173/api/auth/google/callback';
-  
+
   console.log('Google OAuth Config:', {
     clientID: clientID.substring(0, 10) + '...',
     clientSecret: clientSecret.substring(0, 10) + '...',
-    callbackURL
+    callbackURL: 'Dynamic (will be set per request)'
   });
-  
+
   passport.use(
     new GoogleStrategy(
       {
         clientID,
         clientSecret,
-        callbackURL,
+        callbackURL: '/api/auth/google/callback', // Will be resolved dynamically
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
@@ -30,18 +29,18 @@ const configureGoogleStrategy = () => {
             email: profile.emails?.[0]?.value,
             name: profile.displayName
           });
-          
+
           const userEmail = profile.emails[0].value;
-          
+
           // Access control checks
           const allowedEmails = process.env.ALLOWED_EMAILS?.split(',').map(e => e.trim()) || [];
           const restrictedDomain = process.env.RESTRICTED_DOMAIN;
-          
+
           // Check domain restriction
           if (restrictedDomain && !userEmail.endsWith(`@${restrictedDomain}`)) {
             return done(null, false, { message: 'Access restricted to company accounts' });
           }
-          
+
           // Check if user exists
           let user = await prisma.users.findUnique({
             where: { email: userEmail },
