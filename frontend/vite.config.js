@@ -132,6 +132,7 @@ export default defineConfig({
     },
   ],
   server: {
+    allowedHosts: ['all'],
     watch: {
       ignored: [
         '**/dev.db', 
