@@ -1,0 +1,12 @@
+modules = ["nodejs-20", "python-3.12", "web", "bash"]
+run = "cd frontend && pnpm dev"
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+run = ["sh", "-c", "cd frontend && pnpm dev"]
+
+[[ports]]
+localPort = 5173
+externalPort = 80
