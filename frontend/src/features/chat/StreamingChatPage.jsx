@@ -7,9 +7,7 @@ import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { UnifiedTaskDisplay } from "@components/chat/UnifiedTaskDisplay";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
-import { Switch, SwitchField } from "@common/switch";
 import logo from "../../../static/EspressoBotLogo.png";
-import { autoUploadImage } from "@lib/image-upload";
 
 
 function StreamingChatPage({ convId }) {
