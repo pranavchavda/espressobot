@@ -132,7 +132,11 @@ export default defineConfig({
     },
   ],
   server: {
-    allowedHosts: 'all',
+    allowedHosts: [
+      'localhost',
+      '.replit.dev',
+      /^.*\.replit\.dev$/
+    ],
     watch: {
       ignored: [
         '**/dev.db', 
