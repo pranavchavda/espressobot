@@ -1,6 +1,0 @@
-- [ ] Outline script requirements for coffee preference memory operations
-- [ ] Configure memory_operations tool in the script environment
-- [ ] Implement addCoffeePreferenceMemory function using memory_operations
-- [ ] Implement queryCoffeePreferences function using memory_operations
-- [ ] Write tests for adding and querying coffee preference memories
-- [ ] Handle errors and logging in memory_operations calls

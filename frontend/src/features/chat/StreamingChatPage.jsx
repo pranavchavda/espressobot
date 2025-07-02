@@ -1106,20 +1106,6 @@ function StreamingChatPage({ convId }) {
             <>
               {/* Show unified task display if tasks are available */}
               {console.log('FRONTEND: Render - taskMarkdown:', taskMarkdown?.conversation_id, 'activeConv:', activeConv, 'convId:', convId)}
-              {((taskMarkdown && taskMarkdown.markdown && 
-                String(taskMarkdown.conversation_id) === String(activeConv || convId)) || 
-                currentTasks.length > 0) && (
-                <UnifiedTaskDisplay
-                  taskMarkdown={taskMarkdown}
-                  liveTasks={currentTasks}
-                  onInterrupt={handleInterrupt}
-                  isStreaming={isSending}
-                  conversationId={activeConv || convId}
-                  plannerStatus={plannerStatus}
-                  dispatcherStatus={dispatcherStatus}
-                  synthesizerStatus={synthesizerStatus}
-                />
-              )}
               
               {/* Render all messages */}
               {messages.map((msg, i) => {
@@ -1298,6 +1284,20 @@ function StreamingChatPage({ convId }) {
       {/* Input area + Suggestions, fixed at the bottom */}
       <div className="sticky bottom-0 w-full bg-zinc-50 dark:bg-zinc-900 py-3 border-t border-zinc-200 dark:border-zinc-700 z-10">
         {/* Suggestions Area */}
+        {((taskMarkdown && taskMarkdown.markdown && 
+                String(taskMarkdown.conversation_id) === String(activeConv || convId)) || 
+                currentTasks.length > 0) && (
+                <UnifiedTaskDisplay
+                  taskMarkdown={taskMarkdown}
+                  liveTasks={currentTasks}
+                  onInterrupt={handleInterrupt}
+                  isStreaming={isSending}
+                  conversationId={activeConv || convId}
+                  plannerStatus={plannerStatus}
+                  dispatcherStatus={dispatcherStatus}
+                  synthesizerStatus={synthesizerStatus}
+                />
+              )}
         {suggestions && suggestions.length > 0 && !isSending && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 flex flex-wrap gap-2 justify-center sm:justify-start">
             {suggestions.map((suggestion, index) => (

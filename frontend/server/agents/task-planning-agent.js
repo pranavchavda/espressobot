@@ -14,7 +14,8 @@ setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 // Initialize plans directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const plansDir = path.resolve(__dirname, '../plans');
+// Store plans in a data directory outside of the source tree to avoid Vite restarts
+const plansDir = path.resolve(__dirname, '../data/plans');
 if (!fs.existsSync(plansDir)) fs.mkdirSync(plansDir, { recursive: true });
 
 // Get all available tool names for context
@@ -249,45 +250,33 @@ export async function updateTaskStatus(conversationId, taskIndex, status) {
 
 export async function getCurrentTasks(conversationId) {
   try {
-    // Check if getTodosTool is properly initialized
-    if (!getTodosTool || typeof getTodosTool.execute !== 'function') {
-      console.error('[Task Planning] getTodosTool not properly initialized');
-      // Fallback to direct file reading
-      const filePath = path.resolve(plansDir, `TODO-${conversationId}.md`);
-      if (!fsSync.existsSync(filePath)) {
-        return { success: true, tasks: [] };
-      }
-      
-      const content = fsSync.readFileSync(filePath, 'utf-8');
-      const tasks = [];
-      
-      for (const line of content.split(/\r?\n/)) {
-        const match = line.match(/^\s*-\s*\[( |x)\]\s*(.+)$/i);
-        if (match) {
-          const isCompleted = match[1].toLowerCase() === 'x';
-          const description = match[2].trim();
-          const inProgress = description.startsWith('🔄 ');
-          const cleanDescription = inProgress ? description.substring(3).trim() : description;
-          
-          tasks.push({
-            title: cleanDescription,
-            description: cleanDescription,
-            status: isCompleted ? 'completed' : (inProgress ? 'in_progress' : 'pending')
-          });
-        }
-      }
-      
-      return { success: true, tasks };
+    // Direct file reading is more reliable than using the tool
+    // The tool is meant for agent use, not direct function calls
+    const filePath = path.resolve(plansDir, `TODO-${conversationId}.md`);
+    if (!fsSync.existsSync(filePath)) {
+      return { success: true, tasks: [] };
     }
     
-    // Call the tool's execute function directly
-    const result = await getTodosTool.execute({ conversation_id: conversationId });
-    const tasks = JSON.parse(result);
+    const content = fsSync.readFileSync(filePath, 'utf-8');
+    const tasks = [];
     
-    return {
-      success: true,
-      tasks
-    };
+    for (const line of content.split(/\r?\n/)) {
+      const match = line.match(/^\s*-\s*\[( |x)\]\s*(.+)$/i);
+      if (match) {
+        const isCompleted = match[1].toLowerCase() === 'x';
+        const description = match[2].trim();
+        const inProgress = description.startsWith('🔄 ');
+        const cleanDescription = inProgress ? description.substring(3).trim() : description;
+        
+        tasks.push({
+          title: cleanDescription,
+          description: cleanDescription,
+          status: isCompleted ? 'completed' : (inProgress ? 'in_progress' : 'pending')
+        });
+      }
+    }
+    
+    return { success: true, tasks };
   } catch (error) {
     console.error('[Task Planning] Error getting tasks:', error);
     return {

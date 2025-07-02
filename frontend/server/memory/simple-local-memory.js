@@ -602,10 +602,11 @@ Rules:
 1. Extract facts worth remembering long-term, not temporary conversation state
 2. Each fact must be a complete, standalone sentence
 3. Maximum 2 facts per message exchange (user message + assistant response)
-4. ALWAYS extract when user says "remember that" or "remember this" or similar
-5. Include confirmed facts from assistant responses (e.g., "The CEO is X" when user confirms)
-6. Focus on: personal info, preferences, business context, decisions, confirmed information
-7. Format: Return each fact on a new line
+4. You don't have to extract facts from every exchange. If you don't see any facts, just return an empty list.
+5. ALWAYS extract when user says "remember that" or "remember this" or similar
+6. Include confirmed facts from assistant responses (e.g., "The CEO is X" when user confirms)
+7. Focus on: personal info, preferences, business context, decisions, confirmed information, future plans, and any other relevant information.
+8. Format: Return each fact on a new line
 
 Priority facts to extract:
 - Explicit "remember" requests: User says to remember something

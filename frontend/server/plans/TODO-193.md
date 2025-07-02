@@ -1,6 +1,0 @@
-- [ ] Outline planning agent and bash agents architecture (generate_todos)
-- [ ] Prototype planning agent core logic (run_python_script)
-- [ ] Design read-only bash agent scripts for system data retrieval (run_python_script)
-- [ ] Set up inter-process communication between planning agent and bash agents (run_python_script)
-- [ ] Develop test suite for read-only bash agents (run_python_script)
-- [ ] Validate environment connectivity for bash agents (test_connection)

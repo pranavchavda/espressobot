@@ -231,36 +231,18 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
       }),
       execute: async ({ taskIndex, status }) => {
         try {
-          const { updateTaskStatusTool } = await import('../task-generator-agent.js');
-          const result = await updateTaskStatusTool.invoke(null, JSON.stringify({
-            conversation_id: conversationId,
-            task_index: taskIndex,
-            status
-          }));
+          const { updateTaskStatus } = await import('../agents/task-planning-agent.js');
+          const result = await updateTaskStatus(conversationId, taskIndex, status);
           console.log(`[Bash Agent] Updated task ${taskIndex} to ${status}`);
           
           // Send SSE event to update the frontend
           const sseEmitter = global.currentSseEmitter;
           if (sseEmitter) {
             // Get updated task list and send to frontend
-            const { getTodosTool } = await import('../task-generator-agent.js');
-            const tasksResult = await getTodosTool.invoke(null, JSON.stringify({ conversation_id: conversationId }));
+            const { getCurrentTasks } = await import('../agents/task-planning-agent.js');
+            const tasksData = await getCurrentTasks(conversationId);
             
-            let tasks = [];
-            try {
-              tasks = JSON.parse(tasksResult);
-            } catch (parseError) {
-              console.error('[Bash Tool] Error parsing tasks result:', tasksResult);
-              // If parsing fails, try to read tasks directly
-              const { readTasksForConversation } = await import('../utils/task-reader.js');
-              const taskData = await readTasksForConversation(conversationId);
-              if (taskData.success) {
-                tasks = taskData.tasks.map(t => ({
-                  title: t.description,
-                  status: t.status
-                }));
-              }
-            }
+            let tasks = tasksData.success ? tasksData.tasks : [];
             
             // Send task_summary event with updated tasks
             sseEmitter('task_summary', {
@@ -275,7 +257,7 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
             
             // Also send the markdown update
             try {
-              const planPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../plans', `TODO-${conversationId}.md`);
+              const planPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../data/plans', `TODO-${conversationId}.md`);
               const planContent = await fs.readFile(planPath, 'utf-8');
               sseEmitter('task_plan_created', {
                 markdown: planContent,

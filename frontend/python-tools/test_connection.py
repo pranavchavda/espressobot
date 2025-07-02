@@ -41,13 +41,6 @@ def test_connection():
         print(f"Domain: {shop['primaryDomain']['url']}")
         print(f"Plan: {shop['plan']['displayName']}")
         
-        # Test product count
-        count_query = '{ products { count } }'
-        count_result = client.execute_graphql(count_query)
-        product_count = count_result.get('data', {}).get('products', {}).get('count', 0)
-        print(f"\nTotal Products: {product_count}")
-        
-        return True
     else:
         print("\n❌ Connection failed!")
         print("Please check your credentials and try again.")

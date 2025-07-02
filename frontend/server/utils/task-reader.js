@@ -6,8 +6,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Define PLANS_DIR at module level
-const PLANS_DIR = path.resolve(__dirname, '../plans');
+// Define PLANS_DIR at module level - using data directory to avoid Vite restarts
+const PLANS_DIR = path.resolve(__dirname, '../data/plans');
 
 /**
  * Reads tasks from a TODO markdown file for a given conversation

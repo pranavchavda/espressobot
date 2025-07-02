@@ -1,5 +1,0 @@
-- [ ] Search for the specified item or issue using search_products
-- [ ] Fetch detailed item information with get_product
-- [ ] Run a run_graphql_query to check the current status of the item or issue
-- [ ] Verify removal or resolution by checking redirects with manage_redirects
-- [ ] Compile and deliver a confirmation report to the user

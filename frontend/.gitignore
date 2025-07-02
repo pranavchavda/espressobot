@@ -64,4 +64,5 @@ server/memory/venv/
 
 # Task planning files
 server/plans/
+server/data/
 TODO-*.md

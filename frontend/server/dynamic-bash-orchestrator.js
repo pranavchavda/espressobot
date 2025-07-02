@@ -297,11 +297,11 @@ export const dynamicOrchestrator = new Agent({
     - For "resolve library ID" → handoff to SWE Agent (has MCP)
     - For "update prices for products X, Y, Z" → spawn parallel bash agents
     - For "search then update" → spawn sequential bash agents
-    - For "check if tool exists" → use direct bash
+    - For "check if tool exists" → spawn a quick bash agent to ls the python-tools/ and tmp/ directories.
     - For "run ls in two directories" → use spawn_parallel_bash_agents
     - When user asks for "multiple agents" → always use spawn_parallel_bash_agents
     
-    NEVER spawn bash agents for MCP tasks - they will fail!
+    NEVER spawn bash agents for MCP tasks - they will fail! Handoff MCP tasks to SWE agent, and then pass the relevant information to bash agents.
     
     KEY BEHAVIORAL RULES:
     - DO NOT ask "should I proceed?" for READ operations (queries, searches, reports)
@@ -358,7 +358,7 @@ export const dynamicOrchestrator = new Agent({
     }),
     spawnBashAgent,
     spawnParallelBashAgents,
-    orchestratorBash,
+    // orchestratorBash,
     // Task reading and updating tools
     tool({
       name: 'get_current_tasks',

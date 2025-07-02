@@ -1,5 +1,63 @@
 # Claude Development Log
 
+## July 1, 2025 - System Cleanup and Anthropic Integration Attempt
+
+### 🎯 **Objectives**
+1. Attempted to integrate Claude models into OpenAI Agents SDK
+2. Cleaned up redundant files and unused code
+3. Fixed memory system bugs and task display issues
+4. Moved task files to prevent Vite restarts
+
+### 🔧 **Anthropic Integration Attempt**
+- **Goal**: Use Claude Sonnet 4.0 as orchestrator instead of GPT-4
+- **Result**: OpenAI Agents SDK is tightly coupled to OpenAI's API
+- **Decision**: Stick with OpenAI for now, plan parallel Anthropic backend for future
+- **Files Created**: 
+  - `ANTHROPIC_BACKEND_PLAN.md` - Roadmap for future integration
+  - Anthropic SDK installed for future use
+
+### 🧹 **Major Cleanup**
+- **Removed Unused Agents**: Deleted 9 unused agent files, kept only 3 active ones:
+  - `task-planning-agent.js` - Task management
+  - `swe-agent-connected.js` - Software engineering tasks  
+  - `semantic-bash-agent.js` - Semantic search for bash agents
+- **Consolidated Documentation**: Merged 6 memory MD files into `MEMORY_SYSTEM_DOCUMENTATION.md`
+- **Removed Test Files**: Cleaned up old test and debug files
+- **Result**: Much leaner, more maintainable codebase
+
+### 🐛 **Bug Fixes**
+1. **Task System Import Error**: Fixed `task-generator-agent.js` not found error
+   - Updated imports to use `task-planning-agent.js`
+   - Fixed function calls to use direct methods instead of tool invocations
+
+2. **Vite Restart Issue**: Moved task files to prevent constant restarts
+   - Changed location from `server/plans/` to `server/data/plans/`
+   - Updated all references in task-planning-agent.js, bash-tool.js, and task-reader.js
+   - Added `server/data/` to .gitignore
+
+3. **Task Display Warning**: Removed "getTodosTool not properly initialized" warning
+   - Simplified getCurrentTasks to use direct file reading
+   - Removed unnecessary fallback logic
+
+### 📁 **Current Architecture**
+```
+server/
+├── agents/           # Only 3 active agents remain
+├── data/            # Runtime data (tasks, etc) - not watched by Vite
+│   └── plans/       # Task TODO files
+├── memory/          # Local memory system
+│   └── data/        # SQLite database
+└── tools/           # Tool implementations
+```
+
+### ✅ **System Status**
+- Memory system: Fully operational with strong deduplication
+- Task system: Working without Vite restarts
+- Codebase: Clean and maintainable
+- Models: Using OpenAI (GPT-4/O4-mini), Anthropic ready for future
+
+---
+
 ## June 30, 2025 - Main Branch Update
 
 ### 🎯 **Major Branch Restructuring**
