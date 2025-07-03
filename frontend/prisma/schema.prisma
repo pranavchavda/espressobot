@@ -12,15 +12,17 @@ model alembic_version {
 }
 
 model conversations {
-  id         Int          @id @default(autoincrement())
-  user_id    Int
-  title      String
-  created_at DateTime?
-  updated_at DateTime?
-  filename   String       @unique
-  agent_runs agent_runs[]
-  users      users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  messages   messages[]
+  id           Int          @id @default(autoincrement())
+  user_id      Int
+  title        String
+  topic_title  String?      // Concise topic title
+  topic_details String?     // Detailed topic description
+  created_at   DateTime?
+  updated_at   DateTime?
+  filename     String       @unique
+  agent_runs   agent_runs[]
+  users        users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  messages     messages[]
 }
 
 model embedding_cache {

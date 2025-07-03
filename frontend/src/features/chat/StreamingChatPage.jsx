@@ -157,13 +157,26 @@ function StreamingChatPage({ convId }) {
     setCurrentTasks([]);
     setToolCallStatus("");
     
-    // Optionally send an interrupt signal to the backend
+    // Send an interrupt signal to the backend
     try {
-      await fetch('/api/interrupt', {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch('/api/agent/interrupt', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
         body: JSON.stringify({ conv_id: activeConv })
       });
+      
+      const result = await response.json();
+      console.log('Interrupt response:', result);
+      
+      if (result.success) {
+        console.log('Successfully sent interrupt signal');
+      } else {
+        console.log('Interrupt signal failed:', result.message);
+      }
     } catch (error) {
       console.log("Failed to send interrupt signal:", error);
     }

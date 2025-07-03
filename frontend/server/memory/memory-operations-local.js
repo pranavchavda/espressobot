@@ -142,6 +142,75 @@ class MemoryOperations {
   extractMemorySummary(conversationText, context = {}) {
     return this.memory.extractMemorySummary(conversationText, context);
   }
+
+  /**
+   * Add a system prompt fragment
+   * @param {string} fragment - The prompt fragment
+   * @param {Object} metadata - Metadata including category, priority, tags
+   * @returns {Promise<Object>} The created fragment
+   */
+  async addSystemPromptFragment(fragment, metadata = {}) {
+    try {
+      const result = await this.memory.add(fragment, 'system_prompts', {
+        type: 'system_prompt',
+        category: metadata.category || 'general',
+        priority: metadata.priority || 'medium',
+        tags: metadata.tags || [],
+        agent_type: metadata.agent_type || 'all',
+        ...metadata,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log('System prompt fragment added:', result);
+      return result;
+    } catch (error) {
+      console.error('Error adding system prompt fragment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Search system prompt fragments
+   * @param {string} query - The search query
+   * @param {number} limit - Maximum number of results
+   * @returns {Promise<Array>} Array of matching fragments
+   */
+  async searchSystemPromptFragments(query, limit = 10) {
+    try {
+      const fragments = await this.memory.search(query, 'system_prompts', limit);
+      
+      console.log(`Found ${fragments.length} system prompt fragments`);
+      return fragments;
+    } catch (error) {
+      console.error('Error searching system prompt fragments:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all system prompt fragments
+   * @param {Object} filter - Optional filter by category or agent_type
+   * @param {number} limit - Maximum number of results
+   * @returns {Promise<Array>} Array of all fragments
+   */
+  async getAllSystemPromptFragments(filter = {}, limit = 100) {
+    try {
+      const allFragments = await this.memory.getAll('system_prompts', limit);
+      
+      if (filter.category || filter.agent_type) {
+        return allFragments.filter(f => {
+          const metadata = f.metadata || {};
+          return (!filter.category || metadata.category === filter.category) &&
+                 (!filter.agent_type || metadata.agent_type === filter.agent_type);
+        });
+      }
+      
+      return allFragments;
+    } catch (error) {
+      console.error('Error getting system prompt fragments:', error);
+      return [];
+    }
+  }
 }
 
 // Export singleton instance

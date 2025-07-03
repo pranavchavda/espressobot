@@ -6,8 +6,11 @@ import StreamingChatPage from "./features/chat/StreamingChatPage";
 import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
 import RestrictedPage from './pages/RestrictedPage';
+import AdminPage from './pages/AdminPage';
+import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
+import ToolDocumentation from './components/ToolDocumentation';
 import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon, Database } from 'lucide-react';
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon, Database, BookOpen } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
@@ -204,18 +207,33 @@ function App() {
                   </span>
                 </div>
                 
-                {/* Memory Management - Admin Only */}
+                {/* Admin Dashboard - Admin Only */}
                 {user.email === 'pranav@idrinkcoffee.com' && (
-                  <Button
-                    onClick={() => setShowMemoryModal(true)}
-                    outline
-                    small
-                    className="flex items-center"
-                  >
-                    <Database className="h-4 w-4 mr-1" />
-                    Memory
-                  </Button>
+                  <NavLink to="/admin">
+                    <Button
+                      outline
+                      small
+                      className="flex items-center"
+                    >
+                      <Database className="h-4 w-4 mr-1" />
+                      Admin
+                    </Button>
+                  </NavLink>
                 )}
+                
+                <NavLink 
+                  to="/tools" 
+                  className={({ isActive }) => 
+                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                      isActive 
+                        ? 'text-indigo-600 dark:text-indigo-400' 
+                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
+                    }`
+                  }
+                >
+                  <BookOpen className="h-4 w-4 mr-1 inline" />
+                  Tools
+                </NavLink>
                 
                 <NavLink 
                   to="/about" 
@@ -390,6 +408,16 @@ function App() {
           }
         />
         <Route path="/about" element={<AboutPage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />
+        <Route path="/admin/memory" element={
+          <div className="container mx-auto p-6">
+            <Button onClick={() => setShowMemoryModal(true)}>
+              Open Memory Management
+            </Button>
+          </div>
+        } />
+        <Route path="/tools" element={<ToolDocumentation />} />
       </Route>
     </Routes>
     

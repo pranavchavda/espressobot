@@ -11,6 +11,9 @@ const router = Router();
 const { PrismaClient } = prismaClient;
 const prisma = new PrismaClient();
 
+// Store AbortController instances per conversation for interrupt functionality
+const conversationAbortControllers = new Map();
+
 /**
  * SSE endpoint for bash orchestrator
  */
@@ -72,54 +75,21 @@ router.post('/run', authenticateToken, async (req, res) => {
     global.currentSseEmitter = sendEvent;
     global.currentConversationId = conversationId;
     
-    // Build conversation context with memory system
+    // Build conversation context
+    // Note: Memories will be handled by the smart context loading system to avoid duplication
     
-    // Retrieve relevant memories
-    sendEvent('agent_processing', {
-      agent: 'Memory_System',
-      message: 'Retrieving relevant memories...'
-    });
+    // Store the user ID globally for memory operations
+    global.currentUserId = `user_${USER_ID}`;
     
-    let memoryContext = '';
-    try {
-      // Search for relevant memories
-      const searchQuery = message + (conversationMessages.length > 0 ? 
-        '\n' + conversationMessages.slice(-3).map(m => m.content).join('\n') : '');
-      
-      console.log(`[Memory] Searching memories for user ${USER_ID} with query: "${searchQuery.substring(0, 100)}..."`);
-      
-      // Use actual user ID for cross-conversation memory persistence
-      const memoryUserId = `user_${USER_ID}`;
-      
-      const memoryResult = await memoryOperations.search(
-        searchQuery,
-        memoryUserId,  // Use user ID instead of conversation ID
-        5 // Top 5 memories
-      );
-      
-      console.log(`[Memory] Found ${memoryResult.length || 0} memories`);
-      
-      if (memoryResult && memoryResult.length > 0) {
-        memoryContext = '\n\nRelevant context from previous conversations:\n' +
-          memoryResult.map(m => `- ${m.memory}`).join('\n') + '\n';
-        console.log(`[Memory] Retrieved ${memoryResult.length} relevant memories`);
-      } else {
-        console.log(`[Memory] No memories found for user ${USER_ID}`);
-      }
-    } catch (error) {
-      console.error('[Memory] Error retrieving memories:', error);
-      // Continue without memories if retrieval fails
-    }
-    
-    // Create context with memories
+    // Create context without memories (they'll be added by getSmartContext)
     let fullContext;
     if (conversationMessages.length > 0) {
       const history = conversationMessages.map(msg => 
         `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
       ).join('\n\n');
-      fullContext = `${memoryContext}Previous conversation:\n${history}\n\nUser: ${message}`;
+      fullContext = `[Conversation ID: ${conversationId}]\n\nPrevious conversation:\n${history}\n\nUser: ${message}`;
     } else {
-      fullContext = `${memoryContext}User: ${message}`;
+      fullContext = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     }
     
     // Check if request needs planning (complex or multi-step)
@@ -193,13 +163,23 @@ router.post('/run', authenticateToken, async (req, res) => {
       }, 2000); // Check every 2 seconds
     }
     
+    // Create AbortController for this conversation
+    const abortController = new AbortController();
+    console.log(`[ORCHESTRATOR] Storing AbortController for conversation: ${conversationId} (type: ${typeof conversationId})`);
+    conversationAbortControllers.set(conversationId, abortController);
+    console.log(`[ORCHESTRATOR] Total stored controllers: ${conversationAbortControllers.size}`);
+    console.log(`[ORCHESTRATOR] Stored controller keys:`, Array.from(conversationAbortControllers.keys()));
+    
+    // Run the orchestrator
+    console.log('*** RUNNING ORCHESTRATOR ***');
     const result = await runDynamicOrchestrator(fullContext, {
       conversationId,
       userId: USER_ID,
       sseEmitter: sendEvent,
       taskUpdater: needsPlanning ? async (taskIndex, status) => {
         await updateTaskStatus(conversationId.toString(), taskIndex, status);
-      } : null
+      } : null,
+      abortSignal: abortController.signal
     });
     
     // Stop task monitoring
@@ -300,23 +280,25 @@ router.post('/run', authenticateToken, async (req, res) => {
       });
       console.log('=== AGENT_MESSAGE EVENT SENT ===');
       
-      // Store conversation in memory for future retrieval
-      try {
-        // Create conversation summary for memory extraction
-        const conversationSummary = `User: ${message}\nAssistant: ${textResponse}`;
-        
-        console.log(`[Memory] Extracting facts for conversation ${conversationId}`);
-        console.log(`[Memory] Message: "${message.substring(0, 100)}..."`);
-        console.log(`[Memory] Response: "${textResponse.substring(0, 100)}..."`);
-        
-        // Use actual user ID for cross-conversation memory persistence
-        const memoryUserId = `user_${USER_ID}`;
-        
-        // Extract facts using GPT-4.1-mini
-        const extractedFacts = await memoryOperations.extractMemorySummary(conversationSummary, {
-          conversationId: conversationId.toString(),
-          agent: 'Dynamic_Bash_Orchestrator'
-        });
+      // Store conversation in memory for future retrieval (non-blocking)
+      // Use setImmediate to ensure response is sent first
+      setImmediate(async () => {
+        try {
+          // Create conversation summary for memory extraction
+          const conversationSummary = `User: ${message}\nAssistant: ${textResponse}`;
+          
+          console.log(`[Memory] Extracting facts for conversation ${conversationId}`);
+          console.log(`[Memory] Message: "${message.substring(0, 100)}..."`);
+          console.log(`[Memory] Response: "${textResponse.substring(0, 100)}..."`);
+          
+          // Use actual user ID for cross-conversation memory persistence
+          const memoryUserId = `user_${USER_ID}`;
+          
+          // Extract facts using GPT-4.1-mini
+          const extractedFacts = await memoryOperations.extractMemorySummary(conversationSummary, {
+            conversationId: conversationId.toString(),
+            agent: 'Dynamic_Bash_Orchestrator'
+          });
         
         console.log(`[Memory] Extracted ${extractedFacts.length} facts`);
         
@@ -339,21 +321,24 @@ router.post('/run', authenticateToken, async (req, res) => {
           }
         }
         
-        console.log(`[Memory] Successfully stored ${successCount}/${extractedFacts.length} facts`);
-        
-      } catch (error) {
-        console.error('[Memory] Error extracting/storing memory:', error);
-        // Continue even if memory storage fails
-      }
+          console.log(`[Memory] Successfully stored ${successCount}/${extractedFacts.length} facts`);
+          
+        } catch (error) {
+          console.error('[Memory] Error extracting/storing memory:', error);
+          // Continue even if memory storage fails
+        }
+      });
     } else {
       console.log('=== WARNING: No textResponse to send ===');
     }
     
     // Send completion
+    console.log('[ORCHESTRATOR] Sending done event');
     sendEvent('done', {
       finalResponse: textResponse || 'No response generated',
       conversationId
     });
+    console.log('[ORCHESTRATOR] Done event sent');
     
   } catch (error) {
     console.error('Bash orchestrator API error:', error);
@@ -362,10 +347,61 @@ router.post('/run', authenticateToken, async (req, res) => {
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   } finally {
-    // Clean up globals
+    // Clean up globals and abort controller
     global.currentSseEmitter = null;
     global.currentConversationId = null;
+    console.log(`[ORCHESTRATOR] Cleaning up AbortController for conversation: ${conversationId}`);
+    conversationAbortControllers.delete(conversationId);
+    conversationAbortControllers.delete(parseInt(conversationId));
+    conversationAbortControllers.delete(String(conversationId));
+    console.log(`[ORCHESTRATOR] Calling res.end() for conversation: ${conversationId}`);
+    // Send a final newline to ensure the stream is properly terminated
+    res.write('\n');
     res.end();
+    console.log(`[ORCHESTRATOR] res.end() completed for conversation: ${conversationId}`);
+  }
+});
+
+/**
+ * POST /interrupt - Interrupt ongoing agent execution
+ */
+router.post('/interrupt', authenticateToken, async (req, res) => {
+  console.log('\n========= INTERRUPT REQUEST =========');
+  const { conv_id } = req.body || {};
+  
+  if (!conv_id) {
+    return res.status(400).json({ error: 'Conversation ID is required' });
+  }
+  
+  console.log('Attempting to interrupt conversation:', conv_id, '(type:', typeof conv_id, ')');
+  console.log('Available controller keys:', Array.from(conversationAbortControllers.keys()));
+  console.log('Total controllers:', conversationAbortControllers.size);
+  
+  // Try both string and number forms of the conversation ID
+  let abortController = conversationAbortControllers.get(conv_id);
+  if (!abortController) {
+    abortController = conversationAbortControllers.get(parseInt(conv_id));
+    console.log('Trying parseInt version:', parseInt(conv_id));
+  }
+  if (!abortController) {
+    abortController = conversationAbortControllers.get(String(conv_id));
+    console.log('Trying String version:', String(conv_id));
+  }
+  
+  if (abortController) {
+    console.log('Found AbortController for conversation:', conv_id, '- sending abort signal');
+    abortController.abort('User requested interruption');
+    
+    // Clean up the controller (try all possible keys)
+    conversationAbortControllers.delete(conv_id);
+    conversationAbortControllers.delete(parseInt(conv_id));
+    conversationAbortControllers.delete(String(conv_id));
+    
+    res.json({ success: true, message: 'Interrupt signal sent' });
+  } else {
+    console.log('No active AbortController found for conversation:', conv_id);
+    console.log('Available keys were:', Array.from(conversationAbortControllers.keys()));
+    res.json({ success: false, message: 'No active execution found for this conversation' });
   }
 });
 

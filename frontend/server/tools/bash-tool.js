@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import ragSystemPromptManager from '../memory/rag-system-prompt-manager.js';
+import { learningTool } from './learning-tool.js';
 
 /**
  * Core bash execution function
@@ -172,23 +174,34 @@ export const bashTool = tool({
  * Create a bash-enabled agent
  */
 export async function createBashAgent(name, task, conversationId = null) {
-  // Load the enhanced bash agent prompt template
-  let bashAgentPrompt;
+  // Load the base bash agent prompt template
+  let basePrompt;
   try {
     const promptPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent-enhanced.md');
-    bashAgentPrompt = await fs.readFile(promptPath, 'utf-8');
+    basePrompt = await fs.readFile(promptPath, 'utf-8');
   } catch (error) {
     // Try fallback to basic prompt
     try {
       const fallbackPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent.md');
-      bashAgentPrompt = await fs.readFile(fallbackPath, 'utf-8');
+      basePrompt = await fs.readFile(fallbackPath, 'utf-8');
     } catch (fallbackError) {
       // Final fallback to inline prompt
-      bashAgentPrompt = `You are a bash-enabled agent with full access to Python tools in /home/pranav/espressobot/frontend/python-tools/.
+      basePrompt = `You are a bash-enabled agent with full access to Python tools in /home/pranav/espressobot/frontend/python-tools/.
     
 Best practices: Check tool existence, use --help, handle errors, use absolute paths, chain commands with &&.`;
     }
   }
+  
+  // Generate RAG-enhanced system prompt
+  const userId = global.currentUserId || conversationId;
+  const ragPrompt = await ragSystemPromptManager.getSystemPrompt(task, {
+    basePrompt: basePrompt,
+    maxFragments: 8,
+    includeMemories: true,
+    userId: userId,
+    agentType: 'bash',
+    minScore: 0.5
+  });
   
   // Load smart context based on the task
   let smartContext = '';
@@ -196,7 +209,8 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
     const { getSmartContext } = await import('../context-loader/context-manager.js');
     smartContext = await getSmartContext(task, {
       taskDescription: task,
-      includeMemory: true
+      includeMemory: true,
+      conversationId: conversationId
     });
     console.log(`[Bash Agent] Loaded smart context (${smartContext.length} chars) for task: ${task.substring(0, 50)}...`);
   } catch (error) {
@@ -217,8 +231,48 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
     }
   }
   
-  // Create tools array with bash tool
-  const tools = [bashTool];
+  // Create tools array with bash tool and learning tool
+  const tools = [bashTool, learningTool];
+  
+  // Add conversation topic update tool
+  const updateTopicTool = tool({
+    name: 'update_conversation_topic',
+    description: 'Update the topic title and details for the current conversation. Use this to set a clear, concise topic that summarizes what the conversation is about.',
+    parameters: z.object({
+      topic_title: z.string().describe('A concise topic title (max 200 characters) that summarizes the conversation'),
+      topic_details: z.string().nullable().optional().describe('Optional detailed description of the topic, including key context, goals, or important information')
+    }),
+    execute: async ({ topic_title, topic_details }) => {
+      try {
+        const { updateConversationTopic } = await import('./update-conversation-topic.js');
+        
+        // Use the current conversation ID
+        const convId = conversationId || global.currentConversationId;
+        if (!convId) {
+          return {
+            success: false,
+            error: 'No conversation ID available'
+          };
+        }
+        
+        const result = await updateConversationTopic({
+          conversation_id: convId,
+          topic_title,
+          topic_details
+        });
+        
+        console.log(`[Bash Agent] Updated conversation topic: ${topic_title}`);
+        return result;
+      } catch (error) {
+        console.error(`[Bash Agent] Error updating conversation topic:`, error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+  });
+  tools.push(updateTopicTool);
   
   // Add task update tool if conversationId is provided
   if (conversationId && taskContext) {
@@ -287,11 +341,9 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
   
   return new Agent({
     name,
-    instructions: `${bashAgentPrompt}
+    instructions: `${ragPrompt}
     
-Your specific task: ${task}${taskContext}
-
-${smartContext ? '\n## Additional Context\n' + smartContext : ''}`,
+Your specific task: ${task}${taskContext}`,
     tools,
     model: 'gpt-4.1-mini'
   });

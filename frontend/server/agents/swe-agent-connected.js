@@ -2,6 +2,8 @@ import { Agent, MCPServerStdio, tool, webSearchTool } from '@openai/agents';
 import { z } from 'zod';
 import fs from 'fs/promises';
 import { executeBashCommand } from '../tools/bash-tool.js';
+import ragSystemPromptManager from '../memory/rag-system-prompt-manager.js';
+import { learningTool, reflectAndLearnTool } from '../tools/learning-tool.js';
 
 // Tool definitions (copied from main SWE agent since they're not exported)
 const createAdHocTool = tool({
@@ -115,10 +117,8 @@ export async function createConnectedSWEAgent() {
   // Initialize MCP servers first
   const servers = await initializeMCPServers();
   
-  // Create agent with connected servers
-  const agent = new Agent({
-    name: 'SWE_Agent_Connected',
-    instructions: `You are a Software Engineering Agent with access to MCP servers.
+  // Base instructions for SWE agent
+  const baseInstructions = `You are a Software Engineering Agent with access to MCP servers.
 
     You are the SWE agent for EspressoBot - IDrinkCoffee.com's AI assistant agency managing ecommerce operations with Shopify integration. 
     Before executing any GraphQL queries, you must perform live schema validation against the latest Shopify GraphQL schema. If validation errors occur, stop immediately, report clear error messages with actionable suggestions for correction, and do not proceed.
@@ -146,9 +146,40 @@ export async function createConnectedSWEAgent() {
     1. Create new Python tools (both ad-hoc and permanent)
     2. Use MCP tools to ensure accuracy with external APIs
     3. Write comprehensive documentation
-    4. Ensure code quality and best practices`,
+    4. Ensure code quality and best practices`;
+  
+  // Generate RAG-enhanced prompt
+  const userId = global.currentUserId || global.currentConversationId;
+  const contextQuery = "software engineering shopify mcp tools graphql api development";
+  const ragInstructions = await ragSystemPromptManager.getSystemPrompt(contextQuery, {
+    basePrompt: baseInstructions,
+    maxFragments: 10,
+    includeMemories: true,
+    userId: userId,
+    agentType: 'swe',
+    minScore: 0.4
+  });
+  
+  // Create agent with connected servers
+  const agent = new Agent({
+    name: 'SWE_Agent_Connected',
+    instructions: ragInstructions,
     tools: [
-      webSearchTool(),
+      tool({
+        name: 'web_search',
+        description: 'Search the web for information',
+        parameters: z.object({
+          query: z.string().describe('Search query')
+        }),
+        execute: async (args) => {
+          try {
+            const tool = webSearchTool();
+            return await tool.execute(args);
+          } catch (error) {
+            return JSON.stringify({ error: `Web search failed: ${error.message}` });
+          }
+        }
+      }),
       createAdHocTool,
       tool({
         name: 'bash',
@@ -158,7 +189,9 @@ export async function createConnectedSWEAgent() {
           cwd: z.string().nullable().default('/home/pranav/espressobot/frontend/python-tools')
         }),
         execute: executeBashCommand
-      })
+      }),
+      learningTool,
+      reflectAndLearnTool
     ],
     mcpServers: servers,
     model: 'o3',

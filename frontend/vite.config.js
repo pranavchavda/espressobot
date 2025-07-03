@@ -123,6 +123,10 @@ export default defineConfig({
         const memoryManagementRoutes = (await import('./server/memory-management')).default;
         apiApp.use('/api/memory', memoryManagementRoutes);
         
+        // Prompt library routes (admin only)
+        const promptLibraryRoutes = (await import('./server/api/prompt-library')).default;
+        apiApp.use('/api/prompt-library', promptLibraryRoutes);
+        
         server.middlewares.use(apiApp);
       },
     },

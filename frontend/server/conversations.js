@@ -71,8 +71,50 @@ router.get('/:id', authenticateToken, async (req, res) => {
   res.json({ 
     messages, 
     tasks: latestRun ? JSON.parse(latestRun.tasks) : [],
-    taskMarkdown: taskMarkdown
+    taskMarkdown: taskMarkdown,
+    topic_title: conversation.topic_title,
+    topic_details: conversation.topic_details
   });
+});
+
+// Update conversation topic
+router.put('/:id/topic', authenticateToken, async (req, res) => {
+  const convId = Number(req.params.id);
+  const { topic_title, topic_details } = req.body;
+  const USER_ID = req.user?.id || 1;
+  
+  if (!convId) {
+    return res.status(400).json({ error: 'Invalid conversation ID' });
+  }
+  
+  try {
+    // Verify the conversation belongs to the user
+    const conversation = await prisma.conversations.findFirst({
+      where: { id: convId, user_id: USER_ID }
+    });
+    
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    
+    // Update the topic
+    const updated = await prisma.conversations.update({
+      where: { id: convId },
+      data: {
+        topic_title,
+        topic_details,
+        updated_at: new Date()
+      }
+    });
+    
+    res.json({
+      success: true,
+      conversation: updated
+    });
+  } catch (error) {
+    console.error('Error updating conversation topic:', error);
+    res.status(500).json({ error: 'Failed to update conversation topic' });
+  }
 });
 
 // Delete a conversation and its messages

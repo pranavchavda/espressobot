@@ -314,7 +314,7 @@ export function formatContext(loadedContext, taskDescription = '') {
  * Main function to get smart context for a given message/task
  */
 export async function getSmartContext(message, options = {}) {
-  const { includeMemory = true, taskDescription = '', useContextStore = true, userId = null } = options;
+  const { includeMemory = true, taskDescription = '', useContextStore = true, userId = null, conversationId = null } = options;
   
   let contextNeeds;
   
@@ -340,7 +340,33 @@ export async function getSmartContext(message, options = {}) {
   const loadedContext = await loadContext(contextNeeds);
   
   // Format for prompt injection
-  const formattedContext = formatContext(loadedContext, taskDescription);
+  let formattedContext = formatContext(loadedContext, taskDescription);
+  
+  // If conversationId is provided, fetch and inject topic information
+  if (conversationId) {
+    try {
+      const pkg = await import('@prisma/client');
+      const { PrismaClient } = pkg;
+      const prisma = new PrismaClient();
+      
+      const conversation = await prisma.conversations.findUnique({
+        where: { id: parseInt(conversationId) }
+      });
+      
+      if (conversation && (conversation.topic_title || conversation.topic_details)) {
+        let topicContext = '\n## Conversation Topic\n';
+        if (conversation.topic_title) {
+          topicContext += `**Topic:** ${conversation.topic_title}\n`;
+        }
+        if (conversation.topic_details) {
+          topicContext += `**Details:** ${conversation.topic_details}\n`;
+        }
+        formattedContext = topicContext + '\n' + formattedContext;
+      }
+    } catch (error) {
+      console.log('[Context Manager] Could not fetch conversation topic:', error.message);
+    }
+  }
   
   // If memory integration is enabled, fetch relevant memories
   if (includeMemory) {

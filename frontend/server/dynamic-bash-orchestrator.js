@@ -7,6 +7,7 @@ import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool
 // import { sweAgent } from './agents/swe-agent.js';
 import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
 import { taskPlanningAgent } from './agents/task-planning-agent.js';
+import ragSystemPromptManager from './memory/rag-system-prompt-manager.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
 // Set API key
@@ -14,6 +15,9 @@ setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
 // Store the current SSE emitter for access by spawned agents
 let currentSseEmitter = null;
+
+// Store the current abort signal for access by spawned agents
+let currentAbortSignal = null;
 
 // Create connected SWE agent instance
 let connectedSWEAgent = null;
@@ -108,7 +112,17 @@ const spawnBashAgent = tool({
         }
       } : {};
       
-      const result = await run(bashAgent, fullPrompt, { maxTurns: 30, ...callbacks });
+      // Check for abort before running
+      if (currentAbortSignal?.aborted) {
+        throw new Error('Agent execution was interrupted by user');
+      }
+      
+      const runOptions = { maxTurns: 30, ...callbacks };
+      if (currentAbortSignal) {
+        runOptions.signal = currentAbortSignal;
+      }
+      
+      const result = await run(bashAgent, fullPrompt, runOptions);
       
       console.log(`[ORCHESTRATOR] ${agentName} completed task`);
       
@@ -128,6 +142,24 @@ const spawnBashAgent = tool({
         status: 'completed'
       };
     } catch (error) {
+      // Handle abort errors specially
+      if (currentAbortSignal?.aborted || error.name === 'AbortError' || error.message.includes('interrupted by user')) {
+        console.log(`[ORCHESTRATOR] ${agentName} was interrupted by user`);
+        if (currentSseEmitter) {
+          currentSseEmitter('agent_processing', {
+            agent: agentName,
+            message: `Task was interrupted by user`,
+            status: 'interrupted'
+          });
+        }
+        return {
+          agent: agentName,
+          task: task,
+          result: 'Task was interrupted by user',
+          status: 'interrupted'
+        };
+      }
+      
       console.error(`[ORCHESTRATOR] ${agentName} failed:`, error);
       return {
         agent: agentName,
@@ -187,7 +219,17 @@ const spawnParallelBashAgents = tool({
           }
         } : {};
         
-        const result = await run(bashAgent, fullPrompt, { maxTurns: 30, ...callbacks });
+        // Check for abort before running
+        if (currentAbortSignal?.aborted) {
+          throw new Error('Agent execution was interrupted by user');
+        }
+        
+        const runOptions = { maxTurns: 30, ...callbacks };
+        if (currentAbortSignal) {
+          runOptions.signal = currentAbortSignal;
+        }
+        
+        const result = await run(bashAgent, fullPrompt, runOptions);
         
         return {
           agent: agentName,
@@ -196,6 +238,17 @@ const spawnParallelBashAgents = tool({
           status: 'completed'
         };
       } catch (error) {
+        // Handle abort errors specially
+        if (currentAbortSignal?.aborted || error.name === 'AbortError' || error.message.includes('interrupted by user')) {
+          console.log(`[ORCHESTRATOR] ${agentName} was interrupted by user`);
+          return {
+            agent: agentName,
+            task: task,
+            result: 'Task was interrupted by user',
+            status: 'interrupted'
+          };
+        }
+        
         return {
           agent: agentName,
           task: task,
@@ -229,112 +282,62 @@ const orchestratorBash = tool({
 /**
  * Main Dynamic Orchestrator - Using Claude Sonnet 4.0
  */
+
+const builtInSearchTool = webSearchTool();
 export const dynamicOrchestrator = new Agent({
   name: 'Dynamic_Bash_Orchestrator',
   model: 'o4-mini',  // Back to OpenAI for now
 
-  instructions: `You are the main orchestrator for EspressoBot Shell Agency, helping manage the iDrinkCoffee.com e-commerce store. 
+  instructions: `# EspressoBot Orchestrator
 
-    CORE BEHAVIOR: 
-    - For READ operations (searches, queries, reports): Execute immediately without asking
-    - For WRITE operations (updates, creates, deletes): Confirm with user first
-    - Be decisive and action-oriented while maintaining safety
-    
-    Your role is to:
-    1. Analyze user requests and immediately execute appropriate solutions
-    2. Spawn bash agents to complete tasks efficiently 
-    3. Coordinate parallel execution when possible
-    4. Deliver complete results, not partial samples
-    5. Track and update task progress when tasks are present
-    
-    BUSINESS CONTEXT:
-    - You're helping senior management at iDrinkCoffee.com
-    - Goal: Increase sales and offer the best customer experience
-    - Managing Shopify store and integrations (SkuVault, Shipstation, etc.)
-    - Business rules: /home/pranav/espressobot/frontend/server/prompts/idc-business-rules.md
-    - Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md
-    
-    You have access to:
-    - Task Planner (to analyze requests and create structured task plans)
-    - SWE Agent (Software Engineering Agent for creating/modifying tools AND for MCP context access)
-    - Bash Agent Spawner (to create agents for specific tasks with full tool access)
-    - Direct bash access (for simple commands)
-    - Direct task management tools (get_current_tasks, update_task_status)
-    
-    IMPORTANT DISTINCTION - MCP vs API Access:
-    - MCP (Model Context Protocol): Documentation, schema introspection, context retrieval
-    - Shopify GraphQL API: Live data queries using run_graphql_query tool
-    
-    Bash agents CAN:
-    - Execute ALL Python tools including run_graphql_query, run_graphql_mutation
-    - Fetch live data from Shopify (products, orders, customer info, store settings)
-    - Update Shopify data via GraphQL mutations
-    - Run searches, pricing updates, inventory management
-    - Access the CEO info via shop.accountOwner GraphQL query
-    
-    Bash agents CANNOT:
-    - Access MCP for documentation (Context7, Shopify Dev docs)
-    - Introspect GraphQL schema structure (that's MCP)
-    - Search Shopify development documentation (that's MCP)
-    
-    Best practices:
-    - EXECUTE IMMEDIATELY - don't ask permission for routine operations
-    - Try available tools first, fall back to GraphQL if needed
-    - For data requests: get ALL results, not samples
-    - Use Task Planner only for truly complex multi-step operations
-    - Spawn bash agents for ALL Shopify data operations
-    - Run independent tasks in parallel
-    - Use semantic search when agents need business context
-    - Be decisive: if multiple approaches exist, pick one and execute
-    
-    Example patterns:
-    - For "update product pricing" → spawn bash agent (uses update_pricing tool)
-    - For "search products" → spawn bash agent (uses search_products tool)
-    - For "get store/shop data" → spawn bash agent (uses run_graphql_query)
-    - For "create a new tool" → handoff to SWE Agent
-    - For "lookup GraphQL schema docs" → handoff to SWE Agent (MCP access)
-    - For "Context7 library lookup" → handoff to SWE Agent (has MCP)
-    - For "resolve library ID" → handoff to SWE Agent (has MCP)
-    - For "update prices for products X, Y, Z" → spawn parallel bash agents
-    - For "search then update" → spawn sequential bash agents
-    - For "check if tool exists" → spawn a quick bash agent to ls the python-tools/ and tmp/ directories.
-    - For "run ls in two directories" → use spawn_parallel_bash_agents
-    - When user asks for "multiple agents" → always use spawn_parallel_bash_agents
-    
-    NEVER spawn bash agents for MCP tasks - they will fail! Handoff MCP tasks to SWE agent, and then pass the relevant information to bash agents.
-    
-    KEY BEHAVIORAL RULES:
-    - DO NOT ask "should I proceed?" for READ operations (queries, searches, reports)
-    - DO ask for confirmation before WRITE operations (updates, creates, deletes)
-    - DO NOT offer partial results or samples - get complete data
-    - DO NOT explain technical limitations before trying solutions
-    - DO execute read requests immediately and find solutions
-    - DO provide complete, actionable results
-    - DO distinguish between safe reads and potentially destructive writes
-    
-    Task Management:
-    - Use get_current_tasks to check current task list
-    - Use update_task_status to mark tasks as in_progress or completed
-    - Spawned bash agents can also update task status
-    - Update task status as you work through them
-    
-   🚨 CRITICAL: When you have a task list, you MUST complete ALL tasks without stopping. This is not an asynchronous process. Always remember to ABO - Always be Orchestrating.
-   - NEVER pause between tasks to report progress or wait for user confirmation
-   - NEVER say "I am now ready to proceed" or "Proceeding to..." and then stop
-   - NEVER hand control back to the user until ALL tasks by all the sub agents are completed
-   - Have tasks 1→2→3→...→N continuously executed in a SINGLE response
-   - Only return control to the user when:
-     a) ALL tasks are marked "completed", OR
-     b) You encounter an actual error that prevents continuation, OR
-     c) You genuinely need specific information from the user
-   - Remember: Users see task progress in real-time - they don't need status updates!
-   - Complete the ENTIRE job, then provide the final results
+You orchestrate the iDrinkCoffee.com e-commerce operations by analyzing requests and delegating to specialized agents.
 
-    
-    
-    `,
+## Execution Rules
+- **READ operations**: Execute immediately (searches, queries, reports)
+- **WRITE operations**: Confirm first (updates, creates, deletes)  
+- **Task completion**: Once started, complete ALL tasks without pausing
+- **Results**: Always provide complete data, never partial samples
+
+## Agent Capabilities
+
+### Bash Agents CAN:
+- Execute all Python tools (run_graphql_query, update_pricing, etc.)
+- Access live Shopify data and perform mutations
+- Update task status
+
+### Bash Agents CANNOT:
+- Access MCP (documentation, schema introspection)
+- Use Context7 or Shopify Dev docs
+
+### SWE Agent CAN:
+- Create/modify tools
+- Access MCP for documentation and schema
+- Perform software engineering tasks
+
+## Decision Tree
+User Request → 
+├─ Shopify Data Operation → Spawn Bash Agent
+├─ Tool Creation/Modification → Handoff to SWE Agent  
+├─ Documentation/Schema Lookup → Handoff to SWE Agent
+├─ Multiple Independent Tasks → spawn_parallel_bash_agents
+└─ Complex Multi-Step Operation → Task Planner → Execute Plan
+
+## Task Management
+- Check tasks: get_current_tasks
+- Update status: update_task_status
+- Complete ALL tasks before returning control
+- Mark tasks as in_progress before starting, completed when done
+
+## Conversation Management
+- Update topic: update_conversation_topic
+- Use this when you identify the main goal or topic of the conversation
+- Set a clear, concise topic title and optional detailed description
+
+## Reference Files
+- Business rules: /home/pranav/espressobot/frontend/server/prompts/idc-business-rules.md
+- Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md`,
   tools: [
-    webSearchTool(),
+    builtInSearchTool,
     taskPlanningAgent.asTool({
       toolName: 'task_planner',
       toolDescription: 'Analyze requests and create structured task plans with actionable steps'
@@ -420,6 +423,39 @@ export const dynamicOrchestrator = new Agent({
           return `Error updating task: ${error.message}`;
         }
       }
+    }),
+    tool({
+      name: 'update_conversation_topic',
+      description: 'Update the topic title and details for the current conversation. Use this when you identify the main topic or goal of the conversation.',
+      parameters: z.object({
+        topic_title: z.string().describe('A concise topic title (max 200 characters) that summarizes the conversation'),
+        topic_details: z.string().nullable().optional().describe('Optional detailed description of the topic, including key context, goals, or important information')
+      }),
+      execute: async ({ topic_title, topic_details }) => {
+        try {
+          const { updateConversationTopic } = await import('./tools/update-conversation-topic.js');
+          
+          const conversationId = global.currentConversationId;
+          if (!conversationId) {
+            return 'No conversation ID available';
+          }
+          
+          const result = await updateConversationTopic({
+            conversation_id: conversationId,
+            topic_title,
+            topic_details
+          });
+          
+          console.log(`[Orchestrator] Updated conversation topic: ${topic_title}`);
+          return result;
+        } catch (error) {
+          console.error(`[Orchestrator] Error updating conversation topic:`, error);
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      }
     })
   ],
 });
@@ -428,7 +464,7 @@ export const dynamicOrchestrator = new Agent({
  * Run the dynamic orchestrator with a user message
  */
 export async function runDynamicOrchestrator(message, options = {}) {
-  const { conversationId, userId, sseEmitter, taskUpdater } = options;
+  const { conversationId, userId, sseEmitter, taskUpdater, abortSignal } = options;
   
   console.log('\n========= DYNAMIC BASH ORCHESTRATOR =========');
   console.log(`Message: ${message}`);
@@ -446,6 +482,9 @@ export async function runDynamicOrchestrator(message, options = {}) {
   global.currentConversationId = conversationId;
   // Set user ID globally for memory operations
   global.currentUserId = userId;
+  // Set abort signal globally for spawned agents
+  currentAbortSignal = abortSignal;
+  global.currentAbortSignal = abortSignal;
   
   try {
     // Load smart context for the orchestrator
@@ -454,7 +493,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
       const { getSmartContext } = await import('./context-loader/context-manager.js');
       smartContext = await getSmartContext(message, {
         includeMemory: true,
-        userId: userId ? `user_${userId}` : null
+        userId: userId ? `user_${userId}` : null,
+        conversationId: conversationId
       });
       console.log(`[Orchestrator] Loaded smart context (${smartContext.length} chars)`);
     } catch (error) {
@@ -481,8 +521,17 @@ export async function runDynamicOrchestrator(message, options = {}) {
       ? `[Conversation ID: ${conversationId}]\n${message}${taskContext}${smartContext ? '\n\n' + smartContext : ''}`
       : message + (smartContext ? '\n\n' + smartContext : '');
     
+    // Check if already aborted before starting
+    if (abortSignal?.aborted) {
+      console.log('Orchestrator execution aborted before starting');
+      if (sseEmitter) {
+        sseEmitter('interrupted', { message: 'Execution was interrupted by user' });
+      }
+      return 'Execution was interrupted by user';
+    }
+    
     // Run the orchestrator with callbacks for real-time streaming
-    const result = await run(dynamicOrchestrator, contextualMessage, {
+    const runOptions = {
       maxTurns: 30,
       onMessage: (message) => {
         console.log('*** Bash orchestrator onMessage ***');
@@ -523,12 +572,27 @@ export async function runDynamicOrchestrator(message, options = {}) {
           });
         }
       }
-    });
+    };
+    
+    // Add abort signal to run options if provided
+    if (abortSignal) {
+      runOptions.signal = abortSignal;
+    }
+    
+    const result = await run(dynamicOrchestrator, contextualMessage, runOptions);
     
     console.log('========= ORCHESTRATOR COMPLETE =========\n');
     
     return result;
   } catch (error) {
+    // Handle abort errors specially
+    if (abortSignal?.aborted || error.name === 'AbortError') {
+      console.log('Dynamic orchestrator execution was aborted');
+      if (sseEmitter) {
+        sseEmitter('interrupted', { message: 'Execution was interrupted by user' });
+      }
+      return 'Execution was interrupted by user';
+    }
     console.error('Dynamic orchestrator error:', error);
     throw error;
   } finally {
@@ -538,5 +602,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     global.currentConversationId = null;
     global.currentTaskUpdater = null;
     global.currentUserId = null;
+    // Clear abort signal reference
+    currentAbortSignal = null;
+    global.currentAbortSignal = null;
   }
 }

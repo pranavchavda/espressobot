@@ -271,8 +271,8 @@ class SimpleLocalMemory {
    */
   async add(content, userId, metadata = {}) {
     try {
-      // Filter out system/metric entries
-      if (userId === 'system_metrics' || userId.startsWith('system_')) {
+      // Filter out system/metric entries (but allow system_prompts)
+      if (userId === 'system_metrics' || (userId.startsWith('system_') && userId !== 'system_prompts')) {
         console.log(`[Memory] Skipping system entry for ${userId}`);
         return {
           success: false,
@@ -575,11 +575,11 @@ class SimpleLocalMemory {
    * Extract memory summary using GPT-4.1-mini or nano
    */
   async extractMemorySummary(conversationText, context = {}) {
+    // Determine which model to use based on context or environment
+    const useNano = process.env.USE_GPT_NANO_FOR_MEMORY === 'true' || context.useNano;
+    const model = useNano ? 'gpt-4.1-nano' : 'o4-mini';
+    
     try {
-      // Determine which model to use based on context or environment
-      const useNano = process.env.USE_GPT_NANO_FOR_MEMORY === 'true' || context.useNano;
-      const model = useNano ? 'gpt-4.1-nano' : 'gpt-4.1-mini';
-      
       console.log(`[Memory] Using ${model} for extraction`);
       
       // Split long conversations into exchanges
@@ -593,7 +593,7 @@ class SimpleLocalMemory {
         // Use GPT to extract key facts from this exchange
         const response = await openai.chat.completions.create({
           model: model,
-        messages: [
+          messages: [
           {
             role: 'system',
             content: `You are a memory extraction system. Extract important facts from conversations as single, self-contained sentences. Each fact should be independently understandable without context.
@@ -634,8 +634,8 @@ Do NOT extract:
             content: exchange
           }
         ],
-        temperature: 0.3,
-        max_tokens: 200  // Less tokens needed per exchange
+        // max_tokens: 200  // Less tokens needed per exchange
+        reasoning_effort: 'low'
       });
 
       const exchangeFacts = response.choices[0].message.content

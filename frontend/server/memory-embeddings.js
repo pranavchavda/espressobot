@@ -87,7 +87,7 @@ export async function findRelevantMemories(query, userId, topK = 3) {
     
     // Filter out low relevance memories (threshold: 0.7)
     const relevantMemories = memoriesWithScores
-      .filter(item => item.score > 0.7)
+      .filter(item => item.score > 0.8)
       .slice(0, topK)
       .map(item => ({
         ...item.memory,
