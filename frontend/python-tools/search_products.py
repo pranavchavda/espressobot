@@ -1,13 +1,29 @@
 #!/usr/bin/env python3
-"""Search for products using Shopify's search syntax."""
+"""
+Search for products using Shopify's search syntax.
+
+This script allows searching for products on a Shopify store
+using various criteria and provides output in different formats.
+"""
 
 import sys
 import argparse
 from base import ShopifyClient, print_json
 
 
-def search_products(query: str, limit: int = 10, fields: list = None):
-    """Search products and return results."""
+def search_products(query: str, limit: int = 50, fields: list = None, status: str = "active"):
+    """Search for products on Shopify.
+
+    Args:
+        query (str): The search query using Shopify's search syntax.
+        limit (int): The maximum number of products to return.
+        fields (list): A list of fields to return for each product.
+        status (str): The product status to filter by (e.g., "active", "draft", "archived").
+                      If a status is provided, it will be added to the query if not already present.
+
+    Returns:
+        dict: A dictionary containing the search results from Shopify.
+    """
     client = ShopifyClient()
     
     # Default fields if not specified
@@ -47,6 +63,7 @@ def search_products(query: str, limit: int = 10, fields: list = None):
                         sku
                         price
                         inventoryQuantity
+                        compareAtPrice
                     }
                 }
             }
@@ -76,6 +93,11 @@ def search_products(query: str, limit: int = 10, fields: list = None):
         }}
     }}
     '''
+    
+    # Apply status filter if specified
+    if status:
+        if "status:" not in query:
+            query = f"{query} status:{status}"
     
     variables = {
         'query': query,
@@ -111,20 +133,26 @@ Examples:
     )
     
     parser.add_argument('query', help='Search query using Shopify syntax')
-    parser.add_argument('--limit', '-l', type=int, default=10, 
-                       help='Number of products to return (default: 10)')
+    parser.add_argument('--limit', '-l', type=int, default=50, 
+                       help='Number of products to return (default: 50)')
     parser.add_argument('--fields', '-f', nargs='+', 
-                       choices=['id', 'title', 'handle', 'vendor', 'status', 'tags', 
+                       choices=['id', 'title', 'handle', 'vendor', 'status', 'tags', 'productType',
                                'price', 'inventory', 'variants', 'seo', 'all'],
-                       default=['id', 'title', 'handle', 'vendor', 'status', 'tags', 'price'],
+                       default=['id', 'title', 'handle', 'vendor', 'status', 'tags', 'price', 'productType'],
                        help='Fields to include in results')
     parser.add_argument('--output', '-o', choices=['json', 'table', 'csv'], 
-                       default='json', help='Output format')
+                       default='json', help='Output format (default: json)')
+    parser.add_argument('--status', '-s', choices=['active', 'draft', 'archived', ''],
+                       default='active', help='Filter by status (default: active, empty string for no filter)')
     
     args = parser.parse_args()
+
+    # For JSON output, ensure 'variants' field is included
+    if args.output == 'json' and 'variants' not in args.fields and 'all' not in args.fields:
+        args.fields.append('variants')
     
     # Perform search
-    results = search_products(args.query, args.limit, args.fields)
+    results = search_products(args.query, args.limit, args.fields, args.status)
     
     products = [edge['node'] for edge in results.get('edges', [])]
     
@@ -134,21 +162,81 @@ Examples:
     
     # Output results
     if args.output == 'json':
-        print_json(products)
+        # Flatten the data for a non-nested JSON output
+        flat_products = []
+        for p in products:
+            product_info = {
+                'product_id': p['id'].split('/')[-1],
+                'product_title': p['title'],
+                'handle': p.get('handle'),
+                'vendor': p.get('vendor'),
+                'status': p.get('status'),
+                'tags': ', '.join(p.get('tags', [])),
+                'product_type': p.get('productType')
+            }
+
+            variants = p.get('variants', {}).get('edges', [])
+            if variants:
+                for v_edge in variants:
+                    v = v_edge['node']
+                    variant_info = product_info.copy()
+                    variant_info.update({
+                        'variant_id': v['id'].split('/')[-1],
+                        'variant_title': v['title'],
+                        'sku': v.get('sku'),
+                        'price': v.get('price'),
+                        'compare_at_price': v.get('compareAtPrice'),
+                        'inventory_quantity': v.get('inventoryQuantity')
+                    })
+                    flat_products.append(variant_info)
+            else:
+                # If no variants, add product info with empty variant fields
+                product_info.update({
+                    'variant_id': None,
+                    'variant_title': None,
+                    'sku': None,
+                    'price': p.get('priceRangeV2', {}).get('minVariantPrice', {}).get('amount'),
+                    'compare_at_price': None,
+                    'inventory_quantity': p.get('totalInventory')
+                })
+                flat_products.append(product_info)
+        
+        print_json(flat_products)
     elif args.output == 'table':
-        # Simple table output
+        # Display results in a structured table
+        cols = [
+            ('ID', 15), ('Title', 40), ('Vendor', 20), ('Status', 10), 
+            ('Price', 20), ('Tags', 30)
+        ]
+        
         print(f"Found {len(products)} products:")
-        print("-" * 80)
+        
+        # Print header
+        header_line = ' '.join([f'{name:<{width}}' for name, width in cols])
+        print(header_line)
+        print('-' * len(header_line))
+
         for p in products:
             price = p.get('priceRangeV2', {}).get('minVariantPrice', {})
             price_str = f"{price.get('currencyCode', '')} {price.get('amount', 'N/A')}" if price else 'N/A'
-            print(f"ID: {p['id'].split('/')[-1]}")
-            print(f"Title: {p['title']}")
-            print(f"Vendor: {p.get('vendor', 'N/A')}")
-            print(f"Status: {p.get('status', 'N/A')}")
-            print(f"Price: {price_str}")
-            print(f"Tags: {', '.join(p.get('tags', []))}")
-            print("-" * 80)
+            
+            row_values = {
+                'ID': p['id'].split('/')[-1],
+                'Title': p['title'],
+                'Vendor': p.get('vendor', 'N/A'),
+                'Status': p.get('status', 'N/A'),
+                'Price': price_str,
+                'Tags': ', '.join(p.get('tags', []))
+            }
+
+            row_line_items = []
+            for name, width in cols:
+                value = str(row_values.get(name, ''))
+                if len(value) > width:
+                    value = value[:width-4] + '...'
+                row_line_items.append(f'{value:<{width}}')
+            
+            print(' '.join(row_line_items))
     else:  # csv
         import csv
         import io

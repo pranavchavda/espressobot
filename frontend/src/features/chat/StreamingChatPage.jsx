@@ -8,6 +8,7 @@ import { UnifiedTaskDisplay } from "@components/chat/UnifiedTaskDisplay";
 import { Text, TextLink } from "@common/text";
 import { Avatar } from "@common/avatar";
 import logo from "../../../static/EspressoBotLogo.png";
+import { ApprovalRequest } from "@components/chat/ApprovalRequest";
 
 
 function StreamingChatPage({ convId }) {
@@ -33,6 +34,8 @@ function StreamingChatPage({ convId }) {
   const [hasShownTasks, setHasShownTasks] = useState(false);
   const [taskMarkdown, setTaskMarkdown] = useState(null);
   const [agentProcessingStatus, setAgentProcessingStatus] = useState("");
+  const [pendingApproval, setPendingApproval] = useState(null);
+  const [approvalHistory, setApprovalHistory] = useState([]);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -137,6 +140,68 @@ function StreamingChatPage({ convId }) {
       return format(new Date(timestamp), "h:mm a");
     } catch (e) {
       return "";
+    }
+  };
+
+  // Handle approval request
+  const handleApprove = async () => {
+    if (!pendingApproval) return;
+    
+    const token = localStorage.getItem('authToken');
+    try {
+      const response = await fetch('/api/agent/approve', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ 
+          conv_id: activeConv,
+          approval_id: pendingApproval.id 
+        })
+      });
+      
+      if (response.ok) {
+        setApprovalHistory(prev => [...prev, { 
+          ...pendingApproval, 
+          approved: true, 
+          timestamp: new Date().toISOString() 
+        }]);
+        setPendingApproval(null);
+      }
+    } catch (error) {
+      console.error('Failed to approve operation:', error);
+    }
+  };
+
+  // Handle rejection request
+  const handleReject = async () => {
+    if (!pendingApproval) return;
+    
+    const token = localStorage.getItem('authToken');
+    try {
+      const response = await fetch('/api/agent/reject', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ 
+          conv_id: activeConv,
+          approval_id: pendingApproval.id 
+        })
+      });
+      
+      if (response.ok) {
+        setApprovalHistory(prev => [...prev, { 
+          ...pendingApproval, 
+          approved: false, 
+          timestamp: new Date().toISOString() 
+        }]);
+        setPendingApproval(null);
+      }
+    } catch (error) {
+      console.error('Failed to reject operation:', error);
     }
   };
 
@@ -981,7 +1046,34 @@ function StreamingChatPage({ convId }) {
                   setPlannerStatus("");
                   setDispatcherStatus("");
                   setSynthesizerStatus("");
-                  setIsSending(false); 
+                  setIsSending(false);
+                  break;
+                case 'approval_required':
+                  console.log("FRONTEND: Approval required", actualEventPayload);
+                  setPendingApproval({
+                    id: actualEventPayload.id || Date.now().toString(),
+                    type: actualEventPayload.operation_type || 'Operation',
+                    description: actualEventPayload.description,
+                    impact: actualEventPayload.impact,
+                    details: actualEventPayload.details,
+                    riskLevel: actualEventPayload.risk_level || 'medium'
+                  });
+                  // Pause streaming while waiting for approval
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    isStreaming: false
+                  }));
+                  break;
+                case 'approval_status':
+                  console.log("FRONTEND: Approval status update", actualEventPayload);
+                  if (actualEventPayload.status === 'approved' || actualEventPayload.status === 'rejected') {
+                    setPendingApproval(null);
+                    // Resume streaming
+                    setStreamingMessage(prev => ({ 
+                      ...prev, 
+                      isStreaming: true
+                    }));
+                  } 
                   shouldStop = true; 
                   break;
                 case 'error':
@@ -1373,6 +1465,17 @@ function StreamingChatPage({ convId }) {
           </div>
         )}
 
+        {/* Approval Request */}
+        {pendingApproval && (
+          <div className="max-w-3xl w-full mx-auto px-4 mb-4">
+            <ApprovalRequest
+              operation={pendingApproval}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              isProcessing={isSending}
+            />
+          </div>
+        )}
 
         {/* Input Form */}
         <form

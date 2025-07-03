@@ -11,6 +11,11 @@ import ragSystemPromptManager from './memory/rag-system-prompt-manager.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
 import { analyzeIntent } from './tools/intent-analyzer.js';
+import { 
+  addToThread, 
+  getAutonomyRecommendation, 
+  formatThreadForAgent 
+} from './tools/conversation-thread-manager.js';
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
@@ -53,14 +58,20 @@ const spawnBashAgent = tool({
     autonomyLevel: z.enum(['high', 'medium', 'low']).optional().default('high').describe('Autonomy level - high: execute without confirmation, medium: confirm risky operations, low: confirm all writes')
   }),
   execute: async ({ agentName, task, context, useSemanticSearch, autonomyLevel }) => {
+    // Use the provided autonomy level or fall back to intent analysis or default to 'high'
+    const effectiveAutonomy = autonomyLevel || 
+                             (global.currentIntentAnalysis?.level) || 
+                             'high';
+    
     console.log(`[ORCHESTRATOR] Spawning bash agent: ${agentName}`);
     console.log(`[ORCHESTRATOR] Task: ${task}`);
+    console.log(`[ORCHESTRATOR] Autonomy level: ${effectiveAutonomy} (${autonomyLevel ? 'explicit' : 'from intent analysis'})`);
     
     // Send real-time progress to UI
     if (currentSseEmitter) {
       currentSseEmitter('agent_processing', {
         agent: 'Dynamic_Bash_Orchestrator',
-        message: `Spawning bash agent: ${agentName}`,
+        message: `Spawning bash agent: ${agentName} (${effectiveAutonomy} autonomy)`,
         status: 'processing'
       });
       currentSseEmitter('agent_processing', {
@@ -79,13 +90,13 @@ const spawnBashAgent = tool({
       console.log(`[ORCHESTRATOR] Using semantic bash agent with file search`);
       try {
         const { createSemanticBashAgent } = await import('./agents/semantic-bash-agent.js');
-        bashAgent = await createSemanticBashAgent(agentName, task, conversationId, autonomyLevel);
+        bashAgent = await createSemanticBashAgent(agentName, task, conversationId, effectiveAutonomy);
       } catch (error) {
         console.log(`[ORCHESTRATOR] Semantic agent unavailable, falling back to regular bash agent:`, error.message);
-        bashAgent = await createBashAgent(agentName, task, conversationId, autonomyLevel);
+        bashAgent = await createBashAgent(agentName, task, conversationId, effectiveAutonomy);
       }
     } else {
-      bashAgent = await createBashAgent(agentName, task, conversationId);
+      bashAgent = await createBashAgent(agentName, task, conversationId, effectiveAutonomy);
     }
     
     // Run the agent with the task
@@ -192,9 +203,16 @@ const spawnParallelBashAgents = tool({
     
     // Create and run all agents in parallel
     const promises = tasks.map(async ({ agentName, task, context, autonomyLevel }) => {
+      // Use the provided autonomy level or fall back to intent analysis or default to 'high'
+      const effectiveAutonomy = autonomyLevel || 
+                               (global.currentIntentAnalysis?.level) || 
+                               'high';
+      
+      console.log(`[ORCHESTRATOR] Parallel agent ${agentName} using ${effectiveAutonomy} autonomy`);
+      
       // Get conversation ID from global context
       const conversationId = global.currentConversationId || null;
-      const bashAgent = await createBashAgent(agentName, task, conversationId, autonomyLevel || 'high');
+      const bashAgent = await createBashAgent(agentName, task, conversationId, effectiveAutonomy);
       
       try {
         const fullPrompt = context ? `${task}\n\nContext: ${context}` : task;
@@ -295,22 +313,22 @@ export const dynamicOrchestrator = new Agent({
 
 You orchestrate the iDrinkCoffee.com e-commerce operations by analyzing requests and delegating to specialized agents.
 
+## CRITICAL: Autonomy-First Execution
+- The system has already analyzed the user's intent and determined the appropriate autonomy level
+- Access the analysis via global.currentIntentAnalysis (level: high/medium/low, reason, confidence)
+- **ALWAYS pass the analyzed autonomy level to spawned agents**
+- Default to 'high' autonomy unless the analysis suggests otherwise
+
 ## Execution Rules
-- **Clear Instructions with Parameters**: Execute immediately
-  - "Update product X to price Y" → Execute
-  - "Set these SKUs to active: A, B, C" → Execute
-  - "Create a product with title X, SKU Y" → Execute
-- **Ambiguous or High-Risk Operations**: Confirm first
-  - "Delete all products" → Confirm
-  - "Update prices" (no specifics) → Ask for details
-  - Operations affecting 50+ items → Show summary and confirm
-- **Intent Recognition**:
-  - Imperative mood ("Update", "Set", "Create") → Execute
-  - Questions ("Can you", "Would you") → Still execute if parameters clear
-  - Vague requests → Ask for clarification
-- **Progressive Autonomy**: 
-  - If user confirms similar operations, auto-execute subsequent ones
-  - Track confirmation patterns within conversation
+- **High Autonomy (default)**: User provided specific values or clear commands
+  - Pass autonomy='high' to agents - they will execute immediately
+  - Examples: "Update SKU123 to $49.99", "Set products A,B,C to active"
+- **Medium Autonomy**: High-risk operations detected
+  - Pass autonomy='medium' to agents - they'll confirm only risky operations
+  - Examples: Operations affecting 50+ items, bulk deletes
+- **Low Autonomy**: Genuinely ambiguous requests
+  - Ask for clarification before spawning agents
+  - Only use when intent analysis confidence is low
 
 ## Agent Capabilities
 
@@ -318,6 +336,7 @@ You orchestrate the iDrinkCoffee.com e-commerce operations by analyzing requests
 - Execute all Python tools (run_graphql_query, update_pricing, etc.)
 - Access live Shopify data and perform mutations
 - Update task status
+- Work autonomously based on the autonomy level you pass
 
 ### Bash Agents CANNOT:
 - Access MCP (documentation, schema introspection)
@@ -329,20 +348,17 @@ You orchestrate the iDrinkCoffee.com e-commerce operations by analyzing requests
 - Perform software engineering tasks
 
 ## Decision Tree
-User Request → 
-├─ Analyze Intent & Parameters
-│   ├─ Clear command with values → Set autonomy='high', execute immediately
-│   ├─ High-risk operation (50+ items, bulk deletes) → Set autonomy='medium'
-│   ├─ Ambiguous or missing info → Ask for clarification
-│   └─ Use intent patterns to determine autonomy level
-├─ Shopify Data Operation → Spawn Bash Agent with appropriate autonomy
-│   ├─ Pass autonomy='high' for clear, specific instructions
-│   ├─ Pass autonomy='medium' for risky operations
-│   └─ Pass autonomy='low' only if user explicitly requests confirmation
-├─ Tool Creation/Modification → Handoff to SWE Agent  
-├─ Documentation/Schema Lookup → Handoff to SWE Agent
-├─ Multiple Independent Tasks → spawn_parallel_bash_agents (with autonomy levels)
-└─ Complex Multi-Step Operation → Task Planner → Auto-execute with high autonomy
+1. Check global.currentIntentAnalysis for autonomy guidance
+2. For clear requests with specific values → spawn_bash_agent with autonomy from analysis
+3. For high-risk operations → spawn_bash_agent with autonomy='medium'
+4. For tool creation → handoff to SWE Agent
+5. For documentation → handoff to SWE Agent
+6. For multiple tasks → spawn_parallel_bash_agents with appropriate autonomy
+
+## IMPORTANT: Trust the Intent Analysis
+- If analysis says 'high' autonomy with specific values → DON'T second-guess
+- Users are senior management - they expect immediate action on clear instructions
+- Only override to 'medium' for genuinely dangerous operations (bulk deletes of 50+ items)
 
 ## Task Management
 - Check tasks: get_current_tasks
@@ -357,14 +373,7 @@ User Request →
 
 ## Reference Files
 - Business rules: /home/pranav/espressobot/frontend/server/prompts/idc-business-rules.md
-- Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md
-
-## IMPORTANT: Default to Action
-- When in doubt, ACT rather than ask
-- Users are senior management who value efficiency
-- If the user provides specific values, that's implicit confirmation
-- Only confirm genuinely risky or unclear operations
-- Remember: spawn_bash_agent defaults to autonomy='high'`,
+- Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md`,
   tools: [
     builtInSearchTool,
     taskPlanningAgent.asTool({
@@ -499,6 +508,30 @@ export async function runDynamicOrchestrator(message, options = {}) {
   console.log(`Message: ${message}`);
   console.log(`Conversation ID: ${conversationId || 'N/A'}`);
   
+  // Add user message to conversation thread
+  if (conversationId) {
+    addToThread(conversationId, 'user', message);
+  }
+  
+  // Analyze user intent to determine autonomy level
+  const intentAnalysis = analyzeIntent(message);
+  console.log(`[Orchestrator] Intent analysis: ${intentAnalysis.level} autonomy (${intentAnalysis.confidence * 100}% confidence)`);
+  console.log(`[Orchestrator] Reason: ${intentAnalysis.reason}`);
+  
+  // Check if conversation has autonomy preference from past interactions
+  const conversationAutonomy = conversationId ? getAutonomyRecommendation(conversationId) : null;
+  if (conversationAutonomy) {
+    console.log(`[Orchestrator] Conversation history suggests ${conversationAutonomy} autonomy preference`);
+    // If user has shown preference, override intent analysis
+    if (conversationAutonomy === 'high' && intentAnalysis.level !== 'high') {
+      intentAnalysis.level = 'high';
+      intentAnalysis.reason += ' (User prefers high autonomy based on conversation history)';
+    }
+  }
+  
+  // Store intent analysis globally for agents to access
+  global.currentIntentAnalysis = intentAnalysis;
+  
   let isStreaming = false;
   
   // Set the current SSE emitter for spawned agents
@@ -545,9 +578,15 @@ export async function runDynamicOrchestrator(message, options = {}) {
       }
     }
     
+    // Get conversation thread context
+    let threadContext = '';
+    if (conversationId) {
+      threadContext = '\n\n' + formatThreadForAgent(conversationId, 5);
+    }
+    
     // Add conversation context and smart context if provided
     const contextualMessage = conversationId 
-      ? `[Conversation ID: ${conversationId}]\n${message}${taskContext}${smartContext ? '\n\n' + smartContext : ''}`
+      ? `[Conversation ID: ${conversationId}]\n${message}${taskContext}${threadContext}${smartContext ? '\n\n' + smartContext : ''}`
       : message + (smartContext ? '\n\n' + smartContext : '');
     
     // Check if already aborted before starting
@@ -609,6 +648,11 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     const result = await run(dynamicOrchestrator, contextualMessage, runOptions);
+    
+    // Add assistant response to thread
+    if (conversationId && result.finalOutput) {
+      addToThread(conversationId, 'assistant', result.finalOutput);
+    }
     
     console.log('========= ORCHESTRATOR COMPLETE =========\n');
     

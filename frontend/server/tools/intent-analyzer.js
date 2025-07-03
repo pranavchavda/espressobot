@@ -7,19 +7,33 @@ import { z } from 'zod';
 export const analyzeIntent = (message) => {
   const lowerMessage = message.toLowerCase();
   
-  // Check for specific values/parameters
-  const hasSpecificValues = /\b(sku[:\s]*\w+|id[:\s]*\d+|\$[\d.,]+|price[:\s]*[\d.,]+|"[^"]+"|'[^']+')\b/i.test(message);
+  // Check for specific values/parameters - expanded to catch more patterns
+  const specificValuePatterns = [
+    /\b(sku[:\s]*\w+|id[:\s]*\d+)\b/i,
+    /\$[\d.,]+/,
+    /\bprice[:\s]*[\d.,]+/i,
+    /\b\d+\.?\d*\s*%/,  // Percentages
+    /"[^"]+"|'[^']+'/,  // Quoted strings
+    /\bto\s+\$?[\d.,]+/i,  // "to $899" pattern
+    /\b(barista|oracle|breville|delonghi|rocket|ecm|eureka)\b/i  // Product names
+  ];
+  const hasSpecificValues = specificValuePatterns.some(pattern => pattern.test(message));
   
   // Check for lists of items
   const hasItemList = /\b(and|,)\s*(sku|id|product|item)\b/i.test(message) || 
                       message.split(',').length > 2;
   
-  // Check for imperative commands
+  // Check for imperative commands (including polite forms)
   const imperativePatterns = [
-    /^(update|set|change|modify|create|add|remove|delete|publish|unpublish|activate|deactivate)\b/i,
-    /\b(please\s+)?(update|set|change|modify|create|add|remove|delete)\b/i
+    /^(update|set|change|modify|create|add|remove|delete|publish|unpublish|activate|deactivate|fix|make)\b/i,
+    /\b(please\s+)?(update|set|change|modify|create|add|remove|delete|fix|make)\b/i,
+    /\b(can|could|would|will)\s+you\s+(please\s+)?(update|set|change|modify|create|add|remove|delete|make|fix)\b/i,
+    /\b(need|want)\s+(to|you\s+to)\s+(update|set|change|modify|create|add|remove|delete|make|fix)\b/i
   ];
   const isImperative = imperativePatterns.some(pattern => pattern.test(message));
+  
+  // Check for questions that are actually commands (have specific values)
+  const questionAsCommand = /^(can|could|would|will|is it possible|are you able)\s+/i.test(message) && hasSpecificValues;
   
   // Check for high-risk operations
   const highRiskPatterns = [
@@ -39,11 +53,20 @@ export const analyzeIntent = (message) => {
   const isQuestion = questionPatterns.some(pattern => pattern.test(message));
   
   // Determine autonomy level
-  if (isHighRisk) {
+  if (isHighRisk && !hasSpecificValues) {
     return {
       level: 'medium',
       reason: 'High-risk operation detected - will confirm before executing',
       confidence: 0.9
+    };
+  }
+  
+  // Questions with specific values are commands!
+  if (questionAsCommand) {
+    return {
+      level: 'high',
+      reason: 'Question contains specific values - treating as command and executing immediately',
+      confidence: 0.95
     };
   }
   
@@ -52,6 +75,14 @@ export const analyzeIntent = (message) => {
       level: 'high',
       reason: 'Clear command with specific values - executing immediately',
       confidence: 0.95
+    };
+  }
+  
+  if (hasSpecificValues && !isQuestion) {
+    return {
+      level: 'high',
+      reason: 'Specific values provided - executing immediately',
+      confidence: 0.9
     };
   }
   

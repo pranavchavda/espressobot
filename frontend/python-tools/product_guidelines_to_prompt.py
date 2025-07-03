@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 from typing import Dict, List, Optional
+import argparse
 
 class ProductGuidelinesConverter:
     """Convert product guidelines to system prompts."""
@@ -246,8 +247,25 @@ class ProductGuidelinesConverter:
 
 def main():
     """Main function to run the converter."""
-    converter = ProductGuidelinesConverter()
-    converter.save_prompts()
+    parser = argparse.ArgumentParser(
+        description='Convert product guidelines to system prompts for AI agents.',
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        '--guidelines-dir', '-g',
+        default='../docs/product-guidelines',
+        help='Directory containing the product guideline markdown files. (default: ../docs/product-guidelines)'
+    )
+    parser.add_argument(
+        '--output-dir', '-o',
+        default='../prompts',
+        help='Directory to save the generated prompts. (default: ../prompts)'
+    )
+    
+    args = parser.parse_args()
+    
+    converter = ProductGuidelinesConverter(guidelines_dir=args.guidelines_dir)
+    converter.save_prompts(output_dir=args.output_dir)
     print("\n🎉 Product guidelines successfully converted to system prompts!")
 
 
