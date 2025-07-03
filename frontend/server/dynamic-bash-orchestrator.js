@@ -10,6 +10,7 @@ import { taskPlanningAgent } from './agents/task-planning-agent.js';
 import ragSystemPromptManager from './memory/rag-system-prompt-manager.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
+import { analyzeIntent } from './tools/intent-analyzer.js';
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
@@ -48,9 +49,10 @@ const spawnBashAgent = tool({
     agentName: z.string().describe('Name for the agent (e.g., "PriceUpdater", "ProductSearcher")'),
     task: z.string().describe('Specific task for the agent to complete'),
     context: z.string().nullable().describe('Additional context or constraints'),
-    useSemanticSearch: z.boolean().optional().default(false).describe('Enable semantic search for documentation (recommended for complex business rules or when unsure about tool usage)')
+    useSemanticSearch: z.boolean().optional().default(false).describe('Enable semantic search for documentation (recommended for complex business rules or when unsure about tool usage)'),
+    autonomyLevel: z.enum(['high', 'medium', 'low']).optional().default('high').describe('Autonomy level - high: execute without confirmation, medium: confirm risky operations, low: confirm all writes')
   }),
-  execute: async ({ agentName, task, context, useSemanticSearch }) => {
+  execute: async ({ agentName, task, context, useSemanticSearch, autonomyLevel }) => {
     console.log(`[ORCHESTRATOR] Spawning bash agent: ${agentName}`);
     console.log(`[ORCHESTRATOR] Task: ${task}`);
     
@@ -77,10 +79,10 @@ const spawnBashAgent = tool({
       console.log(`[ORCHESTRATOR] Using semantic bash agent with file search`);
       try {
         const { createSemanticBashAgent } = await import('./agents/semantic-bash-agent.js');
-        bashAgent = await createSemanticBashAgent(agentName, task, conversationId);
+        bashAgent = await createSemanticBashAgent(agentName, task, conversationId, autonomyLevel);
       } catch (error) {
         console.log(`[ORCHESTRATOR] Semantic agent unavailable, falling back to regular bash agent:`, error.message);
-        bashAgent = await createBashAgent(agentName, task, conversationId);
+        bashAgent = await createBashAgent(agentName, task, conversationId, autonomyLevel);
       }
     } else {
       bashAgent = await createBashAgent(agentName, task, conversationId);
@@ -181,17 +183,18 @@ const spawnParallelBashAgents = tool({
     tasks: z.array(z.object({
       agentName: z.string(),
       task: z.string(),
-      context: z.string().nullable()
+      context: z.string().nullable(),
+      autonomyLevel: z.enum(['high', 'medium', 'low']).optional().default('high')
     })).describe('Array of tasks to run in parallel')
   }),
   execute: async ({ tasks }) => {
     console.log(`[ORCHESTRATOR] Spawning ${tasks.length} bash agents in parallel`);
     
     // Create and run all agents in parallel
-    const promises = tasks.map(async ({ agentName, task, context }) => {
+    const promises = tasks.map(async ({ agentName, task, context, autonomyLevel }) => {
       // Get conversation ID from global context
       const conversationId = global.currentConversationId || null;
-      const bashAgent = await createBashAgent(agentName, task, conversationId);
+      const bashAgent = await createBashAgent(agentName, task, conversationId, autonomyLevel || 'high');
       
       try {
         const fullPrompt = context ? `${task}\n\nContext: ${context}` : task;
@@ -293,10 +296,21 @@ export const dynamicOrchestrator = new Agent({
 You orchestrate the iDrinkCoffee.com e-commerce operations by analyzing requests and delegating to specialized agents.
 
 ## Execution Rules
-- **READ operations**: Execute immediately (searches, queries, reports)
-- **WRITE operations**: Confirm first (updates, creates, deletes)  
-- **Task completion**: Once started, complete ALL tasks without pausing
-- **Results**: Always provide complete data, never partial samples
+- **Clear Instructions with Parameters**: Execute immediately
+  - "Update product X to price Y" → Execute
+  - "Set these SKUs to active: A, B, C" → Execute
+  - "Create a product with title X, SKU Y" → Execute
+- **Ambiguous or High-Risk Operations**: Confirm first
+  - "Delete all products" → Confirm
+  - "Update prices" (no specifics) → Ask for details
+  - Operations affecting 50+ items → Show summary and confirm
+- **Intent Recognition**:
+  - Imperative mood ("Update", "Set", "Create") → Execute
+  - Questions ("Can you", "Would you") → Still execute if parameters clear
+  - Vague requests → Ask for clarification
+- **Progressive Autonomy**: 
+  - If user confirms similar operations, auto-execute subsequent ones
+  - Track confirmation patterns within conversation
 
 ## Agent Capabilities
 
@@ -316,11 +330,19 @@ You orchestrate the iDrinkCoffee.com e-commerce operations by analyzing requests
 
 ## Decision Tree
 User Request → 
-├─ Shopify Data Operation → Spawn Bash Agent
+├─ Analyze Intent & Parameters
+│   ├─ Clear command with values → Set autonomy='high', execute immediately
+│   ├─ High-risk operation (50+ items, bulk deletes) → Set autonomy='medium'
+│   ├─ Ambiguous or missing info → Ask for clarification
+│   └─ Use intent patterns to determine autonomy level
+├─ Shopify Data Operation → Spawn Bash Agent with appropriate autonomy
+│   ├─ Pass autonomy='high' for clear, specific instructions
+│   ├─ Pass autonomy='medium' for risky operations
+│   └─ Pass autonomy='low' only if user explicitly requests confirmation
 ├─ Tool Creation/Modification → Handoff to SWE Agent  
 ├─ Documentation/Schema Lookup → Handoff to SWE Agent
-├─ Multiple Independent Tasks → spawn_parallel_bash_agents
-└─ Complex Multi-Step Operation → Task Planner → Execute Plan
+├─ Multiple Independent Tasks → spawn_parallel_bash_agents (with autonomy levels)
+└─ Complex Multi-Step Operation → Task Planner → Auto-execute with high autonomy
 
 ## Task Management
 - Check tasks: get_current_tasks
@@ -335,7 +357,14 @@ User Request →
 
 ## Reference Files
 - Business rules: /home/pranav/espressobot/frontend/server/prompts/idc-business-rules.md
-- Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md`,
+- Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md
+
+## IMPORTANT: Default to Action
+- When in doubt, ACT rather than ask
+- Users are senior management who value efficiency
+- If the user provides specific values, that's implicit confirmation
+- Only confirm genuinely risky or unclear operations
+- Remember: spawn_bash_agent defaults to autonomy='high'`,
   tools: [
     builtInSearchTool,
     taskPlanningAgent.asTool({

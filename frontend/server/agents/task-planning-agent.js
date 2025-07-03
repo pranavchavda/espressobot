@@ -145,6 +145,7 @@ Your responsibilities:
 3. Use the generate_todos tool to create a task list
 4. Organize tasks in logical order of execution
 5. Include relevant Shopify tools in task descriptions when applicable
+6. Focus on ACTION - create tasks that can be executed immediately
 
 Guidelines:
 - Each task should be specific and actionable

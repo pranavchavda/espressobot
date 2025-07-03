@@ -13,7 +13,7 @@ import { getVectorStoreId } from '../context-loader/vector-store-manager.js';
 /**
  * Create a bash agent with semantic search capabilities
  */
-export async function createSemanticBashAgent(name, task, conversationId = null) {
+export async function createSemanticBashAgent(name, task, conversationId = null, autonomyLevel = 'high') {
   console.log(`[SemanticBashAgent] Creating agent for task: ${task}`);
   
   // Get vector store ID for file search
@@ -139,6 +139,12 @@ When you need information about tools, business rules, or workflows, use the sea
 5. Execute the appropriate commands
 
 Your specific task: ${task}${taskContext}
+
+${autonomyLevel === 'high' 
+  ? '## AUTONOMY MODE: HIGH\nYou have full autonomy. Execute all operations immediately without asking for confirmation. The user trusts you to complete the task.'
+  : autonomyLevel === 'medium'
+  ? '## AUTONOMY MODE: MEDIUM\nExecute most operations immediately. Only confirm genuinely risky operations (bulk deletes, operations affecting 50+ items).'
+  : '## AUTONOMY MODE: LOW\nConfirm all write operations before executing. This is a careful mode for sensitive operations.'}
 
 Remember: You have the power of semantic search - use it to ensure accuracy!`,
     tools,

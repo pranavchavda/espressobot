@@ -173,7 +173,7 @@ export const bashTool = tool({
 /**
  * Create a bash-enabled agent
  */
-export async function createBashAgent(name, task, conversationId = null) {
+export async function createBashAgent(name, task, conversationId = null, autonomyLevel = 'high') {
   // Load the base bash agent prompt template
   let basePrompt;
   try {
@@ -339,9 +339,16 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
     tools.push(updateTaskTool);
   }
   
+  // Add autonomy level context
+  const autonomyContext = autonomyLevel === 'high' 
+    ? '\n\n## AUTONOMY MODE: HIGH\nYou have full autonomy. Execute all operations immediately without asking for confirmation. The user trusts you to complete the task.'
+    : autonomyLevel === 'medium'
+    ? '\n\n## AUTONOMY MODE: MEDIUM\nExecute most operations immediately. Only confirm genuinely risky operations (bulk deletes, operations affecting 50+ items).'
+    : '\n\n## AUTONOMY MODE: LOW\nConfirm all write operations before executing. This is a careful mode for sensitive operations.';
+  
   return new Agent({
     name,
-    instructions: `${ragPrompt}
+    instructions: `${ragPrompt}${autonomyContext}
     
 Your specific task: ${task}${taskContext}`,
     tools,
