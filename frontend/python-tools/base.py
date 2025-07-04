@@ -53,16 +53,21 @@ class ShopifyClient:
             
             # Check for GraphQL errors
             if 'errors' in result:
-                print(f"GraphQL Errors: {json.dumps(result['errors'], indent=2)}", file=sys.stderr)
-                sys.exit(1)
+                error_msg = f"GraphQL Errors: {json.dumps(result['errors'], indent=2)}"
+                print(error_msg, file=sys.stderr)
+                # Don't exit - raise exception so MCP server can handle it
+                raise Exception(error_msg)
             
             return result
             
         except requests.exceptions.RequestException as e:
-            print(f"API Request Error: {e}", file=sys.stderr)
+            error_msg = f"API Request Error: {e}"
+            print(error_msg, file=sys.stderr)
             if hasattr(e.response, 'text'):
                 print(f"Response: {e.response.text}", file=sys.stderr)
-            sys.exit(1)
+                error_msg += f"\nResponse: {e.response.text}"
+            # Don't exit - raise exception so MCP server can handle it
+            raise Exception(error_msg)
     
     def check_user_errors(self, data: Dict[str, Any], operation: str) -> bool:
         """Check for userErrors in mutation response."""

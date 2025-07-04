@@ -61,7 +61,15 @@ server/
 
 ## MCP Integration
 
-### ✅ **Available MCP Tools**
+### ✅ **Python Tools MCP Server** (NEW - July 4, 2025)
+Stdio-based MCP server for direct tool execution:
+- 8 tools migrated (get_product, search_products, manage_inventory_policy, etc.)
+- Tool-specific context reduces prompt size
+- Orchestrator executes directly (no bash agent needed)
+- Auto-restart on tool changes
+- Location: `/python-tools/mcp-server.py`
+
+### ✅ **Shopify Dev MCP Tools**
 Successfully integrated with SWE Agent for real-time API introspection:
 - `introspect_admin_schema` - GraphQL schema exploration
 - `search_dev_docs` - Documentation search
@@ -79,6 +87,15 @@ const agent = new Agent({ mcpServers: [shopifyDevMCP] });
 ---
 
 ## Recent Fixes & Improvements
+
+### July 4, 2025
+- Implemented MCP (Model Context Protocol) for Python tools
+- Created stdio-based MCP server with auto-discovery and testing
+- Added 8 MCP tools with tool-specific context (23 more to migrate)
+- Fixed bash agents using curl instead of python-tools
+- Fixed OpenAI SDK compatibility by making optional fields nullable
+- MCP server working perfectly, orchestrator integration pending auth testing
+- Architecture supports self-modification (SWE can add/update MCP tools)
 
 ### July 1, 2025
 - Cleaned up codebase (removed 9 unused agents, kept 3 active)
