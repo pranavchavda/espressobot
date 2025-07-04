@@ -2,9 +2,110 @@ import { Agent, tool } from '@openai/agents';
 import { z } from 'zod';
 import { spawn } from 'child_process';
 import path from 'path';
-import fs from 'fs/promises';
-import ragSystemPromptManager from '../memory/rag-system-prompt-manager.js';
 import { learningTool } from './learning-tool.js';
+
+/**
+ * Build prompt from rich context object
+ */
+export function buildPromptFromRichContext(context) {
+  let prompt = `You are a general-purpose bash agent - an instrument for the orchestrator to execute system tasks.
+
+## YOUR PRIME DIRECTIVE: ACT IMMEDIATELY WHEN INSTRUCTIONS ARE CLEAR
+
+When you receive a task with specific values, EXECUTE IMMEDIATELY without asking for confirmation.
+
+## CRITICAL UNDERSTANDING:
+**The orchestrator handles all Shopify operations directly via MCP tools. Your role is different:**
+
+1. **File system operations** (git, file manipulation, directory operations)
+2. **System administration tasks** (process management, environment setup)
+3. **Complex multi-step workflows** requiring bash logic
+4. **Legacy tools** not yet migrated to MCP
+5. **Data processing tasks** that require custom scripting
+
+## WHAT YOU SHOULD DO:
+- Execute git commands, file operations, system tasks
+- Run custom scripts for data processing
+- Handle complex bash workflows with pipes, loops, conditionals
+- Use non-MCP tools when specifically instructed
+
+## WHAT YOU SHOULD NOT DO:
+- ❌ Use Shopify MCP tools (orchestrator handles these directly)
+- ❌ Create ad-hoc curl commands for Shopify APIs
+- ❌ Try to replicate MCP tool functionality
+
+Examples of CORRECT usage:
+- git status && git add . && git commit -m "Update configuration"
+- find . -name "*.py" -exec grep -l "old_pattern" {} \;
+- python3 /path/to/custom-processing-script.py /tmp/data.csv
+- chmod +x scripts/*.sh && ./scripts/deploy.sh
+
+Examples of WRONG usage (DO NOT DO THIS):
+- python3 /python-tools/get_product.py SKU123 (This is an MCP tool - orchestrator handles it!)
+- curl -X POST shopify-api-endpoint (Use MCP tools instead)
+- Reimplementing MCP tool functionality`;
+
+  // Add specific entities
+  if (context.specificEntities && context.specificEntities.length > 0) {
+    prompt += '\n\n## Specific Entities Referenced:\n';
+    for (const entity of context.specificEntities) {
+      prompt += `- ${entity.type}: ${entity.values.join(', ')}\n`;
+    }
+  }
+
+  // Add business logic warnings
+  if (context.businessLogic && context.businessLogic.patterns.length > 0) {
+    prompt += '\n\n## Business Logic Patterns Detected:\n';
+    for (const pattern of context.businessLogic.patterns) {
+      prompt += `\n### ${pattern.type}:\n`;
+      prompt += `- Action: ${pattern.action}\n`;
+      if (pattern.warning) prompt += `- WARNING: ${pattern.warning}\n`;
+      if (pattern.reminder) prompt += `- Remember: ${pattern.reminder}\n`;
+    }
+  }
+
+  // Add relevant memories
+  if (context.relevantMemories && context.relevantMemories.length > 0) {
+    prompt += '\n\n## Relevant Past Experiences:\n';
+    for (const memory of context.relevantMemories) {
+      prompt += `- ${memory.content}\n`;
+    }
+  }
+
+  // Add conversation history
+  if (context.conversationHistory) {
+    prompt += '\n\n## Recent Conversation:\n' + context.conversationHistory;
+  }
+
+  // Add current tasks
+  if (context.currentTasks && context.currentTasks.length > 0) {
+    prompt += '\n\n## Current Tasks:\n';
+    context.currentTasks.forEach((task, idx) => {
+      const status = task.status === 'completed' ? '[x]' : 
+                    task.status === 'in_progress' ? '[🔄]' : '[ ]';
+      prompt += `${idx}. ${status} ${task.title || task.description}\n`;
+    });
+  }
+
+  // Add relevant rules
+  if (context.relevantRules && context.relevantRules.length > 0) {
+    prompt += '\n\n## Relevant Business Rules:\n';
+    prompt += context.relevantRules.join('\n');
+  }
+
+  // Add relevant tools
+  if (context.relevantTools && context.relevantTools.length > 0) {
+    prompt += '\n\n## Relevant Tools:\n';
+    prompt += context.relevantTools.join('\n');
+  }
+
+  // Add conversation topic if present
+  if (context.conversationTopic) {
+    prompt += '\n\n' + context.conversationTopic;
+  }
+
+  return prompt;
+}
 
 /**
  * Core bash execution function
@@ -146,15 +247,19 @@ export const bashTool = tool({
     - Python 3 with all Shopify/e-commerce libraries installed
     - Can read/write temporary files in /tmp/
     
+    CRITICAL: For Shopify operations, ALWAYS use the python-tools, NEVER use curl!
+    
     Examples:
     - python3 /home/pranav/espressobot/frontend/python-tools/search_products.py "coffee" --status active
     - python3 /home/pranav/espressobot/frontend/python-tools/get_product.py SKU123 | jq '.price'
+    - python3 /home/pranav/espressobot/frontend/python-tools/manage_inventory_policy.py --identifier "SKU123" --policy deny
     - echo "SKU123,49.99" > /tmp/price_updates.csv && python3 /home/pranav/espressobot/frontend/python-tools/bulk_price_update.py /tmp/price_updates.csv
     
     Safety notes:
     - Always use absolute paths for tools
     - Be careful with quotes and escaping
-    - Check command output for errors`,
+    - Check command output for errors
+    - NEVER use curl for Shopify API calls - use the python-tools instead`,
   parameters: z.object({
     command: z.string().describe('The bash command to execute'),
     cwd: z.string().nullable().default('/tmp').describe('Working directory (defaults to /tmp)'),
@@ -173,63 +278,16 @@ export const bashTool = tool({
 /**
  * Create a bash-enabled agent
  */
-export async function createBashAgent(name, task, conversationId = null, autonomyLevel = 'high') {
-  // Load the base bash agent prompt template
-  let basePrompt;
-  try {
-    const promptPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent-enhanced.md');
-    basePrompt = await fs.readFile(promptPath, 'utf-8');
-  } catch (error) {
-    // Try fallback to basic prompt
-    try {
-      const fallbackPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../prompts/bash-agent.md');
-      basePrompt = await fs.readFile(fallbackPath, 'utf-8');
-    } catch (fallbackError) {
-      // Final fallback to inline prompt
-      basePrompt = `You are a bash-enabled agent with full access to Python tools in /home/pranav/espressobot/frontend/python-tools/.
-    
-Best practices: Check tool existence, use --help, handle errors, use absolute paths, chain commands with &&.`;
-    }
+export async function createBashAgent(name, task, conversationId = null, autonomyLevel = 'high', richContext) {
+  // richContext is now REQUIRED - orchestrator must provide context
+  if (!richContext) {
+    throw new Error('[Bash Agent] richContext is required. Orchestrator must provide context.');
   }
   
-  // Generate RAG-enhanced system prompt
-  const userId = global.currentUserId || conversationId;
-  const ragPrompt = await ragSystemPromptManager.getSystemPrompt(task, {
-    basePrompt: basePrompt,
-    maxFragments: 8,
-    includeMemories: true,
-    userId: userId,
-    agentType: 'bash',
-    minScore: 0.5
-  });
+  console.log(`[Bash Agent] Using orchestrator-provided rich context`);
   
-  // Load smart context based on the task
-  let smartContext = '';
-  try {
-    const { getSmartContext } = await import('../context-loader/context-manager.js');
-    smartContext = await getSmartContext(task, {
-      taskDescription: task,
-      includeMemory: true,
-      conversationId: conversationId
-    });
-    console.log(`[Bash Agent] Loaded smart context (${smartContext.length} chars) for task: ${task.substring(0, 50)}...`);
-  } catch (error) {
-    console.log(`[Bash Agent] Could not load smart context:`, error.message);
-  }
-  
-  // If conversationId is provided, read tasks and inject them
-  let taskContext = '';
-  if (conversationId) {
-    try {
-      const { readTasksForConversation, formatTasksForPrompt } = await import('../utils/task-reader.js');
-      const { tasks } = await readTasksForConversation(conversationId);
-      if (tasks && tasks.length > 0) {
-        taskContext = '\n\n' + formatTasksForPrompt(tasks);
-      }
-    } catch (error) {
-      console.log(`[Bash Agent] Could not read tasks for conversation ${conversationId}:`, error.message);
-    }
-  }
+  // Build prompt from rich context
+  const contextualPrompt = buildPromptFromRichContext(richContext);
   
   // Create tools array with bash tool and learning tool
   const tools = [bashTool, learningTool];
@@ -275,7 +333,8 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
   tools.push(updateTopicTool);
   
   // Add task update tool if conversationId is provided
-  if (conversationId && taskContext) {
+  if (conversationId && Array.isArray(richContext?.currentTasks) && richContext.currentTasks.length > 0) {
+    console.log(`[Bash Agent] Current conversation has ${richContext.currentTasks.length} tasks - enabling update_task_status tool`);
     const updateTaskTool = tool({
       name: 'update_task_status',
       description: 'Update the status of a task in the current conversation. Use this to mark tasks as in_progress or completed.',
@@ -346,11 +405,12 @@ Best practices: Check tool existence, use --help, handle errors, use absolute pa
     ? '\n\n## AUTONOMY MODE: MEDIUM\nExecute most operations immediately. Only confirm genuinely risky operations (bulk deletes, operations affecting 50+ items).'
     : '\n\n## AUTONOMY MODE: LOW\nConfirm all write operations before executing. This is a careful mode for sensitive operations.';
   
+  // Combine the contextual prompt with autonomy and task
+  const finalPrompt = contextualPrompt + autonomyContext + `\n\nYour specific task: ${task}`;
+  
   return new Agent({
     name,
-    instructions: `${ragPrompt}${autonomyContext}
-    
-Your specific task: ${task}${taskContext}`,
+    instructions: finalPrompt,
     tools,
     model: 'gpt-4.1-mini'
   });

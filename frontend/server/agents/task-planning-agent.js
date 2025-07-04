@@ -158,9 +158,10 @@ Guidelines:
 AVAILABLE TOOLS for reference in task descriptions:
 ${allToolNames.join(', ')}
 
-Additional tools available to bash agents:
-- search_dev_docs, introspect_admin_schema, fetch_docs_by_path (documentation)
-- All Python tools in /home/pranav/idc/tools/
+Additional capabilities available:
+- MCP tools (handled directly by orchestrator): 27 Shopify/e-commerce tools  
+- Bash agents (for system tasks): git, file operations, custom scripts, non-MCP tools
+- SWE agent (for development): search_dev_docs, introspect_admin_schema, fetch_docs_by_path
 
 Examples:
 - User: "Update prices for all coffee products by 10%"
