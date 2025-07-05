@@ -18,7 +18,10 @@ import {
 } from './tools/conversation-thread-manager.js';
 import { getSmartContext } from './context-loader/context-manager.js';
 import { memoryOperations } from './memory/memory-operations-local.js';
+import { viewImageTool } from './tools/view-image-tool.js';
 import { initializeMCPTools, callMCPTool, getMCPTools } from './tools/mcp-client.js';
+import { runWithVisionRetry } from './vision-retry-wrapper.js';
+import { validateAndFixBase64 } from './vision-preprocessor.js';
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
@@ -864,7 +867,8 @@ Before spawning any bash agents, check if you can use MCP tools directly:
   },
   tools: [
     ...mcpTools,  // MCP tools FIRST for priority
-    builtInSearchTool,
+    // builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
+    viewImageTool,
     tool({
       name: 'task_planner',
       description: 'Analyze requests and create structured task plans with actionable steps. Pass any context you deem relevant.',
@@ -1269,7 +1273,53 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Get the orchestrator (will initialize with MCP tools if needed)
     const orchestrator = await getOrchestrator();
     
-    const result = await run(orchestrator, contextualMessage, runOptions);
+    // Check if we have image data from the API
+    let messageToSend;
+    if (global.currentImageData) {
+      console.log('[DEBUG] Image data found in orchestrator:', {
+        type: global.currentImageData.type,
+        hasData: !!global.currentImageData.data,
+        hasUrl: !!global.currentImageData.url
+      });
+      
+      // Use the correct format from the test files
+      let imageData = global.currentImageData.type === 'data_url' 
+        ? global.currentImageData.data 
+        : global.currentImageData.url;
+      
+      // Validate and fix base64 if needed
+      if (global.currentImageData.type === 'data_url') {
+        imageData = validateAndFixBase64(imageData);
+      }
+      
+      // Format message with proper multimodal structure
+      messageToSend = [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: contextualMessage
+            },
+            {
+              type: 'input_image',
+              image: imageData
+            }
+          ]
+        }
+      ];
+      
+      console.log('[DEBUG] Multimodal message created with proper format');
+    } else {
+      console.log('[DEBUG] No image data, sending text-only message');
+      // For text-only messages, we can pass a string or array
+      messageToSend = contextualMessage;
+    }
+    
+    // Use vision retry wrapper if we have image data
+    const result = global.currentImageData 
+      ? await runWithVisionRetry(orchestrator, messageToSend, runOptions)
+      : await run(orchestrator, messageToSend, runOptions);
     
     // Add assistant response to thread
     if (conversationId && result.finalOutput) {
@@ -1302,5 +1352,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Clear abort signal reference
     currentAbortSignal = null;
     global.currentAbortSignal = null;
+    // Clear image data
+    global.currentImageData = null;
+    global.currentUserImage = null;
   }
 }

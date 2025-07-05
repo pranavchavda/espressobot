@@ -19,8 +19,20 @@ const conversationAbortControllers = new Map();
  */
 router.post('/run', authenticateToken, async (req, res) => {
   console.log('\n========= BASH ORCHESTRATOR API REQUEST =========');
-  const { message, conv_id: existing_conv_id } = req.body || {};
+  const { message, conv_id: existing_conv_id, image } = req.body || {};
   let conversationId = existing_conv_id;
+  
+  // Debug logging for image data
+  if (image) {
+    console.log('[DEBUG] Image data received:', {
+      type: image.type,
+      hasData: !!image.data,
+      hasUrl: !!image.url,
+      dataLength: image.data ? image.data.length : 0
+    });
+  } else {
+    console.log('[DEBUG] No image data in request');
+  }
   
   // Setup SSE
   res.setHeader('Content-Type', 'text/event-stream');
@@ -92,46 +104,15 @@ router.post('/run', authenticateToken, async (req, res) => {
       fullContext = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     }
     
-    // Check if request needs planning (complex or multi-step)
-    const needsPlanning = analyzeComplexity(message);
-    
-    if (needsPlanning) {
-      sendEvent('agent_processing', {
-        agent: 'Planning_Agent',
-        message: 'Creating task plan...'
-      });
-      
-      // Create task plan
-      const planResult = await createTaskPlan(message, conversationId.toString());
-      
-      if (planResult.success && planResult.tasks.length > 0) {
-        // Send only task_plan_created event which contains the markdown
-        try {
-          const planPath = path.join(__dirname, 'plans', `TODO-${conversationId}.md`);
-          const planContent = await fs.readFile(planPath, 'utf-8');
-          console.log('[Bash Orchestrator] Sending task_plan_created event for conversation:', conversationId);
-          console.log('[Bash Orchestrator] Plan content length:', planContent.length);
-          sendEvent('task_plan_created', {
-            markdown: planContent,
-            filename: `TODO-${conversationId}.md`,
-            taskCount: planResult.tasks.length,
-            conversation_id: conversationId
-          });
-        } catch (err) {
-          console.log('[Bash Orchestrator] Could not read plan file:', err.message);
-          // Fallback to sending basic task info if markdown not available
-          sendEvent('task_summary', {
-            tasks: planResult.tasks.map((task, index) => ({
-              id: `task_${conversationId}_${index}`,
-              content: task.title || task,
-              status: task.status || 'pending',
-              conversation_id: conversationId
-            })),
-            conversation_id: conversationId
-          });
-        }
-      }
+    // Add image data to context if present
+    if (image) {
+      // Store image data globally for the orchestrator to access
+      global.currentImageData = image;
     }
+    
+    // REMOVED: Automatic task planning based on simple pattern matching
+    // Task planning is now orchestrator-driven through the task_planner tool
+    // This ensures planning happens with full context when the orchestrator decides it's needed
     
     // Run orchestrator with full context
     sendEvent('agent_processing', {
@@ -139,29 +120,28 @@ router.post('/run', authenticateToken, async (req, res) => {
       message: 'Analyzing request and executing tasks...'
     });
     
-    // Start task progress monitoring if we have tasks
+    // Start task progress monitoring
     let taskMonitorInterval;
-    if (needsPlanning) {
-      taskMonitorInterval = setInterval(async () => {
-        try {
-          const currentTasks = await getCurrentTasks(conversationId.toString());
-          if (currentTasks.success) {
-            // Only send task_summary for live status updates
-            sendEvent('task_summary', {
-              tasks: currentTasks.tasks.map((task, index) => ({
-                id: `task_${conversationId}_${index}`,
-                content: task.title || task.description || task,
-                status: task.status || 'pending',
-                conversation_id: conversationId
-              })),
+    // Check periodically if tasks exist for this conversation
+    taskMonitorInterval = setInterval(async () => {
+      try {
+        const currentTasks = await getCurrentTasks(conversationId.toString());
+        if (currentTasks.success && currentTasks.tasks && currentTasks.tasks.length > 0) {
+          // Only send task_summary for live status updates
+          sendEvent('task_summary', {
+            tasks: currentTasks.tasks.map((task, index) => ({
+              id: `task_${conversationId}_${index}`,
+              content: task.title || task.description || task,
+              status: task.status || 'pending',
               conversation_id: conversationId
-            });
-          }
-        } catch (error) {
-          console.error('Error monitoring tasks:', error);
+            })),
+            conversation_id: conversationId
+          });
         }
-      }, 2000); // Check every 2 seconds
-    }
+      } catch (error) {
+        console.error('Error monitoring tasks:', error);
+      }
+    }, 2000); // Check every 2 seconds
     
     // Create AbortController for this conversation
     const abortController = new AbortController();
@@ -176,9 +156,9 @@ router.post('/run', authenticateToken, async (req, res) => {
       conversationId,
       userId: USER_ID,
       sseEmitter: sendEvent,
-      taskUpdater: needsPlanning ? async (taskIndex, status) => {
+      taskUpdater: async (taskIndex, status) => {
         await updateTaskStatus(conversationId.toString(), taskIndex, status);
-      } : null,
+      },
       abortSignal: abortController.signal
     });
     
@@ -350,6 +330,7 @@ router.post('/run', authenticateToken, async (req, res) => {
     // Clean up globals and abort controller
     global.currentSseEmitter = null;
     global.currentConversationId = null;
+    global.currentImageData = null;
     console.log(`[ORCHESTRATOR] Cleaning up AbortController for conversation: ${conversationId}`);
     conversationAbortControllers.delete(conversationId);
     conversationAbortControllers.delete(parseInt(conversationId));
