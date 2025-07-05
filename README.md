@@ -1,234 +1,239 @@
-<!-- markdownlint-disable MD041 MD025 -->
-# EspressoBot - Shell Agency Architecture
+# EspressoBot 🤖☕
 
-> A revolutionary AI-powered e-commerce assistant for iDrinkCoffee.com, featuring a "Shell Agency" architecture where agents are given direct bash access instead of wrapped tools, following Unix philosophy of composable commands.
+An AI-powered e-commerce assistant for iDrinkCoffee.com, built with OpenAI agents SDK and Model Context Protocol (MCP).
 
-## 🚀 Features
+## Overview
 
-### Shell Agency Architecture
-- **Dynamic Bash Orchestrator**: Main orchestrator that spawns specialized bash agents on demand
-- **Unix Philosophy**: Agents compose simple tools into complex solutions  
-- **Direct Tool Access**: Agents execute Python tools directly via bash
-- **Parallel Execution**: Spawn multiple agents for independent tasks
-- **Real-time Progress**: SSE streaming shows live agent actions
+EspressoBot is a sophisticated conversational AI system that manages e-commerce operations through natural language. It uses a Shell Agency architecture with dynamic bash agents and native MCP tools to perform complex tasks autonomously.
 
-### Core Capabilities
-- **Shopify Integration**: Full access to 30+ Shopify tools for product, inventory, and order management
-- **Planning Agent**: Breaks down complex requests into structured task plans
-- **SWE Agent**: Software engineering agent with MCP integration for tool creation/modification
-- **Memory System**: (Currently disabled - needs redesign)
-- **Google OAuth**: Authentication with workspace account support
-- **Real-time Streaming**: Live updates via Server-Sent Events (SSE)
-- **Task Tracking**: Visual progress indicators for multi-step operations
+## Key Features
 
-## Prerequisites
+- **🖼️ Vision Capability**: Process images (screenshots, product photos) with automatic retry logic
+- **🔧 27+ Native Tools**: Direct Shopify API integration via MCP (Model Context Protocol)
+- **🧠 Smart Memory**: Local SQLite-based semantic memory with deduplication
+- **📋 Task Planning**: Automatic task breakdown for complex operations
+- **🤖 Multi-Agent System**: Specialized agents for different domains
+- **🔄 Real-time Updates**: Server-sent events for live progress tracking
+- **🛡️ Safety Features**: Dangerous command detection, autonomy controls
 
-- **Node.js** (v22+) and **pnpm** (recommended) or **npm**
-- **SQLite** (for local development) or **PostgreSQL** (for production)
-- **OpenAI API Key** with access to o3-mini and gpt-4 models
-- **Shopify Store** with Admin API access token
-- **Google OAuth** credentials (for authentication)
+## Architecture
+
+```
+frontend/
+├── server/
+│   ├── agents/              # Specialized AI agents
+│   │   ├── semantic-bash-agent.js    # Bash execution with context
+│   │   ├── swe-agent-connected.js    # Software engineering agent
+│   │   └── task-planning-agent.js    # Task decomposition
+│   ├── memory/              # Local memory system
+│   │   └── simple-local-memory.js    # SQLite + embeddings
+│   ├── tools/               # Tool implementations
+│   │   ├── bash-tool.js              # Safe bash execution
+│   │   ├── mcp-client.js             # MCP integration
+│   │   └── view-image-tool.js       # Vision support
+│   └── dynamic-bash-orchestrator.js  # Main orchestrator
+│
+├── python-tools/
+│   ├── mcp-server.py        # MCP server for Python tools
+│   └── [27 tool implementations]
+│
+└── src/                     # React frontend
+    └── features/chat/       # Chat interface
+```
+
+## Technology Stack
+
+- **Backend**: Node.js, Express, Vite
+- **AI/ML**: OpenAI agents SDK, GPT-4/O3 models
+- **Database**: SQLite (memory), Prisma ORM
+- **Tools**: Python, MCP (Model Context Protocol)
+- **Frontend**: React, Tailwind CSS
+- **Auth**: Google OAuth, JWT
 
 ## Getting Started
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/pranavchavda/flask-shopifybot.git
-   cd flask-shopifybot
-   ```
+### Prerequisites
 
-2. **Set up environment variables**
-   ```bash
-   cd frontend
-   cp .env.example .env
-   ```
-   
-   Edit `.env` and configure:
-   - `DATABASE_URL` - SQLite or PostgreSQL connection string
-   - `OPENAI_API_KEY` - Your OpenAI API key
-   - `OPENAI_MODEL` - Model to use (e.g., `gpt-4o-mini`)
-   - `SHOPIFY_SHOP_URL` - Your Shopify store URL
-   - `SHOPIFY_ACCESS_TOKEN` - Shopify Admin API token
-   - `GOOGLE_CLIENT_ID` - Google OAuth client ID
-   - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
-   - `SESSION_SECRET` - Random string for session encryption
+- Node.js 18+
+- Python 3.8+
+- OpenAI API key
+- Shopify Admin API access
 
-3. **Install dependencies**
-   ```bash
-   cd frontend
-   pnpm install  # or npm install
-   ```
+### Installation
 
-4. **Set up the database**
-   ```bash
-   npx prisma migrate dev --name init
-   npx prisma generate
-   ```
+```bash
+# Clone the repository
+git clone git@github.com:pranavchavda/espressobot.git
+cd espressobot/frontend
 
-5. **Run the development server**
-   ```bash
-   pnpm dev  # or npm run dev
-   ```
+# Install dependencies
+npm install
+pip install -r python-tools/requirements.txt
 
-6. **Access the application**
-   - Open `http://localhost:5173` in your browser
-   - Log in with your Google workspace account
-
-## Architecture Overview
-
-### Shell Agency Design
-```
-User Request
-    ↓
-Dynamic Bash Orchestrator
-    ↓
-Spawns Specialized Agents ←→ Direct Bash Access
-    ↓                            ↓
-Task Execution              Python Tools
-    ↓                            ↓
-Results Aggregation         Tool Results
-    ↓
-Response to User
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your API keys
 ```
 
-### Key Components
+### Environment Variables
 
-1. **Dynamic Bash Orchestrator** (`/frontend/server/dynamic-bash-orchestrator.js`)
-   - Analyzes user requests
-   - Spawns specialized bash agents
-   - Coordinates parallel execution
-   - Aggregates results
+```env
+# Required
+OPENAI_API_KEY=sk-...
+SHOPIFY_SHOP_URL=https://your-store.myshopify.com
+SHOPIFY_ACCESS_TOKEN=shpat_...
 
-2. **Bash Tool** (`/frontend/server/tools/bash-tool.js`)
-   - Safety checks for dangerous commands
-   - Configurable timeout (default 5 minutes)
-   - Real-time progress updates
-   - Working directory management
+# Optional
+PERPLEXITY_API_KEY=pplx-...
+ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=file:./prisma/dev.db
+```
 
-3. **Python Tools** (`/frontend/python-tools/`)
-   - 30+ Shopify-specific tools
-   - Direct execution via bash
-   - No wrapper overhead
-   - Composable via pipes and scripts
+### Running the Application
 
-4. **Planning Agent** (`/frontend/server/agents/planning-agent.js`)
-   - Analyzes request complexity
-   - Creates structured task plans
-   - Updates task status in real-time
+```bash
+# Development mode
+npm run dev
 
-5. **SWE Agent** (`/frontend/server/agents/swe-agent-connected.js`)
-   - Software engineering capabilities
-   - MCP integration for:
-     - Shopify Dev documentation search
-     - GraphQL schema introspection
-     - Context7 library resolution
-   - Can create and modify tools
-
-## Available Tools
-
-### Shopify Tools
-- **Product Management**: search_products, get_product, create_product, update_pricing, manage_tags
-- **Inventory**: manage_inventory_policy, update_product_status, bulk_operations
-- **Special Features**: create_combo, create_open_box, manage_variant_links
-- **GraphQL**: run_graphql_query, run_graphql_mutation
-
-### MCP Tools (via SWE Agent)
-- **Shopify Dev**: search_dev_docs, introspect_admin_schema, fetch_docs_by_path
-- **Context7**: resolve-library-id, get-library-docs
+# The app will be available at http://localhost:5173
+```
 
 ## Usage Examples
 
-### Simple Task
+### Product Management
 ```
-User: "Update the price of SKU ABC123 to $29.99"
-→ Orchestrator spawns single bash agent
-→ Agent runs: python update_pricing.py --sku ABC123 --price 29.99
-```
-
-### Complex Task
-```
-User: "Find all coffee products under $20 and increase their prices by 10%"
-→ Orchestrator spawns Task Manager to plan
-→ Spawns parallel agents:
-  - Search_Agent: python search_products.py --query "coffee" --max-price 20
-  - Price_Update_Agent: python bulk_price_update.py --increase 10
+User: "Update the price of SKU ESP-001 to $49.99"
+Bot: ✓ Updated price to $49.99
 ```
 
-### Tool Creation
+### Bulk Operations
 ```
-User: "Create a tool to export product data to CSV"
-→ Orchestrator hands off to SWE Agent
-→ SWE Agent creates new Python tool with proper error handling
+User: "Set all Breville machines to 15% off"
+Bot: ✓ Applied 15% discount to 12 products
 ```
 
-## Project Structure
+### Image Analysis
+```
+User: [uploads screenshot] "Remove the commercial tag from these products"
+Bot: ✓ Removed 'commercial' tag from 4 products shown in the image
+```
 
+### Complex Tasks
 ```
-espressobot/
-├── frontend/                 # Main application
-│   ├── server/              # Backend services
-│   │   ├── agents/          # Agent implementations
-│   │   ├── tools/           # Tool wrappers
-│   │   └── *.js            # API endpoints
-│   ├── src/                 # React frontend
-│   ├── python-tools/        # Python tool collection
-│   ├── prisma/             # Database schema
-│   └── package.json        
-├── CLAUDE.md               # Development log
-├── TODO.md                 # Future enhancements
-└── README.md               # This file
+User: "Create a combo product with the Breville Barista Express and Smart Grinder"
+Bot: ✓ Created combo COMBO-2501-BES870-BCG820
+     ✓ Set combo price to $799.99 (10% discount)
+     ✓ Generated combined product image
 ```
+
+## MCP Tools Available
+
+### Product Management (12 tools)
+- `get_product` - Retrieve product details
+- `create_product` - Create new products
+- `update_pricing` - Modify prices
+- `manage_tags` - Add/remove tags
+- `add_product_images` - Image management
+- And more...
+
+### Operations (8 tools)
+- `manage_inventory_policy` - Oversell settings
+- `bulk_price_update` - Batch pricing
+- `manage_redirects` - URL redirects
+- `manage_map_sales` - MAP compliance
+- And more...
+
+### Integrations (7 tools)
+- `perplexity_research` - Market research
+- `send_review_request` - Yotpo reviews
+- `upload_to_skuvault` - Inventory sync
+- `memory_operations` - Knowledge storage
+- And more...
+
+## Shell Agency Architecture
+
+EspressoBot uses a "Shell Agency" pattern where:
+1. The orchestrator analyzes requests and plans execution
+2. Bash agents are spawned dynamically for complex tasks
+3. Agents can create custom tools on-the-fly
+4. All agents share context through the memory system
+
+This provides maximum flexibility while maintaining safety through:
+- Command validation and sanitization
+- Timeout controls (default 2 minutes)
+- Dangerous command detection
+- Audit logging
 
 ## Development
 
 ### Adding New Tools
-1. Create Python script in `/frontend/python-tools/`
-2. Follow existing patterns for argument parsing
-3. No registration needed - agents discover tools automatically
 
-### Testing
-```bash
-# Test basic agent
-node test-basic-agent.js
-
-# Test SWE agent with MCP
-node test-swe-mcp.js
-
-# Test specific tools
-cd frontend/python-tools
-python search_products.py --help
+1. **Python Tool** (via MCP):
+```python
+# python-tools/my_new_tool.py
+def my_new_tool(param1: str, param2: int = 10):
+    """Tool description for the AI"""
+    # Implementation
+    return result
 ```
 
-### Debugging
-- Check server logs for agent actions
-- Use `VERBOSE=true` for detailed bash output
-- Monitor SSE events in browser DevTools
+2. **JavaScript Tool**:
+```javascript
+// server/tools/my-new-tool.js
+export const myNewTool = tool({
+  name: 'my_new_tool',
+  description: 'What this tool does',
+  parameters: z.object({
+    param1: z.string()
+  }),
+  execute: async ({ param1 }) => {
+    // Implementation
+  }
+});
+```
 
-## Known Issues
+### Testing
 
-1. **Memory System**: Currently disabled due to infinite loops. Needs:
-   - Queue system for operations
-   - Cancellation tokens
-   - Circuit breaker pattern
+```bash
+# Test MCP tools
+node test-all-mcp-tools.js
 
-2. **Large Images**: Base64 image handling has limitations in OpenAI agents SDK
-   - Recommend using image URLs instead
-   - Keep uploads under 375KB
+# Test specific functionality
+node tests/test-vision-agent.js
+```
+
+## Deployment
+
+The application is designed to run on any Node.js hosting platform:
+
+```bash
+# Build for production
+npm run build
+
+# Start production server
+npm start
+```
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Documentation
+
+- [CLAUDE.md](CLAUDE.md) - Development instructions and architecture details
+- [Tool Usage Guide](server/tool-docs/TOOL_USAGE_GUIDE.md) - Comprehensive tool documentation
+- [Vision Solution](VISION_SOLUTION.md) - Image processing implementation
 
 ## License
 
-This project is proprietary software for iDrinkCoffee.com.
+Proprietary - iDrinkCoffee.com
 
 ## Acknowledgments
 
-- Built with OpenAI Agents SDK
-- Inspired by Unix philosophy
-- Powered by Shopify APIs
+- Built with [OpenAI agents SDK](https://github.com/openai/agents)
+- Uses [Model Context Protocol](https://modelcontextprotocol.io)
+- Powered by GPT-4 and Claude
