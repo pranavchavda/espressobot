@@ -21,27 +21,60 @@ const generateToken = (user) => {
 };
 
 // Google OAuth routes
-router.get('/google', 
+router.get('/google', (req, res, next) => {
+  // Log the current host for debugging
+  const host = req.get('host');
+  const protocol = req.get('x-forwarded-proto') || req.protocol;
+  console.log('OAuth request from:', `${protocol}://${host}`);
+  
+  // Ensure we're using HTTPS in production (Replit)
+  if (host.includes('replit.dev') && protocol !== 'https') {
+    return res.redirect(`https://${host}${req.originalUrl}`);
+  }
+  
   passport.authenticate('google', { 
     scope: ['profile', 'email'],
     accessType: 'offline',
     prompt: 'consent'
-  })
-);
+  })(req, res, next);
+});
 
-router.get('/google/callback',
+router.get('/google/callback', (req, res, next) => {
+  console.log('OAuth callback received:', {
+    query: req.query,
+    host: req.get('host'),
+    protocol: req.get('x-forwarded-proto') || req.protocol,
+    fullUrl: req.originalUrl
+  });
+
   passport.authenticate('google', { 
     failureRedirect: '/login?error=auth_failed',
     failureMessage: true 
-  }),
-  (req, res) => {
-    // Generate JWT token
-    const token = generateToken(req.user);
+  }, (err, user, info) => {
+    if (err) {
+      console.error('OAuth error:', err);
+      return res.redirect('/login?error=server_error');
+    }
+    if (!user) {
+      console.error('OAuth failed:', info);
+      return res.redirect('/login?error=auth_failed');
+    }
     
-    // Redirect to frontend with token
-    res.redirect(`/?token=${token}`);
-  }
-);
+    req.logIn(user, (err) => {
+      if (err) {
+        console.error('Login error:', err);
+        return res.redirect('/login?error=login_failed');
+      }
+      
+      // Generate JWT token
+      const token = generateToken(user);
+      console.log('OAuth success, redirecting with token');
+      
+      // Redirect to frontend with token
+      res.redirect(`/?token=${token}`);
+    });
+  })(req, res, next);
+});
 
 // Get current user
 router.get('/me', async (req, res) => {
