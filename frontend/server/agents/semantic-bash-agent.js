@@ -13,7 +13,12 @@ import { getVectorStoreId } from '../context-loader/vector-store-manager.js';
 /**
  * Create a bash agent with semantic search capabilities
  */
-export async function createSemanticBashAgent(name, task, conversationId = null, autonomyLevel = 'high') {
+export async function createSemanticBashAgent(name, task, conversationId = null, autonomyLevel = 'high', richContext) {
+  // richContext is now REQUIRED - orchestrator must provide context
+  if (!richContext) {
+    throw new Error('[SemanticBashAgent] richContext is required. Orchestrator must provide context.');
+  }
+  
   console.log(`[SemanticBashAgent] Creating agent for task: ${task}`);
   
   // Get vector store ID for file search
@@ -25,7 +30,7 @@ export async function createSemanticBashAgent(name, task, conversationId = null,
     console.error('[SemanticBashAgent] Could not get vector store:', error.message);
     // Fall back to regular bash agent
     const { createBashAgent } = await import('../tools/bash-tool.js');
-    return createBashAgent(name, task, conversationId);
+    return createBashAgent(name, task, conversationId, autonomyLevel, richContext);
   }
   
   // Create tools array
@@ -87,66 +92,35 @@ export async function createSemanticBashAgent(name, task, conversationId = null,
     }
   }
   
-  // Load task context if available
-  let taskContext = '';
-  if (conversationId) {
-    try {
-      const { readTasksForConversation, formatTasksForPrompt } = await import('../utils/task-reader.js');
-      const { tasks } = await readTasksForConversation(conversationId);
-      if (tasks && tasks.length > 0) {
-        taskContext = '\n\n' + formatTasksForPrompt(tasks);
-      }
-    } catch (error) {
-      console.log(`[SemanticBashAgent] Could not read tasks:`, error.message);
-    }
-  }
+  // Build prompt from rich context
+  console.log(`[SemanticBashAgent] Using orchestrator-provided rich context`);
+  
+  // Import the prompt builder from bash-tool
+  const { buildPromptFromRichContext } = await import('../tools/bash-tool.js');
+  const contextualPrompt = buildPromptFromRichContext(richContext);
+  
+  // Add autonomy level
+  const autonomyContext = autonomyLevel === 'high' 
+    ? '\n\n## AUTONOMY MODE: HIGH\nYou have full autonomy. Execute all operations immediately without asking for confirmation. The user trusts you to complete the task.'
+    : autonomyLevel === 'medium'
+    ? '\n\n## AUTONOMY MODE: MEDIUM\nExecute most operations immediately. Only confirm genuinely risky operations (bulk deletes, operations affecting 50+ items).'
+    : '\n\n## AUTONOMY MODE: LOW\nConfirm all write operations before executing. This is a careful mode for sensitive operations.';
+  
+  const instructions = contextualPrompt + `
+
+## Additional Capability: Semantic Search
+You also have access to semantic search through the search_documentation tool:
+- Use it when you need information about tools, business rules, or workflows
+- Search for tool names: "update_pricing tool usage"
+- Search for business rules: "preorder management rules"
+- Search for workflows: "create combo product workflow"
+
+IMPORTANT: The orchestrator has already provided relevant context above. Only use search_documentation if you need additional information not included in the context.` + autonomyContext + `\n\nYour specific task: ${task}`;
   
   // Create the agent
   return new Agent({
     name,
-    instructions: `You are a bash-enabled agent with semantic search capabilities for EspressoBot Shell Agency.
-
-## Your Capabilities:
-1. **Bash Execution**: Full access to Python tools in /home/pranav/espressobot/frontend/python-tools/
-2. **Semantic Search**: Use search_documentation to find relevant information about:
-   - Tool usage and parameters
-   - Business rules (preorders, pricing, etc.)
-   - Product creation guidelines
-   - Workflow examples
-   
-## How to Use Semantic Search:
-When you need information about tools, business rules, or workflows, use the search_documentation tool first:
-- Search for tool names: "update_pricing tool usage"
-- Search for business rules: "preorder management rules"
-- Search for workflows: "create combo product workflow"
-- Search for specific features: "metafields product features"
-
-## Best Practices:
-1. Search documentation BEFORE attempting complex operations
-2. Use semantic search when:
-   - You need to understand tool parameters
-   - You're unsure about business rules
-   - You need workflow examples
-   - Error messages reference specific requirements
-3. Execute bash commands based on search results
-4. Chain searches for complex queries
-
-## Example Workflow:
-1. User asks to "add product to preorder"
-2. Search: "preorder management business rules"
-3. Get rules about tags and inventory policy
-4. Search: "manage_tags tool usage"
-5. Execute the appropriate commands
-
-Your specific task: ${task}${taskContext}
-
-${autonomyLevel === 'high' 
-  ? '## AUTONOMY MODE: HIGH\nYou have full autonomy. Execute all operations immediately without asking for confirmation. The user trusts you to complete the task.'
-  : autonomyLevel === 'medium'
-  ? '## AUTONOMY MODE: MEDIUM\nExecute most operations immediately. Only confirm genuinely risky operations (bulk deletes, operations affecting 50+ items).'
-  : '## AUTONOMY MODE: LOW\nConfirm all write operations before executing. This is a careful mode for sensitive operations.'}
-
-Remember: You have the power of semantic search - use it to ensure accuracy!`,
+    instructions,
     tools,
     model: 'gpt-4.1-mini'
   });

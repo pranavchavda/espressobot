@@ -338,7 +338,7 @@ const spawnBashAgent = tool({
         throw new Error('Agent execution was interrupted by user');
       }
       
-      const runOptions = { maxTurns: 30, ...callbacks };
+      const runOptions = { maxTurns: 100, ...callbacks };
       if (currentAbortSignal) {
         runOptions.signal = currentAbortSignal;
       }
@@ -408,10 +408,13 @@ const spawnParallelBashAgents = tool({
     })).describe('Array of tasks to run in parallel, each with optional curated context')
   }),
   execute: async ({ tasks }) => {
-    console.log(`[ORCHESTRATOR] Spawning ${tasks.length} bash agents in parallel`);
+    // Hot-patch to handle single task object as well as array
+    const tasksArray = Array.isArray(tasks) ? tasks : [tasks];
+
+    console.log(`[ORCHESTRATOR] Spawning ${tasksArray.length} bash agents in parallel`);
     
     // Create and run all agents in parallel
-    const promises = tasks.map(async ({ agentName, task, context, autonomyLevel, curatedContext }) => {
+    const promises = tasksArray.map(async ({ agentName, task, context, autonomyLevel, curatedContext }) => {
       // Use the provided autonomy level or fall back to intent analysis or default to 'high'
       const effectiveAutonomy = autonomyLevel || 
                                (global.currentIntentAnalysis?.level) || 
@@ -491,7 +494,7 @@ const spawnParallelBashAgents = tool({
           throw new Error('Agent execution was interrupted by user');
         }
         
-        const runOptions = { maxTurns: 30, ...callbacks };
+        const runOptions = { maxTurns: 100, ...callbacks };
         if (currentAbortSignal) {
           runOptions.signal = currentAbortSignal;
         }

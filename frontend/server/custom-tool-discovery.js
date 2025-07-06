@@ -1,4 +1,4 @@
-import ExtendedToolRegistry from './custom-tools/tool-registry-extended.js';
+import MCPOnlyToolRegistry from './custom-tools/tool-registry-mcp-only.js';
 import { registerNativeTools } from './native-tools/index.js';
 import { memoryTool } from './tools/memory-tool.js';
 import { getMCPTools } from './tools/mcp-client.js';
@@ -9,7 +9,7 @@ import { getMCPTools } from './tools/mcp-client.js';
  */
 export class CustomToolDiscovery {
   constructor() {
-    this.toolRegistry = new ExtendedToolRegistry();
+    this.toolRegistry = new MCPOnlyToolRegistry();
     this.shopifyTools = [];
     this.shopifyDevTools = [];
     this.todoTools = [];

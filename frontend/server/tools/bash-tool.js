@@ -41,7 +41,7 @@ Examples of CORRECT usage:
 - chmod +x scripts/*.sh && ./scripts/deploy.sh
 
 Examples of WRONG usage (DO NOT DO THIS):
-- python3 /python-tools/get_product.py SKU123 (This is an MCP tool - orchestrator handles it!)
+- python3 /python-tools/manage_inventory.py (MCP tools should be used by orchestrator!)
 - curl -X POST shopify-api-endpoint (Use MCP tools instead)
 - Reimplementing MCP tool functionality`;
 
@@ -250,10 +250,10 @@ export const bashTool = tool({
     CRITICAL: For Shopify operations, ALWAYS use the python-tools, NEVER use curl!
     
     Examples:
-    - python3 /home/pranav/espressobot/frontend/python-tools/search_products.py "coffee" --status active
-    - python3 /home/pranav/espressobot/frontend/python-tools/get_product.py SKU123 | jq '.price'
-    - python3 /home/pranav/espressobot/frontend/python-tools/manage_inventory_policy.py --identifier "SKU123" --policy deny
-    - echo "SKU123,49.99" > /tmp/price_updates.csv && python3 /home/pranav/espressobot/frontend/python-tools/bulk_price_update.py /tmp/price_updates.csv
+    - git status && git log --oneline -10
+    - find /tmp -name "*.csv" -mtime -1 | xargs ls -la
+    - grep -r "error" /var/log/espressobot/ --include="*.log"
+    - tar -czf backup.tar.gz ./data/ && mv backup.tar.gz /backups/
     
     Safety notes:
     - Always use absolute paths for tools

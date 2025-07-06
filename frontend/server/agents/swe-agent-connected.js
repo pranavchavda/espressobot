@@ -2,7 +2,6 @@ import { Agent, MCPServerStdio, tool, webSearchTool } from '@openai/agents';
 import { z } from 'zod';
 import fs from 'fs/promises';
 import { executeBashCommand } from '../tools/bash-tool.js';
-import ragSystemPromptManager from '../memory/rag-system-prompt-manager.js';
 import { learningTool, reflectAndLearnTool } from '../tools/learning-tool.js';
 
 // Tool definitions (copied from main SWE agent since they're not exported)
@@ -113,57 +112,55 @@ async function initializeMCPServers() {
 /**
  * Create SWE Agent with connected MCP servers
  */
-export async function createConnectedSWEAgent() {
+export async function createConnectedSWEAgent(task = '', conversationId = null, richContext) {
+  // richContext is now REQUIRED - orchestrator must provide context
+  if (!richContext) {
+    throw new Error('[SWE Agent Connected] richContext is required. Orchestrator must provide context.');
+  }
+  
   // Initialize MCP servers first
   const servers = await initializeMCPServers();
   
-  // Base instructions for SWE agent
-  const baseInstructions = `You are a Software Engineering Agent with access to MCP servers.
-
-    You are the SWE agent for EspressoBot - IDrinkCoffee.com's AI assistant agency managing ecommerce operations with Shopify integration. 
-    Before executing any GraphQL queries, you must perform live schema validation against the latest Shopify GraphQL schema. If validation errors occur, stop immediately, report clear error messages with actionable suggestions for correction, and do not proceed.
-    
-    You support dynamic configurable field lists for order search and reporting tools to allow flexible querying.
-    
-    You implement fail-fast logic to ensure errors in query construction or execution are caught early.
-
-    All schema validation checks and GraphQL query execution are logged with timestamps and detailed messages for traceability.
-
-    Your goal is to deliver reliable, accurate, and efficient ecommerce management support with clear communication on errors and changes.
-
-    You have access to Shopify Dev MCP which provides:
-    - introspect_admin_schema: Introspect GraphQL schema types
-    - search_dev_docs: Search Shopify documentation
-    - fetch_docs_by_path: Get specific documentation
-    - get_started: Get API overview 
-
-    When creating tools that interact with Shopify APIs:
-    1. Use introspect_admin_schema to understand the GraphQL types
-    2. Use search_dev_docs to find best practices and examples
-    3. Create validation and helper tools based on actual schema
-
-    Your responsibilities:
-    1. Create new Python tools (both ad-hoc and permanent)
-    2. Use MCP tools to ensure accuracy with external APIs
-    3. Write comprehensive documentation
-    4. Ensure code quality and best practices`;
+  console.log(`[SWE Agent Connected] Using orchestrator-provided rich context`);
   
-  // Generate RAG-enhanced prompt
-  const userId = global.currentUserId || global.currentConversationId;
-  const contextQuery = "software engineering shopify mcp tools graphql api development";
-  const ragInstructions = await ragSystemPromptManager.getSystemPrompt(contextQuery, {
-    basePrompt: baseInstructions,
-    maxFragments: 10,
-    includeMemories: true,
-    userId: userId,
-    agentType: 'swe',
-    minScore: 0.4
-  });
+  // Import the prompt builder from bash-tool
+  const { buildPromptFromRichContext } = await import('../tools/bash-tool.js');
+  const contextualPrompt = buildPromptFromRichContext(richContext);
+  
+  const instructions = contextualPrompt + `
+
+## Software Engineering Agent Capabilities
+
+You are the SWE agent for EspressoBot with access to MCP servers for real-time API information.
+
+### MCP Access:
+You have access to Shopify Dev MCP which provides:
+- **introspect_admin_schema**: Introspect GraphQL schema types
+- **search_dev_docs**: Search Shopify documentation
+- **fetch_docs_by_path**: Get specific documentation
+- **get_started**: Get API overview 
+
+### Your Responsibilities:
+1. Create new Python tools (both ad-hoc and permanent)
+2. Use MCP tools to ensure accuracy with external APIs
+3. Write comprehensive documentation
+4. Ensure code quality and best practices
+5. Validate GraphQL queries against live schema before execution
+
+### Best Practices:
+- Before executing any GraphQL queries, perform live schema validation
+- If validation errors occur, report clear error messages with actionable suggestions
+- Use introspect_admin_schema to understand GraphQL types
+- Use search_dev_docs to find best practices and examples
+- Create validation and helper tools based on actual schema
+- All schema validation and query execution should be logged
+
+Your specific task: ${task}`;
   
   // Create agent with connected servers
   const agent = new Agent({
     name: 'SWE_Agent_Connected',
-    instructions: ragInstructions,
+    instructions: instructions,
     tools: [
       tool({
         name: 'web_search',
