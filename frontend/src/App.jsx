@@ -8,9 +8,8 @@ import LoginPage from './pages/LoginPage';
 import RestrictedPage from './pages/RestrictedPage';
 import AdminPage from './pages/AdminPage';
 import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
-import ToolDocumentation from './components/ToolDocumentation';
 import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon, Database, BookOpen } from 'lucide-react';
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon, Database } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
@@ -226,19 +225,6 @@ function App() {
                   </NavLink>
                 )}
                 
-                <NavLink 
-                  to="/tools" 
-                  className={({ isActive }) => 
-                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      isActive 
-                        ? 'text-indigo-600 dark:text-indigo-400' 
-                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
-                    }`
-                  }
-                >
-                  <BookOpen className="h-4 w-4 mr-1 inline" />
-                  Tools
-                </NavLink>
                 
                 <NavLink 
                   to="/about" 
@@ -313,7 +299,13 @@ function App() {
                           }`}
                           onClick={() => setSelectedChat(chat.id)}
                         >
-                          <div className="truncate">{chat.topic_title || chat.title}</div>
+                          <div className="truncate">
+                            {chat.topic_title ? (
+                              <span>{chat.topic_title}</span>
+                            ) : (
+                              <span style={{opacity: 0.7}}>{chat.title}</span>
+                            )}
+                          </div>
                           <div className="text-xs text-zinc-500 truncate">
                             {chat.created_at
                               ? new Date(chat.created_at).toLocaleString()
@@ -426,7 +418,6 @@ function App() {
             </Button>
           </div>
         } />
-        <Route path="/tools" element={<ToolDocumentation />} />
       </Route>
     </Routes>
     

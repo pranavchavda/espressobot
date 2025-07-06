@@ -104,6 +104,14 @@ Examples of WRONG usage (DO NOT DO THIS):
     prompt += '\n\n' + context.conversationTopic;
   }
 
+  // Add relevant prompt fragments if any
+  if (context.promptFragments && context.promptFragments.length > 0) {
+    prompt += '\n\n## Relevant Documentation:';
+    context.promptFragments.forEach(fragment => {
+      prompt += `\n\n### ${fragment.category || 'General'}:\n${fragment.content}`;
+    });
+  }
+
   return prompt;
 }
 

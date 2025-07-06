@@ -54,6 +54,38 @@ export async function buildCoreContext(options) {
     }
   }
   
+  // Get relevant prompt fragments from library (top-3 for core context)
+  try {
+    const promptFragments = await memoryOperations.searchSystemPromptFragments(task, 5);
+    console.log(`[CONTEXT] Raw prompt fragments found: ${promptFragments?.length || 0}`);
+    
+    if (promptFragments && promptFragments.length > 0) {
+      // Take top 3 fragments, preferring high/critical priority
+      const sortedFragments = promptFragments.sort((a, b) => {
+        // Priority order: critical > high > medium
+        const priorityScore = {critical: 3, high: 2, medium: 1};
+        const aScore = priorityScore[a.metadata?.priority] || 0;
+        const bScore = priorityScore[b.metadata?.priority] || 0;
+        return bScore - aScore;
+      });
+      
+      coreContext.promptFragments = sortedFragments.slice(0, 3).map(f => ({
+        content: f.memory,
+        category: f.metadata?.category,
+        priority: f.metadata?.priority,
+        score: f.score
+      }));
+      
+      console.log(`[CONTEXT] Added ${coreContext.promptFragments.length} prompt fragments to core context`);
+      coreContext.promptFragments.forEach((f, i) => {
+        console.log(`  ${i+1}. [${f.priority}] ${f.category}: ${f.content.substring(0, 60)}...`);
+      });
+    }
+  } catch (error) {
+    console.log(`[CONTEXT] Error searching prompt fragments:`, error.message);
+    coreContext.promptFragments = [];
+  }
+  
   // Extract only core business rules
   try {
     const smartContext = await getSmartContext(task, {
@@ -153,6 +185,35 @@ export async function buildFullContext(options, coreContext = null) {
     } catch (error) {
       console.log(`[CONTEXT] Error loading extended memories:`, error.message);
     }
+  }
+  
+  // Get ALL relevant prompt fragments for full context (up to 10)
+  try {
+    const promptFragments = await memoryOperations.searchSystemPromptFragments(task, 10);
+    if (promptFragments && promptFragments.length > 0) {
+      fullContext.promptFragments = promptFragments.map(f => ({
+        content: f.memory,
+        category: f.metadata?.category,
+        priority: f.metadata?.priority,
+        tags: f.metadata?.tags,
+        agentType: f.metadata?.agent_type,
+        score: f.score
+      }));
+      console.log(`[CONTEXT] Found ${fullContext.promptFragments.length} prompt fragments for full context`);
+      
+      // Group by category for better organization
+      fullContext.promptFragmentsByCategory = {};
+      fullContext.promptFragments.forEach(f => {
+        const cat = f.category || 'general';
+        if (!fullContext.promptFragmentsByCategory[cat]) {
+          fullContext.promptFragmentsByCategory[cat] = [];
+        }
+        fullContext.promptFragmentsByCategory[cat].push(f);
+      });
+    }
+  } catch (error) {
+    console.log(`[CONTEXT] Error loading prompt fragments:`, error.message);
+    fullContext.promptFragments = [];
   }
   
   // Get full conversation history (up to 10 turns)
