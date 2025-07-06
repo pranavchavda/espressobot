@@ -81,7 +81,7 @@ async function buildAgentContext(options) {
     additionalContext,
     forceFullContext,
     // Pass conversation history from the orchestrator's state
-    conversationHistory: []  // Empty for now, will be populated by tiered builder
+    conversationHistory: formatThreadForAgent(conversationId, 10)
   });
   
   // Get current tasks separately (not included in tiered builder)
@@ -581,11 +581,11 @@ async function buildOrchestratorWithMCPTools() {
   }
   
   return new Agent({
-    name: 'Dynamic_Bash_Orchestrator',
-    model: 'o3',  // Back to OpenAI for now
-    instructions: buildOrchestratorSystemPrompt() + `
+  name: 'Dynamic_Bash_Orchestrator',
+  model: 'o3',  // Back to OpenAI for now
+  
 
-## Context Building Process
+  instructions: buildOrchestratorSystemPrompt(),
 1. **BUILD CONTEXT FOR YOURSELF** - The system has already built comprehensive context including entities, business patterns, memories, and current tasks
 2. **USE CONTEXT FOR DECISIONS** - Analyze the provided context to understand what needs to be done and how
 3. **CURATE CONTEXT FOR AGENTS** - Manually select what context each agent needs using the curatedContext parameter
@@ -1051,11 +1051,11 @@ export async function runDynamicOrchestrator(message, options = {}) {
   
   // Log what we found
   console.log(`[Orchestrator] Context analysis complete:`);
-  console.log(`  - Entities found: ${orchestratorContext.specificEntities?.map(e => `${e.type}(${e.values?.length || e.count || 0})`).join(', ') || 'None'}`);
-  console.log(`  - Business patterns: ${orchestratorContext.businessLogic?.patterns?.map(p => p.type).join(', ') || 'None'}`);
-  console.log(`  - Memories: ${orchestratorContext.relevantMemories?.length || 0}`);
-  console.log(`  - Current tasks: ${orchestratorContext.currentTasks?.length || 0}`);
-  console.log(`  - Rules loaded: ${(orchestratorContext.relevantRules?.length || 0) > 0 ? 'Yes' : 'No'}`);
+  console.log(`  - Entities found: ${orchestratorContext.specificEntities.map(e => `${e.type}(${e.values.length})`).join(', ')}`);
+  console.log(`  - Business patterns: ${orchestratorContext.businessLogic.patterns.map(p => p.type).join(', ')}`);
+  console.log(`  - Memories: ${orchestratorContext.relevantMemories.length}`);
+  console.log(`  - Current tasks: ${orchestratorContext.currentTasks.length}`);
+  console.log(`  - Rules loaded: ${orchestratorContext.relevantRules.length > 0 ? 'Yes' : 'No'}`);
   
   let isStreaming = false;
   
@@ -1078,27 +1078,24 @@ export async function runDynamicOrchestrator(message, options = {}) {
     let contextualMessage = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     
     // Add entity context if found
-    if (orchestratorContext.specificEntities?.length > 0) {
+    if (orchestratorContext.specificEntities.length > 0) {
       contextualMessage += '\n\n## Entities Detected:';
       for (const entity of orchestratorContext.specificEntities) {
-        // Handle both core (samples) and full (values) context formats
-        const items = entity.values || entity.samples || [];
-        contextualMessage += `\n- ${entity.type}: ${items.join(', ')}`;
+        contextualMessage += `\n- ${entity.type}: ${entity.values.join(', ')}`;
       }
     }
     
     // Add business logic patterns if detected
-    if (orchestratorContext.businessLogic?.patterns?.length > 0) {
+    if (orchestratorContext.businessLogic.patterns.length > 0) {
       contextualMessage += '\n\n## Business Patterns Detected:';
       for (const pattern of orchestratorContext.businessLogic.patterns) {
-        contextualMessage += `\n- ${pattern.type}`;
-        if (pattern.action) contextualMessage += `: ${pattern.action}`;
+        contextualMessage += `\n- ${pattern.type}: ${pattern.action}`;
         if (pattern.warning) contextualMessage += ` (WARNING: ${pattern.warning})`;
       }
     }
     
     // Add current tasks if any
-    if (orchestratorContext.currentTasks?.length > 0) {
+    if (orchestratorContext.currentTasks.length > 0) {
       contextualMessage += '\n\n## Current Tasks:';
       orchestratorContext.currentTasks.forEach((task, idx) => {
         const status = task.status === 'completed' ? '[x]' : 
@@ -1108,7 +1105,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Add relevant memories if any
-    if (orchestratorContext.relevantMemories?.length > 0) {
+    if (orchestratorContext.relevantMemories.length > 0) {
       contextualMessage += '\n\n## Relevant Past Experiences:';
       orchestratorContext.relevantMemories.slice(0, 3).forEach(memory => {
         contextualMessage += `\n- ${memory.content}`;

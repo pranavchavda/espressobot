@@ -22,6 +22,8 @@ router.get('/', authenticateToken, async (req, res) => {
     where: { user_id: USER_ID },
     orderBy: { created_at: 'desc' },
   });
+  
+  
   res.json(conversations);
 });
 

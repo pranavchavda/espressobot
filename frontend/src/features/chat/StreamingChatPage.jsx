@@ -11,7 +11,7 @@ import logo from "../../../static/EspressoBotLogo.png";
 import { ApprovalRequest } from "@components/chat/ApprovalRequest";
 
 
-function StreamingChatPage({ convId }) {
+function StreamingChatPage({ convId, onTopicUpdate }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -763,6 +763,22 @@ function StreamingChatPage({ convId }) {
                 }
               } else if (useBasicAgent) {
                 switch (eventName) {
+                case 'topic_updated':
+                  console.log("FRONTEND: Topic updated (basic agent)", actualEventPayload);
+                  // Call the parent callback to update the sidebar
+                  if (onTopicUpdate && actualEventPayload.conversation_id) {
+                    // Ensure conversation_id is a number to match the state
+                    const convId = typeof actualEventPayload.conversation_id === 'string' 
+                      ? parseInt(actualEventPayload.conversation_id) 
+                      : actualEventPayload.conversation_id;
+                    console.log("FRONTEND: Calling onTopicUpdate with convId:", convId, "type:", typeof convId);
+                    onTopicUpdate(
+                      convId,
+                      actualEventPayload.topic_title,
+                      actualEventPayload.topic_details
+                    );
+                  }
+                  break;
                 case 'agent_status':
                   const { status, tool } = actualEventPayload;
                   console.log('FRONTEND: agent_status event, status:', status, 'tool:', tool);
@@ -938,6 +954,22 @@ function StreamingChatPage({ convId }) {
                     });
                   } else if (actualEventPayload.status === 'executing_tasks') {
                     setDispatcherStatus("Dispatcher: executing tasks...");
+                  }
+                  break;
+                case 'topic_updated':
+                  console.log("FRONTEND: Topic updated", actualEventPayload);
+                  // Call the parent callback to update the sidebar
+                  if (onTopicUpdate && actualEventPayload.conversation_id) {
+                    // Ensure conversation_id is a number to match the state
+                    const convId = typeof actualEventPayload.conversation_id === 'string' 
+                      ? parseInt(actualEventPayload.conversation_id) 
+                      : actualEventPayload.conversation_id;
+                    console.log("FRONTEND: Calling onTopicUpdate with convId:", convId, "type:", typeof convId);
+                    onTopicUpdate(
+                      convId,
+                      actualEventPayload.topic_title,
+                      actualEventPayload.topic_details
+                    );
                   }
                   break;
                 case 'dispatcher_done':

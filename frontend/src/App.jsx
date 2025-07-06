@@ -26,6 +26,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
+  
 
   // Check authentication on mount
   useEffect(() => {
@@ -74,13 +75,17 @@ function App() {
   const fetchConversations = async (token = localStorage.getItem('authToken')) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/conversations", {
+      const res = await fetch(`/api/conversations?t=${Date.now()}`, {
         headers: {
           'Authorization': token ? `Bearer ${token}` : ''
         }
       });
       const data = await res.json();
-      setConversations(data || []);
+      // Force complete re-render by clearing then setting
+      setConversations([]);
+      setTimeout(() => {
+        setConversations(data || []);
+      }, 0);
       // Keep current selection if still present; otherwise default to the most recent conversation (if any)
       setSelectedChat((prevSelected) => {
         if (data && data.find((c) => c.id === prevSelected)) {
@@ -308,7 +313,7 @@ function App() {
                           }`}
                           onClick={() => setSelectedChat(chat.id)}
                         >
-                          <div className="truncate">{chat.title}</div>
+                          <div className="truncate">{chat.topic_title || chat.title}</div>
                           <div className="text-xs text-zinc-500 truncate">
                             {chat.created_at
                               ? new Date(chat.created_at).toLocaleString()
@@ -402,6 +407,10 @@ function App() {
             <>
               <StreamingChatPage
                 convId={selectedChat}
+                onTopicUpdate={(conversationId, topicTitle, topicDetails) => {
+                  // Instead of updating state, refetch to ensure consistency
+                  fetchConversations();
+                }}
               />
               <PWAInstallPrompt />
             </>
