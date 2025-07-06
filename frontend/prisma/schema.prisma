@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:/home/runner/workspace/frontend/prisma/dev.db"
 }
 
 model alembic_version {
