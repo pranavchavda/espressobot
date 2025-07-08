@@ -956,22 +956,6 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                     setDispatcherStatus("Dispatcher: executing tasks...");
                   }
                   break;
-                case 'topic_updated':
-                  console.log("FRONTEND: Topic updated", actualEventPayload);
-                  // Call the parent callback to update the sidebar
-                  if (onTopicUpdate && actualEventPayload.conversation_id) {
-                    // Ensure conversation_id is a number to match the state
-                    const convId = typeof actualEventPayload.conversation_id === 'string' 
-                      ? parseInt(actualEventPayload.conversation_id) 
-                      : actualEventPayload.conversation_id;
-                    console.log("FRONTEND: Calling onTopicUpdate with convId:", convId, "type:", typeof convId);
-                    onTopicUpdate(
-                      convId,
-                      actualEventPayload.topic_title,
-                      actualEventPayload.topic_details
-                    );
-                  }
-                  break;
                 case 'dispatcher_done':
                   if (actualEventPayload.results && Array.isArray(actualEventPayload.results)) {
                     // Update tasks with final results
