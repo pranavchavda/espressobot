@@ -9,12 +9,13 @@ import RestrictedPage from './pages/RestrictedPage';
 import AdminPage from './pages/AdminPage';
 import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
 import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, LogOutIcon, UserIcon, Database } from 'lucide-react';
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
 import { Heading } from "@common/heading";
 import { MemoryManagementModal } from './components/memory/MemoryManagementModal';
+import TopNavDropdown from './components/common/TopNavDropdown';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -195,59 +196,7 @@ function App() {
                 </NavLink>
               </div>
               <div className="flex items-center space-x-4">
-                {/* User info */}
-                <div className="flex items-center space-x-2 px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-md">
-                  {user.profile_picture ? (
-                    <img 
-                      src={user.profile_picture} 
-                      alt={user.name} 
-                      className="h-6 w-6 rounded-full"
-                    />
-                  ) : (
-                    <UserIcon className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
-                  )}
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    {user.name || user.email}
-                  </span>
-                </div>
                 
-                {/* Admin Dashboard - Admin Only */}
-                {user.email === 'pranav@idrinkcoffee.com' && (
-                  <NavLink to="/admin">
-                    <Button
-                      outline
-                      small
-                      className="flex items-center"
-                    >
-                      <Database className="h-4 w-4 mr-1" />
-                      Admin
-                    </Button>
-                  </NavLink>
-                )}
-                
-                
-                <NavLink 
-                  to="/about" 
-                  className={({ isActive }) => 
-                    `px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      isActive 
-                        ? 'text-indigo-600 dark:text-indigo-400' 
-                        : 'text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white'
-                    }`
-                  }
-                >
-                  About
-                </NavLink>
-                
-                <Button
-                  onClick={handleLogout}
-                  outline
-                  small
-                  className="flex items-center"
-                >
-                  <LogOutIcon className="h-4 w-4 mr-1" />
-                  Logout
-                </Button>
               </div>
             </div>
           }
@@ -325,62 +274,8 @@ function App() {
     <Divider
               soft = "true"
               />
-              <div className="shadow mx-1 rounded-lg ">  
-              <div className="flex items-center px-3 py-3">
-                <LinkIcon className="h-5 w-5 mr-2 text-indigo-600 dark:text-indigo-400" />
-                <Heading
-                  level={3}
-                  className="font-medium text-zinc-800 dark:text-zinc-200"
-                >
-                  Important Links
-                </Heading>
-              </div>
-              <ul className="flex flex-col space-y-2 px-2 py-2">
-                <li>
-                  <a 
-                    href="https://admin.shopify.com/store/idrinkcoffee" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
-                  >
-                    <ShoppingBagIcon className="h-5 w-5 mr-3 text-[#96bf48]" />
-                    <span>Shopify</span>
-                  </a>
-                </li>
-                <li>
-                  <a 
-                    href="https://ads.google.com/aw/campaigns" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
-                  >
-                    <BarChart3Icon className="h-5 w-5 mr-3 text-[#4285F4]" />
-                    <span>Google Ads</span>
-                  </a>
-                </li>
-                <li>
-                  <a 
-                    href="https://analytics.google.com/analytics/web" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
-                  >
-                    <LineChartIcon className="h-5 w-5 mr-3 text-[#E37400]" />
-                    <span>Google Analytics</span>
-                  </a>
-                </li>
-                <li>
-                  <a 
-                    href="https://webhook-listener-pranavchavda.replit.app/" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-700 dark:text-zinc-300"
-                  >
-                    <GlobeIcon className="h-5 w-5 mr-3 text-[#667eea]" />
-                    <span>MCP Tool Manager</span>
-                  </a>
-                </li>
-              </ul>
+              <div className="mt-auto p-2 border-t border-zinc-200 dark:border-zinc-700">
+                <TopNavDropdown user={user} onLogout={handleLogout} />
               </div>  
               </nav>
           

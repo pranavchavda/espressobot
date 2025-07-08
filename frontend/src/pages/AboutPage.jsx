@@ -53,6 +53,8 @@ function AboutPage() {
               <li>Benefit from persistent memory that remembers your preferences and previous interactions.</li>
               <li>Get web content fetched and analyzed directly through our Fetch integration.</li>
               <li><b>Understand and analyze images:</b> Upload product photos, screenshots, or diagrams for instant insights and suggestions.</li>
+              <li><b>Shell Agency Architecture:</b> Dynamic bash orchestrator with specialized agents for task planning, software engineering, and semantic operations.</li>
+              <li><b>MCP Integration:</b> Direct tool execution with Python Tools MCP Server and Shopify Dev documentation access.</li>
             </ul>
           </section>
 
@@ -115,8 +117,8 @@ function AboutPage() {
                 <p className="text-sm mt-1">Outlines a clear sequence of steps for complex tasks and visualizes them as a task plan.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
-                <h4 className="font-medium text-green-600 dark:text-green-400">Agent Mode</h4>
-                <p className="text-sm mt-1">Switch to agentic workflows to perform multi-step tool-driven tasks with real-time progress updates.</p>
+                <h4 className="font-medium text-green-600 dark:text-green-400">Shell Agency Mode</h4>
+                <p className="text-sm mt-1">Unix-philosophy based architecture with bash orchestrator, dynamic agent spawning, and direct tool execution for maximum flexibility.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">User Authentication</h4>
@@ -127,8 +129,8 @@ function AboutPage() {
                 <p className="text-sm mt-1">Fetch, create, and manage your Google Tasks directly from chat <Badge color="blue\">coming soon</Badge>.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
-                <h4 className="font-medium text-green-600 dark:text-green-400">Shopify MCP Server</h4>
-                <p className="text-sm mt-1">Lets the agent access Shopify Admin API schema and documentation directly through natural language queries.</p>
+                <h4 className="font-medium text-green-600 dark:text-green-400">MCP Servers</h4>
+                <p className="text-sm mt-1">Python Tools MCP for direct tool execution and Shopify Dev MCP for real-time API introspection and documentation access.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">Perplexity</h4>
@@ -143,12 +145,20 @@ function AboutPage() {
                 <p className="text-sm mt-1">Solve complex problems with structured step-by-step reasoning for better analytical results.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
-                <h4 className="font-medium text-green-600 dark:text-green-400">Memory</h4>
-                <p className="text-sm mt-1">Persistent storage of your preferences and context for more personalized assistance.</p>
+                <h4 className="font-medium text-green-600 dark:text-green-400">Local Memory System</h4>
+                <p className="text-sm mt-1">SQLite-based semantic memory with OpenAI embeddings, deduplication, and user isolation for unlimited operations.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">Filesystem</h4>
                 <p className="text-sm mt-1">Secure file operations for managing documents and data within designated directories.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Task System</h4>
+                <p className="text-sm mt-1">Persistent TODO management with file-based storage that survives restarts and tracks multi-step operations.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">Dynamic Tool Creation</h4>
+                <p className="text-sm mt-1">Agents can create and compose tools on the fly using bash, enabling rapid prototyping and custom solutions.</p>
               </div>
             </div>
           </section>

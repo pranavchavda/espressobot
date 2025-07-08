@@ -5,10 +5,6 @@ import tailwindTypography from "@tailwindcss/typography";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Load environment variables from .env file
-import { config } from 'dotenv';
-config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -28,6 +24,52 @@ export default defineConfig({
             colors: {
               shopifyPurple: "#5c6ac4",
             },
+            typography: ({ theme }) => ({
+              DEFAULT: {
+                css: {
+                  '--tw-prose-body': theme('colors.zinc[700]'),
+                  '--tw-prose-headings': theme('colors.zinc[900]'),
+                  '--tw-prose-links': theme('colors.indigo[600]'),
+                  '--tw-prose-bold': theme('colors.zinc[900]'),
+                  '--tw-prose-counters': theme('colors.zinc[500]'),
+                  '--tw-prose-bullets': theme('colors.zinc[500]'),
+                  '--tw-prose-hr': theme('colors.zinc[200]'),
+                  '--tw-prose-quotes': theme('colors.zinc[900]'),
+                  '--tw-prose-quote-borders': theme('colors.zinc[300]'),
+                  '--tw-prose-captions': theme('colors.zinc[500]'),
+                  '--tw-prose-code': theme('colors.zinc[900]'),
+                  '--tw-prose-pre-code': theme('colors.zinc[200]'),
+                  '--tw-prose-pre-bg': theme('colors.zinc[800]'),
+                  '--tw-prose-th-borders': theme('colors.zinc[300]'),
+                  '--tw-prose-td-borders': theme('colors.zinc[200]'),
+                  '--tw-prose-invert-body': theme('colors.zinc[300]'),
+                  '--tw-prose-invert-headings': theme('colors.white'),
+                  '--tw-prose-invert-links': theme('colors.indigo[400]'),
+                  '--tw-prose-invert-bold': theme('colors.white'),
+                  '--tw-prose-invert-counters': theme('colors.zinc[400]'),
+                  '--tw-prose-invert-bullets': theme('colors.zinc[400]'),
+                  '--tw-prose-invert-hr': theme('colors.zinc[700]'),
+                  '--tw-prose-invert-quotes': theme('colors.zinc[100]'),
+                  '--tw-prose-invert-quote-borders': theme('colors.zinc[700]'),
+                  '--tw-prose-invert-captions': theme('colors.zinc[400]'),
+                  '--tw-prose-invert-code': theme('colors.white'),
+                  '--tw-prose-invert-pre-code': theme('colors.zinc[300]'),
+                  '--tw-prose-invert-pre-bg': 'rgb(0 0 0 / 50%)',
+                  '--tw-prose-invert-th-borders': theme('colors.zinc[600]'),
+                  '--tw-prose-invert-td-borders': theme('colors.zinc[700]'),
+                  'ul > li::marker': { color: theme('colors.zinc[500]') },
+                  'ol > li::marker': { color: theme('colors.zinc[500]') },
+                  'ul, ol': { paddingLeft: '1.5rem', marginTop: '1rem', marginBottom: '1rem' },
+                  'li': { marginTop: '0.25rem', marginBottom: '0.25rem' },
+                  'table': { width: '100%', borderCollapse: 'collapse', marginTop: '1.5rem', marginBottom: '1.5rem' },
+                  'thead': { backgroundColor: theme('colors.zinc[100]'), borderBottomWidth: '2px' },
+                  'th': { padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: '600' },
+                  'td': { padding: '0.5rem 0.75rem', borderTopWidth: '1px' },
+                  'tbody tr:nth-child(even)': { backgroundColor: theme('colors.zinc[50]') },
+                  '.dark tbody tr:nth-child(even)': { backgroundColor: theme('colors.zinc[800]/0.4') }
+                },
+              },
+            }),
           },
         },
         plugins: [tailwindTypography],
@@ -162,7 +204,7 @@ export default defineConfig({
       ],
     },
     port: 5173,
-    open: true,
+    open: false,
     host: "0.0.0.0",
   },
   resolve: {
