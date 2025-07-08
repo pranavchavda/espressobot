@@ -23,6 +23,8 @@ import { viewImageTool } from './tools/view-image-tool.js';
 import { initializeMCPTools, callMCPTool, getMCPTools } from './tools/mcp-client.js';
 import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
+import { interceptConsoleForUser, restoreConsole } from './utils/console-interceptor.js';
+
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
@@ -966,6 +968,13 @@ async function initializeOrchestratorTools() {
 export async function runDynamicOrchestrator(message, options = {}) {
   const { conversationId, userId, sseEmitter, taskUpdater, abortSignal } = options;
   
+  // Set global variables for SSE
+  currentSseEmitter = sseEmitter;
+  currentAbortSignal = abortSignal;
+  
+  // Intercept console logs for this user (format as user_ID to match SSE endpoint)
+  interceptConsoleForUser(`user_${userId || 1}`);
+  
   console.log('\n========= DYNAMIC BASH ORCHESTRATOR =========');
   console.log(`Message: ${message}`);
   console.log(`Conversation ID: ${conversationId || 'N/A'}`);
@@ -1242,6 +1251,9 @@ export async function runDynamicOrchestrator(message, options = {}) {
     console.error('Dynamic orchestrator error:', error);
     throw error;
   } finally {
+    // Restore original console
+    restoreConsole();
+    
     // Clear the SSE emitter reference
     currentSseEmitter = null;
     global.currentSseEmitter = null;

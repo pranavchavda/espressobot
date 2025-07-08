@@ -16,6 +16,7 @@ import { Divider } from "@common/divider";
 import { Heading } from "@common/heading";
 import { MemoryManagementModal } from './components/memory/MemoryManagementModal';
 import TopNavDropdown from './components/common/TopNavDropdown';
+import LogDrawer from './components/LogDrawer';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -26,7 +27,20 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [showLogDrawer, setShowLogDrawer] = useState(false);
   
+  // Keyboard shortcut for log drawer (Ctrl/Cmd + Shift + L)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'L') {
+        e.preventDefault();
+        setShowLogDrawer(prev => !prev);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Check authentication on mount
   useEffect(() => {
@@ -320,6 +334,13 @@ function App() {
     <MemoryManagementModal 
       isOpen={showMemoryModal} 
       onClose={() => setShowMemoryModal(false)} 
+    />
+    
+    {/* Log Drawer */}
+    <LogDrawer 
+      isOpen={showLogDrawer}
+      onToggle={() => setShowLogDrawer(prev => !prev)}
+      token={localStorage.getItem('authToken')}
     />
     </>
   );

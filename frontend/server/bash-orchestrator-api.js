@@ -434,4 +434,38 @@ function analyzeComplexity(message) {
   return actionCount >= 2 || hasComplexityIndicator || isLongMessage || hasNumberedList;
 }
 
+/**
+ * GET /logs - Server-Sent Events endpoint for streaming logs
+ */
+router.get('/logs', async (req, res) => {
+  // Get token from query params for SSE (EventSource doesn't support headers)
+  const token = req.query.token;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  
+  // Manually verify token
+  try {
+    const jwt = await import('jsonwebtoken');
+    const decoded = jwt.default.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    req.user = decoded;
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  
+  const { logStreamer } = await import('./services/log-streamer.js');
+  const userId = `user_${req.user?.id || 1}`;
+  
+  console.log(`[LogStreamer] New SSE connection for ${userId}`);
+  
+  // Add this client to the log streamer
+  logStreamer.addClient(userId, res);
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log(`[LogStreamer] SSE connection closed for ${userId}`);
+  });
+});
+
 export default router;
