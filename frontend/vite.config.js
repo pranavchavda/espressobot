@@ -137,11 +137,12 @@ export default defineConfig({
         apiApp.use(session({
           secret: process.env.SESSION_SECRET || 'your-session-secret-change-this',
           resave: false,
-          saveUninitialized: false,
+          saveUninitialized: true, // Changed to true for OAuth flows
           cookie: {
             secure: process.env.NODE_ENV === 'production',
             httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            sameSite: 'lax' // Important for OAuth redirects
           }
         }));
         

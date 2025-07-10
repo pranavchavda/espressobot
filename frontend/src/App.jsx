@@ -51,6 +51,7 @@ function App() {
       
       if (token) {
         // Store token and remove from URL
+        console.log('Token received from OAuth:', token.substring(0, 20) + '...');
         localStorage.setItem('authToken', token);
         window.history.replaceState({}, document.title, window.location.pathname);
       }
@@ -67,10 +68,12 @@ function App() {
           
           if (res.ok) {
             const userData = await res.json();
+            console.log('Auth check successful:', userData);
             setUser(userData);
             fetchConversations(storedToken);
           } else {
             // Invalid token, remove it
+            console.error('Auth check failed:', res.status, res.statusText);
             localStorage.removeItem('authToken');
           }
         } catch (error) {
@@ -79,6 +82,7 @@ function App() {
         }
       }
       
+      console.log('Auth check complete, user:', user);
       setAuthLoading(false);
     };
     

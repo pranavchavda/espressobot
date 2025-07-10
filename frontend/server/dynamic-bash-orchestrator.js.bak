@@ -7,6 +7,7 @@ import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool
 // import { sweAgent } from './agents/swe-agent.js';
 import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
 import { taskPlanningAgent } from './agents/task-planning-agent.js';
+import { createParallelExecutorAgent, validateParallelExecution } from './agents/parallel-executor-agent.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -22,6 +23,8 @@ import { viewImageTool } from './tools/view-image-tool.js';
 import { initializeMCPTools, callMCPTool, getMCPTools } from './tools/mcp-client.js';
 import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
+import { interceptConsoleForUser, restoreConsole } from './utils/console-interceptor.js';
+
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
@@ -51,6 +54,8 @@ async function getSWEAgent(task = '', conversationId = null, richContext = null)
 import { buildTieredContext, buildCoreContext, buildFullContext } from './context/tiered-context-builder.js';
 // Import clean orchestrator prompt
 import { buildOrchestratorSystemPrompt } from './prompts/orchestrator-system-prompt.js';
+// Import tiered prompt builder
+import { buildTieredOrchestratorPrompt } from './prompts/tiered-orchestrator-prompt.js';
 
 // Task Manager Agent removed - functionality merged into Task Planning Agent
 
@@ -81,7 +86,7 @@ async function buildAgentContext(options) {
     additionalContext,
     forceFullContext,
     // Pass conversation history from the orchestrator's state
-    conversationHistory: formatThreadForAgent(conversationId, 10)
+    conversationHistory: []  // Empty for now, will be populated by tiered builder
   });
   
   // Get current tasks separately (not included in tiered builder)
@@ -102,8 +107,17 @@ async function buildAgentContext(options) {
   console.log(`[ORCHESTRATOR] Built ${context.fullSlice ? 'FULL' : 'CORE'} context slice (${Math.round(contextSize / 1024)}KB)`);
   console.log(`  - Entities: ${context.specificEntities.length} types`);
   console.log(`  - Memories: ${context.relevantMemories.length}`);
+  console.log(`  - Prompt Fragments: ${context.promptFragments?.length || 0}`);
   console.log(`  - Rules: ${context.relevantRules?.length || 0}`);
   console.log(`  - History: ${context.conversationHistory.length} turns`);
+  
+  // Debug prompt fragments
+  if (context.promptFragments?.length > 0) {
+    console.log(`[ORCHESTRATOR] Prompt fragments loaded:`);
+    context.promptFragments.forEach((f, i) => {
+      console.log(`  ${i+1}. [${f.priority}] ${f.category}: ${f.content.substring(0, 50)}...`);
+    });
+  }
   
   return context;
 }
@@ -120,12 +134,12 @@ const spawnBashAgent = tool({
     agentName: z.string().describe('Name for the agent (e.g., "PriceUpdater", "ProductSearcher")'),
     task: z.string().describe('Specific task for the agent to complete'),
     context: z.string().nullable().describe('Additional context or constraints'),
-    useSemanticSearch: z.boolean().optional().default(false).describe('Enable semantic search for documentation (recommended for complex business rules or when unsure about tool usage)'),
-    autonomyLevel: z.enum(['high', 'medium', 'low']).optional().default('high').describe('Autonomy level - high: execute without confirmation, medium: confirm risky operations, low: confirm all writes'),
+    useSemanticSearch: z.boolean().describe('Enable semantic search for documentation (recommended for complex business rules or when unsure about tool usage)'),
+    autonomyLevel: z.enum(['high', 'medium', 'low']).describe('Autonomy level - high: execute without confirmation, medium: confirm risky operations, low: confirm all writes'),
     // NEW: Allow orchestrator to pass curated context
-    curatedContext: z.string().nullable().optional().describe('JSON-encoded curated context that orchestrator decides to share with this agent')
+    curatedContext: z.string().nullable().describe('JSON-encoded curated context that orchestrator decides to share with this agent')
   }),
-  execute: async ({ agentName, task, context, useSemanticSearch, autonomyLevel, curatedContext }) => {
+  execute: async ({ agentName, task, context, useSemanticSearch = false, autonomyLevel = 'high', curatedContext }) => {
     // Use the provided autonomy level or fall back to intent analysis or default to 'high'
     const effectiveAutonomy = autonomyLevel || 
                              (global.currentIntentAnalysis?.level) || 
@@ -178,7 +192,10 @@ const spawnBashAgent = tool({
         autonomyLevel: effectiveAutonomy,
         ...(parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext) ? parsedContext : {})
       };
-      if (parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)) {
+      if (parsedContext if (parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)) {if (parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)) { typeof parsedContext === 'object' if (parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)) {if (parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)) { !Array.isArray(parsedContext)) {
+  const keys = Object.keys(parsedContext);
+  console.log();
+} else {
         console.log(`[ORCHESTRATOR] Curated context includes: ${Object.keys(parsedContext).join(', ')}`);
       } else {
         console.log(`[ORCHESTRATOR] Curated context type: ${typeof parsedContext}`);
@@ -311,8 +328,8 @@ const spawnParallelBashAgents = tool({
       agentName: z.string(),
       task: z.string(),
       context: z.string().nullable(),
-      autonomyLevel: z.enum(['high', 'medium', 'low']).optional().default('high'),
-      curatedContext: z.string().nullable().optional()
+      autonomyLevel: z.enum(['high', 'medium', 'low']).describe('Autonomy level'),
+      curatedContext: z.string().nullable().describe('JSON-encoded curated context')
     })).describe('Array of tasks to run in parallel, each with optional curated context')
   }),
   execute: async ({ tasks }) => {
@@ -445,6 +462,121 @@ const spawnParallelBashAgents = tool({
 });
 
 /**
+ * Tool to spawn parallel executor agents for light-bulk operations
+ */
+const spawnParallelExecutors = tool({
+  name: 'spawn_parallel_executors',
+  description: 'Spawn parallel executor agents for light-bulk operations (10-50 items). For larger operations (50+), use SWE agent instead.',
+  parameters: z.object({
+    items: z.array(z.string()).describe('Array of items to process (10-50 items recommended). Can be SKUs, IDs, handles, or JSON strings'),
+    operation: z.string().describe('Description of the operation to perform on each item'),
+    options: z.object({
+      dryRun: z.boolean().describe('If true, simulate the operation without making changes'),
+      throttleMs: z.number().describe('Milliseconds to wait between operations'),
+      maxAgents: z.number().nullable().describe('Maximum number of parallel agents (null for auto)'),
+      retryLimit: z.number().describe('Number of retries for failed items')
+    }).describe('Execution options')
+  }),
+  execute: async ({ items, operation, options }) => {
+    // Parse items if they are JSON strings
+    const parsedItems = items.map(item => {
+      if (typeof item === 'string' && item.startsWith('{')) {
+        try {
+          return JSON.parse(item);
+        } catch {
+          return item; // Keep as string if not valid JSON
+        }
+      }
+      return item;
+    });
+    
+    const itemCount = parsedItems.length;
+    
+    // Apply defaults
+    const dryRun = options.dryRun || false;
+    const throttleMs = options.throttleMs || 1000;
+    const maxAgentsOption = options.maxAgents;
+    const retryLimit = options.retryLimit || 2;
+    
+    // Check threshold
+    if (itemCount > 50) {
+      return {
+        success: false,
+        error: `Too many items (${itemCount}). For operations with 50+ items, please use SWE agent to create an optimized batch script.`,
+        recommendation: 'Use SWE agent for true bulk operations'
+      };
+    }
+    
+    if (itemCount < 10) {
+      return {
+        success: false,
+        error: `Too few items (${itemCount}). For less than 10 items, use direct MCP tools or a single bash agent.`
+      };
+    }
+    
+    // Determine optimal agent count
+    const maxAgents = maxAgentsOption || Math.min(Math.ceil(itemCount / 10), 5);
+    const batchSize = Math.ceil(itemCount / maxAgents);
+    
+    console.log(`[Orchestrator] Spawning ${maxAgents} parallel executors for ${itemCount} items (${batchSize} per agent)`);
+    
+    // Create batches
+    const batches = [];
+    for (let i = 0; i < itemCount; i += batchSize) {
+      batches.push(parsedItems.slice(i, i + batchSize));
+    }
+    
+    // Spawn executors
+    const executorPromises = batches.map(async (batch, index) => {
+      const instanceId = `executor-${index + 1}`;
+      const executor = await createParallelExecutorAgent(instanceId, batch, operation, {
+        dryRun,
+        throttleMs,
+        retryLimit
+      });
+      
+      // Run the executor
+      const result = await run(executor, `
+[Instance: ${instanceId}]
+Items to process: ${JSON.stringify(batch, null, 2)}
+
+Operation: ${operation}
+
+Options:
+- Dry run: ${dryRun}
+- Throttle: ${throttleMs}ms between operations
+- Retry limit: ${retryLimit} attempts per item
+
+Process each item according to the operation description. Use the appropriate MCP tools.
+Report progress using the report_progress tool.
+${dryRun ? 'This is a DRY RUN - simulate operations without making actual changes.' : ''}
+      `);
+      
+      return {
+        instanceId,
+        itemCount: batch.length,
+        result
+      };
+    });
+    
+    // Wait for all executors
+    const results = await Promise.all(executorPromises);
+    
+    // Aggregate results
+    const summary = {
+      totalItems: itemCount,
+      executorsUsed: maxAgents,
+      results,
+      success: results.every(r => r.result.success !== false),
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log(`[Orchestrator] Parallel execution completed:`, summary);
+    return summary;
+  }
+});
+
+/**
  * Direct bash access for the orchestrator (for simple commands)
  */
 const orchestratorBash = tool({
@@ -552,6 +684,7 @@ function createMCPToolWrapper(toolDef) {
 
 /**
  * Build orchestrator with MCP tools
+ * Note: We now use a base prompt that will be dynamically extended based on task complexity
  */
 async function buildOrchestratorWithMCPTools() {
   const builtInSearchTool = webSearchTool();
@@ -580,194 +713,23 @@ async function buildOrchestratorWithMCPTools() {
     // Continue without MCP tools
   }
   
-  return new Agent({
-  name: 'Dynamic_Bash_Orchestrator',
-  model: 'o3',  // Back to OpenAI for now
+  return {
+    mcpTools,
+    builtInSearchTool
+  };
+}
+
+/**
+ * Create orchestrator agent with dynamic prompt based on context
+ */
+function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool) {
+  // Build tiered prompt based on task complexity
+  const instructions = buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext);
   
-
-  instructions: buildOrchestratorSystemPrompt(),
-1. **BUILD CONTEXT FOR YOURSELF** - The system has already built comprehensive context including entities, business patterns, memories, and current tasks
-2. **USE CONTEXT FOR DECISIONS** - Analyze the provided context to understand what needs to be done and how
-3. **CURATE CONTEXT FOR AGENTS** - Manually select what context each agent needs using the curatedContext parameter
-
-## Your Context (Already Built)
-You receive rich context in your message including:
-- **Entities Detected**: Products, URLs, SKUs, prices extracted from the request
-- **Business Patterns**: Recognized operations like price updates, bulk changes, etc.
-- **Current Tasks**: Any existing tasks for this conversation
-- **Relevant Past Experiences**: Memories from similar past operations
-- **Conversation Topic**: The identified topic/goal of this conversation
-
-Access your full context via: global.orchestratorContext
-This contains: specificEntities, businessLogic, relevantMemories, relevantRules, currentTasks, etc.
-
-## Context Curation Rules
-When spawning agents, YOU MUST use the curatedContext parameter to manually select what they need. Pass an object with only the relevant fields:
-
-Example curatedContext values (pass as JSON strings):
-- For price updates: JSON.stringify({ specificEntities: [/* products, prices */], relevantRules: [/* pricing rules */] })
-- For bulk operations: JSON.stringify({ specificEntities: [/* all affected items */], businessLogic: { patterns: [...], warnings: [...] } })
-- For tool creation: JSON.stringify({ relevantMemories: [/* similar tool experiences */] })
-- For task execution: JSON.stringify({ currentTasks: [/* tasks array */] })
-- For simple lookups: null
-
-NEVER pass your entire context - be selective based on the specific task
-
-## CRITICAL: Autonomy-First Execution
-- The system has already analyzed the user's intent and determined the appropriate autonomy level
-- Access the analysis via global.currentIntentAnalysis (level: high/medium/low, reason, confidence)
-- **ALWAYS pass the analyzed autonomy level to spawned agents**
-- Default to 'high' autonomy unless the analysis suggests otherwise
-
-## Task Planning Guidelines
-- Use task_planner ONLY for genuinely complex multi-step requests
-- DO NOT use task_planner for simple operations with specific values
-- Examples needing planning: "migrate all products to new system", "create full product catalog report"
-- Examples NOT needing planning: "update price to $49.99", "add products X,Y,Z to collection"
-- When using task_planner, YOU decide what context to pass - include specific entities, constraints, or patterns you've identified
-
-## Execution Rules
-- **High Autonomy (default)**: User provided specific values or clear commands
-  - Pass autonomy='high' to agents - they will execute immediately
-  - Examples: "Update SKU123 to $49.99", "Set products A,B,C to active"
-- **Medium Autonomy**: High-risk operations detected
-  - Pass autonomy='medium' to agents - they'll confirm only risky operations
-  - Examples: Operations affecting 50+ items, bulk deletes
-## MOST IMPORTANT: Workflow rule:
-- Your role is to be a "headless" orchestrator. You receive a task, create a plan, and execute it using bash agents.
-- You are NOT a conversational chatbot. Your primary output MUST be tool calls, not text.
-- AVOID ALL conversational replies like "Understood," "Okay," or "I will start on that." Do not confirm receipt of instructions.
-- ONLY generate text output if you are asking a critical clarifying question that you cannot answer otherwise, or when the final product of the entire user request is ready.
-- Acknowledge instructions by immediately using a tool. This is your way of confirming the task.
-- You DO NOT need to update the user on your progress. The user sees progress via UI events from your tool calls.
-- Only update the user when you are done orchestrating, or if you need to ask for information for which you have no other way of obtaining.
-
-## Agent Capabilities
-
-### Bash Agents CAN:
-- Execute all Python tools (run_graphql_query, update_pricing, etc.)
-- Access live Shopify data and perform mutations
-- Update task status
-- Work autonomously based on the autonomy level you pass
-
-### MCP Tools Available:
-You have 27 native MCP tools loaded - ALWAYS use these FIRST before considering bash agents:
-
-**CRITICAL: Use MCP tools directly for ALL simple operations:**
-
-**Products (12 tools):**
-- get_product: Get product details by SKU/handle/ID
-- get_product_native: Native MCP implementation 
-- search_products: Search with filters
-- create_product: Create basic products
-- create_full_product: Create products with all features
-- create_combo: Create machine+grinder combos
-- create_open_box: Create open box listings
-- update_full_product: Comprehensive product updates
-- update_status: Change product status
-- add_variants_to_product: Add variants to existing products
-- manage_tags: Add/remove product tags
-- manage_variant_links: Link related product variants
-
-**Pricing & Inventory (3 tools):**
-- update_pricing: Update individual product pricing
-- bulk_price_update: Update prices for multiple products
-- manage_inventory_policy: Control overselling settings
-
-**Media & Store (2 tools):**
-- add_product_images: Manage product images
-- manage_redirects: Create/manage URL redirects
-
-**Sales & Marketing (3 tools):**
-- manage_map_sales: Breville MAP sales calendar
-- manage_miele_sales: Miele MAP sales calendar
-- send_review_request: Send Yotpo review emails
-
-**Technical (5 tools):**
-- graphql_query: Execute raw GraphQL queries
-- graphql_mutation: Execute raw GraphQL mutations
-- perplexity_research: AI-powered research tool
-- memory_operations: Local memory system access
-
-**SkuVault & Features (3 tools):**
-- upload_to_skuvault: Upload products to SkuVault
-- manage_skuvault_kits: Manage product kits/bundles
-- manage_features_metaobjects: Manage product features via metaobjects
-
-**Only spawn bash agents for genuinely complex multi-step workflows, file operations, or non-MCP tasks.**
-
-### How to Instruct Bash Agents (for complex tasks):
-When you DO need bash agents for non-MCP tasks, BE SPECIFIC! Tell them EXACTLY what to run:
-
-**Use bash agents for:**
-- File system operations (git, file manipulation, etc.)
-- Multi-step workflows requiring complex logic
-- Non-Shopify system tasks
-- Legacy tools not yet migrated to MCP
-
-**Examples:**
-- ❌ BAD: "Update inventory policy for variant 123 to DENY" (This is an MCP tool!)
-- ✅ GOOD: "Use MCP tool directly: manage_inventory_policy(identifier='123', policy='deny')"
-- ✅ GOOD: "Run git operations: git status && git add . && git commit -m 'Update'"
-- ✅ GOOD: "Run legacy tool: python3 /path/to/non-mcp-tool.py --args"
-
-### Bash Agents CANNOT:
-- Access MCP (documentation, schema introspection)
-- Use Context7 or Shopify Dev docs
-
-### SWE Agent CAN:
-- Create/modify tools
-- Access MCP for documentation and schema
-- Perform software engineering tasks
-
-## Decision Tree with Context Curation Examples
-CRITICAL: curatedContext must ALWAYS be a JSON string or null!
-
-**STEP 1: ALWAYS try MCP tools FIRST for simple operations**
-
-Before spawning any bash agents, check if you can use MCP tools directly:
-
-✅ **USE MCP TOOLS DIRECTLY FOR:**
-- get_product(identifier="mexican-altura") ← USE THIS for "Get product details for mexican-altura"
-- search_products(query="coffee", limit=10)
-- manage_inventory_policy(identifier="31480448974882", policy="deny")
-- update_pricing(sku="ESP-1001", price=49.99)
-- create_product(title="...", vendor="...", product_type="...")
-- manage_tags(product="...", tags="...", action="add")
-
-**STEP 2: Only spawn bash agents for non-MCP tasks:**
-   - File operations, git, system tasks, or complex multi-step workflows
-   - Be SPECIFIC in the task description - tell the agent EXACTLY what to run
-   - Example task: "Run git commands: git status && git add . && git commit -m 'message'"
-   - Example task: "Process CSV file with custom logic: python3 /path/to/custom-script.py /tmp/data.csv"
-   - curatedContext: JSON.stringify({ specificEntities: [only relevant entities], relevantRules: [only relevant rules] })
-4. For genuinely complex multi-step workflows → task_planner with curated request
-5. For high-risk operations → spawn_bash_agent with autonomy='medium' and:
-   curatedContext: JSON.stringify({ businessLogic: {include warnings}, specificEntities: [affected items] })
-6. For tool creation → swe_agent with:
-   curatedContext: JSON.stringify({ relevantMemories: [memories about similar tools] })
-7. For documentation → swe_agent with minimal context (curatedContext: null)
-8. For multiple independent tasks → spawn_parallel_bash_agents with task-specific context for each
-
-## IMPORTANT: Trust the Intent Analysis
-- If analysis says 'high' autonomy with specific values → DON'T second-guess
-- Users are senior management - they expect immediate action on clear instructions
-- Only override to 'medium' for genuinely dangerous operations (bulk deletes of 50+ items)
-
-## Task Management
-- Check tasks: get_current_tasks
-- Update status: update_task_status
-- Complete ALL tasks before returning control
-- Mark tasks as in_progress before starting, completed when done
-
-## Conversation Management
-- Update topic: update_conversation_topic
-- Use this when you identify the main goal or topic of the conversation
-- Set a clear, concise topic title and optional detailed description
-
-## Reference Files
-- Business rules: /home/pranav/espressobot/frontend/server/prompts/idc-business-rules.md
-- Tool guide: /home/pranav/espressobot/frontend/server/tool-docs/TOOL_USAGE_GUIDE.md`,
+  return new Agent({
+    name: 'Dynamic_Bash_Orchestrator',
+    model: 'o3',  // Back to OpenAI for now
+    instructions: instructions,
   modelSettings: {
     parallelToolCalls: true
 
@@ -836,7 +798,7 @@ Before spawning any bash agents, check if you can use MCP tools directly:
       description: 'Software Engineering Agent - handoff for creating new tools, modifying existing tools, MCP access (Shopify docs, Context7), or any code-related tasks',
       parameters: z.object({
         prompt: z.string().describe('The task or request to pass to the SWE Agent'),
-        curatedContext: z.string().nullable().optional().describe('JSON-encoded curated context for the SWE agent')
+        curatedContext: z.string().nullable().describe('JSON-encoded curated context for the SWE agent')
       }),
       execute: async ({ prompt, curatedContext }) => {
         console.log(`[ORCHESTRATOR] SWE Agent - CuratedContext type: ${typeof curatedContext}`);
@@ -885,6 +847,7 @@ Before spawning any bash agents, check if you can use MCP tools directly:
     }),
     spawnBashAgent,
     spawnParallelBashAgents,
+    spawnParallelExecutors,
     // orchestratorBash,
     // Task reading and updating tools
     tool({
@@ -953,7 +916,7 @@ Before spawning any bash agents, check if you can use MCP tools directly:
       description: 'Update the topic title and details for the current conversation. Use this when you identify the main topic or goal of the conversation.',
       parameters: z.object({
         topic_title: z.string().describe('A concise topic title (max 200 characters) that summarizes the conversation'),
-        topic_details: z.string().nullable().optional().describe('Optional detailed description of the topic, including key context, goals, or important information')
+        topic_details: z.string().nullable().describe('Optional detailed description of the topic, including key context, goals, or important information')
       }),
       execute: async ({ topic_title, topic_details }) => {
         try {
@@ -985,18 +948,21 @@ Before spawning any bash agents, check if you can use MCP tools directly:
 });
 }
 
-// Create the orchestrator instance
-let dynamicOrchestrator = null;
+// Store MCP tools globally after initialization
+let mcpToolsCache = null;
+let builtInSearchToolCache = null;
 
 /**
- * Initialize and get the orchestrator
+ * Initialize MCP tools once
  */
-async function getOrchestrator() {
-  if (!dynamicOrchestrator) {
-    console.log('[Orchestrator] Building orchestrator with MCP tools...');
-    dynamicOrchestrator = await buildOrchestratorWithMCPTools();
+async function initializeOrchestratorTools() {
+  if (!mcpToolsCache) {
+    console.log('[Orchestrator] Initializing MCP tools...');
+    const result = await buildOrchestratorWithMCPTools();
+    mcpToolsCache = result.mcpTools;
+    builtInSearchToolCache = result.builtInSearchTool;
   }
-  return dynamicOrchestrator;
+  return { mcpTools: mcpToolsCache, builtInSearchTool: builtInSearchToolCache };
 }
 
 /**
@@ -1004,6 +970,13 @@ async function getOrchestrator() {
  */
 export async function runDynamicOrchestrator(message, options = {}) {
   const { conversationId, userId, sseEmitter, taskUpdater, abortSignal } = options;
+  
+  // Set global variables for SSE
+  currentSseEmitter = sseEmitter;
+  currentAbortSignal = abortSignal;
+  
+  // Intercept console logs for this user (format as user_ID to match SSE endpoint)
+  interceptConsoleForUser(`user_${userId || 1}`);
   
   console.log('\n========= DYNAMIC BASH ORCHESTRATOR =========');
   console.log(`Message: ${message}`);
@@ -1051,11 +1024,11 @@ export async function runDynamicOrchestrator(message, options = {}) {
   
   // Log what we found
   console.log(`[Orchestrator] Context analysis complete:`);
-  console.log(`  - Entities found: ${orchestratorContext.specificEntities.map(e => `${e.type}(${e.values.length})`).join(', ')}`);
-  console.log(`  - Business patterns: ${orchestratorContext.businessLogic.patterns.map(p => p.type).join(', ')}`);
-  console.log(`  - Memories: ${orchestratorContext.relevantMemories.length}`);
-  console.log(`  - Current tasks: ${orchestratorContext.currentTasks.length}`);
-  console.log(`  - Rules loaded: ${orchestratorContext.relevantRules.length > 0 ? 'Yes' : 'No'}`);
+  console.log(`  - Entities found: ${orchestratorContext.specificEntities?.map(e => `${e.type}(${e.values?.length || e.count || 0})`).join(', ') || 'None'}`);
+  console.log(`  - Business patterns: ${orchestratorContext.businessLogic?.patterns?.map(p => p.type).join(', ') || 'None'}`);
+  console.log(`  - Memories: ${orchestratorContext.relevantMemories?.length || 0}`);
+  console.log(`  - Current tasks: ${orchestratorContext.currentTasks?.length || 0}`);
+  console.log(`  - Rules loaded: ${(orchestratorContext.relevantRules?.length || 0) > 0 ? 'Yes' : 'No'}`);
   
   let isStreaming = false;
   
@@ -1078,24 +1051,27 @@ export async function runDynamicOrchestrator(message, options = {}) {
     let contextualMessage = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     
     // Add entity context if found
-    if (orchestratorContext.specificEntities.length > 0) {
+    if (orchestratorContext.specificEntities?.length > 0) {
       contextualMessage += '\n\n## Entities Detected:';
       for (const entity of orchestratorContext.specificEntities) {
-        contextualMessage += `\n- ${entity.type}: ${entity.values.join(', ')}`;
+        // Handle both core (samples) and full (values) context formats
+        const items = entity.values || entity.samples || [];
+        contextualMessage += `\n- ${entity.type}: ${items.join(', ')}`;
       }
     }
     
     // Add business logic patterns if detected
-    if (orchestratorContext.businessLogic.patterns.length > 0) {
+    if (orchestratorContext.businessLogic?.patterns?.length > 0) {
       contextualMessage += '\n\n## Business Patterns Detected:';
       for (const pattern of orchestratorContext.businessLogic.patterns) {
-        contextualMessage += `\n- ${pattern.type}: ${pattern.action}`;
+        contextualMessage += `\n- ${pattern.type}`;
+        if (pattern.action) contextualMessage += `: ${pattern.action}`;
         if (pattern.warning) contextualMessage += ` (WARNING: ${pattern.warning})`;
       }
     }
     
     // Add current tasks if any
-    if (orchestratorContext.currentTasks.length > 0) {
+    if (orchestratorContext.currentTasks?.length > 0) {
       contextualMessage += '\n\n## Current Tasks:';
       orchestratorContext.currentTasks.forEach((task, idx) => {
         const status = task.status === 'completed' ? '[x]' : 
@@ -1105,7 +1081,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Add relevant memories if any
-    if (orchestratorContext.relevantMemories.length > 0) {
+    if (orchestratorContext.relevantMemories?.length > 0) {
       contextualMessage += '\n\n## Relevant Past Experiences:';
       orchestratorContext.relevantMemories.slice(0, 3).forEach(memory => {
         contextualMessage += `\n- ${memory.content}`;
@@ -1115,6 +1091,33 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Add conversation topic if present
     if (orchestratorContext.conversationTopic) {
       contextualMessage += '\n\n' + orchestratorContext.conversationTopic;
+    }
+    
+    // Add relevant prompt fragments from library
+    console.log(`[Orchestrator] Checking prompt fragments: ${orchestratorContext.promptFragments?.length || 0} found`);
+    if (orchestratorContext.promptFragments?.length > 0) {
+      contextualMessage += '\n\n## Relevant Documentation (from Prompt Library):';
+      
+      // For core context, just list the fragments
+      if (!orchestratorContext.fullSlice) {
+        orchestratorContext.promptFragments.forEach(fragment => {
+          contextualMessage += `\n\n### ${fragment.category || 'General'} (Priority: ${fragment.priority || 'medium'}):\n${fragment.content}`;
+        });
+      } else if (orchestratorContext.promptFragmentsByCategory) {
+        // For full context, organize by category
+        for (const [category, fragments] of Object.entries(orchestratorContext.promptFragmentsByCategory)) {
+          contextualMessage += `\n\n### ${category.toUpperCase()}:`;
+          fragments.forEach(fragment => {
+            contextualMessage += `\n[${fragment.priority || 'medium'}] ${fragment.content}`;
+            if (fragment.tags?.length > 0) {
+              contextualMessage += ` (tags: ${fragment.tags.join(', ')})`;
+            }
+          });
+        }
+      }
+    } else {
+      console.log(`[Orchestrator] No prompt fragments in context - checking why...`);
+      console.log(`[Orchestrator] Context keys:`, Object.keys(orchestratorContext));
     }
     
     console.log(`[Orchestrator] Prepared contextual message with rich context`);
@@ -1177,8 +1180,11 @@ export async function runDynamicOrchestrator(message, options = {}) {
       runOptions.signal = abortSignal;
     }
     
-    // Get the orchestrator (will initialize with MCP tools if needed)
-    const orchestrator = await getOrchestrator();
+    // Initialize MCP tools if needed
+    const { mcpTools, builtInSearchTool } = await initializeOrchestratorTools();
+    
+    // Create orchestrator with dynamic prompt based on context
+    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool);
     
     // Check if we have image data from the API
     let messageToSend;
@@ -1248,6 +1254,9 @@ export async function runDynamicOrchestrator(message, options = {}) {
     console.error('Dynamic orchestrator error:', error);
     throw error;
   } finally {
+    // Restore original console
+    restoreConsole();
+    
     // Clear the SSE emitter reference
     currentSseEmitter = null;
     global.currentSseEmitter = null;

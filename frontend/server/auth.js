@@ -32,10 +32,15 @@ router.get('/google', (req, res, next) => {
     return res.redirect(`https://${host}${req.originalUrl}`);
   }
   
+  // Generate a state parameter to prevent CSRF and duplicate callbacks
+  const state = Math.random().toString(36).substring(7);
+  req.session.oauthState = state;
+  
   passport.authenticate('google', { 
     scope: ['profile', 'email'],
     accessType: 'offline',
-    prompt: 'consent'
+    prompt: 'consent',
+    state: state
   })(req, res, next);
 });
 
@@ -44,8 +49,24 @@ router.get('/google/callback', (req, res, next) => {
     query: req.query,
     host: req.get('host'),
     protocol: req.get('x-forwarded-proto') || req.protocol,
-    fullUrl: req.originalUrl
+    fullUrl: req.originalUrl,
+    session: req.session?.id,
+    sessionState: req.session?.oauthState,
+    queryState: req.query.state,
+    cookies: req.headers.cookie
   });
+
+  // Check if this callback has already been processed
+  if (req.session.oauthProcessed) {
+    console.log('OAuth callback already processed, redirecting to home');
+    return res.redirect('/');
+  }
+
+  // Validate state parameter
+  if (req.session.oauthState && req.query.state !== req.session.oauthState) {
+    console.error('OAuth state mismatch');
+    return res.redirect('/login?error=state_mismatch');
+  }
 
   passport.authenticate('google', { 
     failureRedirect: '/login?error=auth_failed',
@@ -66,12 +87,24 @@ router.get('/google/callback', (req, res, next) => {
         return res.redirect('/login?error=login_failed');
       }
       
+      // Mark session as processed to prevent duplicate callbacks
+      req.session.oauthProcessed = true;
+      
       // Generate JWT token
       const token = generateToken(user);
-      console.log('OAuth success, redirecting with token');
+      console.log('OAuth success, redirecting with token for user:', user.email);
       
-      // Redirect to frontend with token
-      res.redirect(`/?token=${token}`);
+      // Clear OAuth state
+      delete req.session.oauthState;
+      
+      // Save session before redirect
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('Session save error:', saveErr);
+        }
+        // Redirect to frontend with token
+        res.redirect(`/?token=${token}`);
+      });
     });
   })(req, res, next);
 });

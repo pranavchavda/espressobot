@@ -4,8 +4,16 @@ import logo from '../../static/EspressoBotLogo.png';
 
 const LoginPage = () => {
   const handleGoogleLogin = () => {
-    // Redirect to Google OAuth endpoint
-    window.location.href = '/api/auth/google';
+    // Clear any stale auth data before login
+    localStorage.removeItem('authToken');
+    
+    // For Vivaldi browser, use replace instead of href
+    const isVivaldi = navigator.userAgent.includes('Vivaldi');
+    if (isVivaldi) {
+      window.location.replace('/api/auth/google');
+    } else {
+      window.location.href = '/api/auth/google';
+    }
   };
 
   return (

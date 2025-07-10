@@ -245,8 +245,8 @@ class UploadToSkuVaultTool(BaseMCPTool):
             "Description": title,
             "ShortDescription": title[:100] if len(title) > 100 else title,
             "LongDescription": description or title,
-            "Classification": product.get('productType', 'General'),
-            "Supplier": vendor,  # Use vendor as supplier
+            "Classification": "General",  # Fixed default
+            "Supplier": "Unknown",  # Fixed default
             "Brand": vendor,
             "Cost": cost,
             "SalePrice": price,
