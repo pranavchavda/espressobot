@@ -56,6 +56,7 @@ const configureGoogleStrategy = () => {
                 profile_picture: profile.photos[0]?.value,
                 created_at: new Date(),
                 is_whitelisted: allowedEmails.includes(userEmail),
+                is_admin: userEmail.includes('pranav'),
               },
             });
           } else {
@@ -67,6 +68,7 @@ const configureGoogleStrategy = () => {
                 name: profile.displayName,
                 profile_picture: profile.photos[0]?.value,
                 is_whitelisted: allowedEmails.includes(userEmail),
+                is_admin: userEmail.includes('pranav'),
               },
             });
           }

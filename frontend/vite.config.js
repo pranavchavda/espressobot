@@ -162,6 +162,20 @@ export default defineConfig({
         apiApp.use('/api/conversations', convHandler);
         apiApp.use('/api/agent', orchestratorRouter);
         
+        // Profile routes
+        const profileRoutes = (await import('./server/profile')).default;
+        apiApp.use('/api/profile', profileRoutes);
+        
+        // Tasks routes
+        const tasksRoutes = (await import('./server/tasks')).default;
+        apiApp.use('/api/tasks', tasksRoutes);
+        apiApp.use('/api/authorize/google', (req, res) => {
+          res.status(501).json({ 
+            error: 'Google Tasks OAuth is not configured',
+            message: 'This feature requires Google Tasks API and OAuth setup'
+          });
+        });
+        
         // Memory management routes (admin only)
         const memoryManagementRoutes = (await import('./server/memory-management')).default;
         apiApp.use('/api/memory', memoryManagementRoutes);

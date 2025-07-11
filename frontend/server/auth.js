@@ -126,6 +126,7 @@ router.get('/me', async (req, res) => {
         name: user.name,
         profile_picture: user.profile_picture,
         is_whitelisted: user.is_whitelisted,
+        is_admin: user.is_admin || user.email.includes('pranav'),
       });
     } catch (error) {
       res.json({
@@ -134,6 +135,7 @@ router.get('/me', async (req, res) => {
         name: req.user.name,
         profile_picture: req.user.profile_picture,
         is_whitelisted: true, // Default to true if can't fetch
+        is_admin: req.user.email.includes('pranav'), // Auto-admin for pranav
       });
     }
   } else {

@@ -16,7 +16,12 @@ function ProfilePage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch('/api/profile');
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('/api/profile', {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : ''
+          }
+        });
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -46,10 +51,12 @@ function ProfilePage() {
     setError(null);
     setSuccessMessage('');
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch('/api/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify({ name: profile.name, bio: profile.bio }),
       });

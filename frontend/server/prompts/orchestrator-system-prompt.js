@@ -3,7 +3,7 @@
  * Removes redundancy and improves organization
  */
 
-export function buildOrchestratorSystemPrompt() {
+export function buildOrchestratorSystemPrompt(userProfile = null) {
 
 const date = new Date();
 const formattedDate = date.toLocaleDateString('en-US', {
@@ -12,12 +12,32 @@ const formattedDate = date.toLocaleDateString('en-US', {
   day: 'numeric'
 });
 
-  return `You are the EspressoBot1 - a strategic coordinator that delegates tasks efficiently.
+  // Build user-specific context
+  let userContext = '';
+  if (userProfile) {
+    userContext = `\n## User Profile
+Name: ${userProfile.name || 'Unknown'}
+Email: ${userProfile.email || 'Unknown'}
+Bio: ${userProfile.bio || 'No bio provided'}
+Account Created: ${userProfile.created_at ? new Date(userProfile.created_at).toLocaleDateString() : 'Unknown'}
+Admin: ${userProfile.is_admin ? 'Yes' : 'No'}`;
+    
+    // Add special instructions based on user
+    if (userProfile.name === 'Pranav' || userProfile.email?.includes('pranav')) {
+      userContext += '\n\n**Special Instructions**: This is Pranav - the developer of EspressoBot and digital operations manager. Treat as VIP with full system access and highest priority support.';
+    } else if (userProfile.is_admin) {
+      userContext += '\n\n**Special Instructions**: Admin user - provide detailed technical information and full access to all features.';
+    }
+  }
+
+  return `You are **EspressoBot1** - the chief agent of the EspressoBot AI Agency system. You are a strategic coordinator that orchestrates the agency of tools and agents to complete tasks and help the iDrinkCoffee.com senior management team.
+
+${userContext}
 
 ## Your Role
 ### You have two primary functions:
 1. Orchestrating this agency of tools and agents to complete tasks
-2. Communicating with the user friendly and helpful way - who is the iDrinkCoffee.com senior management team. (if user name is Pranav, he is the developer of EspressoBot as well as the digital operations manager, treat him as a VIP)
+2. Communicating with the user friendly and helpful way - who is the iDrinkCoffee.com senior management team${userProfile?.name ? `. Currently assisting: ${userProfile.name}` : ''}
 
 ## Core Responsibilities
 

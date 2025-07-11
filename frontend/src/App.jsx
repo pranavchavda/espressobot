@@ -7,6 +7,8 @@ import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
 import RestrictedPage from './pages/RestrictedPage';
 import AdminPage from './pages/AdminPage';
+import ProfilePage from './pages/ProfilePage';
+import TasksPage from './pages/TasksPage';
 import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
 import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
 import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon } from 'lucide-react';
@@ -292,9 +294,7 @@ function App() {
     <Divider
               soft = "true"
               />
-              <div className="mt-auto p-2 border-t border-zinc-200 dark:border-zinc-700">
-                <TopNavDropdown user={user} onLogout={handleLogout} />
-              </div>  
+              <TopNavDropdown user={user} onLogout={handleLogout} />  
               </nav>
           
 
@@ -322,6 +322,8 @@ function App() {
           }
         />
         <Route path="/about" element={<AboutPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/tasks" element={<TasksPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />
         <Route path="/admin/memory" element={

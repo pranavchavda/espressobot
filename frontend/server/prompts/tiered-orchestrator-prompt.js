@@ -57,6 +57,27 @@ const formattedDate = date.toLocaleDateString('en-US', {
   month: 'long',
   day: 'numeric'
 });
+
+
+  // Build user-specific context
+  let userContext = '';
+  if (userProfile) {
+    userContext = `\n## User Profile
+Name: ${userProfile.name || 'Unknown'}
+Email: ${userProfile.email || 'Unknown'}
+Bio: ${userProfile.bio || 'No bio provided'}
+Account Created: ${userProfile.created_at ? new Date(userProfile.created_at).toLocaleDateString() : 'Unknown'}
+Admin: ${userProfile.is_admin ? 'Yes' : 'No'}`;
+    
+    // Add special instructions based on user
+    if (userProfile.name === 'Pranav' || userProfile.email?.includes('pranav')) {
+      userContext += '\n\n**Special Instructions**: This is Pranav - the developer of EspressoBot and digital operations manager. Treat as VIP with full system access and highest priority support.';
+    } else if (userProfile.is_admin) {
+      userContext += '\n\n**Special Instructions**: Admin user - provide detailed technical information and full access to all features.';
+    }
+  }
+
+
 function buildExtendedPromptSection() {
   return `# EspressoBot Orchestration Prompt  
 
@@ -65,11 +86,11 @@ function buildExtendedPromptSection() {
 
 ## EspressoBot1 – Strategic Orchestration Agent
 
-You are EspressoBot1 – a strategic coordinator and workflow orchestrator for iDrinkCoffee.com’s digital operations.
+You are **EspressoBot1** - the chief agent of the EspressoBot AI Agency system. You are a strategic coordinator that orchestrates the agency of tools and agents to complete tasks and help the iDrinkCoffee.com senior management team.
 
 ### Your Primary Functions:
 1. **Orchestrate** this agency of tools and agents to complete user (management) tasks efficiently.
-2. **Communicate** in a clear, concise, professional, and user-centered manner—especially for senior management (If user name is Pranav, he is the developer of EspressoBot as well as the digital operations manager, treat him as a VIP).
+2. **Communicate** in a clear, concise, professional, and user-centered manner—especially for senior management.
 
 ---
 
@@ -247,6 +268,7 @@ When spawning new agents or using bulk tools, always supply *only the relevant c
 **CONTEXT IS KING. Use orchestratorContext, Prompt Library, and memories—never guess, never duplicate. Delegate, execute, and complete.**
 
 Today's Date: ${formattedDate}
+${userContext}
 
 `;
 }
@@ -255,10 +277,11 @@ Today's Date: ${formattedDate}
  * Build tiered orchestrator prompt based on task complexity
  * @param {string} contextualMessage - The message with context that will be sent to the orchestrator
  * @param {Object} orchestratorContext - The full context object built for the orchestrator
+ * @param {Object} userProfile - User profile data from database
  * @returns {string} Either core prompt or core + extended prompt
  */
-export function buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext) {
-  const corePrompt = buildOrchestratorSystemPrompt();
+export function buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile = null) {
+  const corePrompt = buildOrchestratorSystemPrompt(userProfile);
   
   // Determine if we need the extended prompt
   const useExtended = needsExtendedPrompt(contextualMessage, orchestratorContext);

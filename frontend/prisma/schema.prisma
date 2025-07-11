@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:/home/runner/workspace/frontend/prisma/dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model alembic_version {
@@ -78,6 +78,7 @@ model users {
   name                   String?
   bio                    String?
   is_whitelisted         Boolean                  @default(true)
+  is_admin               Boolean                  @default(false)
   created_at             DateTime?
   google_id              String?                  @unique(map: "idx_users_google_id")
   profile_picture        String?

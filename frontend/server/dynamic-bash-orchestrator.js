@@ -74,7 +74,8 @@ async function buildAgentContext(options) {
     userMessage, 
     autonomyLevel,
     additionalContext,
-    forceFullContext = false
+    forceFullContext = false,
+    userProfile = null
   } = options;
   
   console.log(`[ORCHESTRATOR] Building tiered context for task: ${task.substring(0, 100)}...`);
@@ -88,6 +89,7 @@ async function buildAgentContext(options) {
     autonomyLevel,
     additionalContext,
     forceFullContext,
+    userProfile,
     // Pass conversation history from the orchestrator's state
     conversationHistory: []  // Empty for now, will be populated by tiered builder
   });
@@ -192,6 +194,7 @@ const spawnBashAgent = tool({
         conversationId,
         userId,
         autonomyLevel: effectiveAutonomy,
+        userProfile: global.currentUserProfile, // Include user profile
         ...(parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext) ? parsedContext : {})
       };
       if (parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext)) {
@@ -208,7 +211,8 @@ const spawnBashAgent = tool({
         userId,
         userMessage: task,
         autonomyLevel: effectiveAutonomy,
-        conversationHistory: [] // Agent doesn't need full history
+        conversationHistory: [], // Agent doesn't need full history
+        userProfile: global.currentUserProfile // Pass user profile from global
       });
       // Add the additional context if provided
       if (context) {
@@ -352,7 +356,8 @@ const spawnSWEAgent = tool({
           userId: global.currentUserId,
           userMessage: task,
           autonomyLevel: 'high',
-          additionalContext: context
+          additionalContext: context,
+          userProfile: global.currentUserProfile
         });
       }
       
@@ -460,6 +465,7 @@ const spawnParallelBashAgents = tool({
           conversationId,
           userId,
           autonomyLevel: effectiveAutonomy,
+          userProfile: global.currentUserProfile, // Include user profile
           ...(parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext) ? parsedContext : {}),
           additionalContext: context
         };
@@ -469,6 +475,7 @@ const spawnParallelBashAgents = tool({
           conversationId,
           userId,
           autonomyLevel: effectiveAutonomy,
+          userProfile: global.currentUserProfile, // Include user profile
           relevantMemories: [],
           relevantRules: [],
           businessLogic: {},
@@ -813,9 +820,9 @@ async function buildOrchestratorWithMCPTools() {
 /**
  * Create orchestrator agent with dynamic prompt based on context
  */
-function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool) {
+function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, userProfile = null) {
   // Build tiered prompt based on task complexity
-  const instructions = buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext);
+  const instructions = buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
   
   return new Agent({
     name: 'EspressoBot1',
@@ -1051,6 +1058,35 @@ export async function runDynamicOrchestrator(message, options = {}) {
   // Store user message globally for context building
   global.currentUserMessage = message;
   
+  // Fetch user profile if userId is provided
+  let userProfile = null;
+  if (userId) {
+    try {
+      const { PrismaClient } = await import('@prisma/client');
+      const prisma = new PrismaClient();
+      userProfile = await prisma.users.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          bio: true,
+          is_admin: true,
+          created_at: true
+        }
+      });
+      await prisma.$disconnect();
+      
+      if (userProfile) {
+        console.log(`[Orchestrator] Loaded profile for user: ${userProfile.name || userProfile.email}`);
+        // Store globally for access by spawned agents
+        global.currentUserProfile = userProfile;
+      }
+    } catch (error) {
+      console.log(`[Orchestrator] Could not load user profile:`, error.message);
+    }
+  }
+  
   // BUILD RICH CONTEXT FIRST - Orchestrator needs this for decision making
   console.log(`[Orchestrator] Building comprehensive context for decision making...`);
   const orchestratorContext = await buildAgentContext({
@@ -1059,7 +1095,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     userId,
     userMessage: message,
     autonomyLevel: intentAnalysis.level,
-    additionalContext: null
+    additionalContext: null,
+    userProfile
   });
   
   // Store orchestrator's full context globally for reference
@@ -1216,7 +1253,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     const { mcpTools, builtInSearchTool } = await initializeOrchestratorTools();
     
     // Create orchestrator with dynamic prompt based on context
-    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool);
+    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, userProfile);
     
     // Check if we have image or file data from the API
     let messageToSend;
@@ -1355,6 +1392,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     global.currentUserId = null;
     global.currentUserMessage = null;
     global.currentIntentAnalysis = null;
+    global.currentUserProfile = null;
     // Clear abort signal reference
     currentAbortSignal = null;
     global.currentAbortSignal = null;

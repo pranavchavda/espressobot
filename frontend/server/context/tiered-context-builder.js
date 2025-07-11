@@ -13,7 +13,8 @@ export async function buildCoreContext(options) {
     userId, 
     userMessage, 
     autonomyLevel,
-    conversationHistory = []
+    conversationHistory = [],
+    userProfile = null
   } = options;
   
   console.log(`[CONTEXT] Building core context slice`);
@@ -22,6 +23,7 @@ export async function buildCoreContext(options) {
     task,
     conversationId,
     userId,
+    userProfile,
     autonomyLevel,
     // Only most recent memories (top-5)
     relevantMemories: [],
@@ -157,7 +159,8 @@ export async function buildFullContext(options, coreContext = null) {
     additionalContext,
     includeProductBlobs = true,
     includeExtendedHistory = true,
-    includeAllMemories = true
+    includeAllMemories = true,
+    userProfile = null
   } = options;
   
   console.log(`[CONTEXT] Building full context slice`);
