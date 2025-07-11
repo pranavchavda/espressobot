@@ -23,8 +23,6 @@ export async function buildCoreContext(options) {
     conversationId,
     userId,
     autonomyLevel,
-    // Essential entities only (no full product blobs)
-    specificEntities: extractEssentialEntities(task),
     // Only most recent memories (top-5)
     relevantMemories: [],
     // Core business rules only
@@ -170,9 +168,6 @@ export async function buildFullContext(options, coreContext = null) {
   // Extend with full data
   fullContext.fullSlice = true;
   
-  // Get full entity details
-  fullContext.specificEntities = extractFullEntities(task);
-  
   // Get extended memories (up to 15)
   if (includeAllMemories && userId) {
     try {
@@ -263,59 +258,6 @@ export async function buildFullContext(options, coreContext = null) {
   return fullContext;
 }
 
-/**
- * Extract only essential entity references (no full data)
- */
-function extractEssentialEntities(task) {
-  const entities = [];
-  
-  const patterns = {
-    skus: /\b[A-Z]{2,}-?\d{3,}[A-Z]?\b/g,
-    prices: /\$?\d+\.?\d*(?:\s*(?:CAD|USD))?/g,
-    quantities: /\b\d+\s*(?:items?|products?|units?)\b/gi
-  };
-  
-  for (const [type, pattern] of Object.entries(patterns)) {
-    const matches = task.match(pattern) || [];
-    if (matches.length > 0) {
-      entities.push({
-        type,
-        count: matches.length,
-        samples: [...new Set(matches)].slice(0, 3) // Only first 3 unique samples
-      });
-    }
-  }
-  
-  return entities;
-}
-
-/**
- * Extract full entity details with all references
- */
-function extractFullEntities(task) {
-  const entities = [];
-  
-  const patterns = {
-    products: /https:\/\/idrinkcoffee\.com\/products\/[\w-]+/g,
-    skus: /\b[A-Z]{2,}-?\d{3,}[A-Z]?\b/g,
-    prices: /\$?\d+\.?\d*(?:\s*(?:CAD|USD))?/g,
-    handles: /["']?([\w-]+)["']?\s*(?:handle|product)/gi,
-    variantIds: /\b\d{10,}\b/g,
-    gids: /gid:\/\/shopify\/\w+\/\d+/g
-  };
-  
-  for (const [type, pattern] of Object.entries(patterns)) {
-    const matches = task.match(pattern) || [];
-    if (matches.length > 0) {
-      entities.push({
-        type,
-        values: [...new Set(matches)]
-      });
-    }
-  }
-  
-  return entities;
-}
 
 /**
  * Extract product blobs for referenced products (expensive operation)

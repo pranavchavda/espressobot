@@ -37,8 +37,8 @@ const formattedDate = date.toLocaleDateString('en-US', {
 
 ### Context Curation for Agents
 When spawning agents, curate context using the curatedContext parameter:
-- Price updates: \`{ specificEntities: [...], relevantRules: [...] }\`
-- Bulk operations: \`{ specificEntities: [...], businessLogic: {...} }\`
+- Price updates: \`{ businessLogic: {patterns: [price_update]}, relevantRules: [...] }\`
+- Bulk operations: \`{ businessLogic: {patterns: [bulk_operation]}, relevantRules: [...] }\`
 - Simple tasks: \`null\` (core context auto-provided)
 
 ## Execution Framework

@@ -45,19 +45,6 @@ Examples of WRONG usage (DO NOT DO THIS):
 - curl -X POST shopify-api-endpoint (Use MCP tools instead)
 - Reimplementing MCP tool functionality`;
 
-  // Add specific entities
-  if (context.specificEntities && context.specificEntities.length > 0) {
-    prompt += '\n\n## Specific Entities Referenced:\n';
-    for (const entity of context.specificEntities) {
-      // Handle both 'values' (full context) and 'samples' (core context)
-      const items = entity.values || entity.samples || [];
-      if (Array.isArray(items) && items.length > 0) {
-        prompt += `- ${entity.type}: ${items.join(', ')}\n`;
-      } else if (entity.count) {
-        prompt += `- ${entity.type}: ${entity.count} found\n`;
-      }
-    }
-  }
 
   // Add business logic warnings
   if (context.businessLogic && context.businessLogic.patterns.length > 0) {

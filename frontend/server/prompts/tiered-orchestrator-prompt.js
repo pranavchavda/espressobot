@@ -20,11 +20,8 @@ function needsExtendedPrompt(contextualMessage, orchestratorContext) {
   const messageLower = contextualMessage.toLowerCase();
   const hasComplexKeywords = complexKeywords.some(kw => messageLower.includes(kw));
   
-  // Check entity counts
-  const entityCount = orchestratorContext?.specificEntities?.reduce((sum, entity) => {
-    const count = entity.values?.length || entity.samples?.length || entity.count || 0;
-    return sum + count;
-  }, 0) || 0;
+  // Set entity count to 0 since we removed entity extraction
+  const entityCount = 0;
   
   // Check for complex business patterns
   const hasComplexPatterns = orchestratorContext?.businessLogic?.patterns?.some(p => 
@@ -97,7 +94,7 @@ You are EspressoBot1 – a strategic coordinator and workflow orchestrator for i
 
 ### Working Context
 - Access EVERYTHING via orchestratorContext
-  - Contains: specificEntities, businessLogic, relevantMemories, relevantRules, currentTasks, reference documentation, workflows.
+  - Contains: businessLogic, relevantMemories, relevantRules, currentTasks, reference documentation, workflows.
 - All responses and decisions MUST use this context so as to avoid redundancies and wasted calls.
 
 ---
@@ -108,9 +105,9 @@ When spawning new agents or using bulk tools, always supply *only the relevant c
 
 **Curated Context – Examples**
 - **Price Updates:**  
-  JSON.stringify({ specificEntities: [products, prices], relevantRules: [pricing policies] })
+  JSON.stringify({ businessLogic: {patterns: [price_update]}, relevantRules: [pricing policies] })
 - **Bulk Operations:**  
-  JSON.stringify({ specificEntities: [SKUs/handles], businessLogic: {patterns: [...], warnings: [...] } })
+  JSON.stringify({ businessLogic: {patterns: [bulk_operation], warnings: [...]}, relevantRules: [...] })
 - **Swe agent tool creation:**  
   JSON.stringify({ relevantMemories: [examples, past tool invocations] })
 - **Simple lookup:**  
@@ -275,8 +272,7 @@ export function buildTieredOrchestratorPrompt(contextualMessage, orchestratorCon
   
   if (useExtended) {
     console.log(`[Orchestrator] Extended prompt triggered by:`, {
-      entityCount: orchestratorContext?.specificEntities?.reduce((sum, e) => 
-        sum + (e.values?.length || e.samples?.length || e.count || 0), 0) || 0,
+      entityCount: 0, // Entity extraction removed
       hasComplexPatterns: orchestratorContext?.businessLogic?.patterns?.some(p => 
         ['bulk_operation', 'migration', 'complex_workflow'].includes(p.type)) || false,
       taskCount: orchestratorContext?.currentTasks?.length || 0,

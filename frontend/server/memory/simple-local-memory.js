@@ -391,7 +391,7 @@ class SimpleLocalMemory {
       const sortedResults = results
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
-        .filter(r => r.score > 0.1); // Filter out very low similarity
+        .filter(r => r.score > 0.35); // Filter out low relevance results
       
       console.log(`Found ${sortedResults.length} memories for query "${query}"`);
       return sortedResults;

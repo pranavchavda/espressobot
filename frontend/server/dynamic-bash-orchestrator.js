@@ -108,7 +108,6 @@ async function buildAgentContext(options) {
   // Log context slice type and size
   const contextSize = JSON.stringify(context).length;
   console.log(`[ORCHESTRATOR] Built ${context.fullSlice ? 'FULL' : 'CORE'} context slice (${Math.round(contextSize / 1024)}KB)`);
-  console.log(`  - Entities: ${context.specificEntities.length} types`);
   console.log(`  - Memories: ${context.relevantMemories.length}`);
   console.log(`  - Prompt Fragments: ${context.promptFragments?.length || 0}`);
   console.log(`  - Rules: ${context.relevantRules?.length || 0}`);
@@ -470,7 +469,6 @@ const spawnParallelBashAgents = tool({
           conversationId,
           userId,
           autonomyLevel: effectiveAutonomy,
-          specificEntities: [],
           relevantMemories: [],
           relevantRules: [],
           businessLogic: {},
@@ -889,58 +887,6 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
     //   toolName: 'memory_manager', 
     //   toolDescription: 'Store and retrieve important information from conversation memory'
     // }),
-    tool({
-      name: 'swe_agent',
-      description: 'Software Engineering Agent - handoff for creating new tools, modifying existing tools, MCP access (Shopify docs, Context7), or any code-related tasks',
-      parameters: z.object({
-        prompt: z.string().describe('The task or request to pass to the SWE Agent'),
-        curatedContext: z.string().nullable().describe('JSON-encoded curated context for the SWE agent')
-      }),
-      execute: async ({ prompt, curatedContext }) => {
-        console.log(`[ORCHESTRATOR] SWE Agent - CuratedContext type: ${typeof curatedContext}`);
-        
-        // Validate curatedContext
-        if (curatedContext !== null && curatedContext !== undefined && typeof curatedContext !== 'string') {
-          console.error(`[ORCHESTRATOR] ERROR: curatedContext must be a JSON string or null, got ${typeof curatedContext}`);
-          if (typeof curatedContext === 'object') {
-            curatedContext = JSON.stringify(curatedContext);
-            console.log(`[ORCHESTRATOR] Converted curatedContext to JSON string`);
-          }
-        }
-        
-        // Use orchestrator's curated context or minimal context
-        let context;
-        if (curatedContext) {
-          const parsedContext = typeof curatedContext === 'string' ? JSON.parse(curatedContext) : curatedContext;
-          context = {
-            task: prompt,
-            conversationId: global.currentConversationId,
-            userId: global.currentUserId,
-            autonomyLevel: global.currentIntentAnalysis?.level || 'high',
-            ...(parsedContext && typeof parsedContext === 'object' && !Array.isArray(parsedContext) ? parsedContext : {})
-          };
-        } else {
-          context = {
-            task: prompt,
-            conversationId: global.currentConversationId,
-            userId: global.currentUserId,
-            autonomyLevel: global.currentIntentAnalysis?.level || 'high',
-            specificEntities: [],
-            relevantMemories: [],
-            relevantRules: [],
-            businessLogic: {},
-            currentTasks: []
-          };
-        }
-        
-        console.log('[Orchestrator] Using curated context for SWE Agent');
-        
-        // Get SWE agent with orchestrator-provided context
-        const sweAgent = await getSWEAgent(prompt, global.currentConversationId, context);
-        const result = await run(sweAgent, prompt, { maxTurns: 130 });
-        return result.finalOutput || result;
-      }
-    }),
     spawnBashAgent,
     spawnSWEAgent,
     spawnParallelBashAgents,
@@ -1121,7 +1067,6 @@ export async function runDynamicOrchestrator(message, options = {}) {
   
   // Log what we found
   console.log(`[Orchestrator] Context analysis complete:`);
-  console.log(`  - Entities found: ${orchestratorContext.specificEntities?.map(e => `${e.type}(${e.values?.length || e.count || 0})`).join(', ') || 'None'}`);
   console.log(`  - Business patterns: ${orchestratorContext.businessLogic?.patterns?.map(p => p.type).join(', ') || 'None'}`);
   console.log(`  - Memories: ${orchestratorContext.relevantMemories?.length || 0}`);
   console.log(`  - Current tasks: ${orchestratorContext.currentTasks?.length || 0}`);
@@ -1146,16 +1091,6 @@ export async function runDynamicOrchestrator(message, options = {}) {
   try {
     // Build the orchestrator's message with its comprehensive context
     let contextualMessage = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
-    
-    // Add entity context if found
-    if (orchestratorContext.specificEntities?.length > 0) {
-      contextualMessage += '\n\n## Entities Detected:';
-      for (const entity of orchestratorContext.specificEntities) {
-        // Handle both core (samples) and full (values) context formats
-        const items = entity.values || entity.samples || [];
-        contextualMessage += `\n- ${entity.type}: ${items.join(', ')}`;
-      }
-    }
     
     // Add business logic patterns if detected
     if (orchestratorContext.businessLogic?.patterns?.length > 0) {
