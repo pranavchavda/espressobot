@@ -1,1 +1,0 @@
-query fetchOrders($cursor: String) { orders(first: 50, after: $cursor) { edges { cursor node { id name createdAt cancelledAt test totalPriceSet { shopMoney { amount currencyCode } } } } pageInfo { hasNextPage } } }

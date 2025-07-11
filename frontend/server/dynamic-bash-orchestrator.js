@@ -20,6 +20,9 @@ import {
 import { getSmartContext } from './context-loader/context-manager.js';
 import { memoryOperations } from './memory/memory-operations-local.js';
 import { viewImageTool } from './tools/view-image-tool.js';
+import { parseFileTool } from './tools/file-parser-tool-safe.js';
+import { saveFileTool } from './tools/file-save-tool.js';
+import { fileOperationsTool } from './tools/file-operations-tool.js';
 import { initializeMCPTools, callMCPTool, getMCPTools } from './tools/mcp-client.js';
 import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
@@ -163,7 +166,7 @@ const spawnBashAgent = tool({
     // Send real-time progress to UI
     if (currentSseEmitter) {
       currentSseEmitter('agent_processing', {
-        agent: 'Dynamic_Bash_Orchestrator',
+        agent: 'EspressoBot1',
         message: `Spawning bash agent: ${agentName} (${effectiveAutonomy} autonomy)`,
         status: 'processing'
       });
@@ -309,6 +312,99 @@ const spawnBashAgent = tool({
         task: task,
         error: error.message,
         status: 'failed'
+      };
+    }
+  }
+});
+
+/**
+ * Tool to spawn a SWE (Software Engineering) agent for code generation tasks
+ */
+const spawnSWEAgent = tool({
+  name: 'spawn_swe_agent',
+  description: 'Create a SWE agent for software engineering tasks like code generation, refactoring, and API integration',
+  parameters: z.object({
+    task: z.string().describe('Specific software engineering task to complete'),
+    context: z.string().nullable().describe('Additional context about the codebase or requirements'),
+    useRichContext: z.boolean().default(true).describe('Use rich context from memory and documentation'),
+  }),
+  execute: async ({ task, context, useRichContext }) => {
+    console.log('[ORCHESTRATOR] Spawning SWE agent for task:', task);
+    
+    // Send real-time progress to UI
+    if (currentSseEmitter) {
+      currentSseEmitter('agent_processing', {
+        agent: 'EspressoBot1',
+        message: 'Spawning SWE agent for code generation...',
+        status: 'processing'
+      });
+    }
+    
+    try {
+      // Get conversation ID and rich context
+      const conversationId = global.currentConversationId;
+      let richContext = null;
+      
+      if (useRichContext) {
+        // Build rich context for the SWE agent
+        richContext = await buildAgentContext({
+          task: task,
+          conversationId: conversationId,
+          userId: global.currentUserId,
+          userMessage: task,
+          autonomyLevel: 'high',
+          additionalContext: context
+        });
+      }
+      
+      // Create the SWE agent with context
+      const sweAgent = await getSWEAgent(task, conversationId, richContext);
+      
+      if (currentSseEmitter) {
+        currentSseEmitter('agent_processing', {
+          agent: 'SWE_Agent',
+          message: 'Starting code generation...',
+          status: 'processing'
+        });
+      }
+      
+      // Run the SWE agent
+      const { run } = await import('@openai/agents');
+      const result = await run(sweAgent, task + (context ? `\n\nContext: ${context}` : ''), {
+        maxTurns: 50
+      });
+      
+      console.log('[ORCHESTRATOR] SWE agent completed');
+      
+      if (currentSseEmitter) {
+        currentSseEmitter('agent_processing', {
+          agent: 'SWE_Agent',
+          message: 'Code generation complete',
+          status: 'complete'
+        });
+      }
+      
+      return {
+        success: true,
+        result: result.finalOutput || 'Task completed',
+        agentName: 'SWE_Agent'
+      };
+      
+    } catch (error) {
+      console.error('[ORCHESTRATOR] SWE agent error:', error);
+      
+      if (currentSseEmitter) {
+        currentSseEmitter('agent_processing', {
+          agent: 'SWE_Agent',
+          message: `Error: ${error.message}`,
+          status: 'failed'
+        });
+      }
+      
+      return {
+        success: false,
+        error: error.message,
+        agentName: 'SWE_Agent'
       };
     }
   }
@@ -724,17 +820,20 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
   const instructions = buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext);
   
   return new Agent({
-    name: 'Dynamic_Bash_Orchestrator',
-    model: 'o3',  // Back to OpenAI for now
+    name: 'EspressoBot1',
+    model: 'gpt-4.1',  // Back to OpenAI for now
     instructions: instructions,
   modelSettings: {
     parallelToolCalls: true
-
+    
   },
   tools: [
     ...mcpTools,  // MCP tools FIRST for priority
-    // builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
+    builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
     viewImageTool,
+    parseFileTool,
+    saveFileTool,
+    fileOperationsTool,
     tool({
       name: 'task_planner',
       description: 'Analyze requests and create structured task plans with actionable steps. Pass any context you deem relevant.',
@@ -749,7 +848,7 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
         const conversationId = global.currentConversationId;
         const enhancedRequest = request + (conversationId ? `\n\nIMPORTANT: Use conversation_id: "${conversationId}" when calling generate_todos.` : '');
         
-        const result = await run(taskPlanningAgent, enhancedRequest, { maxTurns: 30 });
+        const result = await run(taskPlanningAgent, enhancedRequest, { maxTurns: 130 });
         
         // Emit task planning events if SSE emitter is available
         if (currentSseEmitter && global.currentConversationId) {
@@ -838,11 +937,12 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
         
         // Get SWE agent with orchestrator-provided context
         const sweAgent = await getSWEAgent(prompt, global.currentConversationId, context);
-        const result = await run(sweAgent, prompt, { maxTurns: 30 });
+        const result = await run(sweAgent, prompt, { maxTurns: 130 });
         return result.finalOutput || result;
       }
     }),
     spawnBashAgent,
+    spawnSWEAgent,
     spawnParallelBashAgents,
     spawnParallelExecutors,
     // orchestratorBash,
@@ -1130,7 +1230,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     
     // Run the orchestrator with callbacks for real-time streaming
     const runOptions = {
-      maxTurns: 30,
+      maxTurns: 130,
       onMessage: (message) => {
         console.log('*** Bash orchestrator onMessage ***');
         console.log('Message type:', typeof message);
@@ -1183,8 +1283,63 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Create orchestrator with dynamic prompt based on context
     const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool);
     
-    // Check if we have image data from the API
+    // Check if we have image or file data from the API
     let messageToSend;
+    let fileContextAddition = '';
+    
+    // Handle file data first to add context to the message
+    if (global.currentFileData) {
+      console.log('[DEBUG] File data found in orchestrator:', {
+        type: global.currentFileData.type,
+        name: global.currentFileData.name,
+        size: global.currentFileData.size,
+        encoding: global.currentFileData.encoding
+      });
+      
+      // Build file context based on type
+      fileContextAddition = `\n\n[Attached File: ${global.currentFileData.name} (${global.currentFileData.type})]`;
+      
+      if (global.currentFileData.encoding === 'text') {
+        // For text files, include the content directly
+        fileContextAddition += `\n\nFile content:\n\`\`\`\n${global.currentFileData.content}\n\`\`\``;
+      } else {
+        // For binary files, we'll need to handle them differently based on type
+        fileContextAddition += `\n\nThis is a ${global.currentFileData.type} file (${(global.currentFileData.size / 1024).toFixed(1)}KB). `;
+        
+        // Add type-specific instructions
+        switch (global.currentFileData.type) {
+          case 'pdf':
+            fileContextAddition += 'The PDF file has been uploaded. To extract text from this PDF:\n';
+            fileContextAddition += '1. Use the `save_uploaded_file` tool to save the PDF to disk\n';
+            fileContextAddition += '2. Then use bash tools to extract text:\n';
+            fileContextAddition += '   - Check if pdftotext is available: `which pdftotext`\n';
+            fileContextAddition += '   - If not, install poppler (package name varies by system):\n';
+            fileContextAddition += '     - Ubuntu/Debian: `sudo apt-get install poppler-utils`\n';
+            fileContextAddition += '     - Alpine/other: `sudo apk add poppler` or `poppler-utils`\n';
+            fileContextAddition += '     - macOS: `brew install poppler`\n';
+            fileContextAddition += '   - Extract text: `pdftotext saved_file.pdf -` (outputs to stdout)\n';
+            fileContextAddition += '   - Or save to file: `pdftotext saved_file.pdf output.txt`';
+            break;
+          case 'excel':
+            fileContextAddition += 'To read this Excel file, you may need to use a spreadsheet parsing tool to extract its data.';
+            break;
+          case 'csv':
+            fileContextAddition += 'This CSV file contains structured data that can be parsed and analyzed.';
+            break;
+          default:
+            fileContextAddition += 'The file data is available in base64 format for processing.';
+        }
+        
+        // Store the base64 data for tool access if needed
+        if (global.currentFileData.data) {
+          global.currentFileBase64 = global.currentFileData.data;
+        }
+      }
+    }
+    
+    // Append file context to the message
+    const messageWithFileContext = contextualMessage + fileContextAddition;
+    
     if (global.currentImageData) {
       console.log('[DEBUG] Image data found in orchestrator:', {
         type: global.currentImageData.type,
@@ -1209,7 +1364,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
           content: [
             {
               type: 'input_text',
-              text: contextualMessage
+              text: messageWithFileContext
             },
             {
               type: 'input_image',
@@ -1223,7 +1378,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     } else {
       console.log('[DEBUG] No image data, sending text-only message');
       // For text-only messages, we can pass a string or array
-      messageToSend = contextualMessage;
+      messageToSend = messageWithFileContext;
     }
     
     // Use vision retry wrapper if we have image data
@@ -1257,6 +1412,9 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Clear the SSE emitter reference
     currentSseEmitter = null;
     global.currentSseEmitter = null;
+    
+    // Clear file data
+    global.currentFileBase64 = null;
     global.currentConversationId = null;
     global.currentTaskUpdater = null;
     global.currentUserId = null;

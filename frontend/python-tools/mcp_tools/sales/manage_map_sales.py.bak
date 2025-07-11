@@ -1,17 +1,34 @@
 #!/usr/bin/env python3
 """
-Manage MAP (Minimum Advertised Price) sales based on calendar data.
+Enhanced MAP (Minimum Advertised Price) sales manager with sale end dates.
 
 This tool reads the enhanced sales calendar and can:
 1. Check what sales should be active today
-2. Apply sale prices for a specific date range
-3. Revert prices back to regular after sales end
+2. Apply sale prices and set sale end dates
+3. Revert prices back to regular and clear sale end dates
 4. Preview changes before applying them
+5. Handle both calendar-based and direct date range operations
+
+Usage:
+    # Check active sales
+    python tools/manage_map_sales_enhanced.py check
+    
+    # Apply sales (dry run)
+    python tools/manage_map_sales_enhanced.py --dry-run apply
+    
+    # Apply sales
+    python tools/manage_map_sales_enhanced.py apply
+    
+    # Revert sales
+    python tools/manage_map_sales_enhanced.py revert "11 Jul - 17 Jul"
+    
+    # Show calendar summary
+    python tools/manage_map_sales_enhanced.py summary
 """
 
 import argparse
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 import sys
 import os
@@ -62,28 +79,32 @@ class MAPSalesManager:
                         'sale_price': float(parts[4].replace('$', '').replace(',', '')),
                         'discount': parts[5],
                         'product_id': parts[6],
-                        'variant_id': parts[7] if len(parts) > 7 else None  # Variant ID is now in the calendar
+                        'variant_id': parts[7] if len(parts) > 7 else None
                     }
                     self.sales_data[current_date_range].append(product_data)
     
-    def get_variant_id(self, product_id, sku):
-        """Get variant ID for a product - fetches the first (default) variant."""
-        if product_id == 'NOT_FOUND':
-            return 'NOT_FOUND'
-        
-        # Query to get the first variant of the product
+    def search_product_by_sku(self, sku):
+        """Search for active product by SKU"""
         query = '''
-        query getProductVariant($id: ID!) {
-            product(id: $id) {
-                id
-                title
-                variants(first: 1) {
-                    edges {
-                        node {
-                            id
-                            sku
-                            price
-                            compareAtPrice
+        query searchBySku($query: String!) {
+            products(first: 5, query: $query) {
+                edges {
+                    node {
+                        id
+                        title
+                        handle
+                        tags
+                        status
+                        variants(first: 10) {
+                            edges {
+                                node {
+                                    id
+                                    title
+                                    sku
+                                    price
+                                    compareAtPrice
+                                }
+                            }
                         }
                     }
                 }
@@ -91,16 +112,28 @@ class MAPSalesManager:
         }
         '''
         
-        variables = {"id": product_id}
+        variables = {"query": f"sku:{sku} status:active"}
         
         try:
             response = self.client.execute_graphql(query, variables)
-            if response and 'data' in response and response['data'].get('product'):
-                variants = response['data']['product'].get('variants', {}).get('edges', [])
-                if variants:
-                    return variants[0]['node']['id']
+            if response and 'data' in response:
+                products = response['data']['products']['edges']
+                
+                # Find exact SKU match
+                for product_edge in products:
+                    product = product_edge['node']
+                    for variant_edge in product['variants']['edges']:
+                        variant = variant_edge['node']
+                        if variant['sku'] == sku:
+                            return {
+                                'product_id': product['id'],
+                                'variant_id': variant['id'],
+                                'current_price': float(variant['price']),
+                                'compare_at': float(variant['compareAtPrice']) if variant['compareAtPrice'] else None,
+                                'tags': product['tags']
+                            }
         except Exception as e:
-            print(f"Error fetching variant for product {product_id}: {e}")
+            print(f"Error searching for SKU {sku}: {e}")
         
         return None
     
@@ -142,12 +175,21 @@ class MAPSalesManager:
         
         return start_date, end_date
     
+    def get_sale_end_datetime(self, date_range):
+        """Convert date range to sale end datetime in ISO format."""
+        _, end_date = self.parse_date_range(date_range)
+        # Set to 11:59:59 PM UTC
+        end_datetime = datetime.combine(end_date, datetime.max.time())
+        end_datetime = end_datetime.replace(tzinfo=timezone.utc)
+        return end_datetime.isoformat().replace('+00:00', 'Z')
+    
     def get_active_sales(self, check_date=None):
         """Get all sales that should be active on the given date."""
         if check_date is None:
             check_date = date.today()
         
         active_sales = []
+        active_date_range = None
         
         for date_range, products in self.sales_data.items():
             start_date, end_date = self.parse_date_range(date_range)
@@ -155,40 +197,18 @@ class MAPSalesManager:
             # Check if date is within range
             if start_date <= check_date <= end_date:
                 active_sales.extend(products)
+                active_date_range = date_range
         
-        return active_sales
+        return active_sales, active_date_range
     
-    def update_variant_price(self, variant_id, price, compare_at_price=None):
-        """Update a single variant's price."""
-        # First get the product ID for this variant
-        query = '''
-        query getProductId($id: ID!) {
-            productVariant(id: $id) {
+    def update_product_sale_end_date(self, product_id, sale_end_date):
+        """Update product's sale end date metafield."""
+        mutation = '''
+        mutation productUpdate($input: ProductInput!) {
+            productUpdate(input: $input) {
                 product {
                     id
-                }
-            }
-        }
-        '''
-        
-        if not self.dry_run:
-            product_response = self.client.execute_graphql(query, {"id": variant_id})
-            product_id = product_response.get('data', {}).get('productVariant', {}).get('product', {}).get('id')
-            
-            if not product_id:
-                print(f"Error: Could not find product for variant {variant_id}")
-                return False
-        else:
-            product_id = "dry-run-product-id"
-        
-        # Now use bulk update mutation
-        mutation = '''
-        mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-                productVariants {
-                    id
-                    price
-                    compareAtPrice
+                    title
                 }
                 userErrors {
                     field
@@ -198,28 +218,32 @@ class MAPSalesManager:
         }
         '''
         
-        variant_input = {
-            "id": variant_id,
-            "price": str(price)
-        }
-        
-        if compare_at_price:
-            variant_input["compareAtPrice"] = str(compare_at_price)
-        
         variables = {
-            "productId": product_id,
-            "variants": [variant_input]
+            "input": {
+                "id": product_id,
+                "metafields": [
+                    {
+                        "namespace": "inventory",
+                        "key": "ShappifySaleEndDate",
+                        "value": sale_end_date,
+                        "type": "single_line_text_field"
+                    }
+                ]
+            }
         }
         
         if self.dry_run:
-            print(f"[DRY RUN] Would update variant {variant_id}: price=${price}, compare_at=${compare_at_price}")
+            if sale_end_date:
+                print(f"    [DRY RUN] Would set sale end date to {sale_end_date}")
+            else:
+                print(f"    [DRY RUN] Would clear sale end date")
             return True
         
         response = self.client.execute_graphql(mutation, variables)
         
-        if response.get('data', {}).get('productVariantsBulkUpdate', {}).get('userErrors'):
-            errors = response['data']['productVariantsBulkUpdate']['userErrors']
-            print(f"Error updating variant {variant_id}: {errors}")
+        if response.get('data', {}).get('productUpdate', {}).get('userErrors'):
+            errors = response['data']['productUpdate']['userErrors']
+            print(f"    ❌ Error setting sale end date: {errors}")
             return False
         
         return True
@@ -229,69 +253,65 @@ class MAPSalesManager:
         if target_date is None:
             target_date = date.today()
         
-        active_sales = self.get_active_sales(target_date)
+        active_sales, active_date_range = self.get_active_sales(target_date)
         
         if not active_sales:
             print(f"No sales found for {target_date}")
             return
         
-        print(f"\nApplying sale prices for {len(active_sales)} products on {target_date}")
+        # Get sale end date for this period
+        sale_end_date = self.get_sale_end_datetime(active_date_range)
+        
+        print(f"\nApplying sale prices for {active_date_range}")
+        print(f"Sale end date: {sale_end_date}")
         print("=" * 80)
         
-        # Group products by product ID for bulk updates
-        product_groups = {}
-        skip_count = 0
+        # Process sales by SKU
+        updates_made = 0
+        already_on_sale = 0
+        not_found = 0
+        not_map = 0
+        unique_product_ids = set()
         
         for product in active_sales:
-            if product['product_id'] == 'NOT_FOUND':
-                print(f"⚠️  Skipping {product['product_title']} ({product['color']}) - not in Shopify")
-                skip_count += 1
+            sku = product['sku']
+            print(f"\nSearching for SKU: {sku}")
+            
+            # Search for active product
+            product_info = self.search_product_by_sku(sku)
+            
+            if not product_info:
+                print(f"  ❌ Product not found or not active")
+                not_found += 1
                 continue
             
-            # Get variant ID if not already present
-            variant_id = product.get('variant_id')
-            if not variant_id:
-                variant_id = self.get_variant_id(product['product_id'], product['sku'])
-                product['variant_id'] = variant_id
-            
-            if not variant_id:
-                print(f"⚠️  Could not find variant for {product['product_title']} ({product['sku']})")
-                skip_count += 1
+            # Check if it's a MAP product
+            if 'BREMAP' not in product_info['tags']:
+                print(f"  ⚠️  Skipping - not a MAP product")
+                not_map += 1
                 continue
             
-            # Group by product ID
-            if product['product_id'] not in product_groups:
-                product_groups[product['product_id']] = []
-            product_groups[product['product_id']].append(product)
-        
-        # Apply updates in bulk by product
-        success_count = 0
-        error_count = 0
-        
-        for product_id, variants in product_groups.items():
-            print(f"\nUpdating {len(variants)} variant(s) for product {product_id}")
+            # Track unique products for sale end dates
+            unique_product_ids.add(product_info['product_id'])
             
-            # Build variants input
-            variants_input = []
-            for variant in variants:
-                print(f"  {variant['product_title']} - {variant['color']}")
-                print(f"    SKU: {variant['sku']}")
-                print(f"    Regular: ${variant['regular_price']:.2f} → Sale: ${variant['sale_price']:.2f} ({variant['discount']})")
-                
-                variants_input.append({
-                    "id": variant['variant_id'],
-                    "price": str(variant['sale_price']),
-                    "compareAtPrice": str(variant['regular_price'])
-                })
+            # Check if already on sale at correct price
+            if (product_info['compare_at'] and 
+                abs(product_info['current_price'] - product['sale_price']) < 0.01):
+                print(f"  ✓ Already on sale at ${product_info['current_price']}")
+                already_on_sale += 1
+                continue
+            
+            print(f"  {product['product_title']} - {product['color']}")
+            print(f"    ${product_info['current_price']} → ${product['sale_price']} ({product['discount']})")
             
             if self.dry_run:
-                print("  [DRY RUN] Would update prices")
-                success_count += len(variants)
+                print(f"  [DRY RUN] Would update price and set sale end date")
+                updates_made += 1
                 continue
             
-            # Bulk update mutation
+            # Update pricing
             mutation = '''
-            mutation updateVariantPrices($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
                 productVariantsBulkUpdate(productId: $productId, variants: $variants) {
                     productVariants {
                         id
@@ -307,85 +327,89 @@ class MAPSalesManager:
             '''
             
             variables = {
-                "productId": product_id,
-                "variants": variants_input
+                "productId": product_info['product_id'],
+                "variants": [{
+                    "id": product_info['variant_id'],
+                    "price": str(product['sale_price']),
+                    "compareAtPrice": str(product['regular_price'])
+                }]
             }
             
             response = self.client.execute_graphql(mutation, variables)
             
             if response.get('data', {}).get('productVariantsBulkUpdate', {}).get('userErrors'):
                 errors = response['data']['productVariantsBulkUpdate']['userErrors']
-                print(f"  ❌ Error: {errors}")
-                error_count += len(variants)
+                print(f"  ❌ Error updating price: {errors}")
             else:
-                print(f"  ✅ Successfully updated {len(variants)} variant(s)")
-                success_count += len(variants)
+                print(f"  ✅ Price updated successfully")
+                updates_made += 1
+        
+        # Set sale end dates for unique products
+        if not self.dry_run:
+            print(f"\nSetting sale end dates for {len(unique_product_ids)} products...")
+            for product_id in unique_product_ids:
+                self.update_product_sale_end_date(product_id, sale_end_date)
         
         print("\n" + "=" * 80)
-        print(f"Summary: {success_count} products updated, {error_count} errors, {skip_count} skipped")
+        print(f"Summary:")
+        print(f"  Products updated: {updates_made}")
+        print(f"  Already on sale: {already_on_sale}")
+        print(f"  Not found/inactive: {not_found}")
+        print(f"  Not MAP products: {not_map}")
+        print(f"  Sale end dates: {len(unique_product_ids)} products")
     
     def revert_prices(self, date_range):
-        """Revert prices back to regular for a specific date range."""
+        """Revert prices back to regular for a specific date range and clear sale end dates."""
         if date_range not in self.sales_data:
             print(f"Date range '{date_range}' not found in calendar")
+            print("\nAvailable date ranges:")
+            for dr in sorted(self.sales_data.keys()):
+                print(f"  - {dr}")
             return
         
         products = self.sales_data[date_range]
-        print(f"\nReverting {len(products)} products to regular prices for {date_range}")
+        print(f"\nReverting prices for {date_range}")
+        print("This will also clear sale end date metafields")
         print("=" * 80)
         
-        # Group products by product ID for bulk updates
-        product_groups = {}
-        skip_count = 0
+        # Process by SKU
+        reverted = 0
+        not_on_sale = 0
+        not_found = 0
+        unique_product_ids = set()
         
         for product in products:
-            if product['product_id'] == 'NOT_FOUND':
-                skip_count += 1
+            sku = product['sku']
+            print(f"\nSearching for SKU: {sku}")
+            
+            # Search for active product
+            product_info = self.search_product_by_sku(sku)
+            
+            if not product_info:
+                print(f"  ❌ Product not found or not active")
+                not_found += 1
                 continue
             
-            # Get variant ID if not already present
-            variant_id = product.get('variant_id')
-            if not variant_id:
-                variant_id = self.get_variant_id(product['product_id'], product['sku'])
-                product['variant_id'] = variant_id
+            # Track unique products for clearing sale end dates
+            unique_product_ids.add(product_info['product_id'])
             
-            if not variant_id:
-                print(f"⚠️  Could not find variant for {product['product_title']} ({product['sku']})")
-                skip_count += 1
+            # Check if currently on sale
+            if not product_info['compare_at']:
+                print(f"  ⚠️  Not currently on sale")
+                not_on_sale += 1
                 continue
             
-            # Group by product ID
-            if product['product_id'] not in product_groups:
-                product_groups[product['product_id']] = []
-            product_groups[product['product_id']].append(product)
-        
-        # Apply updates in bulk by product
-        success_count = 0
-        error_count = 0
-        
-        for product_id, variants in product_groups.items():
-            print(f"\nReverting {len(variants)} variant(s) for product {product_id}")
-            
-            # Build variants input
-            variants_input = []
-            for variant in variants:
-                print(f"  {variant['product_title']} - {variant['color']}")
-                print(f"    Reverting to regular price: ${variant['regular_price']:.2f}")
-                
-                variants_input.append({
-                    "id": variant['variant_id'],
-                    "price": str(variant['regular_price']),
-                    "compareAtPrice": None  # Clear compare-at price when reverting
-                })
+            print(f"  {product['product_title']} - {product['color']}")
+            print(f"    Reverting to regular price: ${product['regular_price']}")
             
             if self.dry_run:
-                print("  [DRY RUN] Would revert prices")
-                success_count += len(variants)
+                print(f"  [DRY RUN] Would revert price and clear sale end date")
+                reverted += 1
                 continue
             
-            # Bulk update mutation
+            # Revert pricing
             mutation = '''
-            mutation updateVariantPrices($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
                 productVariantsBulkUpdate(productId: $productId, variants: $variants) {
                     productVariants {
                         id
@@ -401,22 +425,35 @@ class MAPSalesManager:
             '''
             
             variables = {
-                "productId": product_id,
-                "variants": variants_input
+                "productId": product_info['product_id'],
+                "variants": [{
+                    "id": product_info['variant_id'],
+                    "price": str(product['regular_price']),
+                    "compareAtPrice": None
+                }]
             }
             
             response = self.client.execute_graphql(mutation, variables)
             
             if response.get('data', {}).get('productVariantsBulkUpdate', {}).get('userErrors'):
                 errors = response['data']['productVariantsBulkUpdate']['userErrors']
-                print(f"  ❌ Error: {errors}")
-                error_count += len(variants)
+                print(f"  ❌ Error reverting price: {errors}")
             else:
-                print(f"  ✅ Successfully reverted {len(variants)} variant(s)")
-                success_count += len(variants)
+                print(f"  ✅ Price reverted successfully")
+                reverted += 1
+        
+        # Clear sale end dates
+        if not self.dry_run:
+            print(f"\nClearing sale end dates for {len(unique_product_ids)} products...")
+            for product_id in unique_product_ids:
+                self.update_product_sale_end_date(product_id, "")
         
         print("\n" + "=" * 80)
-        print(f"Summary: {success_count} products reverted, {error_count} errors, {skip_count} skipped")
+        print(f"Summary:")
+        print(f"  Products reverted: {reverted}")
+        print(f"  Not on sale: {not_on_sale}")
+        print(f"  Not found/inactive: {not_found}")
+        print(f"  Sale end dates cleared: {len(unique_product_ids)} products")
     
     def show_calendar_summary(self):
         """Display a summary of all sale periods."""
@@ -448,7 +485,11 @@ class MAPSalesManager:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Manage MAP sales based on calendar data')
+    parser = argparse.ArgumentParser(
+        description='Enhanced MAP sales manager with sale end dates',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__
+    )
     parser.add_argument('--calendar', default='resources/breville_espresso_sales_2025_enhanced.md',
                         help='Path to enhanced calendar file')
     parser.add_argument('--dry-run', action='store_true',
@@ -461,17 +502,21 @@ def main():
     check_parser.add_argument('--date', help='Check for specific date (YYYY-MM-DD)')
     
     # Apply command
-    apply_parser = subparsers.add_parser('apply', help='Apply sale prices')
+    apply_parser = subparsers.add_parser('apply', help='Apply sale prices and set sale end dates')
     apply_parser.add_argument('--date', help='Apply sales for specific date (YYYY-MM-DD)')
     
     # Revert command
-    revert_parser = subparsers.add_parser('revert', help='Revert prices to regular')
-    revert_parser.add_argument('date_range', help='Date range to revert (e.g., "30 May - 05 Jun")')
+    revert_parser = subparsers.add_parser('revert', help='Revert prices to regular and clear sale end dates')
+    revert_parser.add_argument('date_range', help='Date range to revert (e.g., "11 Jul - 17 Jul")')
     
     # Summary command
     summary_parser = subparsers.add_parser('summary', help='Show calendar summary')
     
     args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return
     
     # Initialize manager
     manager = MAPSalesManager(args.calendar, args.dry_run)
@@ -481,9 +526,10 @@ def main():
         if args.date:
             check_date = datetime.strptime(args.date, '%Y-%m-%d').date()
         
-        active_sales = manager.get_active_sales(check_date)
+        active_sales, active_date_range = manager.get_active_sales(check_date)
         if active_sales:
             print(f"\nActive sales for {check_date}:")
+            print(f"Sale period: {active_date_range}")
             print("=" * 80)
             for product in active_sales:
                 print(f"{product['product_title']} - {product['color']}: "
@@ -502,9 +548,6 @@ def main():
     
     elif args.command == 'summary':
         manager.show_calendar_summary()
-    
-    else:
-        parser.print_help()
 
 
 if __name__ == '__main__':

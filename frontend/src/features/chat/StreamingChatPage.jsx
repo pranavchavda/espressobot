@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send, ImageIcon, X, Square } from "lucide-react";
+import { Loader2, Send, ImageIcon, X, Square, FileText, FileSpreadsheet, File, FileIcon } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { UnifiedTaskDisplay } from "@components/chat/UnifiedTaskDisplay";
 import { Text, TextLink } from "@common/text";
@@ -22,6 +22,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
   const [toolCallStatus, setToolCallStatus] = useState(""); // Can be repurposed or used for general status
   const [currentTasks, setCurrentTasks] = useState([]);
   const [imageAttachment, setImageAttachment] = useState(null);
+  const [fileAttachment, setFileAttachment] = useState(null);
   const [plannerStatus, setPlannerStatus] = useState("");
   const [dispatcherStatus, setDispatcherStatus] = useState("");
   const [synthesizerStatus, setSynthesizerStatus] = useState("");
@@ -41,6 +42,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
   const readerRef = useRef(null);
   const inputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Fetch messages for selected conversation
   useEffect(() => {
@@ -309,47 +311,130 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
   }, []);
 
   // Function to handle image attachments
-  const handleImageAttachment = (file) => {
-    if (file) {
-      // Check file size (larger images take longer to process)
-      const MAX_FILE_SIZE = 375 * 1024; // 375KB (500KB base64)
-      const WARN_FILE_SIZE = 150 * 1024; // 150KB (200KB base64)
-      
-      if (file.size > MAX_FILE_SIZE) {
-        // Show error message
+  // Detect file type based on extension and MIME type
+  const getFileType = (file) => {
+    const extension = file.name.split('.').pop().toLowerCase();
+    const mimeType = file.type;
+    
+    // Image files
+    if (mimeType.startsWith('image/')) {
+      return 'image';
+    }
+    
+    // PDF files
+    if (mimeType === 'application/pdf' || extension === 'pdf') {
+      return 'pdf';
+    }
+    
+    // Excel files
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+        mimeType === 'application/vnd.ms-excel' ||
+        extension === 'xlsx' || extension === 'xls') {
+      return 'excel';
+    }
+    
+    // CSV files
+    if (mimeType === 'text/csv' || extension === 'csv') {
+      return 'csv';
+    }
+    
+    // Text files
+    if (mimeType.startsWith('text/') || 
+        ['txt', 'md', 'markdown', 'log'].includes(extension)) {
+      return 'text';
+    }
+    
+    // Default to generic file
+    return 'file';
+  };
+
+  const handleFileAttachment = (file) => {
+    if (!file) return;
+    
+    const fileType = getFileType(file);
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB max for non-image files
+    const MAX_IMAGE_SIZE = 375 * 1024; // 375KB for images
+    const WARN_IMAGE_SIZE = 150 * 1024; // 150KB warning for images
+    
+    // Check file size based on type
+    if (fileType === 'image') {
+      if (file.size > MAX_IMAGE_SIZE) {
         setStreamingMessage({
           role: "system",
-          content: `⚠️ Image too large (${(file.size / 1024).toFixed(0)}KB). Maximum supported size is 375KB.\n\n**Important**: Due to OpenAI agents SDK limitations, base64 images may not render properly. We strongly recommend using image URLs instead.\n\n**Alternatives:**\n1. Use the image URL option (highly recommended)\n2. Upload to an image host (imgur, imgbb, etc.) and paste the URL\n3. Compress your image to under 100KB if you must use direct upload`,
+          content: `⚠️ Image too large (${(file.size / 1024).toFixed(0)}KB). Maximum supported size is 375KB.\n\n**Alternatives:**\n1. Use the image URL option (recommended)\n2. Compress your image to under 375KB`,
           isStreaming: false,
           isComplete: true,
           timestamp: new Date().toISOString()
         });
-        
-        // Don't attach the image
         return;
-      } else if (file.size > WARN_FILE_SIZE) {
-        // Show warning for large images but still attach it
+      } else if (file.size > WARN_IMAGE_SIZE) {
         setStreamingMessage({
           role: "system", 
-          content: `⚠️ Large image (${(file.size / 1024).toFixed(0)}KB) detected.\n\n**Note**: Base64 images may not render properly due to OpenAI agents SDK limitations. The agent might not see your image correctly.\n\n**Strongly recommended**: Use the image URL option instead for reliable vision processing.`,
+          content: `⚠️ Large image (${(file.size / 1024).toFixed(0)}KB) detected. Consider using smaller images for better performance.`,
           isStreaming: false,
           isComplete: true,
           timestamp: new Date().toISOString()
         });
-        // Continue to attach the image
       }
-      
+    } else if (file.size > MAX_FILE_SIZE) {
+      setStreamingMessage({
+        role: "system",
+        content: `⚠️ File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum supported size is 10MB.`,
+        isStreaming: false,
+        isComplete: true,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+    
+    // Handle different file types
+    if (fileType === 'image') {
       const reader = new FileReader();
       reader.onload = (e) => {
         setImageAttachment({
           dataUrl: e.target.result,
           file: file
         });
+        setFileAttachment(null);
         setShowImageUrlInput(false);
         setImageUrl("");
       };
       reader.readAsDataURL(file);
+    } else {
+      // For non-image files, we'll read as text or base64 depending on type
+      const reader = new FileReader();
+      
+      if (['text', 'csv'].includes(fileType)) {
+        // Read text files as text
+        reader.onload = (e) => {
+          setFileAttachment({
+            content: e.target.result,
+            file: file,
+            type: fileType,
+            encoding: 'text'
+          });
+          setImageAttachment(null);
+        };
+        reader.readAsText(file);
+      } else {
+        // Read binary files as base64
+        reader.onload = (e) => {
+          setFileAttachment({
+            dataUrl: e.target.result,
+            file: file,
+            type: fileType,
+            encoding: 'base64'
+          });
+          setImageAttachment(null);
+        };
+        reader.readAsDataURL(file);
+      }
     }
+  };
+
+  // Legacy function for backward compatibility
+  const handleImageAttachment = (file) => {
+    handleFileAttachment(file);
   };
 
   // Handle image upload button click
@@ -357,9 +442,18 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
     imageInputRef.current?.click();
   };
 
-  // Remove image attachment
+  // Handle file upload button click
+  const handleFileUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Remove attachments
   const removeImageAttachment = () => {
     setImageAttachment(null);
+  };
+
+  const removeFileAttachment = () => {
+    setFileAttachment(null);
   };
 
   // Toggle URL input visibility
@@ -436,7 +530,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
     const textToSend =
       typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
-    if ((!textToSend && !imageAttachment) || isSending) return;
+    if ((!textToSend && !imageAttachment && !fileAttachment) || isSending) return;
 
     // Remove this check - streaming messages are now moved to messages array in the 'done' handler
     // if (streamingMessage?.isComplete) {
@@ -456,6 +550,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
       content: textToSend,
       timestamp: new Date().toISOString(),
       imageAttachment: imageAttachment,
+      fileAttachment: fileAttachment,
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -464,6 +559,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
     setSuggestions([]);
     setCurrentPlan(null);
     setImageAttachment(null); // Clear attachment after sending
+    setFileAttachment(null); // Clear file attachment after sending
     setImageUrl("");
     setShowImageUrlInput(false);
     setAgentProcessingStatus(""); // Clear previous agent status
@@ -511,6 +607,21 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
             type: "url",
             url: imageAttachment.url
           };
+        }
+      }
+
+      if (fileAttachment) {
+        requestData.file = {
+          type: fileAttachment.type,
+          name: fileAttachment.file.name,
+          size: fileAttachment.file.size,
+          encoding: fileAttachment.encoding
+        };
+        
+        if (fileAttachment.encoding === 'text') {
+          requestData.file.content = fileAttachment.content;
+        } else {
+          requestData.file.data = fileAttachment.dataUrl;
         }
       }
 
@@ -1280,6 +1391,20 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                               )}
                             </div>
                           )}
+                          {msg.fileAttachment && (
+                            <div className="mb-3">
+                              <div className="inline-flex items-center gap-2 p-2 rounded bg-zinc-100 dark:bg-zinc-800 border dark:border-zinc-700">
+                                {msg.fileAttachment.type === 'pdf' && <FileText className="h-4 w-4 text-red-500" />}
+                                {msg.fileAttachment.type === 'excel' && <FileSpreadsheet className="h-4 w-4 text-green-500" />}
+                                {msg.fileAttachment.type === 'csv' && <FileSpreadsheet className="h-4 w-4 text-blue-500" />}
+                                {msg.fileAttachment.type === 'text' && <FileText className="h-4 w-4 text-gray-500" />}
+                                {msg.fileAttachment.type === 'file' && <FileIcon className="h-4 w-4 text-gray-500" />}
+                                <span className="text-xs">
+                                  {msg.fileAttachment.file.name} ({(msg.fileAttachment.file.size / 1024).toFixed(1)}KB)
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           <MarkdownRenderer isAgent={msg.role === "assistant"}>
                             {String(msg.content || "")}
                           </MarkdownRenderer>
@@ -1459,6 +1584,29 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
           </div>
         )}
 
+        {fileAttachment && (
+          <div className="max-w-3xl w-full mx-auto px-4 mb-2">
+            <div className="relative inline-block">
+              <div className="inline-flex items-center gap-2 p-2 rounded bg-zinc-100 dark:bg-zinc-800 border dark:border-zinc-700">
+                {fileAttachment.type === 'pdf' && <FileText className="h-4 w-4 text-red-500" />}
+                {fileAttachment.type === 'excel' && <FileSpreadsheet className="h-4 w-4 text-green-500" />}
+                {fileAttachment.type === 'csv' && <FileSpreadsheet className="h-4 w-4 text-blue-500" />}
+                {fileAttachment.type === 'text' && <FileText className="h-4 w-4 text-gray-500" />}
+                {fileAttachment.type === 'file' && <FileIcon className="h-4 w-4 text-gray-500" />}
+                <span className="text-xs truncate max-w-[200px]">
+                  {fileAttachment.file.name} ({(fileAttachment.file.size / 1024).toFixed(1)}KB)
+                </span>
+              </div>
+              <button 
+                onClick={removeFileAttachment}
+                className="absolute -top-2 -right-2 bg-zinc-200 dark:bg-zinc-700 rounded-full p-1"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* URL Input Area */}
         {showImageUrlInput && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 flex gap-2">
@@ -1510,11 +1658,27 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
       >
         <ImageIcon />
       </Button>
+      <Button
+        type="button"
+        plain
+        onClick={handleFileUploadClick}
+        className="h-9 w-9 rounded-full"
+        title="Add file (PDF, CSV, Excel, Text)"
+      >
+        <FileIcon />
+      </Button>
       <input
               type="file"
               ref={imageInputRef}
               accept="image/*"
               onChange={(e) => handleImageAttachment(e.target.files[0])}
+              className="hidden"
+            />
+      <input
+              type="file"
+              ref={fileInputRef}
+              accept=".pdf,.csv,.xlsx,.xls,.txt,.md,.markdown,.log"
+              onChange={(e) => handleFileAttachment(e.target.files[0])}
               className="hidden"
             />
           <Textarea
@@ -1554,7 +1718,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
               <Button
                 type="submit"
                 className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto"
-                disabled={!input.trim() && !imageAttachment}
+                disabled={!input.trim() && !imageAttachment && !fileAttachment}
               >
                 <Send className="h-5 w-5" />
                 <span className="ml-2 hidden sm:inline">Send</span>

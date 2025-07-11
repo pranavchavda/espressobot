@@ -49,7 +49,13 @@ Examples of WRONG usage (DO NOT DO THIS):
   if (context.specificEntities && context.specificEntities.length > 0) {
     prompt += '\n\n## Specific Entities Referenced:\n';
     for (const entity of context.specificEntities) {
-      prompt += `- ${entity.type}: ${entity.values.join(', ')}\n`;
+      // Handle both 'values' (full context) and 'samples' (core context)
+      const items = entity.values || entity.samples || [];
+      if (Array.isArray(items) && items.length > 0) {
+        prompt += `- ${entity.type}: ${items.join(', ')}\n`;
+      } else if (entity.count) {
+        prompt += `- ${entity.type}: ${entity.count} found\n`;
+      }
     }
   }
 
@@ -274,12 +280,35 @@ export const bashTool = tool({
     timeout: z.number().optional().default(300000).describe('Command timeout in milliseconds (defaults to 5 minutes)')
   }),
   execute: async (params) => {
-    // Try to get SSE emitter from global context (if available)
-    let sseEmitter = null;
-    if (global.currentSseEmitter && typeof global.currentSseEmitter === 'function') {
-      sseEmitter = global.currentSseEmitter;
+    try {
+      // Debug logging
+      console.log('[BASH TOOL] Execute called with params:', JSON.stringify(params, null, 2));
+      
+      // Validate params
+      if (!params || typeof params !== 'object') {
+        console.error('[BASH TOOL] Invalid params type:', typeof params);
+        throw new Error('Invalid params: expected object, got ' + typeof params);
+      }
+      
+      if (!params.command || typeof params.command !== 'string') {
+        console.error('[BASH TOOL] Invalid command:', params.command);
+        throw new Error('Invalid command: expected string, got ' + typeof params.command);
+      }
+      
+      // Try to get SSE emitter from global context (if available)
+      let sseEmitter = null;
+      if (global.currentSseEmitter && typeof global.currentSseEmitter === 'function') {
+        sseEmitter = global.currentSseEmitter;
+      }
+      
+      return await executeBashCommand(params, sseEmitter);
+    } catch (error) {
+      console.error('[BASH TOOL] Error in execute:', error);
+      console.error('[BASH TOOL] Error stack:', error.stack);
+      
+      // Return formatted error instead of throwing
+      return `Error executing command: ${error.message}\n\nThis might be a system issue. Try using simpler commands or check the logs for more details.`;
     }
-    return executeBashCommand(params, sseEmitter);
   }
 });
 

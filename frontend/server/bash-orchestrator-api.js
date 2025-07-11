@@ -19,7 +19,7 @@ const conversationAbortControllers = new Map();
  */
 router.post('/run', authenticateToken, async (req, res) => {
   console.log('\n========= BASH ORCHESTRATOR API REQUEST =========');
-  const { message, conv_id: existing_conv_id, image } = req.body || {};
+  const { message, conv_id: existing_conv_id, image, file } = req.body || {};
   let conversationId = existing_conv_id;
   
   // Debug logging for image data
@@ -32,6 +32,22 @@ router.post('/run', authenticateToken, async (req, res) => {
     });
   } else {
     console.log('[DEBUG] No image data in request');
+  }
+  
+  // Debug logging for file data
+  if (file) {
+    console.log('[DEBUG] File data received:', {
+      type: file.type,
+      name: file.name,
+      size: file.size,
+      encoding: file.encoding,
+      hasContent: !!file.content,
+      hasData: !!file.data,
+      contentLength: file.content ? file.content.length : 0,
+      dataLength: file.data ? file.data.length : 0
+    });
+  } else {
+    console.log('[DEBUG] No file data in request');
   }
   
   // Setup SSE
@@ -110,13 +126,19 @@ router.post('/run', authenticateToken, async (req, res) => {
       global.currentImageData = image;
     }
     
+    // Add file data to context if present
+    if (file) {
+      // Store file data globally for the orchestrator to access
+      global.currentFileData = file;
+    }
+    
     // REMOVED: Automatic task planning based on simple pattern matching
     // Task planning is now orchestrator-driven through the task_planner tool
     // This ensures planning happens with full context when the orchestrator decides it's needed
     
     // Run orchestrator with full context
     sendEvent('agent_processing', {
-      agent: 'Dynamic_Bash_Orchestrator',
+      agent: 'EspressoBot1',
       message: 'Analyzing request and executing tasks...'
     });
     
@@ -254,7 +276,7 @@ router.post('/run', authenticateToken, async (req, res) => {
       console.log('=== SENDING AGENT_MESSAGE EVENT ===');
       console.log('Content:', textResponse.substring(0, 100) + '...');
       sendEvent('agent_message', {
-        agent: 'Dynamic_Bash_Orchestrator',
+        agent: 'EspressoBot1',
         content: textResponse,
         timestamp: new Date().toISOString()
       });
@@ -277,7 +299,7 @@ router.post('/run', authenticateToken, async (req, res) => {
           // Extract facts using GPT-4.1-mini
           const extractedFacts = await memoryOperations.extractMemorySummary(conversationSummary, {
             conversationId: conversationId.toString(),
-            agent: 'Dynamic_Bash_Orchestrator'
+            agent: 'EspressoBot1'
           });
         
         console.log(`[Memory] Extracted ${extractedFacts.length} facts`);
@@ -331,6 +353,7 @@ router.post('/run', authenticateToken, async (req, res) => {
     global.currentSseEmitter = null;
     global.currentConversationId = null;
     global.currentImageData = null;
+    global.currentFileData = null;
     console.log(`[ORCHESTRATOR] Cleaning up AbortController for conversation: ${conversationId}`);
     conversationAbortControllers.delete(conversationId);
     conversationAbortControllers.delete(parseInt(conversationId));

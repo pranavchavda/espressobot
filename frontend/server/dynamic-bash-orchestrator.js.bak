@@ -163,7 +163,7 @@ const spawnBashAgent = tool({
     // Send real-time progress to UI
     if (currentSseEmitter) {
       currentSseEmitter('agent_processing', {
-        agent: 'Dynamic_Bash_Orchestrator',
+        agent: 'EspressoBot1',
         message: `Spawning bash agent: ${agentName} (${effectiveAutonomy} autonomy)`,
         status: 'processing'
       });
@@ -727,7 +727,7 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
   const instructions = buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext);
   
   return new Agent({
-    name: 'Dynamic_Bash_Orchestrator',
+    name: 'EspressoBot1',
     model: 'o3',  // Back to OpenAI for now
     instructions: instructions,
   modelSettings: {
