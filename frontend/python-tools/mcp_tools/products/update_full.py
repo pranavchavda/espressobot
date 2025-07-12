@@ -64,6 +64,9 @@ class UpdateFullProductTool(BaseMCPTool):
     - Local files are uploaded to Shopify staging first
     - Existing data is preserved unless explicitly updated
     - Variants can be updated by ID or created new
+    - Empty strings ('') are filtered out and not sent to Shopify
+      To update a field, provide a non-empty value or omit it entirely
+    - Shopify rejects empty strings for text fields like title, vendor, etc.
     """
     
     input_schema = {
@@ -75,7 +78,7 @@ class UpdateFullProductTool(BaseMCPTool):
             },
             "title": {
                 "type": "string",
-                "description": "Product title"
+                "description": "Product title (omit or use non-empty value; empty strings will be filtered out)"
             },
             "description_html": {
                 "type": "string",
@@ -251,23 +254,23 @@ class UpdateFullProductTool(BaseMCPTool):
         """Build product input for productSet mutation"""
         product_input = {"id": product_id}
         
-        # Add provided fields
-        if title is not None:
+        # Add provided fields (skip empty strings)
+        if title is not None and title != '':
             product_input["title"] = title
         
-        if description_html is not None:
+        if description_html is not None and description_html != '':
             product_input["descriptionHtml"] = description_html
         
-        if product_type is not None:
+        if product_type is not None and product_type != '':
             product_input["productType"] = product_type
         
-        if vendor is not None:
+        if vendor is not None and vendor != '':
             product_input["vendor"] = vendor
         
         if status is not None:
             product_input["status"] = status
         
-        if handle is not None:
+        if handle is not None and handle != '':
             product_input["handle"] = handle
         
         if tags is not None:

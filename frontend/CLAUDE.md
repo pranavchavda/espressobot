@@ -88,6 +88,12 @@ const agent = new Agent({ mcpServers: [shopifyDevMCP] });
 
 ## Recent Fixes & Improvements
 
+### July 12, 2025
+- Fixed OpenAI agents Zod validation: **CRITICAL** - Optional fields must be `.nullable().default(null)` not `.default('')` or `.default({})`
+- Updated all tool schemas in `/server/custom-tools-definitions.js` to use nullable pattern
+- Fixed "userProfile is not defined" error by properly passing user context to prompts
+- Fixed "Cannot read properties of undefined (reading 'find')" error in extractProductBlobs - disabled product blobs since entity extraction was removed
+
 ### July 4, 2025
 - Implemented MCP (Model Context Protocol) for Python tools
 - Created stdio-based MCP server with auto-discovery and testing
@@ -117,6 +123,12 @@ const agent = new Agent({ mcpServers: [shopifyDevMCP] });
 
 ## Known Issues & Workarounds
 
+### OpenAI Agents Zod Schemas
+- **Issue**: Optional fields with `.default('')` or `.default({})` cause JSON parsing errors
+- **Solution**: Use `.nullable().default(null)` for all optional fields
+- **Example**: `z.string().nullable().default(null)` instead of `z.string().default('')`
+- **Files**: `/server/custom-tools-definitions.js` and any new tool definitions
+
 ### Guardrails (EspressoBot v0.2)
 - **Issue**: openai-agents SDK bug with `.tripwire_triggered`
 - **Status**: Temporarily disabled, awaiting SDK fix
@@ -145,4 +157,4 @@ cd /home/pranav/espressobot/espressobot-v2
 
 ---
 
-*Last Updated: July 1, 2025*
+*Last Updated: July 12, 2025*

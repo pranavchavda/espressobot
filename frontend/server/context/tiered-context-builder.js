@@ -157,7 +157,6 @@ export async function buildFullContext(options, coreContext = null) {
     userMessage, 
     autonomyLevel,
     additionalContext,
-    includeProductBlobs = true,
     includeExtendedHistory = true,
     includeAllMemories = true,
     userProfile = null
@@ -245,10 +244,8 @@ export async function buildFullContext(options, coreContext = null) {
     console.log(`[CONTEXT] Error loading full smart context:`, error.message);
   }
   
-  // Add product blobs if needed (this is the largest contributor)
-  if (includeProductBlobs) {
-    fullContext.productBlobs = await extractProductBlobs(fullContext.specificEntities);
-  }
+  // Product blobs feature disabled - entity extraction was removed
+  fullContext.productBlobs = [];
   
   // Add full business logic analysis
   fullContext.businessLogic = analyzeBusinessLogic(task, userMessage);
@@ -267,6 +264,13 @@ export async function buildFullContext(options, coreContext = null) {
  */
 async function extractProductBlobs(entities) {
   const productBlobs = [];
+  
+  // Safety check for undefined entities
+  if (!entities || !Array.isArray(entities)) {
+    console.log('[CONTEXT] No entities provided to extractProductBlobs');
+    return productBlobs;
+  }
+  
   const skuEntities = entities.find(e => e.type === 'skus');
   
   if (!skuEntities || skuEntities.values.length === 0) {

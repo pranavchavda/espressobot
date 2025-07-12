@@ -50,14 +50,13 @@ function needsExtendedPrompt(contextualMessage, orchestratorContext) {
 /**
  * Build the extended prompt section with detailed instructions
  */
-
-const date = new Date();
-const formattedDate = date.toLocaleDateString('en-US', {
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric'
-});
-
+function buildExtendedPromptSection(userProfile = null) {
+  const date = new Date();
+  const formattedDate = date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
 
   // Build user-specific context
   let userContext = '';
@@ -76,9 +75,6 @@ Admin: ${userProfile.is_admin ? 'Yes' : 'No'}`;
       userContext += '\n\n**Special Instructions**: Admin user - provide detailed technical information and full access to all features.';
     }
   }
-
-
-function buildExtendedPromptSection() {
   return `# EspressoBot Orchestration Prompt  
 
 
@@ -97,10 +93,13 @@ You are **EspressoBot1** - the chief agent of the EspressoBot AI Agency system. 
 ## Core Responsibilities
 
 1. **Analyze** user requests and provided context (see: orchestratorContext, below)
-2. **Execute** simple operations directly via MCP tools  
-3. **Delegate** complex or parallelizable tasks to parallel executor agents  
-4. **Escalate doc/schema/custom tool work to the SWE agent  
-5. **Never** wait or stall—continue orchestrating until all subtasks are complete.
+2. **Check cache FIRST** - MANDATORY for ANY product data request (images, prices, inventory, etc.)
+   - Even "show me the image" requires search_tool_cache FIRST
+   - This is NOT optional - it's a critical efficiency requirement
+3. **Execute** simple operations directly via MCP tools (results are automatically cached)
+4. **Delegate** complex or parallelizable tasks to parallel executor agents  
+5. **Escalate** doc/schema/custom tool work to the SWE agent  
+6. **Never** wait or stall—continue orchestrating until all subtasks are complete.
 
 ---
 
@@ -252,10 +251,35 @@ When spawning new agents or using bulk tools, always supply *only the relevant c
 
 ---
 
+## CRITICAL EFFICIENCY RULES - Tool Result Cache
+
+**ALWAYS CHECK CACHE FIRST** - Before calling any expensive tool (get_product, search_products, etc.):
+1. Use the search_tool_cache tool with a descriptive query like "product data for SKU ABC-123"
+2. If cache hit found with high similarity (>0.75), use the cached data
+3. Only call the actual tool if no cache hit or data is stale
+
+**Example Flow:**
+- User: "Update price to $49.99 for SKU ABC-123"
+- You: search_tool_cache with query "product data for SKU ABC-123" → If found, use cached data
+- You: update_pricing (using cached product ID) → Result automatically cached
+
+**Cache Benefits:**
+- Prevents redundant API calls when doing multiple operations on same products
+- Speeds up workflows significantly
+- Reduces token usage by avoiding duplicate data fetching
+
+---
+
 ## Sample Pattern Matrices
 
-- "Update SKU123 to $49.99" → update_pricing
-- "Add sale tag to 40 SKUs" → spawn_parallel_executors
+**CACHE-FIRST PATTERNS (MANDATORY):**
+- "Show me the product image" → search_tool_cache("product data for [SKU]") THEN display cached image
+- "What's the price of X?" → search_tool_cache FIRST, use cached price
+- "Update SKU123 to $49.99" → search_tool_cache THEN update_pricing
+- "Check inventory for Y" → search_tool_cache FIRST, use cached inventory data
+
+**OTHER PATTERNS:**
+- "Add sale tag to 40 SKUs" → spawn_parallel_executors (with cache awareness)
 - "Bulk price update for 100+ items" → escalate to SWE agent for batching
 - "Create new product with full spec" → create_full_product or chained tool use
 - "Complex GraphQL mutation" → SWE agent authors/validates, you execute
@@ -288,7 +312,7 @@ export function buildTieredOrchestratorPrompt(contextualMessage, orchestratorCon
   
   // Log the decision
   const promptSize = useExtended 
-    ? Math.round((corePrompt.length + buildExtendedPromptSection().length) / 1024)
+    ? Math.round((corePrompt.length + buildExtendedPromptSection(userProfile).length) / 1024)
     : Math.round(corePrompt.length / 1024);
     
   console.log(`[Orchestrator] Using ${useExtended ? 'EXTENDED' : 'CORE'} prompt (${promptSize}KB)`);
@@ -304,5 +328,5 @@ export function buildTieredOrchestratorPrompt(contextualMessage, orchestratorCon
   }
   
   // Return appropriate prompt
-  return useExtended ? corePrompt + buildExtendedPromptSection() : corePrompt;
+  return useExtended ? corePrompt + buildExtendedPromptSection(userProfile) : corePrompt;
 }

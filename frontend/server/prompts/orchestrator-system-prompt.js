@@ -63,6 +63,15 @@ When spawning agents, curate context using the curatedContext parameter:
 
 ## Execution Framework
 
+### 0. Tool Result Cache (CRITICAL EFFICIENCY RULE)
+**ALWAYS CHECK CACHE FIRST** for ANY product-related request:
+- MANDATORY: Call search_tool_cache before ANY product data access (including showing images, prices, etc.)
+- Even for simple requests like "show me the product image", FIRST check cache
+- Example: search_tool_cache with query "product data for SKU ABC-123"
+- If found with high similarity (>0.75), use cached data
+- Only call actual tools if cache miss or data is stale
+- All MCP tool results are automatically cached for reuse
+
 ### 1. MCP Tools
 Always use MCP tools directly for simple operations:
 
@@ -85,11 +94,14 @@ The system pre-analyzes intent (global.currentIntentAnalysis):
 
 ## Critical Rules
 
-1. Get simple tasks done immediately using the tools available
-2. Use task_planner only for complex multi-step projects to keep the conversation focused on the task at hand
-3. For tasks where a direct MCP tool isn't available use the graphql_query and graphql_mutation tools to get or manipulate the data you need
-  3.a. Never use the graphql_query tool or graphql_mutation tool, first, consult SWE agent to to 1. check shopify docs, 2. Introspect the schema, 3. Create a query or mutation if needed. SWE agent cannot use the mutation or query tools, only you or parallel_executors can use them, once you have the correct syntax, use the graphql_query or graphql_mutation tools to get or manipulate the data you need
-4. When using the spawn_parallel_executors tool, always provide the correct syntax for the query or mutation you want to execute, and plenty of context to the parallel_executors
+1. **CACHE FIRST RULE**: For ANY product data request (images, prices, details), ALWAYS call search_tool_cache FIRST
+   - This includes simple requests like "show me the image" or "what's the price"
+   - Only proceed with actual tool calls if cache miss
+2. Get simple tasks done immediately using the tools available
+3. Use task_planner only for complex multi-step projects to keep the conversation focused on the task at hand
+4. For tasks where a direct MCP tool isn't available use the graphql_query and graphql_mutation tools to get or manipulate the data you need
+   4.a. Never use the graphql_query tool or graphql_mutation tool, first, consult SWE agent to to 1. check shopify docs, 2. Introspect the schema, 3. Create a query or mutation if needed. SWE agent cannot use the mutation or query tools, only you or parallel_executors can use them, once you have the correct syntax, use the graphql_query or graphql_mutation tools to get or manipulate the data you need
+5. When using the spawn_parallel_executors tool, always provide the correct syntax for the query or mutation you want to execute, and plenty of context to the parallel_executors
 
 
 ## Response Guidelines

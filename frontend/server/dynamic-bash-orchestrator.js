@@ -27,6 +27,7 @@ import { initializeMCPTools, callMCPTool, getMCPTools } from './tools/mcp-client
 import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
 import { interceptConsoleForUser, restoreConsole } from './utils/console-interceptor.js';
+import { toolResultCache } from './memory/tool-result-cache.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -714,29 +715,82 @@ function createMCPToolWrapper(toolDef) {
           zodSchema = z.object({});
         } else if (schema.type === 'array') {
           // Handle array types - need proper items schema for OpenAI compatibility
-          if (schema.items?.type === 'string') {
+          if (!schema.items) {
+            console.warn(`[Orchestrator] Array schema missing items for field ${key} in tool ${toolDef.name}`);
+            zodSchema = z.array(z.any());
+          } else if (schema.items.type === 'string') {
             zodSchema = z.array(z.string());
-          } else if (schema.items?.type === 'number') {
+          } else if (schema.items.type === 'number') {
             zodSchema = z.array(z.number());
-          } else if (schema.items?.type === 'object') {
-            // For object arrays, create a proper object schema
+          } else if (schema.items.type === 'integer') {
+            zodSchema = z.array(z.number().int());
+          } else if (schema.items.type === 'object') {
+            // For object arrays, create a proper object schema recursively
             const itemSchema = {};
             if (schema.items.properties) {
               Object.entries(schema.items.properties).forEach(([itemKey, itemProp]) => {
+                // Check if this property is required
+                const isItemRequired = schema.items.required?.includes(itemKey);
+                
+                let itemZodSchema;
                 if (itemProp.type === 'string') {
-                  itemSchema[itemKey] = z.string();
+                  itemZodSchema = itemProp.enum ? z.enum(itemProp.enum) : z.string();
                 } else if (itemProp.type === 'number') {
-                  itemSchema[itemKey] = z.number();
+                  itemZodSchema = z.number();
+                } else if (itemProp.type === 'integer') {
+                  itemZodSchema = z.number().int();
+                } else if (itemProp.type === 'boolean') {
+                  itemZodSchema = z.boolean();
+                } else if (itemProp.type === 'array' && itemProp.items) {
+                  // Handle nested arrays
+                  if (itemProp.items.type === 'object' && itemProp.items.properties) {
+                    // Nested object array - recurse
+                    const nestedSchema = {};
+                    Object.entries(itemProp.items.properties).forEach(([nestedKey, nestedProp]) => {
+                      const isNestedRequired = itemProp.items.required?.includes(nestedKey);
+                      
+                      if (nestedProp.type === 'string') {
+                        nestedSchema[nestedKey] = nestedProp.enum ? z.enum(nestedProp.enum) : z.string();
+                      } else if (nestedProp.type === 'number') {
+                        nestedSchema[nestedKey] = z.number();
+                      } else if (nestedProp.type === 'integer') {
+                        nestedSchema[nestedKey] = z.number().int();
+                      } else if (nestedProp.type === 'boolean') {
+                        nestedSchema[nestedKey] = z.boolean();
+                      } else {
+                        nestedSchema[nestedKey] = z.any();
+                      }
+                      
+                      // Make nested optional fields nullable
+                      if (!isNestedRequired) {
+                        nestedSchema[nestedKey] = nestedSchema[nestedKey].nullable().default(null);
+                      }
+                    });
+                    itemZodSchema = z.array(z.object(nestedSchema));
+                  } else if (itemProp.items.type === 'string') {
+                    itemZodSchema = z.array(z.string());
+                  } else {
+                    itemZodSchema = z.array(z.any());
+                  }
                 } else if (Array.isArray(itemProp.type) && itemProp.type.includes('null')) {
                   const nonNullType = itemProp.type.find(t => t !== 'null');
                   if (nonNullType === 'string') {
-                    itemSchema[itemKey] = z.string().nullable();
+                    itemZodSchema = z.string().nullable();
                   } else if (nonNullType === 'number') {
-                    itemSchema[itemKey] = z.number().nullable();
+                    itemZodSchema = z.number().nullable();
+                  } else {
+                    itemZodSchema = z.any();
                   }
                 } else {
-                  itemSchema[itemKey] = z.any();
+                  itemZodSchema = z.any();
                 }
+                
+                // Make optional item fields nullable
+                if (!isItemRequired && itemZodSchema) {
+                  itemZodSchema = itemZodSchema.nullable().default(null);
+                }
+                
+                itemSchema[itemKey] = itemZodSchema;
               });
             }
             zodSchema = z.array(z.object(itemSchema));
@@ -755,7 +809,8 @@ function createMCPToolWrapper(toolDef) {
         
         // Make optional fields nullable for OpenAI compatibility
         if (!isRequired && zodSchema) {
-          zodSchema = zodSchema.nullable();
+          // OpenAI requires .nullable() for all optional fields (not .optional())
+          zodSchema = zodSchema.nullable().default(null);
         }
         
         // Add description
@@ -769,8 +824,33 @@ function createMCPToolWrapper(toolDef) {
     ),
     execute: async (args) => {
       console.log(`[Orchestrator] Executing MCP tool: ${toolDef.name}`);
+      
+      // Check if we have a conversation ID for caching
+      const conversationId = global.currentConversationId;
+      
       try {
         const result = await callMCPTool(toolDef.name, args);
+        
+        // Cache successful results for product-related tools
+        if (conversationId && result && !result.error) {
+          const cacheableTools = [
+            'get_product', 'search_products', 'get_product_native',
+            'manage_inventory_policy', 'manage_tags', 'update_pricing',
+            'manage_features_metaobjects', 'manage_variant_links'
+          ];
+          
+          if (cacheableTools.includes(toolDef.name)) {
+            console.log(`[Orchestrator] Caching result for ${toolDef.name}`);
+            await toolResultCache.store(
+              conversationId,
+              toolDef.name,
+              args,
+              result,
+              { timestamp: new Date().toISOString() }
+            );
+          }
+        }
+        
         return result;
       } catch (error) {
         console.error(`[Orchestrator] MCP tool ${toolDef.name} failed:`, error);
@@ -799,11 +879,9 @@ async function buildOrchestratorWithMCPTools() {
       console.log('[Orchestrator] First tool schema:', JSON.stringify(toolDefs[0], null, 2));
     }
     
-    // Create tool wrappers - temporarily exclude complex schema tools  
-    const excludeTools = ['add_product_images', 'add_variants_to_product', 'create_full_product', 'update_full_product'];
-    const filteredToolDefs = toolDefs.filter(tool => !excludeTools.includes(tool.name));
-    mcpTools = filteredToolDefs.map(createMCPToolWrapper);
-    console.log(`[Orchestrator] Excluded ${excludeTools.length} complex schema tools, using ${filteredToolDefs.length} tools`);
+    // Create tool wrappers for all tools
+    mcpTools = toolDefs.map(createMCPToolWrapper);
+    console.log(`[Orchestrator] Created wrappers for ${mcpTools.length} tools`);
     console.log(`[Orchestrator] MCP tools loaded successfully:`, toolDefs.map(t => t.name).join(', '));
   } catch (error) {
     console.error('[Orchestrator] Failed to load MCP tools:', error.message);
@@ -833,7 +911,64 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
     
   },
   tools: [
-    ...mcpTools,  // MCP tools FIRST for priority
+    // Tool result cache search FIRST - check before calling expensive APIs
+    tool({
+      name: 'search_tool_cache',
+      description: 'Search for cached tool results from this conversation. Use this BEFORE calling expensive tools like get_product to check if the data is already available.',
+      parameters: z.object({
+        query: z.string().describe('What to search for (e.g., "product data for SKU ABC-123", "inventory for product X")'),
+        toolName: z.string().nullable().default(null).describe('Optional: specific tool name to filter by (e.g., "get_product", "search_products")'),
+        limit: z.number().default(3).describe('Maximum results to return')
+      }),
+      execute: async ({ query, toolName, limit }) => {
+        const conversationId = global.currentConversationId;
+        if (!conversationId) {
+          return { error: 'No conversation ID available' };
+        }
+        
+        console.log(`[ToolCache] Searching for: "${query}" in conversation ${conversationId}`);
+        
+        const results = await toolResultCache.search(conversationId, query, {
+          toolName,
+          limit,
+          similarityThreshold: 0.75
+        });
+        
+        if (results.length === 0) {
+          return { 
+            found: false, 
+            message: 'No cached results found. You may need to call the actual tool.' 
+          };
+        }
+        
+        return {
+          found: true,
+          count: results.length,
+          results: results.map(r => ({
+            tool: r.tool_name,
+            input: r.input_params,
+            output: r.output_result,
+            similarity: r.similarity,
+            age: `${Math.round((Date.now() - new Date(r.created_at).getTime()) / 60000)} minutes ago`
+          }))
+        };
+      }
+    }),
+    tool({
+      name: 'get_cache_stats',
+      description: 'Get statistics about cached tool results for this conversation',
+      parameters: z.object({}),
+      execute: async () => {
+        const conversationId = global.currentConversationId;
+        if (!conversationId) {
+          return { error: 'No conversation ID available' };
+        }
+        
+        const stats = await toolResultCache.getStats(conversationId);
+        return stats || { error: 'Could not retrieve cache statistics' };
+      }
+    }),
+    ...mcpTools,  // MCP tools AFTER cache search
     builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
     viewImageTool,
     parseFileTool,

@@ -21,16 +21,18 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
     - Remove features
     - Reorder features
     - Clear all features
+    - Control metaobject visibility with status (ACTIVE/DRAFT)
     
     Feature format:
     - Title: **Bold title**
     - Description: Supporting text
     - Image: Optional product feature image
+    - Status: ACTIVE (published) or DRAFT (hidden)
     
     Actions:
     - list: Show current features
-    - add: Add new feature
-    - update: Update existing feature by position
+    - add: Add new feature (with optional status)
+    - update: Update existing feature by position (can change status)
     - remove: Remove feature by position
     - reorder: Change feature order
     - clear: Remove all features
@@ -39,6 +41,7 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
     - Type: product_features_block
     - Fields: text (rich text), image (optional)
     - Storage: content.features_box metafield
+    - Capabilities: publishable (controls visibility with status)
     
     Use cases:
     - Product spec highlights
@@ -47,6 +50,7 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
     - Benefits and advantages
     
     Note: Features are stored as metaobject references for rich editing.
+    Set status to ACTIVE to publish metaobjects, or DRAFT to keep them hidden.
     """
     
     input_schema = {
@@ -80,6 +84,11 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
             "order": {
                 "type": "string",
                 "description": "New order (comma-separated positions, e.g., '3,1,2,4')"
+            },
+            "status": {
+                "type": "string",
+                "enum": ["ACTIVE", "DRAFT"],
+                "description": "Metaobject status (ACTIVE or DRAFT). Default: ACTIVE"
             }
         },
         "required": ["action", "product"]
@@ -218,6 +227,7 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         title = kwargs.get('title')
         description = kwargs.get('description', '')
         image_id = kwargs.get('image_id')
+        status = kwargs.get('status', 'ACTIVE')
         
         if not title:
             return {
@@ -229,7 +239,7 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         text = self._format_feature_text(title, description)
         
         # Create metaobject
-        metaobject_id = await self._create_feature_metaobject(client, text, image_id)
+        metaobject_id = await self._create_feature_metaobject(client, text, image_id, status)
         if not metaobject_id:
             return {
                 "success": False,
@@ -259,6 +269,7 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         title = kwargs.get('title')
         description = kwargs.get('description', '')
         image_id = kwargs.get('image_id')
+        status = kwargs.get('status')
         
         if not position or not title:
             return {
@@ -279,7 +290,7 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         
         # Update metaobject
         metaobject_id = current_features[pos_index]['id']
-        if await self._update_feature_metaobject(client, metaobject_id, text, image_id):
+        if await self._update_feature_metaobject(client, metaobject_id, text, image_id, status):
             return {
                 "success": True,
                 "message": f"Updated feature at position {position}",
@@ -438,7 +449,8 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         return None
     
     async def _create_feature_metaobject(self, client: ShopifyClient, text: str, 
-                                        image_id: Optional[str] = None) -> Optional[str]:
+                                        image_id: Optional[str] = None, 
+                                        status: str = "ACTIVE") -> Optional[str]:
         """Create a new feature metaobject"""
         fields = [{"key": "text", "value": text}]
         
@@ -462,7 +474,12 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         variables = {
             "metaobject": {
                 "type": "product_features_block",
-                "fields": fields
+                "fields": fields,
+                "capabilities": {
+                    "publishable": {
+                        "status": status
+                    }
+                }
             }
         }
         
@@ -479,7 +496,8 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
         return metaobject['id'] if metaobject else None
     
     async def _update_feature_metaobject(self, client: ShopifyClient, metaobject_id: str, 
-                                        text: str, image_id: Optional[str] = None) -> bool:
+                                        text: str, image_id: Optional[str] = None,
+                                        status: Optional[str] = None) -> bool:
         """Update an existing feature metaobject"""
         fields = [{"key": "text", "value": text}]
         
@@ -506,6 +524,14 @@ class ManageFeaturesMetaobjectsTool(BaseMCPTool):
                 "fields": fields
             }
         }
+        
+        # Add capabilities if status is provided
+        if status:
+            variables["metaobject"]["capabilities"] = {
+                "publishable": {
+                    "status": status
+                }
+            }
         
         result = client.execute_graphql(mutation, variables)
         
