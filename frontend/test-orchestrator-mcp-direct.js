@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { runDynamicOrchestrator } from './server/dynamic-bash-orchestrator.js';
+import { runDynamicOrchestrator } from './server/espressobot1.js';
 
 async function testOrchestratorMCPDirect() {
   console.log('🔍 Testing Orchestrator MCP Tool Access\n');

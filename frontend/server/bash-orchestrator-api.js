@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as prismaClient from '@prisma/client';
-import { runDynamicOrchestrator } from './dynamic-bash-orchestrator.js';
+import { runDynamicOrchestrator } from './espressobot1.js';
 import { authenticateToken } from './auth.js';
 import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/task-planning-agent.js';
 import { memoryOperations } from './memory/memory-operations-local.js';

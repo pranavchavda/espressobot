@@ -56,10 +56,8 @@ async function getSWEAgent(task = '', conversationId = null, richContext = null)
 
 // Import tiered context builder
 import { buildTieredContext, buildCoreContext, buildFullContext } from './context/tiered-context-builder.js';
-// Import clean orchestrator prompt
-import { buildOrchestratorSystemPrompt } from './prompts/orchestrator-system-prompt.js';
-// Import tiered prompt builder
-import { buildTieredOrchestratorPrompt } from './prompts/tiered-orchestrator-prompt.js';
+// Import unified orchestrator prompt
+import { buildUnifiedOrchestratorPrompt } from './prompts/unified-orchestrator-prompt.js';
 
 // Task Manager Agent removed - functionality merged into Task Planning Agent
 
@@ -899,8 +897,8 @@ async function buildOrchestratorWithMCPTools() {
  * Create orchestrator agent with dynamic prompt based on context
  */
 function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, userProfile = null) {
-  // Build tiered prompt based on task complexity
-  const instructions = buildTieredOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
+  // Build unified prompt based on task complexity
+  const instructions = buildUnifiedOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
   
   return new Agent({
     name: 'EspressoBot1',

@@ -4,8 +4,7 @@
  * Test script to verify user profile injection in system prompts
  */
 
-import { buildOrchestratorSystemPrompt } from '../server/prompts/orchestrator-system-prompt.js';
-import { buildTieredOrchestratorPrompt } from '../server/prompts/tiered-orchestrator-prompt.js';
+import { buildUnifiedOrchestratorPrompt } from '../server/prompts/unified-orchestrator-prompt.js';
 import { buildPromptFromRichContext } from '../server/tools/bash-tool.js';
 
 console.log('Testing User Profile Injection in System Prompts\n');
@@ -13,7 +12,7 @@ console.log('='.repeat(60));
 
 // Test 1: Test orchestrator system prompt with no user
 console.log('\n1. Orchestrator prompt with no user profile:');
-const promptNoUser = buildOrchestratorSystemPrompt();
+const promptNoUser = buildUnifiedOrchestratorPrompt('test message', {});
 console.log(promptNoUser.substring(0, 500) + '...');
 
 // Test 2: Test orchestrator prompt with regular user
@@ -26,7 +25,7 @@ const regularUser = {
   is_admin: false,
   created_at: new Date('2024-01-15')
 };
-const promptRegularUser = buildOrchestratorSystemPrompt(regularUser);
+const promptRegularUser = buildUnifiedOrchestratorPrompt('test message', {}, regularUser);
 const userSection = promptRegularUser.match(/## User Profile[\s\S]*?(?=##|$)/);
 console.log('User section:', userSection ? userSection[0] : 'NOT FOUND');
 
@@ -40,19 +39,20 @@ const pranavUser = {
   is_admin: true,
   created_at: new Date('2023-06-01')
 };
-const promptPranav = buildOrchestratorSystemPrompt(pranavUser);
+const promptPranav = buildUnifiedOrchestratorPrompt('test message', {}, pranavUser);
 const pranavSection = promptPranav.match(/## User Profile[\s\S]*?(?=##|$)/);
 console.log('Pranav section:', pranavSection ? pranavSection[0] : 'NOT FOUND');
 
-// Test 4: Test tiered prompt with user profile
-console.log('\n\n4. Tiered orchestrator prompt with user profile:');
-const tieredPrompt = buildTieredOrchestratorPrompt(
-  'Update product prices',
-  { businessLogic: { patterns: [] } },
+// Test 4: Test unified prompt with complex task
+console.log('\n\n4. Unified orchestrator prompt with complex task:');
+const complexPrompt = buildUnifiedOrchestratorPrompt(
+  'Bulk update product prices for all products',
+  { businessLogic: { patterns: [{ type: 'bulk_operation' }] } },
   pranavUser
 );
-console.log('Includes user profile:', tieredPrompt.includes('Pranav') ? 'YES' : 'NO');
-console.log('Includes VIP instructions:', tieredPrompt.includes('VIP') ? 'YES' : 'NO');
+console.log('Includes user profile:', complexPrompt.includes('Pranav') ? 'YES' : 'NO');
+console.log('Includes VIP instructions:', complexPrompt.includes('VIP') ? 'YES' : 'NO');
+console.log('Includes bulk handling:', complexPrompt.includes('Bulk Operations') ? 'YES' : 'NO');
 
 // Test 5: Test bash agent prompt with user profile
 console.log('\n\n5. Bash agent prompt with user profile:');
@@ -76,7 +76,7 @@ const adminUser = {
   is_admin: true,
   created_at: new Date('2023-08-01')
 };
-const promptAdmin = buildOrchestratorSystemPrompt(adminUser);
+const promptAdmin = buildUnifiedOrchestratorPrompt('test message', {}, adminUser);
 const adminSection = promptAdmin.match(/## User Profile[\s\S]*?(?=##|$)/);
 console.log('Admin section:', adminSection ? adminSection[0] : 'NOT FOUND');
 

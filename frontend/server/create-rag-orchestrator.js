@@ -1,7 +1,7 @@
 import { Agent, tool, webSearchTool } from '@openai/agents';
 import { z } from 'zod';
 import ragSystemPromptManager from './memory/rag-system-prompt-manager.js';
-import { spawnBashAgent, spawnParallelBashAgents, dynamicOrchestrator } from './dynamic-bash-orchestrator.js';
+import { spawnBashAgent, spawnParallelBashAgents, dynamicOrchestrator } from './espressobot1.js';
 import { taskPlanningAgent } from './agents/task-planning-agent.js';
 import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
 import { run } from '@openai/agents';

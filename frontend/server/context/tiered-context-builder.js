@@ -1,6 +1,7 @@
 import { getSmartContext } from '../context-loader/context-manager.js';
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { stripProductKeys, stripProductArray } from './product-key-stripper.js';
+import { promptFragmentConfig, filterPromptFragments } from './prompt-fragment-config.js';
 
 /**
  * Build a core context slice with essential information only
@@ -54,31 +55,31 @@ export async function buildCoreContext(options) {
     }
   }
   
-  // Get relevant prompt fragments from library (top-3 for core context)
+  // Get relevant prompt fragments from library using configuration
   try {
-    const promptFragments = await memoryOperations.searchSystemPromptFragments(task, 5);
-    console.log(`[CONTEXT] Raw prompt fragments found: ${promptFragments?.length || 0}`);
+    const rawFragments = await memoryOperations.searchSystemPromptFragments(task, 20); // Get more initially
+    console.log(`[CONTEXT] Raw prompt fragments found: ${rawFragments?.length || 0}`);
     
-    if (promptFragments && promptFragments.length > 0) {
-      // Take top 3 fragments, preferring high/critical priority
-      const sortedFragments = promptFragments.sort((a, b) => {
-        // Priority order: critical > high > medium
-        const priorityScore = {critical: 3, high: 2, medium: 1};
-        const aScore = priorityScore[a.metadata?.priority] || 0;
-        const bScore = priorityScore[b.metadata?.priority] || 0;
-        return bScore - aScore;
-      });
-      
-      coreContext.promptFragments = sortedFragments.slice(0, 3).map(f => ({
+    if (rawFragments && rawFragments.length > 0) {
+      const mappedFragments = rawFragments.map(f => ({
         content: f.memory,
         category: f.metadata?.category,
         priority: f.metadata?.priority,
+        tags: f.metadata?.tags,
+        agentType: f.metadata?.agent_type,
         score: f.score
       }));
       
-      console.log(`[CONTEXT] Added ${coreContext.promptFragments.length} prompt fragments to core context`);
+      // Filter and limit based on configuration
+      coreContext.promptFragments = filterPromptFragments(mappedFragments, {
+        agentType: 'orchestrator',
+        taskKeywords: task.split(' ').filter(w => w.length > 3),
+        maxResults: promptFragmentConfig.limits.core
+      });
+      
+      console.log(`[CONTEXT] Filtered to ${coreContext.promptFragments.length} relevant prompt fragments for core context`);
       coreContext.promptFragments.forEach((f, i) => {
-        console.log(`  ${i+1}. [${f.priority}] ${f.category}: ${f.content.substring(0, 60)}...`);
+        console.log(`  ${i+1}. [${f.priority}] ${f.category}: ${f.content.substring(0, 60)}... (score: ${f.adjustedScore.toFixed(3)})`);
       });
     }
   } catch (error) {
@@ -184,11 +185,11 @@ export async function buildFullContext(options, coreContext = null) {
     }
   }
   
-  // Get ALL relevant prompt fragments for full context (up to 10)
+  // Get relevant prompt fragments for full context using configuration
   try {
-    const promptFragments = await memoryOperations.searchSystemPromptFragments(task, 10);
-    if (promptFragments && promptFragments.length > 0) {
-      fullContext.promptFragments = promptFragments.map(f => ({
+    const rawFragments = await memoryOperations.searchSystemPromptFragments(task, 30); // Get more initially
+    if (rawFragments && rawFragments.length > 0) {
+      const mappedFragments = rawFragments.map(f => ({
         content: f.memory,
         category: f.metadata?.category,
         priority: f.metadata?.priority,
@@ -196,7 +197,15 @@ export async function buildFullContext(options, coreContext = null) {
         agentType: f.metadata?.agent_type,
         score: f.score
       }));
-      console.log(`[CONTEXT] Found ${fullContext.promptFragments.length} prompt fragments for full context`);
+      
+      // Filter and limit based on configuration
+      fullContext.promptFragments = filterPromptFragments(mappedFragments, {
+        agentType: 'orchestrator',
+        taskKeywords: task.split(' ').filter(w => w.length > 3),
+        maxResults: promptFragmentConfig.limits.full
+      });
+      
+      console.log(`[CONTEXT] Filtered to ${fullContext.promptFragments.length} relevant prompt fragments for full context`);
       
       // Group by category for better organization
       fullContext.promptFragmentsByCategory = {};

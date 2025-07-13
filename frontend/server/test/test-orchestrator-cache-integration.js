@@ -3,7 +3,7 @@
  * Simulates real-world scenarios where multiple operations are performed on the same product
  */
 
-import { runDynamicOrchestrator } from '../dynamic-bash-orchestrator.js';
+import { runDynamicOrchestrator } from '../espressobot1.js';
 import { toolResultCache } from '../memory/tool-result-cache.js';
 
 // Mock SSE emitter for testing

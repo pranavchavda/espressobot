@@ -5,7 +5,7 @@
  * of context and passes rich context objects to agents.
  */
 
-import { runDynamicOrchestrator } from '../dynamic-bash-orchestrator.js';
+import { runDynamicOrchestrator } from '../espressobot1.js';
 
 async function testContextFlow() {
   console.log('\n=== TESTING CONTEXT FLOW ===\n');

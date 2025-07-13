@@ -129,7 +129,7 @@ Start processing immediately. Emit progress updates using the report_progress to
   });
 }
 
-// Tool definition removed - now defined in dynamic-bash-orchestrator.js
+// Tool definition removed - now defined in espressobot1.js
 // to avoid Zod validation issues with optional fields
 
 /**

@@ -71,13 +71,17 @@ class SearchProductsTool(BaseMCPTool):
     async def execute(self, query: str, **kwargs) -> List[Dict[str, Any]]:
         """Execute product search natively"""
         import sys
-        print(f"[SearchProductsTool] Searching for: {query} with kwargs: {kwargs}", file=sys.stderr)
+        # Clean up kwargs - remove empty strings and None values
+        cleaned_kwargs = {k: v for k, v in kwargs.items() if v and (not isinstance(v, str) or v.strip())}
+        print(f"[SearchProductsTool] Searching for: {query}", file=sys.stderr)
+        print(f"[SearchProductsTool] Raw kwargs: {kwargs}", file=sys.stderr)
+        print(f"[SearchProductsTool] Cleaned kwargs: {cleaned_kwargs}", file=sys.stderr)
         try:
             client = ShopifyClient()
             
             # Build search query
-            search_query = self._build_search_query(query, **kwargs)
-            limit = kwargs.get("limit", 50)
+            search_query = self._build_search_query(query, **cleaned_kwargs)
+            limit = cleaned_kwargs.get("limit", kwargs.get("limit", 50))
             print(f"[SearchProductsTool] Built search query: {search_query}", file=sys.stderr)
             
             # GraphQL query
@@ -146,28 +150,40 @@ class SearchProductsTool(BaseMCPTool):
         """Build Shopify search query string"""
         filters = []
         
-        # Add base query - use wildcards for better matching
+        # Add base query
         if query:
-            # Use wildcards for partial matching
-            filters.append(f'title:*{query}* OR vendor:*{query}* OR product_type:*{query}* OR handle:*{query}*')
+            # Check if query uses Shopify search syntax (field:value)
+            if any(prefix in query.lower() for prefix in [
+                'tag:', 'sku:', 'title:', 'vendor:', 'product_type:', 
+                'handle:', 'barcode:', 'variant_title:', 'id:'
+            ]):
+                # Use query as-is for Shopify search syntax
+                filters.append(query)
+            else:
+                # Use wildcards for general text search
+                filters.append(f'title:*{query}* OR vendor:*{query}* OR product_type:*{query}* OR handle:*{query}*')
         
-        # Add status filter
-        if kwargs.get("status"):
-            filters.append(f'status:{kwargs["status"]}')
+        # Add status filter (skip empty strings)
+        status = kwargs.get("status")
+        if status and status.strip():
+            filters.append(f'status:{status}')
         
-        # Add vendor filter
-        if kwargs.get("vendor"):
-            filters.append(f'vendor:"{kwargs["vendor"]}"')
+        # Add vendor filter (skip empty strings)
+        vendor = kwargs.get("vendor")
+        if vendor and vendor.strip():
+            filters.append(f'vendor:"{vendor}"')
         
-        # Add product type filter
-        if kwargs.get("product_type"):
-            filters.append(f'product_type:"{kwargs["product_type"]}"')
+        # Add product type filter (skip empty strings)
+        product_type = kwargs.get("product_type")
+        if product_type and product_type.strip():
+            filters.append(f'product_type:"{product_type}"')
         
         # Add inventory filter
-        if kwargs.get("inventory"):
-            if kwargs["inventory"] == "in_stock":
+        inventory = kwargs.get("inventory")
+        if inventory and inventory.strip():
+            if inventory == "in_stock":
                 filters.append("inventory_total:>0")
-            elif kwargs["inventory"] == "out_of_stock":
+            elif inventory == "out_of_stock":
                 filters.append("inventory_total:0")
         
         return " AND ".join(filters) if filters else "*"
