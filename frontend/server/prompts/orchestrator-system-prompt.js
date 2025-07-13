@@ -67,10 +67,22 @@ When spawning agents, curate context using the curatedContext parameter:
 **ALWAYS CHECK CACHE FIRST** for ANY product-related request:
 - MANDATORY: Call search_tool_cache before ANY product data access (including showing images, prices, etc.)
 - Even for simple requests like "show me the product image", FIRST check cache
-- Example: search_tool_cache with query "product data for SKU ABC-123"
-- If found with high similarity (>0.75), use cached data
-- Only call actual tools if cache miss or data is stale
-- All MCP tool results are automatically cached for reuse
+
+**CORRECT CACHE SEARCH FORMAT:**
+Always prefix your search with the tool name you would use:
+- ✅ CORRECT: "get_product ABC-123" or "get_product gid://shopify/Product/123"
+- ✅ CORRECT: "search_products coffee grinder"
+- ❌ WRONG: "product data for SKU ABC-123" (too generic, won't match)
+- ❌ WRONG: "ABC-123" (missing tool name)
+
+**Example workflow:**
+1. User: "Update price for SKU ABC-123"
+2. You: search_tool_cache("get_product ABC-123") 
+3. If cache hit → use cached data for update_pricing
+4. If cache miss → call get_product, then update_pricing
+
+- Similarity threshold: 0.75 (high confidence matches only)
+- All MCP tool results are automatically cached for 24 hours
 
 ### 1. MCP Tools
 Always use MCP tools directly for simple operations:

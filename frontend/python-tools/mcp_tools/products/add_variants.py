@@ -101,14 +101,6 @@ class AddVariantsTool(BaseMCPTool):
                             "type": "string",
                             "description": "Compare at price (optional)"
                         },
-                        "weight": {
-                            "type": "number",
-                            "description": "Weight in grams (optional)"
-                        },
-                        "weightUnit": {
-                            "type": "string",
-                            "description": "Weight unit (GRAMS, KILOGRAMS, POUNDS, OUNCES)"
-                        },
                         "inventoryPolicy": {
                             "type": "string",
                             "enum": ["DENY", "CONTINUE"],
@@ -255,8 +247,6 @@ class AddVariantsTool(BaseMCPTool):
                     availableForSale
                     inventoryPolicy
                     inventoryQuantity
-                    weight
-                    weightUnit
                     barcode
                     taxable
                     selectedOptions {
@@ -284,12 +274,6 @@ class AddVariantsTool(BaseMCPTool):
             # Add optional fields
             if variant.get("compareAtPrice"):
                 formatted_variant["compareAtPrice"] = variant["compareAtPrice"]
-            
-            if variant.get("weight") is not None:
-                formatted_variant["weight"] = variant["weight"]
-            
-            if variant.get("weightUnit"):
-                formatted_variant["weightUnit"] = variant["weightUnit"]
             
             if variant.get("inventoryPolicy"):
                 formatted_variant["inventoryPolicy"] = variant["inventoryPolicy"]

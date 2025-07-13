@@ -914,9 +914,9 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
     // Tool result cache search FIRST - check before calling expensive APIs
     tool({
       name: 'search_tool_cache',
-      description: 'Search for cached tool results from this conversation. Use this BEFORE calling expensive tools like get_product to check if the data is already available.',
+      description: 'Search for cached tool results from this conversation. Use this BEFORE calling expensive tools like get_product to check if the data is already available. IMPORTANT: Include the tool name in your query for best results.',
       parameters: z.object({
-        query: z.string().describe('What to search for (e.g., "product data for SKU ABC-123", "inventory for product X")'),
+        query: z.string().describe('Search query - MUST include tool name prefix for best results (e.g., "get_product ABC-123", "search_products coffee", NOT just "ABC-123")'),
         toolName: z.string().nullable().default(null).describe('Optional: specific tool name to filter by (e.g., "get_product", "search_products")'),
         limit: z.number().default(3).describe('Maximum results to return')
       }),

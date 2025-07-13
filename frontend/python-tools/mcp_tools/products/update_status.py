@@ -1,11 +1,15 @@
 """
-MCP wrapper for update_status tool
+Native MCP implementation for update_status
 """
 
 from typing import Dict, Any, Optional
-import json
-import subprocess
+import sys
 import os
+
+# Add parent directory to path so we can import the original tools
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from base import ShopifyClient
 from ..base import BaseMCPTool
 
 class UpdateStatusTool(BaseMCPTool):
@@ -45,58 +49,123 @@ class UpdateStatusTool(BaseMCPTool):
     }
     
     async def execute(self, product: str, status: str) -> Dict[str, Any]:
-        """Execute update_status.py tool"""
-        self.validate_env()
-        
-        tool_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "update_status.py"
-        )
-        
+        """Update product status natively"""
         try:
-            result = subprocess.run(
-                ["python3", tool_path, "--product", product, "--status", status],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            client = ShopifyClient()
             
-            # Parse output
-            output = result.stdout.strip()
-            try:
-                return json.loads(output)
-            except json.JSONDecodeError:
-                return {"success": True, "message": output}
+            # Resolve product ID
+            product_id = client.resolve_product_id(product)
+            if not product_id:
+                return {
+                    "success": False,
+                    "error": f"Product not found with identifier: {product}"
+                }
+            
+            # Get current status first
+            query = '''
+            query getProductStatus($id: ID!) {
+                product(id: $id) {
+                    id
+                    title
+                    status
+                    handle
+                }
+            }
+            '''
+            
+            result = client.execute_graphql(query, {'id': product_id})
+            product_data = result.get('data', {}).get('product')
+            
+            if not product_data:
+                return {
+                    "success": False,
+                    "error": "Could not retrieve product"
+                }
+            
+            current_status = product_data['status']
+            
+            # Check if status is already set
+            if current_status == status:
+                return {
+                    "success": True,
+                    "message": f"Product '{product_data['title']}' is already {status}",
+                    "product": product_data
+                }
+            
+            # Update status
+            mutation = '''
+            mutation updateProductStatus($input: ProductInput!) {
+                productUpdate(input: $input) {
+                    product {
+                        id
+                        title
+                        status
+                        handle
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+            '''
+            
+            variables = {
+                'input': {
+                    'id': product_id,
+                    'status': status
+                }
+            }
+            
+            result = client.execute_graphql(mutation, variables)
+            
+            # Check for errors
+            user_errors = result.get('data', {}).get('productUpdate', {}).get('userErrors', [])
+            if user_errors:
+                return {
+                    "success": False,
+                    "error": f"Update failed: {user_errors}"
+                }
+            
+            updated_product = result.get('data', {}).get('productUpdate', {}).get('product')
+            
+            if updated_product:
+                return {
+                    "success": True,
+                    "message": f"Successfully updated product status from {current_status} to {status}",
+                    "product": {
+                        "id": updated_product['id'],
+                        "title": updated_product['title'],
+                        "status": updated_product['status'],
+                        "handle": updated_product['handle'],
+                        "previous_status": current_status
+                    }
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Update completed but product data not returned"
+                }
                 
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr or e.stdout or str(e)
-            raise Exception(f"update_status failed: {error_msg}")
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
             
     async def test(self) -> Dict[str, Any]:
         """Test the tool"""
         try:
-            tool_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "update_status.py"
-            )
+            self.validate_env()
+            client = ShopifyClient()
             
-            result = subprocess.run(
-                ["python3", tool_path, "--help"],
-                capture_output=True,
-                text=True
-            )
+            # Test with a simple query to verify connection
+            result = client.execute_graphql('{ shop { name } }')
             
-            if result.returncode == 0:
-                return {
-                    "status": "passed",
-                    "message": "Tool is accessible"
-                }
-            else:
-                return {
-                    "status": "failed",
-                    "message": "Tool failed to respond"
-                }
-                
+            return {
+                "status": "passed",
+                "message": f"Connected to shop: {result.get('data', {}).get('shop', {}).get('name', 'Unknown')}"
+            }
         except Exception as e:
             return {
                 "status": "failed",

@@ -208,7 +208,6 @@ class MCPServer:
                 raise ValueError(f"Unknown method: {method}")
                 
         except Exception as e:
-            import traceback
             logger.error(f"Error handling request: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return {
