@@ -6,7 +6,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { customToolDiscovery } from '../custom-tool-discovery.js';
+// Custom tool discovery no longer needed - using static operation list
 
 // Set the OpenAI API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -18,17 +18,9 @@ const __dirname = dirname(__filename);
 const plansDir = path.resolve(__dirname, '../data/plans');
 if (!fs.existsSync(plansDir)) fs.mkdirSync(plansDir, { recursive: true });
 
-// Get all available tool names for context
-let allToolNames = [];
-try {
-  if (!customToolDiscovery.allTools.length) {
-    await customToolDiscovery.discoverTools();
-  }
-  allToolNames = customToolDiscovery.allTools.map(t => t.name);
-} catch (err) {
-  console.error('[Task Planning] Failed to get tool names:', err.message);
-  allToolNames = [];
-}
+// Get all available operation names for context
+import { getAllOperationNames } from '../tools/available-operations.js';
+const allToolNames = getAllOperationNames();
 
 // Core task management tools
 export const generateTodosTool = tool({

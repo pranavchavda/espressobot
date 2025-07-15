@@ -1,29 +1,33 @@
 /**
- * MCP Client for EspressoBot Python Tools
+ * MCP Client that integrates with MCP Server Manager
  */
 
 import { MCPServerStdio } from '@openai/agents-core';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import MCPServerManager from './mcp-server-manager.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let mcpToolsServer = null;
+let serverManager = null;
 let mcpInitialized = false;
 
 /**
- * Initialize MCP tools server
+ * Initialize MCP tools and external servers
  */
 export async function initializeMCPTools() {
   if (mcpInitialized) {
-    return mcpToolsServer;
+    return serverManager;
   }
 
-  console.log('[MCP Client] Initializing Python tools MCP server...');
+  console.log('[MCP Client] Initializing MCP Server Manager...');
   
   try {
-    // Create MCP server connection
-    mcpToolsServer = new MCPServerStdio({
+    // Create server manager instance
+    serverManager = new MCPServerManager();
+    
+    // Register built-in Python tools server
+    const pythonToolsServer = new MCPServerStdio({
       name: 'EspressoBot Python Tools',
       command: 'python3',
       args: [path.join(__dirname, '../../python-tools/mcp-server.py')],
@@ -34,39 +38,75 @@ export async function initializeMCPTools() {
       cacheToolsList: true
     });
     
-    // Connect to the server
+    // Connect Python tools server
     console.log('[MCP Client] Connecting to Python tools MCP server...');
-    await mcpToolsServer.connect();
+    await pythonToolsServer.connect();
     
-    // List available tools
-    const tools = await mcpToolsServer.listTools();
-    console.log(`[MCP Client] Connected! Found ${tools.length} tools:`, 
-      tools.map(t => t.name).join(', '));
+    // Register as built-in server
+    serverManager.registerBuiltInServer('python-tools', pythonToolsServer);
+    
+    // Initialize external servers from config
+    await serverManager.initializeServers();
+    
+    // Start watching configuration for changes
+    await serverManager.watchConfiguration();
+    
+    // List all available servers
+    const serverNames = serverManager.getServerNames();
+    console.log(`[MCP Client] Initialized ${serverNames.length} MCP servers:`, serverNames.join(', '));
+    
+    // List tools from all servers
+    for (const serverName of serverNames) {
+      const server = serverManager.getServer(serverName);
+      const tools = await server.listTools();
+      console.log(`[MCP Client] Server '${serverName}' has ${tools.length} tools:`, 
+        tools.map(t => t.name).join(', '));
+    }
     
     mcpInitialized = true;
-    return mcpToolsServer;
+    return serverManager;
     
   } catch (error) {
     console.error('[MCP Client] Failed to initialize MCP tools:', error);
-    mcpToolsServer = null;
+    serverManager = null;
     mcpInitialized = false;
     throw error;
   }
 }
 
 /**
- * Call an MCP tool directly
+ * Call an MCP tool from any registered server
  */
 export async function callMCPTool(toolName, args = {}) {
-  // Check if we need to reconnect
-  if (!mcpInitialized || !mcpToolsServer) {
+  // Check if we need to initialize
+  if (!mcpInitialized || !serverManager) {
     await initializeMCPTools();
   }
   
   console.log(`[MCP Client] Calling tool: ${toolName}`, args);
   
+  // Find which server has this tool
+  let targetServer = null;
+  let toolFound = false;
+  
+  for (const server of serverManager.getAllServers()) {
+    const tools = await server.listTools();
+    if (tools.some(t => t.name === toolName)) {
+      targetServer = server;
+      toolFound = true;
+      // Debug: log which server was selected
+      const serverName = serverManager.getServerNames().find(name => serverManager.getServer(name) === server);
+      console.log(`[MCP Client] Found tool '${toolName}' on server '${serverName}'`);
+      break;
+    }
+  }
+  
+  if (!toolFound) {
+    throw new Error(`Tool '${toolName}' not found in any MCP server`);
+  }
+  
   try {
-    const mcpResponse = await mcpToolsServer.callTool({
+    const mcpResponse = await targetServer.callTool({
       name: toolName,
       arguments: args
     });
@@ -112,27 +152,29 @@ export async function callMCPTool(toolName, args = {}) {
     if (error.message?.includes('Not connected') || error.code === -32000) {
       console.log('[MCP Client] Connection lost, attempting to reconnect...');
       
-      // Clean up existing connection
+      // Reinitialize all servers
       await cleanupMCPTools();
+      await initializeMCPTools();
       
-      // Reconnect
-      try {
-        await initializeMCPTools();
-        console.log('[MCP Client] Reconnected successfully, retrying tool call...');
-        
-        // Retry the tool call
-        const result = await mcpToolsServer.callTool({
-          name: toolName,
-          arguments: args
-        });
-        
-        console.log(`[MCP Client] Tool ${toolName} completed successfully after reconnect`);
-        return result;
-        
-      } catch (reconnectError) {
-        console.error('[MCP Client] Reconnection failed:', reconnectError);
-        throw reconnectError;
+      // Find the server again
+      for (const server of serverManager.getAllServers()) {
+        const tools = await server.listTools();
+        if (tools.some(t => t.name === toolName)) {
+          targetServer = server;
+          break;
+        }
       }
+      
+      console.log('[MCP Client] Reconnected successfully, retrying tool call...');
+      
+      // Retry the tool call
+      const result = await targetServer.callTool({
+        name: toolName,
+        arguments: args
+      });
+      
+      console.log(`[MCP Client] Tool ${toolName} completed successfully after reconnect`);
+      return result;
     }
     
     throw error;
@@ -140,28 +182,44 @@ export async function callMCPTool(toolName, args = {}) {
 }
 
 /**
- * Get list of available MCP tools
+ * Get list of all available MCP tools from all servers
  */
 export async function getMCPTools() {
-  if (!mcpInitialized || !mcpToolsServer) {
+  if (!mcpInitialized || !serverManager) {
     await initializeMCPTools();
   }
   
-  return await mcpToolsServer.listTools();
+  // Aggregate tools from all servers
+  const allTools = [];
+  
+  for (const serverName of serverManager.getServerNames()) {
+    const server = serverManager.getServer(serverName);
+    const tools = await server.listTools();
+    
+    // Add server name to each tool for tracking
+    const toolsWithServer = tools.map(tool => ({
+      ...tool,
+      _serverName: serverName
+    }));
+    
+    allTools.push(...toolsWithServer);
+  }
+  
+  return allTools;
 }
 
 /**
- * Clean up MCP connection
+ * Clean up all MCP connections
  */
 export async function cleanupMCPTools() {
-  if (mcpToolsServer) {
-    console.log('[MCP Client] Cleaning up MCP tools connection...');
+  if (serverManager) {
+    console.log('[MCP Client] Cleaning up all MCP connections...');
     try {
-      await mcpToolsServer.close();
+      await serverManager.close();
     } catch (error) {
-      console.error('[MCP Client] Error closing MCP server:', error);
+      console.error('[MCP Client] Error closing MCP servers:', error);
     }
-    mcpToolsServer = null;
+    serverManager = null;
     mcpInitialized = false;
   }
 }

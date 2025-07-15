@@ -28,6 +28,7 @@ import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
 import { interceptConsoleForUser, restoreConsole } from './utils/console-interceptor.js';
 import { toolResultCache } from './memory/tool-result-cache.js';
+import { createSpawnMCPAgentTool } from './tools/spawn-mcp-agent-tool.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -859,36 +860,25 @@ function createMCPToolWrapper(toolDef) {
 }
 
 /**
- * Build orchestrator with MCP tools
- * Note: We now use a base prompt that will be dynamically extended based on task complexity
+ * Build orchestrator tools - now using MCP agents instead of wrapped tools
  */
-async function buildOrchestratorWithMCPTools() {
+async function buildOrchestratorTools() {
   const builtInSearchTool = webSearchTool();
   
-  // Initialize MCP tools
-  let mcpTools = [];
+  // Initialize MCP servers but don't wrap tools
   try {
     await initializeMCPTools();
-    const toolDefs = await getMCPTools();
-    console.log(`[Orchestrator] Loading ${toolDefs.length} MCP tools...`);
-    
-    // Debug: log first tool schema
-    if (toolDefs.length > 0) {
-      console.log('[Orchestrator] First tool schema:', JSON.stringify(toolDefs[0], null, 2));
-    }
-    
-    // Create tool wrappers for all tools
-    mcpTools = toolDefs.map(createMCPToolWrapper);
-    console.log(`[Orchestrator] Created wrappers for ${mcpTools.length} tools`);
-    console.log(`[Orchestrator] MCP tools loaded successfully:`, toolDefs.map(t => t.name).join(', '));
+    console.log('[Orchestrator] MCP servers initialized for agent delegation');
   } catch (error) {
-    console.error('[Orchestrator] Failed to load MCP tools:', error.message);
-    console.error('[Orchestrator] Error stack:', error.stack);
-    // Continue without MCP tools
+    console.error('[Orchestrator] Failed to initialize MCP servers:', error.message);
+    // Continue without MCP servers
   }
   
+  // Create the spawn MCP agent tool
+  const spawnMCPAgent = createSpawnMCPAgentTool();
+  
   return {
-    mcpTools,
+    spawnMCPAgent,
     builtInSearchTool
   };
 }
@@ -896,7 +886,7 @@ async function buildOrchestratorWithMCPTools() {
 /**
  * Create orchestrator agent with dynamic prompt based on context
  */
-function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, userProfile = null) {
+function createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMCPAgent, builtInSearchTool, userProfile = null) {
   // Build unified prompt based on task complexity
   const instructions = buildUnifiedOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
   
@@ -966,7 +956,7 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
         return stats || { error: 'Could not retrieve cache statistics' };
       }
     }),
-    ...mcpTools,  // MCP tools AFTER cache search
+    spawnMCPAgent,  // New MCP agent delegation tool
     builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
     viewImageTool,
     parseFileTool,
@@ -1132,20 +1122,20 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
 }
 
 // Store MCP tools globally after initialization
-let mcpToolsCache = null;
+let spawnMCPAgentCache = null;
 let builtInSearchToolCache = null;
 
 /**
- * Initialize MCP tools once
+ * Initialize orchestrator tools once
  */
 async function initializeOrchestratorTools() {
-  if (!mcpToolsCache) {
-    console.log('[Orchestrator] Initializing MCP tools...');
-    const result = await buildOrchestratorWithMCPTools();
-    mcpToolsCache = result.mcpTools;
+  if (!spawnMCPAgentCache) {
+    console.log('[Orchestrator] Initializing orchestrator tools...');
+    const result = await buildOrchestratorTools();
+    spawnMCPAgentCache = result.spawnMCPAgent;
     builtInSearchToolCache = result.builtInSearchTool;
   }
-  return { mcpTools: mcpToolsCache, builtInSearchTool: builtInSearchToolCache };
+  return { spawnMCPAgent: spawnMCPAgentCache, builtInSearchTool: builtInSearchToolCache };
 }
 
 /**
@@ -1382,11 +1372,11 @@ export async function runDynamicOrchestrator(message, options = {}) {
       runOptions.signal = abortSignal;
     }
     
-    // Initialize MCP tools if needed
-    const { mcpTools, builtInSearchTool } = await initializeOrchestratorTools();
+    // Initialize orchestrator tools if needed
+    const { spawnMCPAgent, builtInSearchTool } = await initializeOrchestratorTools();
     
     // Create orchestrator with dynamic prompt based on context
-    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, userProfile);
+    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMCPAgent, builtInSearchTool, userProfile);
     
     // Check if we have image or file data from the API
     let messageToSend;

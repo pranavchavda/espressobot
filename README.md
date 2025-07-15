@@ -15,6 +15,7 @@ EspressoBot is a sophisticated conversational AI system that manages e-commerce 
 - **🤖 Multi-Agent System**: Specialized agents for different domains
 - **🔄 Real-time Updates**: Server-sent events for live progress tracking
 - **🛡️ Safety Features**: Dangerous command detection, autonomy controls
+- **🔌 External MCP Server Support**: Add custom MCP servers via JSON configuration
 
 ## Architecture
 
@@ -24,14 +25,19 @@ frontend/
 │   ├── agents/              # Specialized AI agents
 │   │   ├── semantic-bash-agent.js    # Bash execution with context
 │   │   ├── swe-agent-connected.js    # Software engineering agent
-│   │   └── task-planning-agent.js    # Task decomposition
+│   │   ├── task-planning-agent.js    # Task decomposition
+│   │   ├── python-tools-agent.js     # MCP agent for Shopify tools
+│   │   ├── external-mcp-agent.js     # MCP agent for external servers
+│   │   └── documentation-mcp-agent.js # MCP agent for API docs
 │   ├── memory/              # Local memory system
 │   │   └── simple-local-memory.js    # SQLite + embeddings
 │   ├── tools/               # Tool implementations
 │   │   ├── bash-tool.js              # Safe bash execution
 │   │   ├── mcp-client.js             # MCP integration
+│   │   ├── mcp-server-manager.js     # External server management
+│   │   ├── mcp-agent-router.js       # Intelligent MCP routing
 │   │   └── view-image-tool.js       # Vision support
-│   └── dynamic-bash-orchestrator.js  # Main orchestrator
+│   └── espressobot-orchestrator.js  # Main orchestrator
 │
 ├── python-tools/
 │   ├── mcp-server.py        # MCP server for Python tools
@@ -97,6 +103,52 @@ npm run dev
 
 # The app will be available at http://localhost:5173
 ```
+
+## External MCP Server Configuration
+
+### Adding External MCP Servers
+
+EspressoBot supports adding external MCP servers (stdio or HTTP) via JSON configuration:
+
+1. **Edit `mcp-servers.json`**:
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "description": "MCP server for fetching web content",
+      "enabled": true,
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "your-server": {
+      "description": "Your custom MCP server",
+      "enabled": true,
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+2. **Hot Reload**: Changes are applied automatically without restarting the server
+
+3. **Supported Server Types**:
+   - **stdio**: Command-line MCP servers
+   - **http**: REST API MCP servers
+
+4. **Server Properties**:
+   - `description`: Human-readable description
+   - `enabled`: Toggle server on/off
+   - `type`: Either "stdio" or "http"
+   - For stdio: `command` and `args`
+   - For http: `url`
+
+### Built-in MCP Servers
+
+- **Python Tools**: 27 Shopify operations (always available)
+- **Shopify Dev**: API documentation and GraphQL introspection
+- **External servers**: Any MCP server added via configuration
 
 ## Usage Examples
 

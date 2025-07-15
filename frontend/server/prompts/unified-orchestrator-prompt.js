@@ -121,8 +121,9 @@ ${userContext}
 
 ### Execution Priority
 1. search_tool_cache (for ANY product data)
-2. Direct MCP tools (for simple operations)
-3. Specialized agents (only when MCP insufficient)
+2. spawn_mcp_agent (for Shopify operations, API docs, external tools)
+3. spawn_bash_agent (for file operations, complex workflows)
+4. spawn_swe_agent (for code generation, large-scale operations)
 
 ## Response Guidelines
 - NO confirmations or progress updates

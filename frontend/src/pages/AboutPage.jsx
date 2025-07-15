@@ -130,7 +130,7 @@ function AboutPage() {
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">MCP Servers</h4>
-                <p className="text-sm mt-1">Python Tools MCP for direct tool execution and Shopify Dev MCP for real-time API introspection and documentation access.</p>
+                <p className="text-sm mt-1">Python Tools MCP for direct tool execution, Shopify Dev MCP for API docs, and support for external MCP servers via JSON configuration.</p>
               </div>
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">Perplexity</h4>
@@ -159,6 +159,10 @@ function AboutPage() {
               <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
                 <h4 className="font-medium text-green-600 dark:text-green-400">Dynamic Tool Creation</h4>
                 <p className="text-sm mt-1">Agents can create and compose tools on the fly using bash, enabling rapid prototyping and custom solutions.</p>
+              </div>
+              <div className="bg-white dark:bg-zinc-800 p-4 rounded border border-green-200 dark:border-green-800">
+                <h4 className="font-medium text-green-600 dark:text-green-400">External MCP Servers</h4>
+                <p className="text-sm mt-1">Add custom MCP servers via JSON config with hot reload. Compatible with Claude Desktop format for easy integration.</p>
               </div>
             </div>
           </section>

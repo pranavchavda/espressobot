@@ -8,16 +8,22 @@ EspressoBot uses a Shell Agency architecture with bash orchestrator as the prima
 ### 📁 **Current Architecture**
 ```
 server/
-├── agents/              # 3 active agents
+├── agents/              # 6 active agents
 │   ├── task-planning-agent.js
 │   ├── swe-agent-connected.js  
-│   └── semantic-bash-agent.js
+│   ├── semantic-bash-agent.js
+│   ├── python-tools-agent.js      # NEW: MCP agent for Shopify tools
+│   ├── external-mcp-agent.js      # NEW: MCP agent for external servers
+│   └── documentation-mcp-agent.js # NEW: MCP agent for API docs
 ├── data/               # Runtime data (not watched by Vite)
 │   └── plans/          # Task TODO files
 ├── memory/             # Local memory system
 │   └── data/           # SQLite database
 ├── tools/              # Tool implementations
-└── espressobot-orchestrator.js  # Main orchestrator
+│   ├── mcp-server-manager.js      # NEW: External server management
+│   ├── mcp-agent-router.js        # NEW: Intelligent MCP routing
+│   └── spawn-mcp-agent-tool.js    # NEW: Orchestrator delegation
+└── espressobot-orchestrator.js    # Main orchestrator
 ```
 
 ### ✅ **System Status**
@@ -61,6 +67,17 @@ server/
 
 ## MCP Integration
 
+### ✅ **External MCP Server Support** (NEW - July 14, 2025)
+Users can now easily add external MCP servers via `mcp-servers.json`:
+- Simple JSON configuration (compatible with Claude Desktop format)
+- Hot reload - changes applied without restart
+- Automatic tool discovery and integration
+- Built-in servers remain untouched
+- **NEW**: Proper MCP agent pattern with OpenAI SDK v0.11
+- **NEW**: Specialized MCP agents for intelligent routing
+- **NEW**: No startup overhead - removed MCP discovery/testing
+- See `/docs/mcp-servers-guide.md` for details
+
 ### ✅ **Python Tools MCP Server** (NEW - July 4, 2025)
 Stdio-based MCP server for direct tool execution:
 - 8 tools migrated (get_product, search_products, manage_inventory_policy, etc.)
@@ -76,17 +93,44 @@ Successfully integrated with SWE Agent for real-time API introspection:
 - `fetch_docs_by_path` - Specific doc retrieval
 - `get_started` - API overviews
 
-### 🔧 **Connection Pattern**
+### 🔧 **MCP Agent Pattern** (NEW - July 14, 2025)
+OpenAI SDK v0.11 expects MCP servers passed directly to agents:
 ```javascript
-// Connect FIRST
-await shopifyDevMCP.connect();
-// THEN create agent
-const agent = new Agent({ mcpServers: [shopifyDevMCP] });
+// CORRECT: Pass servers to agent
+const agent = new Agent({
+  name: 'Python Tools Agent',
+  mcpServers: [mcpServer],  // ✅ OpenAI SDK pattern
+  // ...
+});
+
+// WRONG: Wrapping tools
+const tools = mcpServer.getTools();  // ❌ Old pattern
 ```
+
+**Key Changes:**
+- MCP servers are passed via `mcpServers` array
+- Each MCP domain has its own specialized agent
+- Orchestrator uses `spawn_mcp_agent` for delegation
+- Intelligent routing based on task keywords
+- No startup MCP discovery - uses static operation list
 
 ---
 
 ## Recent Fixes & Improvements
+
+### July 14, 2025
+- Added external MCP server support with hot reload
+- Created MCP Server Manager for unified tool management
+- Implemented JSON configuration compatible with Claude Desktop format
+- Updated to OpenAI agents-core v0.11 (from v0.9)
+- **MAJOR**: Migrated to proper MCP agent pattern:
+  - Created specialized MCP agents (Python Tools, External, Documentation)
+  - Implemented intelligent routing with keyword analysis
+  - Removed wrapped MCP tools from orchestrator
+  - Added `spawn_mcp_agent` tool for delegation
+- **PERFORMANCE**: Removed startup MCP discovery/testing (15-20s saved)
+- Created static operation list for task planning
+- External MCP servers work correctly with the new pattern
 
 ### July 12, 2025
 - Fixed OpenAI agents Zod validation: **CRITICAL** - Optional fields must be `.nullable().default(null)` not `.default('')` or `.default({})`
@@ -157,4 +201,4 @@ cd /home/pranav/espressobot/espressobot-v2
 
 ---
 
-*Last Updated: July 12, 2025*
+*Last Updated: July 14, 2025*

@@ -1,0 +1,116 @@
+/**
+ * Spawn MCP Agent Tool - Allows orchestrator to delegate tasks to specialized MCP agents
+ */
+
+import { z } from 'zod';
+import { tool } from '@openai/agents';
+import { routeToMCPAgent, analyzeTaskForMCPRouting } from './mcp-agent-router.js';
+
+/**
+ * Create the spawn MCP agent tool for the orchestrator
+ */
+export function createSpawnMCPAgentTool() {
+  return tool({
+    name: 'spawn_mcp_agent',
+    description: `Spawn a specialized MCP agent to handle tasks requiring Model Context Protocol tools.
+
+Use this tool for:
+- Shopify operations (products, pricing, inventory, etc.) - routes to Python Tools Agent
+- API documentation queries - routes to Documentation Agent  
+- External tool operations (fetch, GitHub, etc.) - routes to External MCP Agent
+
+The MCP agent router will automatically determine the best agent based on the task.
+
+This is preferred over direct tool usage for:
+- Complex multi-step operations
+- Tasks requiring specialized context
+- Operations that benefit from agent-level error handling`,
+    
+    parameters: z.object({
+      task: z.string().describe('The task for the MCP agent to complete'),
+      context: z.object({
+        conversation_id: z.string().nullable().default(null).describe('Conversation ID for context'),
+        user_profile: z.string().nullable().default(null).describe('User profile information'),
+        relevant_memories: z.array(z.string()).nullable().default(null).describe('Relevant context from memory'),
+        recent_products: z.array(z.object({
+          title: z.string(),
+          sku: z.string()
+        })).nullable().default(null).describe('Recently accessed products'),
+        current_task: z.string().nullable().default(null).describe('Current development task for documentation queries')
+      }).nullable().default(null).describe('Optional context for the agent')
+    }),
+    
+    execute: async ({ task, context }) => {
+      console.log(`[Spawn MCP Agent] Delegating task to MCP agent: ${task.substring(0, 100)}...`);
+      
+      // Analyze the task first
+      const routing = analyzeTaskForMCPRouting(task);
+      console.log(`[Spawn MCP Agent] Routing analysis:`, routing);
+      
+      try {
+        // Build rich context from the input
+        const richContext = context ? {
+          userProfile: context.user_profile,
+          relevantMemories: context.relevant_memories || [],
+          recentProducts: context.recent_products || [],
+          currentTask: context.current_task
+        } : {};
+        
+        // Route to appropriate MCP agent
+        const result = await routeToMCPAgent(task, {
+          conversationId: context?.conversation_id,
+          richContext
+        });
+        
+        // Extract meaningful response from agent result
+        if (result && result.state && result.state._generatedItems) {
+          // Look for message outputs
+          const messages = result.state._generatedItems.filter(
+            item => item.type === 'message_output'
+          );
+          
+          if (messages.length > 0) {
+            // Return the last message content
+            const lastMessage = messages[messages.length - 1];
+            return {
+              success: true,
+              agent: routing.primaryAgent || 'unknown',
+              response: lastMessage.content,
+              confidence: routing.confidence
+            };
+          }
+          
+          // Look for tool outputs as fallback
+          const toolOutputs = result.state._generatedItems.filter(
+            item => item.type === 'tool_call_output'
+          );
+          
+          if (toolOutputs.length > 0) {
+            return {
+              success: true,
+              agent: routing.primaryAgent || 'unknown',
+              response: toolOutputs[toolOutputs.length - 1].output,
+              confidence: routing.confidence
+            };
+          }
+        }
+        
+        // Fallback: return the full result
+        return {
+          success: true,
+          agent: routing.primaryAgent || 'unknown',
+          response: result,
+          confidence: routing.confidence
+        };
+        
+      } catch (error) {
+        console.error(`[Spawn MCP Agent] Failed to execute task:`, error);
+        return {
+          success: false,
+          error: error.message,
+          agent: routing.primaryAgent || 'unknown'
+        };
+      }
+    }
+  });
+}
