@@ -288,4 +288,4 @@ Proprietary - iDrinkCoffee.com
 
 - Built with [OpenAI agents SDK](https://github.com/openai/agents)
 - Uses [Model Context Protocol](https://modelcontextprotocol.io)
-- Powered by GPT-4 and Claude
+- Powered by GPT-4.1 and created by Claude
