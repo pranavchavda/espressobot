@@ -1,6 +1,10 @@
 import { Agent, MCPServerStdio, tool, webSearchTool } from '@openai/agents';
 import { z } from 'zod';
+import { setTracingDisabled } from '@openai/agents-core';
 import fs from 'fs/promises';
+
+// Disable tracing to prevent 7MB span output errors
+setTracingDisabled(true);
 import { executeBashCommand } from '../tools/bash-tool.js';
 import { learningTool, reflectAndLearnTool } from '../tools/learning-tool.js';
 

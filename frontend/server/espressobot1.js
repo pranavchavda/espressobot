@@ -1,6 +1,7 @@
-import { Agent, run, tool, webSearchTool,  } from '@openai/agents';
+import { Agent, run, tool, webSearchTool, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered } from '@openai/agents';
 import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
+import { setTracingDisabled } from '@openai/agents-core';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 // MEMORY SYSTEM DISABLED - Causing infinite loops
 // import { memoryAgent } from './agents/memory-agent.js';
@@ -32,6 +33,10 @@ import { createSpawnMCPAgentTool } from './tools/spawn-mcp-agent-tool.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
+
+// Disable tracing to prevent 7MB span output errors
+setTracingDisabled(true);
+console.log('[ORCHESTRATOR] OpenAI tracing disabled to prevent large output errors');
 
 // Store the current SSE emitter for access by spawned agents
 let currentSseEmitter = null;
@@ -239,15 +244,10 @@ const spawnBashAgent = tool({
     try {
       const fullPrompt = context ? `${task}\n\nContext: ${context}` : task;
       
-      // Run with callbacks if SSE emitter is available
+      // Run with callbacks for tool status (no token streaming for spawned agents)
       const callbacks = currentSseEmitter ? {
         onMessage: (message) => {
           console.log(`[${agentName}] onMessage triggered`);
-          if (message.content && typeof message.content === 'string') {
-            currentSseEmitter('assistant_delta', { 
-              delta: message.content 
-            });
-          }
         },
         onStepFinish: (step) => {
           console.log(`[${agentName}] Step finished:`, step.type);
@@ -489,16 +489,10 @@ const spawnParallelBashAgents = tool({
       try {
         const fullPrompt = context ? `${task}\n\nContext: ${context}` : task;
         
-        // Run with callbacks if SSE emitter is available
+        // Run with callbacks for tool status (no token streaming for spawned agents)
         const callbacks = currentSseEmitter ? {
           onMessage: (message) => {
             console.log(`[${agentName}] onMessage triggered`);
-            if (message.content && typeof message.content === 'string') {
-              currentSseEmitter('agent_message', { 
-                agent: agentName,
-                content: message.content 
-              });
-            }
           },
           onStepFinish: (step) => {
             console.log(`[${agentName}] Step finished:`, step.type);
@@ -884,6 +878,226 @@ async function buildOrchestratorTools() {
 }
 
 /**
+ * Bulk operation state tracking for guardrails
+ */
+const bulkOperationState = {
+  isActive: false,
+  expectedItems: 0,
+  completedItems: 0,
+  itemList: [],
+  conversationId: null,
+  retryCount: 0,
+  maxRetries: 5
+};
+
+/**
+ * LLM-powered input chokidar to detect bulk operations intelligently
+ */
+const bulkOperationInputChokidar = new Agent({
+  name: 'Bulk Operation Chokidar',
+  model: 'gpt-4.1-mini',
+  instructions: `You are an intelligent chokidar (guard) that detects bulk operations vs simple questions.
+
+BULK OPERATIONS to detect:
+- Commands to process multiple items (fix all SKUs, update pricing for products, create batch)
+- Continuation of ongoing work ("continue", "proceed with bulk task")
+- Autonomous work declarations ("work silently", "no interruption")
+- Explicit bulk language ("this is a bulk task", "bulk operation")
+
+NOT BULK OPERATIONS:
+- Questions about items ("are there priced SKUs?", "how many products?")  
+- Single item requests ("fix this SKU", "check one product")
+- Informational queries ("what is the price?", "tell me about...")
+
+Analyze the input and determine if this is a bulk operation that needs guardrail tracking.`,
+  outputType: z.object({
+    isBulkOperation: z.boolean(),
+    expectedItems: z.number().default(0).describe('Estimated number of items to process (0 if unclear)'),
+    reasoning: z.string(),
+    operationType: z.string().nullable().default(null).describe('Type of operation: create, update, fix, etc.')
+  }),
+});
+
+const bulkOperationInputGuardrail = {
+  name: 'bulk_operation_detector',
+  execute: async ({ input, context }) => {
+    console.log('[Chokidar] Input chokidar analyzing for bulk operations...');
+    
+    try {
+      const inputText = typeof input === 'string' ? input : JSON.stringify(input);
+      const result = await run(bulkOperationInputChokidar, inputText, { context });
+      const analysis = result.finalOutput;
+      
+      console.log(`[Chokidar] Analysis: ${analysis.isBulkOperation ? 'BULK' : 'STANDARD'} - ${analysis.reasoning}`);
+      
+      if (analysis.isBulkOperation) {
+        console.log('[Chokidar] 🎯 BULK OPERATION DETECTED BY INTELLIGENT CHOKIDAR');
+        
+        // Set up bulk operation tracking
+        bulkOperationState.isActive = true;
+        bulkOperationState.expectedItems = analysis.expectedItems || 0;
+        bulkOperationState.completedItems = 0;
+        bulkOperationState.conversationId = global.currentConversationId;
+        bulkOperationState.operationType = analysis.operationType;
+        
+        return {
+          outputInfo: `Bulk operation detected: ${analysis.reasoning}. Expected items: ${bulkOperationState.expectedItems}`,
+          tripwireTriggered: false // Don't block input - just track the bulk operation
+        };
+      }
+      
+      return {
+        outputInfo: `Standard operation: ${analysis.reasoning}`,
+        tripwireTriggered: false
+      };
+      
+    } catch (error) {
+      console.log('[Chokidar] Input chokidar failed, falling back to simple detection:', error.message);
+      
+      // Fallback to simple keyword detection if LLM fails
+      const inputText = typeof input === 'string' ? input : JSON.stringify(input);
+      const isBulk = inputText.toLowerCase().includes('bulk') || inputText.toLowerCase().includes('continue');
+      
+      if (isBulk) {
+        bulkOperationState.isActive = true;
+        bulkOperationState.expectedItems = 0;
+        bulkOperationState.completedItems = 0;
+        bulkOperationState.conversationId = global.currentConversationId;
+      }
+      
+      return {
+        outputInfo: isBulk ? 'Bulk operation (fallback detection)' : 'Standard operation (fallback)',
+        tripwireTriggered: false
+      };
+    }
+  }
+};
+
+/**
+ * LLM-powered output chokidar to detect "announce and stop" patterns intelligently
+ */
+const bulkOperationOutputChokidar = new Agent({
+  name: 'Output Completion Chokidar',
+  model: 'gpt-4.1-mini',
+  instructions: `You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations.
+
+BULK OPERATION CONTEXT: The agent is supposed to be working on multiple items (${bulkOperationState.expectedItems || 'several'} items expected).
+
+ANNOUNCE AND STOP PATTERNS (BLOCK THESE):
+- Promises to work autonomously but returns control ("working silently", "you'll hear from me", then stops)
+- Asking for permission mid-bulk ("would you like me to proceed?", "shall I continue?")
+- Providing options instead of working ("next steps:", "how would you like to proceed?")
+- Status updates without actual work ("processing...", "working on it..." without tool calls)
+
+LEGITIMATE PATTERNS (ALLOW THESE):
+- Actually calling tools (spawn_mcp_agent, search_products, update_pricing)
+- Genuine completion with results ("✅ All 12 items updated successfully")
+- Progress reports WITH tool calls (showing actual work done)
+- Error reports requiring user intervention
+
+Analyze if the agent is doing real work or just announcing/asking.`,
+  outputType: z.object({
+    isAnnounceAndStop: z.boolean(),
+    hasActualWork: z.boolean(),
+    isComplete: z.boolean(),
+    reasoning: z.string(),
+    progressCount: z.number().default(0).describe('Number of items actually processed (if detectable)')
+  }),
+});
+
+const bulkOperationOutputGuardrail = {
+  name: 'bulk_completion_validator',
+  execute: async ({ agentOutput, context }) => {
+    console.log('[Chokidar] Output chokidar validating bulk operation completion...');
+    
+    if (!bulkOperationState.isActive) {
+      console.log('[Chokidar] Not in bulk mode - allowing normal response');
+      return {
+        outputInfo: 'Not in bulk operation mode',
+        tripwireTriggered: false
+      };
+    }
+    
+    try {
+      const outputText = typeof agentOutput === 'string' ? agentOutput : JSON.stringify(agentOutput);
+      
+      // Update the chokidar's instructions with current state
+      const contextualPrompt = `${outputText}
+
+CURRENT BULK STATE:
+- Expected items: ${bulkOperationState.expectedItems}
+- Completed items: ${bulkOperationState.completedItems}
+- Operation type: ${bulkOperationState.operationType || 'unknown'}
+
+Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior.`;
+      
+      const result = await run(bulkOperationOutputChokidar, contextualPrompt, { context });
+      const analysis = result.finalOutput;
+      
+      console.log(`[Chokidar] Analysis: ${analysis.isAnnounceAndStop ? 'ANNOUNCE & STOP' : 'LEGITIMATE'} - ${analysis.reasoning}`);
+      
+      // Update progress tracking
+      if (analysis.progressCount > 0) {
+        bulkOperationState.completedItems += analysis.progressCount;
+        console.log(`[Chokidar] Progress updated: ${bulkOperationState.completedItems}/${bulkOperationState.expectedItems} items`);
+      }
+      
+      // Check for completion
+      if (analysis.isComplete) {
+        console.log('[Chokidar] 🎉 Bulk operation marked complete by intelligent chokidar');
+        // Reset all state
+        bulkOperationState.isActive = false;
+        bulkOperationState.retryCount = 0;
+        bulkOperationState.completedItems = 0;
+        bulkOperationState.expectedItems = 0;
+        return {
+          outputInfo: `Bulk operation complete: ${analysis.reasoning}`,
+          tripwireTriggered: false
+        };
+      }
+      
+      // Block announce and stop patterns
+      if (analysis.isAnnounceAndStop && !analysis.hasActualWork) {
+        console.log('[Chokidar] 🚫 BLOCKING ANNOUNCE AND STOP PATTERN');
+        return {
+          outputInfo: `Blocking announce and stop: ${analysis.reasoning}`,
+          tripwireTriggered: true
+        };
+      }
+      
+      // Allow legitimate work
+      return {
+        outputInfo: `Legitimate bulk progress: ${analysis.reasoning}`,
+        tripwireTriggered: false
+      };
+      
+    } catch (error) {
+      console.log('[Chokidar] Output chokidar failed, falling back to simple patterns:', error.message);
+      
+      // Fallback to simple pattern detection
+      const outputText = typeof agentOutput === 'string' ? agentOutput : JSON.stringify(agentOutput);
+      const lowerOutput = outputText.toLowerCase();
+      
+      const prematurePatterns = ['autonomous', 'silently', 'you\'ll hear from me', 'working on it'];
+      const hasToolCalls = outputText.includes('spawn_mcp_agent') || outputText.includes('completed');
+      const seemsPremature = prematurePatterns.some(pattern => lowerOutput.includes(pattern));
+      
+      if (seemsPremature && !hasToolCalls) {
+        return {
+          outputInfo: 'Blocking premature return (fallback detection)',
+          tripwireTriggered: true
+        };
+      }
+      
+      return {
+        outputInfo: 'Allowing output (fallback detection)',
+        tripwireTriggered: false
+      };
+    }
+  }
+};
+
+/**
  * Create orchestrator agent with dynamic prompt based on context
  */
 function createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMCPAgent, builtInSearchTool, userProfile = null) {
@@ -892,13 +1106,14 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMC
   
   return new Agent({
     name: 'EspressoBot1',
-    model: 'gpt-4.1',  // Back to OpenAI for now
+    model: 'gpt-4.1',  // Back to gpt-4.1 until o3 organization verification is complete
     instructions: instructions,
-  modelSettings: {
-    parallelToolCalls: true
     
-  },
-  tools: [
+    // Guardrails to enforce bulk operation behavior
+    inputGuardrails: [bulkOperationInputGuardrail],
+    outputGuardrails: [bulkOperationOutputGuardrail],
+
+    tools: [
     // Tool result cache search FIRST - check before calling expensive APIs
     tool({
       name: 'search_tool_cache',
@@ -1148,6 +1363,16 @@ export async function runDynamicOrchestrator(message, options = {}) {
   currentSseEmitter = sseEmitter;
   currentAbortSignal = abortSignal;
   
+  // Reset bulk operation state for new conversations to prevent state leakage
+  if (!bulkOperationState.conversationId || bulkOperationState.conversationId !== conversationId) {
+    console.log('[Guardrail] Resetting bulk operation state for new conversation');
+    bulkOperationState.isActive = false;
+    bulkOperationState.retryCount = 0;
+    bulkOperationState.completedItems = 0;
+    bulkOperationState.expectedItems = 0;
+    bulkOperationState.conversationId = conversationId;
+  }
+  
   // Intercept console logs for this user (format as user_ID to match SSE endpoint)
   interceptConsoleForUser(`user_${userId || 1}`);
   
@@ -1252,64 +1477,129 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Build the orchestrator's message with its comprehensive context
     let contextualMessage = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     
+    // CONTEXT SIZE MONITORING - Add logging and limits to prevent API failures
+    const MAX_CONTEXT_SIZE = 150000; // 150KB limit to prevent context explosion
+    let currentSize = contextualMessage.length;
+    
+    function checkContextSize(section, content) {
+      const sectionSize = content.length;
+      if (currentSize + sectionSize > MAX_CONTEXT_SIZE) {
+        console.log(`[CONTEXT WARNING] Skipping ${section} - would exceed limit (current: ${currentSize}, adding: ${sectionSize})`);
+        return false;
+      }
+      currentSize += sectionSize;
+      return true;
+    }
+    
     // Add business logic patterns if detected
     if (orchestratorContext.businessLogic?.patterns?.length > 0) {
-      contextualMessage += '\n\n## Business Patterns Detected:';
-      for (const pattern of orchestratorContext.businessLogic.patterns) {
-        contextualMessage += `\n- ${pattern.type}`;
-        if (pattern.action) contextualMessage += `: ${pattern.action}`;
-        if (pattern.warning) contextualMessage += ` (WARNING: ${pattern.warning})`;
+      const patternsContent = '\n\n## Business Patterns Detected:' + 
+        orchestratorContext.businessLogic.patterns.map(pattern => {
+          let line = `\n- ${pattern.type}`;
+          if (pattern.action) line += `: ${pattern.action}`;
+          if (pattern.warning) line += ` (WARNING: ${pattern.warning})`;
+          return line;
+        }).join('');
+      
+      if (checkContextSize('business patterns', patternsContent)) {
+        contextualMessage += patternsContent;
       }
     }
     
     // Add current tasks if any
     if (orchestratorContext.currentTasks?.length > 0) {
-      contextualMessage += '\n\n## Current Tasks:';
-      orchestratorContext.currentTasks.forEach((task, idx) => {
-        const status = task.status === 'completed' ? '[x]' : 
-                      task.status === 'in_progress' ? '[🔄]' : '[ ]';
-        contextualMessage += `\n${idx}. ${status} ${task.title || task.description}`;
-      });
+      const tasksContent = '\n\n## Current Tasks:' + 
+        orchestratorContext.currentTasks.map((task, idx) => {
+          const status = task.status === 'completed' ? '[x]' : 
+                        task.status === 'in_progress' ? '[🔄]' : '[ ]';
+          return `\n${idx}. ${status} ${task.title || task.description}`;
+        }).join('');
+      
+      if (checkContextSize('current tasks', tasksContent)) {
+        contextualMessage += tasksContent;
+      }
     }
     
-    // Add relevant memories if any
+    // Add relevant memories if any (limit to top 3 to prevent size explosion)
     if (orchestratorContext.relevantMemories?.length > 0) {
-      contextualMessage += '\n\n## Relevant Past Experiences:';
-      orchestratorContext.relevantMemories.slice(0, 3).forEach(memory => {
-        contextualMessage += `\n- ${memory.content}`;
-      });
+      const memoriesContent = '\n\n## Relevant Past Experiences:' + 
+        orchestratorContext.relevantMemories.slice(0, 3).map(memory => 
+          `\n- ${memory.content.substring(0, 500)}` + (memory.content.length > 500 ? '...' : '')
+        ).join('');
+      
+      if (checkContextSize('memories', memoriesContent)) {
+        contextualMessage += memoriesContent;
+      }
     }
     
     // Add conversation topic if present
     if (orchestratorContext.conversationTopic) {
-      contextualMessage += '\n\n' + orchestratorContext.conversationTopic;
+      const topicContent = '\n\n' + orchestratorContext.conversationTopic.substring(0, 2000) + 
+        (orchestratorContext.conversationTopic.length > 2000 ? '\n[Topic truncated for size]' : '');
+      
+      if (checkContextSize('conversation topic', topicContent)) {
+        contextualMessage += topicContent;
+      }
     }
     
-    // Add relevant prompt fragments from library
+    // Add relevant prompt fragments from library with size limits
     console.log(`[Orchestrator] Checking prompt fragments: ${orchestratorContext.promptFragments?.length || 0} found`);
     if (orchestratorContext.promptFragments?.length > 0) {
-      contextualMessage += '\n\n## Relevant Documentation (from Prompt Library):';
+      let fragmentsContent = '\n\n## Relevant Documentation (from Prompt Library):';
       
-      // For core context, just list the fragments
+      // For core context, just list the fragments with size limits
       if (!orchestratorContext.fullSlice) {
-        orchestratorContext.promptFragments.forEach(fragment => {
-          contextualMessage += `\n\n### ${fragment.category || 'General'} (Priority: ${fragment.priority || 'medium'}):\n${fragment.content}`;
-        });
-      } else if (orchestratorContext.promptFragmentsByCategory) {
-        // For full context, organize by category
-        for (const [category, fragments] of Object.entries(orchestratorContext.promptFragmentsByCategory)) {
-          contextualMessage += `\n\n### ${category.toUpperCase()}:`;
-          fragments.forEach(fragment => {
-            contextualMessage += `\n[${fragment.priority || 'medium'}] ${fragment.content}`;
-            if (fragment.tags?.length > 0) {
-              contextualMessage += ` (tags: ${fragment.tags.join(', ')})`;
-            }
-          });
+        for (const fragment of orchestratorContext.promptFragments) {
+          const fragmentText = `\n\n### ${fragment.category || 'General'} (Priority: ${fragment.priority || 'medium'}):\n${fragment.content.substring(0, 1000)}` + 
+            (fragment.content.length > 1000 ? '\n[Fragment truncated for size]' : '');
+          
+          if (currentSize + fragmentsContent.length + fragmentText.length > MAX_CONTEXT_SIZE) {
+            fragmentsContent += '\n\n[Additional prompt fragments truncated to prevent context explosion]';
+            break;
+          }
+          fragmentsContent += fragmentText;
         }
+      } else if (orchestratorContext.promptFragmentsByCategory) {
+        // For full context, organize by category with limits
+        let categoriesProcessed = 0;
+        for (const [category, fragments] of Object.entries(orchestratorContext.promptFragmentsByCategory)) {
+          if (categoriesProcessed >= 5) { // Limit categories
+            fragmentsContent += '\n\n[Additional categories truncated to prevent context explosion]';
+            break;
+          }
+          
+          const categoryContent = `\n\n### ${category.toUpperCase()}:` + 
+            fragments.slice(0, 3).map(fragment => { // Limit fragments per category
+              let line = `\n[${fragment.priority || 'medium'}] ${fragment.content.substring(0, 800)}`;
+              if (fragment.content.length > 800) line += '[...]';
+              if (fragment.tags?.length > 0) {
+                line += ` (tags: ${fragment.tags.slice(0, 3).join(', ')})`;
+              }
+              return line;
+            }).join('');
+          
+          if (currentSize + fragmentsContent.length + categoryContent.length > MAX_CONTEXT_SIZE) {
+            fragmentsContent += '\n\n[Remaining categories truncated to prevent context explosion]';
+            break;
+          }
+          fragmentsContent += categoryContent;
+          categoriesProcessed++;
+        }
+      }
+      
+      if (checkContextSize('prompt fragments', fragmentsContent)) {
+        contextualMessage += fragmentsContent;
       }
     } else {
       console.log(`[Orchestrator] No prompt fragments in context - checking why...`);
       console.log(`[Orchestrator] Context keys:`, Object.keys(orchestratorContext));
+    }
+    
+    // Final size check and logging
+    console.log(`[CONTEXT SIZE] Final contextual message: ${contextualMessage.length} characters (${(contextualMessage.length/1024).toFixed(1)}KB)`);
+    if (contextualMessage.length > MAX_CONTEXT_SIZE) {
+      console.log(`[CONTEXT ERROR] Message exceeds limit! Truncating to prevent API failure...`);
+      contextualMessage = contextualMessage.substring(0, MAX_CONTEXT_SIZE) + '\n\n[Context truncated to prevent API limits - this indicates a system issue that needs investigation]';
     }
     
     console.log(`[Orchestrator] Prepared contextual message with rich context`);
@@ -1325,7 +1615,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     
     // Run the orchestrator with callbacks for real-time streaming
     const runOptions = {
-      maxTurns: 130,
+      maxTurns: 500, // Higher limit to handle bulk operations properly
       onMessage: (message) => {
         console.log('*** Bash orchestrator onMessage ***');
         console.log('Message type:', typeof message);
@@ -1339,8 +1629,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
             isStreaming = true;
             sseEmitter('agent_status', { status: 'responding' });
           }
-          // Don't send deltas during streaming - let the final response handle it
-          // sseEmitter('assistant_delta', { delta: message.content });
+          // For now, send the full content - we'll implement token streaming later
+          sseEmitter('assistant_delta', { delta: message.content });
         }
         
         // Handle tool calls
@@ -1476,13 +1766,63 @@ export async function runDynamicOrchestrator(message, options = {}) {
       messageToSend = messageWithFileContext;
     }
     
-    // Use vision retry wrapper if we have image data
-    const result = global.currentImageData 
-      ? await runWithVisionRetry(orchestrator, messageToSend, runOptions)
-      : await run(orchestrator, messageToSend, runOptions);
+    // Use streaming for better user experience
+    let result;
+    let fullResponse = ''; // Declare at proper scope for guardrail access
     
-    // Add assistant response to thread
-    if (conversationId && result.finalOutput) {
+    try {
+      if (global.currentImageData) {
+        result = await runWithVisionRetry(orchestrator, messageToSend, runOptions);
+        // For vision requests, extract the response from the result
+        if (result && result.finalOutput) {
+          fullResponse = result.finalOutput;
+        } else if (result && result.state && result.state._currentStep && result.state._currentStep.output) {
+          fullResponse = result.state._currentStep.output;
+        }
+        console.log('*** Vision response captured:', fullResponse ? fullResponse.substring(0, 100) + '...' : 'No response');
+      } else {
+        // Implement token-level streaming
+        result = await run(orchestrator, messageToSend, { 
+          ...runOptions, 
+          stream: true 
+        });
+        
+        // Get the text stream for token-level streaming
+        const textStream = result.toTextStream();
+        
+        // Process the stream token by token
+        try {
+          for await (const chunk of textStream) {
+            console.log('*** Stream token received:', chunk);
+            
+            if (sseEmitter) {
+              if (!isStreaming) {
+                isStreaming = true;
+                sseEmitter('agent_status', { status: 'responding' });
+              }
+              // Send each token as it's generated
+              sseEmitter('assistant_delta', { delta: chunk });
+              fullResponse += chunk;
+            }
+          }
+        } catch (streamError) {
+          console.log('[Orchestrator] Streaming interrupted, likely by guardrail:', streamError.message);
+          console.log('[Orchestrator] Accumulated fullResponse length:', fullResponse.length);
+          // Don't re-throw, let the main error handling deal with guardrail exceptions
+        }
+        
+        // Wait for completion (this might throw guardrail exceptions)
+        await result.completed;
+        
+        console.log('*** Full streamed response:', fullResponse);
+      }
+    } catch (executionError) {
+      // Re-throw to be handled by the main catch block
+      throw executionError;
+    }
+    
+    // Add assistant response to thread (only if we have a valid result)
+    if (conversationId && result && result.finalOutput) {
       addToThread(conversationId, 'assistant', result.finalOutput);
     }
     
@@ -1490,6 +1830,143 @@ export async function runDynamicOrchestrator(message, options = {}) {
     
     return result;
   } catch (error) {
+    // Handle guardrail tripwire errors specially
+    if (error instanceof OutputGuardrailTripwireTriggered) {
+      console.log('[Guardrail] 🚫 Output guardrail blocked premature return - FORCING CONTINUATION');
+      console.log('[Guardrail] Tripwire reason:', error.message);
+      console.log('[Guardrail] Error type:', error.constructor.name);
+      console.log('[Guardrail] DEBUG - fullResponse variable check:');
+      
+      // DEBUG: Check if fullResponse exists in scope
+      try {
+        console.log('[Guardrail] fullResponse type:', typeof fullResponse);
+        console.log('[Guardrail] fullResponse length:', fullResponse?.length);
+        console.log('[Guardrail] fullResponse defined:', fullResponse !== undefined);
+      } catch (scopeError) {
+        console.log('[Guardrail] ERROR accessing fullResponse:', scopeError.message);
+        console.log('[Guardrail] Scope error type:', scopeError.constructor.name);
+        // Fallback: set fullResponse to empty string if not defined
+        var fullResponse = '';
+        console.log('[Guardrail] Set fallback fullResponse');
+      }
+      
+      // Preserve BOTH streamed content AND blocked output
+      let preservedContent = '';
+      
+      // First priority: Use accumulated streaming response if available
+      if (typeof fullResponse === 'string' && fullResponse.trim().length > 0) {
+        // Prevent extremely long content that causes API errors
+        const trimmedResponse = fullResponse.trim();
+        if (trimmedResponse.length > 50000) {
+          preservedContent = trimmedResponse.substring(0, 50000) + '\n\n[Content truncated to prevent API limits]';
+          console.log('[Guardrail] Preserving truncated streamed content (was too long):', trimmedResponse.length, 'chars');
+        } else {
+          preservedContent = trimmedResponse;
+          console.log('[Guardrail] Preserving streamed content:', preservedContent.substring(0, 100) + '...');
+        }
+      } 
+      // Fallback: Use blocked agent output from error
+      else if (error.agentOutput || error.output) {
+        preservedContent = error.agentOutput || error.output || '';
+        console.log('[Guardrail] Preserving blocked output from error');
+      }
+      // Last resort: Generic message
+      else {
+        preservedContent = 'Previous agent work (details blocked by guardrail)';
+        console.log('[Guardrail] No content found - using generic message');
+      }
+      
+      // For bulk operations, we want to force the agent to continue working
+      console.log('[Guardrail] Bulk operation incomplete - forcing agent to continue processing');
+      
+      // Check retry limit to prevent infinite loops
+      if (bulkOperationState.retryCount >= bulkOperationState.maxRetries) {
+        console.log(`[Guardrail] Max retries (${bulkOperationState.maxRetries}) exceeded - terminating bulk operation`);
+        bulkOperationState.isActive = false;
+        return `${preservedContent}\n\n[SYSTEM] Bulk operation terminated after ${bulkOperationState.maxRetries} retry attempts. The agent repeatedly tried to return control prematurely.`;
+      }
+      
+      bulkOperationState.retryCount++;
+      console.log(`[Guardrail] Retry attempt ${bulkOperationState.retryCount}/${bulkOperationState.maxRetries}`);
+      
+      try {
+        if (sseEmitter) {
+          sseEmitter('agent_status', { 
+            status: 'guardrail_enforced', 
+            message: `Bulk operation enforcement - forcing continuation (attempt ${bulkOperationState.retryCount})` 
+          });
+        }
+      } catch (sseError) {
+        console.log('[Guardrail] SSE emission failed:', sseError.message);
+      }
+      
+      // FORCE CONTINUATION: Create a continuation prompt that preserves the streamed content
+      const continuationPrompt = `[PREVIOUS WORK COMPLETED] 
+${preservedContent}
+
+[GUARDRAIL ENFORCEMENT] The bulk operation is INCOMPLETE. You attempted to return control to the user, but this is prohibited during bulk operations.
+
+MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
+
+CRITICAL TOOL REQUIREMENTS:
+- Use spawn_mcp_agent to delegate work to specialized agents
+- Use search_products, get_product, update_pricing MCP tools (NOT bash/CLI commands)
+- DO NOT use non-existent "shopify" CLI commands
+- DO NOT write Python scripts with placeholder URLs
+- DO NOT make up tool capabilities
+
+IMMEDIATE ACTION REQUIRED:
+- IMMEDIATELY call spawn_mcp_agent for the next unprocessed item
+- DO NOT ask "what would you like me to do next"
+- DO NOT request permission to continue
+- DO NOT provide options or choices
+
+Expected items remaining: ${Math.max(0, bulkOperationState.expectedItems - bulkOperationState.completedItems)}
+
+CONTINUE NOW with the next item using proper MCP tools.`;
+
+      console.log('[Guardrail] 🔄 FORCING RETRY with continuation prompt');
+      
+      // Recursively call the orchestrator with continuation prompt
+      try {
+        const retryResult = await runDynamicOrchestrator(continuationPrompt, {
+          conversationId,
+          userId,
+          sseEmitter,
+          taskUpdater,
+          abortSignal
+        });
+        
+        // If retry succeeds, preserve the streamed content in the final result
+        if (typeof retryResult === 'string') {
+          return `${preservedContent}\n\n${retryResult}`;
+        }
+        
+        return retryResult;
+      } catch (retryError) {
+        console.log('[Guardrail] Retry failed:', retryError.message);
+        
+        // If retry fails, mark bulk operation as done to prevent infinite loops
+        bulkOperationState.isActive = false;
+        
+        return `${preservedContent}\n\n[SYSTEM] Guardrail enforced continuation but retry failed: ${retryError.message}. Bulk operation terminated to prevent infinite loop.`;
+      }
+    }
+    
+    if (error instanceof InputGuardrailTripwireTriggered) {
+      console.log('[Guardrail] 🚫 Input guardrail blocked request');
+      console.log('[Guardrail] Reason:', error.message);
+      
+      if (sseEmitter) {
+        sseEmitter('agent_status', { 
+          status: 'guardrail_blocked', 
+          message: 'Request blocked by input guardrail' 
+        });
+      }
+      
+      return 'Request blocked by safety guardrail.';
+    }
+    
     // Handle abort errors specially
     if (abortSignal?.aborted || error.name === 'AbortError') {
       console.log('Dynamic orchestrator execution was aborted');
@@ -1498,6 +1975,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       }
       return 'Execution was interrupted by user';
     }
+    
     console.error('Dynamic orchestrator error:', error);
     throw error;
   } finally {
@@ -1522,5 +2000,13 @@ export async function runDynamicOrchestrator(message, options = {}) {
     // Clear image data
     global.currentImageData = null;
     global.currentUserImage = null;
+    
+    // Clear guardrail state
+    bulkOperationState.isActive = false;
+    bulkOperationState.expectedItems = 0;
+    bulkOperationState.completedItems = 0;
+    bulkOperationState.itemList = [];
+    bulkOperationState.conversationId = null;
+    bulkOperationState.retryCount = 0;
   }
 }

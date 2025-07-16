@@ -29,7 +29,8 @@ export const availableOperations = {
     'manage_skuvault_kits',
     'send_review_request',
     'graphql_query',
-    'graphql_mutation'
+    'graphql_mutation',
+    'update_metafields'
   ],
   
   // Memory operations (via spawn_mcp_agent)

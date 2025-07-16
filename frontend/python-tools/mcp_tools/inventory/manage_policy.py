@@ -2,11 +2,10 @@
 MCP wrapper for manage_inventory_policy tool
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
-import subprocess
-import os
 from ..base import BaseMCPTool
+from base import ShopifyClient
 
 class ManageInventoryPolicyTool(BaseMCPTool):
     """Manage product inventory policy (oversell settings)"""
@@ -50,64 +49,267 @@ class ManageInventoryPolicyTool(BaseMCPTool):
     }
     
     async def execute(self, identifier: str, policy: str) -> Dict[str, Any]:
-        """Execute manage_inventory_policy.py tool"""
+        """Execute inventory policy update via Shopify API"""
         self.validate_env()
         
         # Normalize policy value
         policy = policy.lower()
         if policy == "continue":
             policy = "allow"  # Handle both naming conventions
-            
-        tool_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "manage_inventory_policy.py"
-        )
+        
+        # Convert to GraphQL enum value
+        if policy == "deny":
+            inventory_policy = "DENY"
+        elif policy == "allow":
+            inventory_policy = "CONTINUE"
+        else:
+            raise ValueError(f"Invalid policy '{policy}'. Must be 'deny' or 'allow'")
         
         try:
-            result = subprocess.run(
-                ["python3", tool_path, "--identifier", identifier, "--policy", policy],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            # Initialize Shopify client
+            client = ShopifyClient()
             
-            # Parse output - the tool may return text or JSON
-            output = result.stdout.strip()
-            try:
-                return json.loads(output)
-            except json.JSONDecodeError:
-                # If not JSON, return as message
-                return {"success": True, "message": output}
+            # First, find the product/variants based on identifier
+            variants = await self._find_variants(client, identifier)
+            
+            if not variants:
+                return {
+                    "success": False,
+                    "error": f"No variants found for identifier: {identifier}"
+                }
+            
+            # Update inventory policy for all variants
+            updated_variants = []
+            errors = []
+            
+            # Get product ID from first variant
+            product_id = variants[0].get('product', {}).get('id') if variants else None
+            
+            for variant in variants:
+                try:
+                    # Use product ID from variant if available, otherwise from first variant
+                    variant_product_id = variant.get('product', {}).get('id') or product_id
+                    
+                    result = await self._update_variant_inventory_policy(
+                        client, variant['id'], inventory_policy, variant_product_id
+                    )
+                    if result['success']:
+                        updated_variants.append({
+                            "id": variant['id'],
+                            "sku": variant.get('sku'),
+                            "title": variant.get('title')
+                        })
+                    else:
+                        errors.append(f"Variant {variant['id']}: {result['error']}")
+                        
+                except Exception as e:
+                    errors.append(f"Variant {variant['id']}: {str(e)}")
+            
+            return {
+                "success": len(updated_variants) > 0,
+                "updated_variants": updated_variants,
+                "total_updated": len(updated_variants),
+                "policy_set": inventory_policy,
+                "errors": errors if errors else None
+            }
                 
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr or e.stdout or str(e)
-            raise Exception(f"manage_inventory_policy failed: {error_msg}")
+        except Exception as e:
+            raise Exception(f"manage_inventory_policy failed: {str(e)}")
+    
+    async def _find_variants(self, client: ShopifyClient, identifier: str) -> List[Dict[str, Any]]:
+        """Find variants based on identifier (variant ID, SKU, or product handle)"""
+        
+        # Clean identifier - remove GID prefix if present
+        if identifier.startswith("gid://shopify/"):
+            if "/ProductVariant/" in identifier:
+                # Extract variant ID from GID
+                identifier = identifier.split("/ProductVariant/")[-1]
+            elif "/Product/" in identifier:
+                # Extract product ID from GID
+                identifier = identifier.split("/Product/")[-1]
+        
+        # Try as variant ID first (if numeric)
+        if identifier.isdigit():
+            query = """
+            query getVariant($id: ID!) {
+                productVariant(id: $id) {
+                    id
+                    sku
+                    title
+                    inventoryPolicy
+                    product {
+                        title
+                        handle
+                    }
+                }
+            }
+            """
+            
+            result = client.execute_graphql(query, {
+                "id": f"gid://shopify/ProductVariant/{identifier}"
+            })
+            
+            if result.get('data', {}).get('productVariant'):
+                return [result['data']['productVariant']]
+        
+        # Try as SKU
+        sku_query = """
+        query findVariantBySku($query: String!) {
+            productVariants(first: 10, query: $query) {
+                edges {
+                    node {
+                        id
+                        sku
+                        title
+                        inventoryPolicy
+                        product {
+                            title
+                            handle
+                        }
+                    }
+                }
+            }
+        }
+        """
+        
+        result = client.execute_graphql(sku_query, {
+            "query": f"sku:{identifier}"
+        })
+        
+        variants = [edge['node'] for edge in result.get('data', {}).get('productVariants', {}).get('edges', [])]
+        if variants:
+            return variants
+        
+        # Try as product handle - get all variants for the product
+        handle_query = """
+        query findProductByHandle($handle: String!) {
+            product(handle: $handle) {
+                id
+                title
+                variants(first: 100) {
+                    edges {
+                        node {
+                            id
+                            sku
+                            title
+                            inventoryPolicy
+                            product {
+                                id
+                                title
+                                handle
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        
+        result = client.execute_graphql(handle_query, {
+            "handle": identifier
+        })
+        
+        if result.get('data', {}).get('product'):
+            product = result['data']['product']
+            # Add product info to each variant
+            variants_with_product = []
+            for edge in product['variants']['edges']:
+                variant = edge['node']
+                variant['product'] = {
+                    'id': product['id'],
+                    'title': product['title'], 
+                    'handle': product.get('handle')
+                }
+                variants_with_product.append(variant)
+            return variants_with_product
+        
+        return []
+    
+    async def _update_variant_inventory_policy(self, client: ShopifyClient, variant_id: str, policy: str, product_id: str) -> Dict[str, Any]:
+        """Update inventory policy for a specific variant using bulk update"""
+        
+        mutation = """
+        mutation updateVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants {
+                    id
+                    sku
+                    inventoryPolicy
+                    title
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+        
+        # Ensure IDs are in GID format
+        if not variant_id.startswith("gid://"):
+            variant_id = f"gid://shopify/ProductVariant/{variant_id}"
+        if not product_id.startswith("gid://"):
+            product_id = f"gid://shopify/Product/{product_id}"
+        
+        result = client.execute_graphql(mutation, {
+            "productId": product_id,
+            "variants": [{
+                "id": variant_id,
+                "inventoryPolicy": policy
+            }]
+        })
+        
+        data = result.get('data', {}).get('productVariantsBulkUpdate', {})
+        user_errors = data.get('userErrors', [])
+        
+        if user_errors:
+            return {
+                "success": False,
+                "error": "; ".join([error['message'] for error in user_errors])
+            }
+        
+        updated_variants = data.get('productVariants', [])
+        if updated_variants:
+            return {
+                "success": True,
+                "variant": updated_variants[0]
+            }
+        
+        return {
+            "success": False,
+            "error": "No variants returned from update"
+        }
             
     async def test(self) -> Dict[str, Any]:
         """Test the tool (read-only test)"""
         try:
-            # We can't actually change policies in test, so just verify the tool loads
-            # Check if we can at least call the tool with --help
-            tool_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "manage_inventory_policy.py"
-            )
+            # Test environment and API connectivity
+            self.validate_env()
             
-            result = subprocess.run(
-                ["python3", tool_path, "--help"],
-                capture_output=True,
-                text=True
-            )
+            # Test by performing a read-only query
+            client = ShopifyClient()
             
-            if result.returncode == 0:
+            # Simple query to test API connectivity
+            query = """
+            query testConnection {
+                shop {
+                    name
+                    myshopifyDomain
+                }
+            }
+            """
+            
+            result = client.execute_graphql(query)
+            
+            if result.get('data', {}).get('shop'):
                 return {
                     "status": "passed",
-                    "message": "Tool is accessible and responds to --help"
+                    "message": f"API connectivity verified for shop: {result['data']['shop']['name']}"
                 }
             else:
                 return {
                     "status": "failed",
-                    "message": "Tool failed to respond to --help"
+                    "message": "Failed to connect to Shopify API"
                 }
                 
         except Exception as e:

@@ -3,8 +3,11 @@
  */
 
 import { Agent } from '@openai/agents';
-import { MCPServerStdio } from '@openai/agents-core';
+import { MCPServerStdio, setTracingDisabled } from '@openai/agents-core';
 import path from 'path';
+
+// Disable tracing to prevent 7MB span output errors
+setTracingDisabled(true);
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,7 +60,13 @@ You have access to Python-based tools for:
 - SkuVault integration
 - And many more Shopify operations
 
-Always use the appropriate tool for the task. Be precise and efficient.`;
+Always use the appropriate tool for the task. Be precise and efficient.
+
+## AUTONOMOUS EXECUTION MODE
+- Execute tasks immediately without asking for confirmation
+- Use tools directly when you have clear instructions
+- Only ask questions if critical data is missing
+- Provide results, not progress updates`;
 
   // Add rich context if provided
   if (richContext) {
@@ -76,6 +85,21 @@ Always use the appropriate tool for the task. Be precise and efficient.`;
   if (task) {
     systemPrompt += `\n\nCurrent Task: ${task}`;
   }
+  
+  // Add current tasks if available in context
+  if (richContext?.currentTasks && richContext.currentTasks.length > 0) {
+    systemPrompt += '\n\n## Current Tasks:\n';
+    richContext.currentTasks.forEach((task, idx) => {
+      const status = task.status === 'completed' ? '[x]' : 
+                    task.status === 'in_progress' ? '[🔄]' : '[ ]';
+      systemPrompt += `${idx}. ${status} ${task.title || task.description}\n`;
+    });
+    
+    systemPrompt += '\n\n## CRITICAL: Task Progress Tracking\n';
+    systemPrompt += 'If you are assigned to work on one of these tasks, you MUST inform the orchestrator of your progress.\n';
+    systemPrompt += 'When you complete your work, communicate back to the orchestrator what you accomplished.\n';
+    systemPrompt += 'The orchestrator will handle updating the task status - this is the user\'s primary source of truth.\n';
+  }
 
   // Create the agent with the MCP server
   const agent = new Agent({
@@ -90,24 +114,75 @@ Always use the appropriate tool for the task. Be precise and efficient.`;
 }
 
 /**
+ * Execute a task with timeout and retry logic
+ */
+async function executeWithTimeout(agent, task, options = {}) {
+  const { run } = await import('@openai/agents');
+  const { maxTurns = 10, timeout = 120000, retries = 3 } = options; // 2 minute timeout, 3 retries
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`[Python Tools Agent] Attempt ${attempt}/${retries} - Executing task with ${timeout/1000}s timeout...`);
+      
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Task execution timed out after ${timeout/1000} seconds`));
+        }, timeout);
+      });
+      
+      // Race between the actual execution and timeout
+      const executionPromise = run(agent, task, { maxTurns });
+      const result = await Promise.race([executionPromise, timeoutPromise]);
+      
+      console.log('[Python Tools Agent] Task completed successfully');
+      return result;
+      
+    } catch (error) {
+      const isTimeoutError = error.message.includes('timeout') || 
+                           error.message.includes('terminated') || 
+                           error.message.includes('ECONNRESET');
+      
+      console.log(`[Python Tools Agent] Attempt ${attempt} failed:`, error.message);
+      
+      if (isTimeoutError && attempt < retries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+        console.log(`[Python Tools Agent] Network/timeout error, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // If it's the last attempt or not a timeout error, throw it
+      throw error;
+    }
+  }
+}
+
+/**
  * Execute a task using the Python tools agent
  */
 export async function executePythonToolsTask(task, conversationId = null, richContext = null) {
-  const { run } = await import('@openai/agents');
-  
   try {
     console.log('[Python Tools Agent] Creating agent for task:', task.substring(0, 100) + '...');
     const agent = await createPythonToolsAgent(task, conversationId, richContext);
     
-    console.log('[Python Tools Agent] Executing task...');
-    const result = await run(agent, task, { maxTurns: 10 });
-    
-    console.log('[Python Tools Agent] Task completed successfully');
-    return result;
+    // Execute with timeout and retry logic
+    return await executeWithTimeout(agent, task, {
+      maxTurns: 10,
+      timeout: 120000, // 2 minutes
+      retries: 3
+    });
     
   } catch (error) {
-    console.error('[Python Tools Agent] Task failed:', error);
-    throw error;
+    console.error('[Python Tools Agent] Task failed after all retries:', error);
+    
+    // Return a graceful error response instead of throwing
+    return {
+      success: false,
+      error: error.message,
+      errorType: error.message.includes('timeout') ? 'timeout' : 'execution',
+      message: `Python Tools Agent failed: ${error.message}`
+    };
   }
 }
 

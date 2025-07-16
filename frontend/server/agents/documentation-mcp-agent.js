@@ -55,7 +55,13 @@ When answering questions:
 - Be precise and reference specific documentation
 - Provide relevant code examples when available
 - Explain both the "what" and the "why"
-- Mention any important caveats or limitations`;
+- Mention any important caveats or limitations
+
+## AUTONOMOUS EXECUTION MODE
+- Execute documentation queries immediately without asking for confirmation
+- Use tools directly when you have clear questions
+- Only ask questions if the request is unclear
+- Provide comprehensive answers, not progress updates`;
 
   // Add context if provided
   if (richContext) {
@@ -85,24 +91,75 @@ When answering questions:
 }
 
 /**
+ * Execute a query with timeout and retry logic
+ */
+async function executeWithTimeout(agent, query, options = {}) {
+  const { run } = await import('@openai/agents');
+  const { maxTurns = 10, timeout = 120000, retries = 3 } = options; // 2 minute timeout, 3 retries
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`[Documentation MCP Agent] Attempt ${attempt}/${retries} - Executing query with ${timeout/1000}s timeout...`);
+      
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Query execution timed out after ${timeout/1000} seconds`));
+        }, timeout);
+      });
+      
+      // Race between the actual execution and timeout
+      const executionPromise = run(agent, query, { maxTurns });
+      const result = await Promise.race([executionPromise, timeoutPromise]);
+      
+      console.log('[Documentation MCP Agent] Query completed successfully');
+      return result;
+      
+    } catch (error) {
+      const isTimeoutError = error.message.includes('timeout') || 
+                           error.message.includes('terminated') || 
+                           error.message.includes('ECONNRESET');
+      
+      console.log(`[Documentation MCP Agent] Attempt ${attempt} failed:`, error.message);
+      
+      if (isTimeoutError && attempt < retries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+        console.log(`[Documentation MCP Agent] Network/timeout error, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // If it's the last attempt or not a timeout error, throw it
+      throw error;
+    }
+  }
+}
+
+/**
  * Execute a documentation query
  */
 export async function executeDocumentationQuery(query, richContext = null) {
-  const { run } = await import('@openai/agents');
-  
   try {
     console.log('[Documentation MCP Agent] Creating agent for query:', query.substring(0, 100) + '...');
     const agent = await createDocumentationMCPAgent(query, richContext);
     
-    console.log('[Documentation MCP Agent] Executing query...');
-    const result = await run(agent, query, { maxTurns: 10 });
-    
-    console.log('[Documentation MCP Agent] Query completed successfully');
-    return result;
+    // Execute with timeout and retry logic
+    return await executeWithTimeout(agent, query, {
+      maxTurns: 10,
+      timeout: 120000, // 2 minutes
+      retries: 3
+    });
     
   } catch (error) {
-    console.error('[Documentation MCP Agent] Query failed:', error);
-    throw error;
+    console.error('[Documentation MCP Agent] Query failed after all retries:', error);
+    
+    // Return a graceful error response instead of throwing
+    return {
+      success: false,
+      error: error.message,
+      errorType: error.message.includes('timeout') ? 'timeout' : 'execution',
+      message: `Documentation MCP Agent failed: ${error.message}`
+    };
   }
 }
 

@@ -53,14 +53,40 @@ This is preferred over direct tool usage for:
           userProfile: context.user_profile,
           relevantMemories: context.relevant_memories || [],
           recentProducts: context.recent_products || [],
-          currentTask: context.current_task
+          currentTask: context.current_task,
+          currentTasks: null // Will be populated if available
         } : {};
+        
+        // Add current tasks if conversation ID is provided
+        if (context?.conversation_id) {
+          try {
+            const { getCurrentTasks } = await import('../agents/task-planning-agent.js');
+            const tasksResult = await getCurrentTasks(context.conversation_id);
+            if (tasksResult.success) {
+              richContext.currentTasks = tasksResult.tasks;
+            }
+          } catch (error) {
+            console.log(`[Spawn MCP Agent] Could not get current tasks:`, error.message);
+          }
+        }
         
         // Route to appropriate MCP agent
         const result = await routeToMCPAgent(task, {
           conversationId: context?.conversation_id,
           richContext
         });
+        
+        // Check if the result indicates a graceful failure
+        if (result && result.success === false) {
+          console.log(`[Spawn MCP Agent] Agent returned graceful error: ${result.message}`);
+          return {
+            success: false,
+            error: result.error,
+            errorType: result.errorType,
+            message: result.message,
+            agent: routing.primaryAgent || 'unknown'
+          };
+        }
         
         // Extract meaningful response from agent result
         if (result && result.state && result.state._generatedItems) {
@@ -108,6 +134,7 @@ This is preferred over direct tool usage for:
         return {
           success: false,
           error: error.message,
+          errorType: 'execution',
           agent: routing.primaryAgent || 'unknown'
         };
       }

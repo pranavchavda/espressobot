@@ -92,6 +92,11 @@ Examples of WRONG usage (DO NOT DO THIS):
                     task.status === 'in_progress' ? '[🔄]' : '[ ]';
       prompt += `${idx}. ${status} ${task.title || task.description}\n`;
     });
+    
+    prompt += '\n\n## CRITICAL: Task Progress Tracking\n';
+    prompt += 'If you are assigned to work on one of these tasks, you MUST inform the orchestrator of your progress.\n';
+    prompt += 'When you complete your work, communicate back to the orchestrator what you accomplished.\n';
+    prompt += 'The orchestrator will handle updating the task status - this is the user\'s primary source of truth.\n';
   }
 
   // Add relevant rules

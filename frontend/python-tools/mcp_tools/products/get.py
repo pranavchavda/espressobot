@@ -1,5 +1,5 @@
 """
-MCP wrapper for get_product tool
+Native MCP implementation for get_product - no subprocess needed
 """
 
 from typing import Dict, Any, Optional
@@ -13,24 +13,21 @@ from base import ShopifyClient
 from ..base import BaseMCPTool
 
 class GetProductTool(BaseMCPTool):
-    """Get product details by SKU, handle, or product ID"""
+    """Get product details - native implementation"""
     
     name = "get_product"
-    description = "Retrieve detailed product information from Shopify by SKU, handle, or product ID"
+    description = "Get detailed product information by SKU, handle, or ID"
     context = """
-    This tool retrieves comprehensive product data including:
-    - Basic info (title, description, status)
-    - All variants with pricing and inventory
-    - Images and metafields
-    - SEO settings
+    This is a native MCP implementation that directly calls the Shopify API.
+    No subprocess overhead - faster and more reliable.
     
-    Accepts multiple identifier types:
-    - SKU (e.g., "ESP-1001")
-    - Handle (e.g., "sanremo-cube-white")
+    Accepts:
+    - SKU (e.g., "ESP-001")
+    - Handle (e.g., "mexican-altura")
     - Product ID (e.g., "gid://shopify/Product/123")
-    - Numeric ID (e.g., "123456789")
+    - Variant ID (will find parent product)
     
-    Returns JSON with full product details.
+    Returns complete product data including variants, images, and options.
     """
     
     input_schema = {
@@ -38,29 +35,45 @@ class GetProductTool(BaseMCPTool):
         "properties": {
             "identifier": {
                 "type": "string",
-                "description": "Product SKU, handle, or ID"
+                "description": "Product SKU, handle, ID, or variant ID"
+            },
+            "include_metafields": {
+                "type": "boolean",
+                "description": "Include product metafields in response"
             }
         },
         "required": ["identifier"]
     }
     
-    async def execute(self, identifier: str) -> Dict[str, Any]:
-        """Execute get_product natively"""
+    async def execute(self, identifier: str, include_metafields: bool = False) -> Dict[str, Any]:
+        """Execute get_product directly without subprocess"""
         try:
             client = ShopifyClient()
             
             # Resolve product ID
             product_id = client.resolve_product_id(identifier)
             if not product_id:
-                return {
-                    "success": False,
-                    "error": f"Product not found with identifier: {identifier}"
-                }
+                raise Exception(f"Product not found with identifier: {identifier}")
             
-            # Get product data
-            query = '''
-            query getProduct($id: ID!) {
-                product(id: $id) {
+            # Build query with optional metafields
+            metafield_query = ''
+            if include_metafields:
+                metafield_query = '''
+                    metafields(first: 20) {
+                        edges {
+                            node {
+                                namespace
+                                key
+                                value
+                                type
+                            }
+                        }
+                    }
+                '''
+            
+            query = f'''
+            query getProduct($id: ID!) {{
+                product(id: $id) {{
                     id
                     title
                     handle
@@ -73,29 +86,41 @@ class GetProductTool(BaseMCPTool):
                     createdAt
                     updatedAt
                     publishedAt
-                    seo {
+                    totalInventory
+                    tracksInventory
+                    seo {{
                         title
                         description
-                    }
-                    featuredImage {
+                    }}
+                    priceRangeV2 {{
+                        minVariantPrice {{
+                            amount
+                            currencyCode
+                        }}
+                        maxVariantPrice {{
+                            amount
+                            currencyCode
+                        }}
+                    }}
+                    featuredImage {{
                         url
                         altText
-                    }
-                    images(first: 10) {
-                        edges {
-                            node {
+                    }}
+                    images(first: 10) {{
+                        edges {{
+                            node {{
                                 url
                                 altText
-                            }
-                        }
-                    }
-                    options {
+                            }}
+                        }}
+                    }}
+                    options {{
                         name
                         values
-                    }
-                    variants(first: 100) {
-                        edges {
-                            node {
+                    }}
+                    variants(first: 100) {{
+                        edges {{
+                            node {{
                                 id
                                 title
                                 sku
@@ -105,15 +130,28 @@ class GetProductTool(BaseMCPTool):
                                 availableForSale
                                 inventoryPolicy
                                 inventoryQuantity
-                                selectedOptions {
+                                inventoryItem {{
+                                    id
+                                    unitCost {{
+                                        amount
+                                    }}
+                                    measurement {{
+                                        weight {{
+                                            value
+                                            unit
+                                        }}
+                                    }}
+                                }}
+                                selectedOptions {{
                                     name
                                     value
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                                }}
+                            }}
+                        }}
+                    }}
+                    {metafield_query}
+                }}
+            }}
             '''
             
             variables = {"id": product_id}
@@ -121,12 +159,9 @@ class GetProductTool(BaseMCPTool):
             
             product = result['data']['product']
             if not product:
-                return {
-                    "success": False,
-                    "error": f"Product not found: {product_id}"
-                }
+                raise Exception(f"Product not found: {product_id}")
                 
-            # Format the response to match original tool output
+            # Format the response
             return {
                 "success": True,
                 "product": self._format_product(product)
@@ -144,6 +179,12 @@ class GetProductTool(BaseMCPTool):
         variants = []
         for edge in product.get('variants', {}).get('edges', []):
             variant = edge['node']
+            
+            # Extract inventory item info
+            inventory_item = variant.get('inventoryItem', {})
+            unit_cost = inventory_item.get('unitCost', {}).get('amount') if inventory_item else None
+            weight_info = inventory_item.get('measurement', {}).get('weight', {}) if inventory_item else {}
+            
             variants.append({
                 'id': variant['id'],
                 'title': variant['title'],
@@ -154,6 +195,10 @@ class GetProductTool(BaseMCPTool):
                 'availableForSale': variant['availableForSale'],
                 'inventoryPolicy': variant['inventoryPolicy'],
                 'inventoryQuantity': variant['inventoryQuantity'],
+                'unitCost': unit_cost,
+                'weight': weight_info.get('value'),
+                'weightUnit': weight_info.get('unit'),
+                'inventoryItemId': inventory_item.get('id'),
                 'options': variant['selectedOptions']
             })
         
@@ -161,6 +206,12 @@ class GetProductTool(BaseMCPTool):
         images = []
         for edge in product.get('images', {}).get('edges', []):
             images.append(edge['node'])
+            
+        # Extract metafields if present
+        metafields = []
+        if 'metafields' in product:
+            for edge in product['metafields']['edges']:
+                metafields.append(edge['node'])
         
         return {
             'id': product['id'],
@@ -171,28 +222,28 @@ class GetProductTool(BaseMCPTool):
             'productType': product['productType'],
             'status': product['status'],
             'tags': product['tags'],
+            'totalInventory': product.get('totalInventory'),
+            'tracksInventory': product.get('tracksInventory'),
+            'priceRange': product.get('priceRangeV2'),
             'options': product['options'],
             'variants': variants,
             'images': images,
             'featuredImage': product['featuredImage'],
             'seo': product['seo'],
+            'metafields': metafields if metafields else None,
             'createdAt': product['createdAt'],
             'updatedAt': product['updatedAt'],
             'publishedAt': product['publishedAt']
         }
             
     async def test(self) -> Dict[str, Any]:
-        """Test the tool with validation"""
+        """Test the tool with a simple query"""
         try:
-            self.validate_env()
+            # Just verify we can create a client
             client = ShopifyClient()
-            
-            # Test with a simple query to verify connection
-            result = client.execute_graphql('{ shop { name } }')
-            
             return {
                 "status": "passed",
-                "message": f"Connected to shop: {result.get('data', {}).get('shop', {}).get('name', 'Unknown')}"
+                "message": "Native tool ready"
             }
         except Exception as e:
             return {

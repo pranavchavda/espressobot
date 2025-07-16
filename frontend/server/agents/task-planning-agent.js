@@ -1,6 +1,10 @@
 import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
+import { setTracingDisabled } from '@openai/agents-core';
 import { z } from 'zod';
+
+// Disable tracing to prevent 7MB span output errors
+setTracingDisabled(true);
 import fs from 'node:fs';
 import fsSync from 'node:fs';
 import path from 'node:path';

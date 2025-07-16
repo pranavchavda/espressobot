@@ -7,7 +7,12 @@
 
 import { Agent, tool } from '@openai/agents';
 import { z } from 'zod';
+import { setTracingDisabled } from '@openai/agents-core';
 import { bashTool } from '../tools/bash-tool.js';
+
+// Disable tracing to prevent 7MB span output errors
+setTracingDisabled(true);
+import { createSpawnMCPAgentTool } from '../tools/spawn-mcp-agent-tool.js';
 
 // Concurrency control
 const CONCURRENCY_LIMIT = 5; // Max concurrent operations
@@ -45,11 +50,18 @@ ${JSON.stringify(items, null, 2)}
 ${customContext ? `## ADDITIONAL CONTEXT\n${customContext}\n` : ''}
 
 ## EXECUTION STRATEGY
-1. Process items in batches of ${CONCURRENCY_LIMIT}
-2. Track success/failure for each item
-3. Retry failed items up to ${retryLimit} times
-4. Report progress after each batch
-5. Return aggregated results
+1. Use spawn_mcp_agent tool for each item - DO NOT use bash with fake shopify commands
+2. Process items in batches of ${CONCURRENCY_LIMIT}
+3. Track success/failure for each item
+4. Retry failed items up to ${retryLimit} times
+5. Report progress after each batch
+6. Return aggregated results
+
+## CRITICAL TOOL USAGE
+- ALWAYS use spawn_mcp_agent for Shopify operations (search_products, get_product, update_pricing)
+- DO NOT use bash with "shopify" CLI commands - they don't exist
+- DO NOT write Python scripts with placeholder URLs
+- Use sleep tool for throttling between operations
 
 ## SAFETY RULES
 - NEVER exceed ${CONCURRENCY_LIMIT} concurrent operations
@@ -121,10 +133,13 @@ Start processing immediately. Emit progress updates using the report_progress to
     }
   });
 
+  // Create spawn_mcp_agent tool for this executor
+  const spawnMCPAgentTool = await createSpawnMCPAgentTool();
+
   return new Agent({
     name: `ParallelExecutor_${instanceId}`,
     instructions,
-    tools: [bashTool, progressTool, sleepTool],
+    tools: [spawnMCPAgentTool, progressTool, sleepTool, bashTool],
     model: 'gpt-4.1-mini' // Optimized for speed/cost
   });
 }

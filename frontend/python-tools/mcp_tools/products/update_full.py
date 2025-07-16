@@ -1,6 +1,17 @@
 """
 Native MCP implementation for update_full_product
+
+====================================================================
+IMPORTANT DEPRECATION NOTICE - READ ME
+--------------------------------------------------------------------
+As of July 2025, *all* metafield writes have been migrated to the dedicated `update_metafields` MCP tool. **This script no longer creates, updates, or deletes metafields.** Any payload elements under `metafields` will be silently ignored.
+
+If your workflow needs to write metafields (for example `faq.content`, `specs.techjson`, `content.features_box`, etc.) then call `update_metafields` instead.  See `/mcp_tools/products/update_metafields.py` for full documentation and examples.
+
+Keeping the metafield parameters here for the moment avoids breaking back-compatibility but they are a NO-OP. They will be removed in a future major version.
+====================================================================
 """
+
 
 import os
 import sys
@@ -502,8 +513,7 @@ class UpdateFullProductTool(BaseMCPTool):
             "handle": "handle",
             "tags": "tags",
             "seo": "seo",
-            "metafields": "metafields",
-            "variants": "variants"
+                        "variants": "variants"
         }
         
         for param, field in field_mapping.items():

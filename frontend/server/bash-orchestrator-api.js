@@ -112,10 +112,24 @@ router.post('/run', authenticateToken, async (req, res) => {
     // Create context without memories (they'll be added by getSmartContext)
     let fullContext;
     if (conversationMessages.length > 0) {
-      const history = conversationMessages.map(msg => 
-        `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
-      ).join('\n\n');
+      // CONTEXT SIZE LIMIT: Only load last 10 messages to prevent context explosion
+      const MAX_HISTORY_MESSAGES = 10;
+      const recentMessages = conversationMessages.slice(-MAX_HISTORY_MESSAGES);
+      
+      console.log(`[CONTEXT] Loading ${recentMessages.length}/${conversationMessages.length} recent messages (limited to prevent size explosion)`);
+      
+      const history = recentMessages.map(msg => {
+        // Truncate very long messages to prevent context explosion
+        const content = msg.content.length > 2000 ? 
+          msg.content.substring(0, 2000) + '\n[Message truncated for size]' : 
+          msg.content;
+        return `${msg.role === 'user' ? 'User' : 'Assistant'}: ${content}`;
+      }).join('\n\n');
+      
       fullContext = `[Conversation ID: ${conversationId}]\n\nPrevious conversation:\n${history}\n\nUser: ${message}`;
+      
+      // Log total context size for monitoring
+      console.log(`[CONTEXT SIZE] Full context: ${fullContext.length} characters (${(fullContext.length/1024).toFixed(1)}KB)`);
     } else {
       fullContext = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     }

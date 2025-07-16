@@ -4,9 +4,8 @@ MCP wrapper for update_pricing tool
 
 from typing import Dict, Any, Optional
 import json
-import subprocess
-import os
 from ..base import BaseMCPTool
+from base import ShopifyClient
 
 class UpdatePricingTool(BaseMCPTool):
     """Update product variant pricing"""
@@ -65,65 +64,181 @@ class UpdatePricingTool(BaseMCPTool):
     }
     
     async def execute(self, product_id: str, variant_id: str, price: float, compare_at_price: Optional[float] = None, cost: Optional[float] = None) -> Dict[str, Any]:
-        """Execute update_pricing.py tool"""
+        """Execute pricing update via Shopify API"""
         self.validate_env()
         
-        tool_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "update_pricing.py"
-        )
-        
-        cmd = ["python3", tool_path, "--product-id", product_id, "--variant-id", variant_id, "--price", str(price)]
-        
-        if compare_at_price is not None:
-            cmd.extend(["--compare-at", str(compare_at_price)])
-            
-        if cost is not None:
-            cmd.extend(["--cost", str(cost)])
-            
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            client = ShopifyClient()
             
-            # Parse output
-            output = result.stdout.strip()
-            try:
-                return json.loads(output)
-            except json.JSONDecodeError:
-                return {"success": True, "message": output}
+            # Normalize IDs
+            if not product_id.startswith('gid://'):
+                product_id = f"gid://shopify/Product/{product_id}"
+            if not variant_id.startswith('gid://'):
+                variant_id = f"gid://shopify/ProductVariant/{variant_id}"
+            
+            # Build variant input for pricing update
+            variant_input = {'id': variant_id}
+            
+            # Format price (ensure 2 decimal places)
+            if price is not None:
+                variant_input['price'] = f"{float(price):.2f}"
+            
+            # Handle compare_at_price
+            if compare_at_price is not None:
+                variant_input['compareAtPrice'] = f"{float(compare_at_price):.2f}" if compare_at_price > 0 else None
+            
+            # Update pricing via productVariantsBulkUpdate
+            mutation = '''
+            mutation updateVariantPricing($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    product {
+                        id
+                        title
+                    }
+                    productVariants {
+                        id
+                        title
+                        price
+                        compareAtPrice
+                        sku
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+            '''
+            
+            variables = {
+                'productId': product_id,
+                'variants': [variant_input]
+            }
+            
+            result = client.execute_graphql(mutation, variables)
+            
+            # Check for errors
+            data = result.get('data', {}).get('productVariantsBulkUpdate', {})
+            user_errors = data.get('userErrors', [])
+            
+            if user_errors:
+                return {
+                    "success": False,
+                    "errors": [f"{error['field']}: {error['message']}" for error in user_errors]
+                }
+            
+            updated_variants = data.get('productVariants', [])
+            
+            # Handle cost update separately if provided
+            cost_result = None
+            if cost is not None and updated_variants:
+                cost_result = await self._update_variant_cost(client, variant_id, cost)
+            
+            return {
+                "success": True,
+                "product": data.get('product'),
+                "updated_variants": updated_variants,
+                "cost_update": cost_result
+            }
                 
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr or e.stdout or str(e)
-            raise Exception(f"update_pricing failed: {error_msg}")
+        except Exception as e:
+            raise Exception(f"update_pricing failed: {str(e)}")
+    
+    async def _update_variant_cost(self, client: ShopifyClient, variant_id: str, cost: float) -> Dict[str, Any]:
+        """Update inventory item cost (separate mutation)"""
+        try:
+            # First get the inventory item ID
+            query = '''
+            query getInventoryItem($id: ID!) {
+                productVariant(id: $id) {
+                    inventoryItem {
+                        id
+                    }
+                }
+            }
+            '''
+            
+            inv_result = client.execute_graphql(query, {'id': variant_id})
+            inventory_item = inv_result.get('data', {}).get('productVariant', {}).get('inventoryItem')
+            
+            if not inventory_item:
+                return {"success": False, "error": "Could not find inventory item for cost update"}
+            
+            # Update cost
+            mutation = '''
+            mutation updateCost($id: ID!, $input: InventoryItemInput!) {
+                inventoryItemUpdate(id: $id, input: $input) {
+                    inventoryItem {
+                        id
+                        unitCost {
+                            amount
+                            currencyCode
+                        }
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+            '''
+            
+            variables = {
+                'id': inventory_item['id'],
+                'input': {
+                    'cost': f"{float(cost):.2f}"
+                }
+            }
+            
+            cost_result = client.execute_graphql(mutation, variables)
+            
+            # Check for errors
+            cost_data = cost_result.get('data', {}).get('inventoryItemUpdate', {})
+            cost_errors = cost_data.get('userErrors', [])
+            
+            if cost_errors:
+                return {
+                    "success": False,
+                    "errors": [f"{error['field']}: {error['message']}" for error in cost_errors]
+                }
+            
+            return {
+                "success": True,
+                "inventory_item": cost_data.get('inventoryItem')
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
             
     async def test(self) -> Dict[str, Any]:
-        """Test the tool"""
+        """Test the tool (read-only test)"""
         try:
-            # Check if tool is accessible
-            tool_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "update_pricing.py"
-            )
+            # Test environment and API connectivity
+            self.validate_env()
             
-            result = subprocess.run(
-                ["python3", tool_path, "--help"],
-                capture_output=True,
-                text=True
-            )
+            client = ShopifyClient()
             
-            if result.returncode == 0:
+            # Simple query to test API connectivity
+            query = """
+            query testConnection {
+                shop {
+                    name
+                    myshopifyDomain
+                }
+            }
+            """
+            
+            result = client.execute_graphql(query)
+            
+            if result.get('data', {}).get('shop'):
                 return {
                     "status": "passed",
-                    "message": "Tool is accessible"
+                    "message": f"API connectivity verified for shop: {result['data']['shop']['name']}"
                 }
             else:
                 return {
                     "status": "failed",
-                    "message": "Tool failed to respond"
+                    "message": "Failed to connect to Shopify API"
                 }
                 
         except Exception as e:

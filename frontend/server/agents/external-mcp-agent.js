@@ -63,7 +63,13 @@ Available MCP servers and their capabilities:`;
     }
   }
 
-  instructions += `\n\nUse the appropriate tools to complete the requested task efficiently.`;
+  instructions += `\n\nUse the appropriate tools to complete the requested task efficiently.
+
+## AUTONOMOUS EXECUTION MODE
+- Execute tasks immediately without asking for confirmation
+- Use tools directly when you have clear instructions
+- Only ask questions if critical data is missing
+- Provide results, not progress updates`;
 
   // Add context if provided
   if (richContext) {
@@ -93,11 +99,54 @@ Available MCP servers and their capabilities:`;
 }
 
 /**
+ * Execute a task with timeout and retry logic
+ */
+async function executeWithTimeout(agent, task, options = {}) {
+  const { run } = await import('@openai/agents');
+  const { maxTurns = 10, timeout = 120000, retries = 3 } = options; // 2 minute timeout, 3 retries
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`[External MCP Agent] Attempt ${attempt}/${retries} - Executing task with ${timeout/1000}s timeout...`);
+      
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Task execution timed out after ${timeout/1000} seconds`));
+        }, timeout);
+      });
+      
+      // Race between the actual execution and timeout
+      const executionPromise = run(agent, task, { maxTurns });
+      const result = await Promise.race([executionPromise, timeoutPromise]);
+      
+      console.log('[External MCP Agent] Task completed successfully');
+      return result;
+      
+    } catch (error) {
+      const isTimeoutError = error.message.includes('timeout') || 
+                           error.message.includes('terminated') || 
+                           error.message.includes('ECONNRESET');
+      
+      console.log(`[External MCP Agent] Attempt ${attempt} failed:`, error.message);
+      
+      if (isTimeoutError && attempt < retries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+        console.log(`[External MCP Agent] Network/timeout error, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // If it's the last attempt or not a timeout error, throw it
+      throw error;
+    }
+  }
+}
+
+/**
  * Execute a task using external MCP tools
  */
 export async function executeExternalMCPTask(task, richContext = null) {
-  const { run } = await import('@openai/agents');
-  
   try {
     console.log('[External MCP Agent] Creating agent for task:', task.substring(0, 100) + '...');
     const agent = await createExternalMCPAgent(task, richContext);
@@ -106,15 +155,23 @@ export async function executeExternalMCPTask(task, richContext = null) {
       throw new Error('No external MCP servers available');
     }
     
-    console.log('[External MCP Agent] Executing task...');
-    const result = await run(agent, task, { maxTurns: 10 });
-    
-    console.log('[External MCP Agent] Task completed successfully');
-    return result;
+    // Execute with timeout and retry logic
+    return await executeWithTimeout(agent, task, {
+      maxTurns: 10,
+      timeout: 120000, // 2 minutes
+      retries: 3
+    });
     
   } catch (error) {
-    console.error('[External MCP Agent] Task failed:', error);
-    throw error;
+    console.error('[External MCP Agent] Task failed after all retries:', error);
+    
+    // Return a graceful error response instead of throwing
+    return {
+      success: false,
+      error: error.message,
+      errorType: error.message.includes('timeout') ? 'timeout' : 'execution',
+      message: `External MCP Agent failed: ${error.message}`
+    };
   }
 }
 

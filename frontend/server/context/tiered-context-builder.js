@@ -171,26 +171,27 @@ export async function buildFullContext(options, coreContext = null) {
   // Extend with full data
   fullContext.fullSlice = true;
   
-  // Get extended memories (up to 15)
+  // Get extended memories (up to 10, with size limits)
   if (includeAllMemories && userId) {
     try {
-      const memories = await memoryOperations.search(task, `user_${userId}`, 15);
+      const memories = await memoryOperations.search(task, `user_${userId}`, 10);
       fullContext.relevantMemories = memories.map(m => ({
-        content: m.memory,
+        content: m.memory.length > 1000 ? m.memory.substring(0, 1000) + '...' : m.memory,
         score: m.score,
         metadata: m.metadata
       }));
+      console.log(`[CONTEXT] Loaded ${fullContext.relevantMemories.length} memories for full context`);
     } catch (error) {
       console.log(`[CONTEXT] Error loading extended memories:`, error.message);
     }
   }
   
-  // Get relevant prompt fragments for full context using configuration
+  // Get relevant prompt fragments for full context using configuration (with size limits)
   try {
-    const rawFragments = await memoryOperations.searchSystemPromptFragments(task, 30); // Get more initially
+    const rawFragments = await memoryOperations.searchSystemPromptFragments(task, 20); // Reduced from 30
     if (rawFragments && rawFragments.length > 0) {
       const mappedFragments = rawFragments.map(f => ({
-        content: f.memory,
+        content: f.memory.length > 1500 ? f.memory.substring(0, 1500) + '...' : f.memory, // Truncate long fragments
         category: f.metadata?.category,
         priority: f.metadata?.priority,
         tags: f.metadata?.tags,
@@ -198,23 +199,25 @@ export async function buildFullContext(options, coreContext = null) {
         score: f.score
       }));
       
-      // Filter and limit based on configuration
+      // Filter and limit based on configuration (reduced limits)
       fullContext.promptFragments = filterPromptFragments(mappedFragments, {
         agentType: 'orchestrator',
         taskKeywords: task.split(' ').filter(w => w.length > 3),
-        maxResults: promptFragmentConfig.limits.full
+        maxResults: Math.min(promptFragmentConfig.limits.full, 15) // Cap at 15 even if config allows more
       });
       
       console.log(`[CONTEXT] Filtered to ${fullContext.promptFragments.length} relevant prompt fragments for full context`);
       
-      // Group by category for better organization
+      // Group by category for better organization (limit categories to prevent explosion)
       fullContext.promptFragmentsByCategory = {};
-      fullContext.promptFragments.forEach(f => {
+      fullContext.promptFragments.slice(0, 12).forEach(f => { // Only process first 12 fragments
         const cat = f.category || 'general';
         if (!fullContext.promptFragmentsByCategory[cat]) {
           fullContext.promptFragmentsByCategory[cat] = [];
         }
-        fullContext.promptFragmentsByCategory[cat].push(f);
+        if (fullContext.promptFragmentsByCategory[cat].length < 3) { // Max 3 per category
+          fullContext.promptFragmentsByCategory[cat].push(f);
+        }
       });
     }
   } catch (error) {
@@ -222,11 +225,19 @@ export async function buildFullContext(options, coreContext = null) {
     fullContext.promptFragments = [];
   }
   
-  // Get full conversation history (up to 10 turns)
+  // Get full conversation history (up to 8 turns, truncated for size)
   if (includeExtendedHistory && conversationId) {
     // For now, use the provided conversation history or empty array
     // In production, this would fetch from database
-    fullContext.conversationHistory = options.conversationHistory || [];
+    const rawHistory = options.conversationHistory || [];
+    fullContext.conversationHistory = rawHistory.slice(-8).map(turn => {
+      // Truncate very long conversation turns
+      if (typeof turn === 'string') {
+        return turn.length > 1500 ? turn.substring(0, 1500) + '...' : turn;
+      }
+      return turn;
+    });
+    console.log(`[CONTEXT] Limited conversation history to ${fullContext.conversationHistory.length} turns for size control`);
   }
   
   // Get all business rules and tools

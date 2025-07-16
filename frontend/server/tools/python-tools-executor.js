@@ -113,7 +113,7 @@ export function isPythonMCPTool(toolName) {
     'manage_miele_sales', 'manage_map_sales', 'manage_redirects', 'bulk_price_update',
     'update_pricing', 'upload_to_skuvault', 'manage_skuvault_kits', 'add_product_images',
     'create_open_box', 'manage_tags', 'get_product', 'add_variants_to_product',
-    'create_full_product', 'update_status', 'create_product', 'get_product_native',
+    'create_full_product', 'update_status', 'create_product', 'get_product_native','update_metafields',
     'search_products', 'create_combo', 'manage_variant_links', 'update_full_product'
   ];
   

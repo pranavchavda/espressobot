@@ -1,5 +1,5 @@
 """
-Native MCP implementation for get_product - no subprocess needed
+MCP wrapper for get_product tool
 """
 
 from typing import Dict, Any, Optional
@@ -12,22 +12,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from base import ShopifyClient
 from ..base import BaseMCPTool
 
-class GetProductNativeTool(BaseMCPTool):
-    """Get product details - native implementation"""
+class GetProductTool(BaseMCPTool):
+    """Get product details by SKU, handle, or product ID"""
     
-    name = "get_product_native"
-    description = "Get detailed product information by SKU, handle, or ID"
+    name = "get_product"
+    description = "Retrieve detailed product information from Shopify by SKU, handle, or product ID"
     context = """
-    This is a native MCP implementation that directly calls the Shopify API.
-    No subprocess overhead - faster and more reliable.
+    This tool retrieves comprehensive product data including:
+    - Basic info (title, description, status)
+    - All variants with pricing and inventory
+    - Images and metafields
+    - SEO settings
     
-    Accepts:
-    - SKU (e.g., "ESP-001")
-    - Handle (e.g., "mexican-altura")
+    Accepts multiple identifier types:
+    - SKU (e.g., "ESP-1001")
+    - Handle (e.g., "sanremo-cube-white")
     - Product ID (e.g., "gid://shopify/Product/123")
-    - Variant ID (will find parent product)
+    - Numeric ID (e.g., "123456789")
     
-    Returns complete product data including variants, images, and options.
+    Returns JSON with full product details.
     """
     
     input_schema = {
@@ -35,45 +38,29 @@ class GetProductNativeTool(BaseMCPTool):
         "properties": {
             "identifier": {
                 "type": "string",
-                "description": "Product SKU, handle, ID, or variant ID"
-            },
-            "include_metafields": {
-                "type": "boolean",
-                "description": "Include product metafields in response"
+                "description": "Product SKU, handle, or ID"
             }
         },
         "required": ["identifier"]
     }
     
-    async def execute(self, identifier: str, include_metafields: bool = False) -> Dict[str, Any]:
-        """Execute get_product directly without subprocess"""
+    async def execute(self, identifier: str) -> Dict[str, Any]:
+        """Execute get_product natively"""
         try:
             client = ShopifyClient()
             
             # Resolve product ID
             product_id = client.resolve_product_id(identifier)
             if not product_id:
-                raise Exception(f"Product not found with identifier: {identifier}")
+                return {
+                    "success": False,
+                    "error": f"Product not found with identifier: {identifier}"
+                }
             
-            # Build query with optional metafields
-            metafield_query = ''
-            if include_metafields:
-                metafield_query = '''
-                    metafields(first: 20) {
-                        edges {
-                            node {
-                                namespace
-                                key
-                                value
-                                type
-                            }
-                        }
-                    }
-                '''
-            
-            query = f'''
-            query getProduct($id: ID!) {{
-                product(id: $id) {{
+            # Get product data
+            query = '''
+            query getProduct($id: ID!) {
+                product(id: $id) {
                     id
                     title
                     handle
@@ -86,29 +73,29 @@ class GetProductNativeTool(BaseMCPTool):
                     createdAt
                     updatedAt
                     publishedAt
-                    seo {{
+                    seo {
                         title
                         description
-                    }}
-                    featuredImage {{
+                    }
+                    featuredImage {
                         url
                         altText
-                    }}
-                    images(first: 10) {{
-                        edges {{
-                            node {{
+                    }
+                    images(first: 10) {
+                        edges {
+                            node {
                                 url
                                 altText
-                            }}
-                        }}
-                    }}
-                    options {{
+                            }
+                        }
+                    }
+                    options {
                         name
                         values
-                    }}
-                    variants(first: 100) {{
-                        edges {{
-                            node {{
+                    }
+                    variants(first: 100) {
+                        edges {
+                            node {
                                 id
                                 title
                                 sku
@@ -118,26 +105,28 @@ class GetProductNativeTool(BaseMCPTool):
                                 availableForSale
                                 inventoryPolicy
                                 inventoryQuantity
-                                selectedOptions {{
+                                selectedOptions {
                                     name
                                     value
-                                }}
-                            }}
-                        }}
-                    }}
-                    {metafield_query}
-                }}
-            }}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             '''
             
             variables = {"id": product_id}
-            result = client.execute_query(query, variables)
+            result = client.execute_graphql(query, variables)
             
             product = result['data']['product']
             if not product:
-                raise Exception(f"Product not found: {product_id}")
+                return {
+                    "success": False,
+                    "error": f"Product not found: {product_id}"
+                }
                 
-            # Format the response
+            # Format the response to match original tool output
             return {
                 "success": True,
                 "product": self._format_product(product)
@@ -172,12 +161,6 @@ class GetProductNativeTool(BaseMCPTool):
         images = []
         for edge in product.get('images', {}).get('edges', []):
             images.append(edge['node'])
-            
-        # Extract metafields if present
-        metafields = []
-        if 'metafields' in product:
-            for edge in product['metafields']['edges']:
-                metafields.append(edge['node'])
         
         return {
             'id': product['id'],
@@ -193,20 +176,23 @@ class GetProductNativeTool(BaseMCPTool):
             'images': images,
             'featuredImage': product['featuredImage'],
             'seo': product['seo'],
-            'metafields': metafields if metafields else None,
             'createdAt': product['createdAt'],
             'updatedAt': product['updatedAt'],
             'publishedAt': product['publishedAt']
         }
             
     async def test(self) -> Dict[str, Any]:
-        """Test the tool with a simple query"""
+        """Test the tool with validation"""
         try:
-            # Just verify we can create a client
+            self.validate_env()
             client = ShopifyClient()
+            
+            # Test with a simple query to verify connection
+            result = client.execute_graphql('{ shop { name } }')
+            
             return {
                 "status": "passed",
-                "message": "Native tool ready"
+                "message": f"Connected to shop: {result.get('data', {}).get('shop', {}).get('name', 'Unknown')}"
             }
         except Exception as e:
             return {

@@ -42,7 +42,8 @@ class MCPServer:
         """Initialize server and discover tools"""
         logger.info("Initializing MCP server...")
         await self.discover_tools()
-        await self.test_all_tools()
+        # Skip automatic testing for performance during bulk operations
+        # await self.test_all_tools()  # Uncomment for manual testing
         logger.info(f"MCP server ready with {len(self.tools)} tools")
         
     async def discover_tools(self):

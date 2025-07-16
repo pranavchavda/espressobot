@@ -90,48 +90,77 @@ export async function routeToMCPAgent(task, context = {}) {
   });
   
   try {
+    let result;
+    
     // High confidence single agent routing
     if (routing.confidence === 'high' && !routing.needsMultipleAgents) {
       switch (routing.primaryAgent) {
         case 'python':
           console.log('[MCP Router] Routing to Python Tools Agent');
-          return await executePythonToolsTask(task, context.conversationId, context.richContext);
+          result = await executePythonToolsTask(task, context.conversationId, context.richContext);
+          break;
           
         case 'documentation':
           console.log('[MCP Router] Routing to Documentation Agent');
-          return await executeDocumentationQuery(task, context.richContext);
+          result = await executeDocumentationQuery(task, context.richContext);
+          break;
           
         case 'external':
           console.log('[MCP Router] Routing to External MCP Agent');
-          return await executeExternalMCPTask(task, context.richContext);
+          result = await executeExternalMCPTask(task, context.richContext);
+          break;
       }
     }
     
     // Complex task that might need multiple agents
-    if (routing.needsMultipleAgents) {
+    if (!result && routing.needsMultipleAgents) {
       console.log('[MCP Router] Complex task detected, may need multiple agents');
       
       // For now, route to primary agent
       // Future: implement parallel execution or agent chaining
       if (routing.primaryAgent) {
-        return await routeToSpecificAgent(routing.primaryAgent, task, context);
+        result = await routeToSpecificAgent(routing.primaryAgent, task, context);
       }
     }
     
     // Low confidence or no clear match
-    // Check if any external tools might handle it
-    if (await checkExternalToolAvailability(task)) {
-      console.log('[MCP Router] Found matching external tool');
-      return await executeExternalMCPTask(task, context.richContext);
+    if (!result) {
+      // Check if any external tools might handle it
+      if (await checkExternalToolAvailability(task)) {
+        console.log('[MCP Router] Found matching external tool');
+        result = await executeExternalMCPTask(task, context.richContext);
+      } else {
+        // Default to Python tools for Shopify-related tasks
+        console.log('[MCP Router] No clear match, defaulting to Python Tools Agent');
+        result = await executePythonToolsTask(task, context.conversationId, context.richContext);
+      }
     }
     
-    // Default to Python tools for Shopify-related tasks
-    console.log('[MCP Router] No clear match, defaulting to Python Tools Agent');
-    return await executePythonToolsTask(task, context.conversationId, context.richContext);
+    // Check if the result indicates an error (graceful failure)
+    if (result && result.success === false) {
+      console.log('[MCP Router] Agent returned graceful error:', result.message);
+      
+      // If it was a timeout error, log additional info
+      if (result.errorType === 'timeout') {
+        console.log('[MCP Router] Timeout error detected - network issues or long-running task');
+      }
+      
+      // Return the error result rather than throwing
+      return result;
+    }
+    
+    return result;
     
   } catch (error) {
-    console.error('[MCP Router] Routing failed:', error);
-    throw error;
+    console.error('[MCP Router] Routing failed with unhandled error:', error);
+    
+    // Return a graceful error response instead of throwing
+    return {
+      success: false,
+      error: error.message,
+      errorType: 'routing',
+      message: `MCP Router failed: ${error.message}`
+    };
   }
 }
 
