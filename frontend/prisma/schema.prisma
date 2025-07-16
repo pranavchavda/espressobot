@@ -23,6 +23,7 @@ model conversations {
   agent_runs   agent_runs[]
   users        users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   messages     messages[]
+  summaries    conversation_summaries[]
 }
 
 model embedding_cache {
@@ -93,4 +94,17 @@ model agent_runs {
   tasks         String
   created_at    DateTime      @default(now())
   conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
+}
+
+model conversation_summaries {
+  id              Int           @id @default(autoincrement())
+  conv_id         Int
+  summary         String        // The summarized content
+  start_msg_index Int           // Starting message index for this summary
+  end_msg_index   Int           // Ending message index for this summary
+  chunk_number    Int           // Which chunk this is (1st, 2nd, etc.)
+  created_at      DateTime      @default(now())
+  conversations   conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
+  
+  @@index([conv_id, chunk_number])
 }

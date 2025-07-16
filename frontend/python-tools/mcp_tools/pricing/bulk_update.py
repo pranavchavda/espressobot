@@ -1,40 +1,34 @@
 """
-MCP wrapper for bulk_price_update tool
+MCP wrapper for bulk_price_update tool - now a self-contained native tool.
 """
 
 from typing import Dict, Any, Optional, List
-import json
-import subprocess
-import os
-import tempfile
+from collections import defaultdict
 from ..base import BaseMCPTool
+from ..base import ShopifyClient
 
 class BulkPriceUpdateTool(BaseMCPTool):
-    """Update prices for multiple products at once"""
-    
+    """Update prices for multiple products at once using native API calls."""
+
     name = "bulk_price_update"
     description = "Update prices for multiple products from a list"
     context = """
-    Efficiently update prices for multiple products in a single operation.
-    
+    Efficiently update prices for multiple products in a single operation using native Shopify API calls.
+
     Accepts a list of price updates, each containing:
     - variant_id: Variant ID (numeric or GID format)
     - price: New price
     - compare_at_price: Optional original/MSRP price
-    
+
     Note: The tool expects Variant IDs, not SKUs. You can get variant IDs
     from get_product or search_products tools.
-    
+
     Important:
-    - Processes updates in batches for efficiency
-    - Validates all SKUs before making changes
-    - Reports success/failure for each product
+    - Processes updates in batches for efficiency by grouping variants per product.
+    - Reports success/failure for each product.
     - Use for seasonal sales, bulk repricing, etc.
-    
-    For complex scenarios (different prices per variant, percentage discounts),
-    consider using a bash agent with custom logic.
     """
-    
+
     input_schema = {
         "type": "object",
         "properties": {
@@ -54,92 +48,108 @@ class BulkPriceUpdateTool(BaseMCPTool):
         },
         "required": ["updates"]
     }
-    
+
     async def execute(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Execute bulk_price_update.py tool"""
+        """Execute bulk price update natively."""
         self.validate_env()
-        
-        # Create temporary CSV file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            # Write header - bulk_price_update.py expects these exact column names
-            f.write("Product ID,Product Title,Variant ID,SKU,Price,Compare At Price\n")
+        client = ShopifyClient()
+
+        # Group variants by product ID
+        product_updates: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        errors = []
+
+        for update in updates:
+            variant_id = str(update['variant_id'])
+            product_id = await self._get_product_id_for_variant(client, variant_id)
+
+            if not product_id:
+                errors.append({"variant_id": variant_id, "error": "Product not found"})
+                continue
+
+            variant_gid = f"gid://shopify/ProductVariant/{variant_id}" if not variant_id.startswith('gid://') else variant_id
             
-            # Write updates
-            for update in updates:
-                variant_id = update['variant_id']
-                price = update['price']
-                compare_at = update.get('compare_at_price', '')
-                # Product ID and title will be looked up by the tool, SKU is optional
-                f.write(f",,{variant_id},,{price},{compare_at}\n")
-            
-            csv_path = f.name
-        
-        try:
-            tool_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "bulk_price_update.py"
-            )
-            
-            result = subprocess.run(
-                ["python3", tool_path, csv_path],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            
-            # Parse output
-            output = result.stdout.strip()
-            try:
-                return json.loads(output)
-            except json.JSONDecodeError:
-                # Parse text output for results
-                lines = output.split('\n')
-                results = {
-                    "success": True,
-                    "message": output,
-                    "updates": len(updates),
-                    "processed": len([l for l in lines if 'updated' in l.lower()])
+            variant_update = {
+                "id": variant_gid,
+                "price": str(update["price"])
+            }
+            if "compare_at_price" in update and update["compare_at_price"] is not None:
+                variant_update["compareAtPrice"] = str(update["compare_at_price"])
+            else:
+                variant_update["compareAtPrice"] = None
+
+            product_updates[product_id].append(variant_update)
+
+    # Execute bulk updates per product
+        updated_count = 0
+        for product_id, variants in product_updates.items():
+            mutation = '''
+            mutation updateVariantPricing($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    productVariants {
+                        id
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
                 }
-                return results
-                
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr or e.stdout or str(e)
-            raise Exception(f"bulk_price_update failed: {error_msg}")
-        finally:
-            # Clean up temp file
-            if os.path.exists(csv_path):
-                os.unlink(csv_path)
-                
+            }
+            '''
+            variables = {
+                'productId': product_id,
+                'variants': variants
+            }
+            result = client.execute_graphql(mutation, variables)
+            data = result.get('data', {}).get('productVariantsBulkUpdate', {})
+            user_errors = data.get('userErrors', [])
+
+            if user_errors:
+                errors.append({"product_id": product_id, "error": user_errors})
+            else:
+                updated_count += len(data.get('productVariants', []))
+
+        return {
+            "success": len(errors) == 0,
+            "total_variants_processed": len(updates),
+            "variants_updated": updated_count,
+            "errors": errors
+        }
+
+    async def _get_product_id_for_variant(self, client: ShopifyClient, variant_id: str) -> Optional[str]:
+        """Get the parent product ID for a given variant ID."""
+        variant_gid = f"gid://shopify/ProductVariant/{variant_id}" if not variant_id.startswith('gid://') else variant_id
+
+        query = '''
+        query getProductFromVariant($id: ID!) {
+            productVariant(id: $id) {
+                product {
+                    id
+                }
+            }
+        }
+        '''
+        result = client.execute_graphql(query, {"id": variant_gid})
+        if result and result.get("data", {}).get("productVariant"):
+            return result["data"]["productVariant"]["product"]["id"]
+        return None
+
     async def test(self) -> Dict[str, Any]:
-        """Test the tool"""
+        """Test the tool (read-only test)"""
         try:
-            tool_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "bulk_price_update.py"
-            )
-            
-            # Test with empty CSV to check tool accessibility
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-                f.write("Product ID,Product Title,Variant ID,SKU,Price,Compare At Price\n")
-                test_csv = f.name
-            
-            try:
-                result = subprocess.run(
-                    ["python3", tool_path, test_csv, "--dry-run"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                
-                # We expect it to run (even if no updates)
+            self.validate_env()
+            client = ShopifyClient()
+            query = "{ shop { name } }"
+            result = client.execute_graphql(query)
+            if result.get('data', {}).get('shop'):
                 return {
                     "status": "passed",
-                    "message": "Tool is accessible"
+                    "message": f"API connectivity verified for shop: {result['data']['shop']['name']}"
                 }
-            finally:
-                if os.path.exists(test_csv):
-                    os.unlink(test_csv)
-                    
+            else:
+                return {
+                    "status": "failed",
+                    "message": "Failed to connect to Shopify API"
+                }
         except Exception as e:
             return {
                 "status": "failed",

@@ -173,10 +173,19 @@ const tools = mcpServer.getTools();  // ❌ Old pattern
 - **Example**: `z.string().nullable().default(null)` instead of `z.string().default('')`
 - **Files**: `/server/custom-tools-definitions.js` and any new tool definitions
 
-### Guardrails (EspressoBot v0.2)
-- **Issue**: openai-agents SDK bug with `.tripwire_triggered`
-- **Status**: Temporarily disabled, awaiting SDK fix
-- **Workaround**: Commented out in `/python-backend/main.py:157`
+### Guardrails Configuration (NEW - July 16, 2025)
+- **Location**: `/server/config/guardrail-config.js`
+- **Features**: Configurable guardrails to prevent overzealous blocking
+- **Settings**:
+  - Bulk operation detection (enabled/disabled)
+  - Max retries reduced from 5 to 3
+  - Exclude patterns for false positives
+  - AI chokidars can be disabled for simple pattern matching
+- **Environment Overrides**:
+  - `GUARDRAILS_ENABLED=false` - Disable all guardrails
+  - `GUARDRAILS_BULK_MAX_RETRIES=1` - Reduce retry attempts
+  - `GUARDRAILS_USE_AI=false` - Use simple patterns instead of AI
+- **Status Check**: `node server/utils/show-guardrail-status.js`
 
 ---
 
@@ -186,7 +195,7 @@ const tools = mcpServer.getTools();  // ❌ Old pattern
 ```bash
 # Main frontend
 cd /home/pranav/espressobot/frontend
-npm run dev
+pnpm run dev  # Updated to pnpm
 
 # EspressoBot v0.2 (if needed)
 cd /home/pranav/espressobot/espressobot-v2
@@ -202,3 +211,4 @@ cd /home/pranav/espressobot/espressobot-v2
 ---
 
 *Last Updated: July 14, 2025*
+```

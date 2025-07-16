@@ -4,6 +4,7 @@
 
 import { Agent } from '@openai/agents';
 import { MCPServerStdio } from '@openai/agents-core';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
 let shopifyDevMCP = null;
 
@@ -32,7 +33,7 @@ async function getShopifyDevMCP() {
 /**
  * Create a Documentation MCP Agent
  */
-export async function createDocumentationMCPAgent(task = '', richContext = null) {
+export async function createDocumentationMCPAgent(task = '', conversationId = null, richContext = null) {
   // Get the MCP server
   const mcpServer = await getShopifyDevMCP();
   
@@ -78,10 +79,17 @@ When answering questions:
     instructions += `\n\nDocumentation Request: ${task}`;
   }
 
+  // Build final instructions with agency context
+  const finalInstructions = await buildAgentInstructions(instructions, {
+    agentRole: 'Documentation specialist',
+    conversationId,
+    taskDescription: task
+  });
+
   // Create the agent
   const agent = new Agent({
     name: 'Documentation MCP Agent',
-    instructions: instructions,
+    instructions: finalInstructions,
     mcpServers: [mcpServer],
     model: process.env.OPENAI_MODEL || 'gpt-4o',
     toolUseBehavior: 'run_llm_again'

@@ -9,6 +9,7 @@ import { Agent } from '@openai/agents';
 import { fileSearchTool } from '@openai/agents-openai';
 import { bashTool } from '../tools/bash-tool.js';
 import { getVectorStoreId } from '../context-loader/vector-store-manager.js';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
 /**
  * Create a bash agent with semantic search capabilities
@@ -117,10 +118,17 @@ You also have access to semantic search through the search_documentation tool:
 
 IMPORTANT: The orchestrator has already provided relevant context above. Only use search_documentation if you need additional information not included in the context.` + autonomyContext + `\n\nYour specific task: ${task}`;
   
+  // Build final instructions with agency context
+  const finalInstructions = await buildAgentInstructions(instructions, {
+    agentRole: 'Semantic Bash specialist',
+    conversationId,
+    taskDescription: task
+  });
+
   // Create the agent
   return new Agent({
     name,
-    instructions,
+    instructions: finalInstructions,
     tools,
     model: 'gpt-4.1-mini'
   });

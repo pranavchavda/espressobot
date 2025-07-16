@@ -36,7 +36,21 @@ This is preferred over direct tool usage for:
           title: z.string(),
           sku: z.string()
         })).nullable().default(null).describe('Recently accessed products'),
-        current_task: z.string().nullable().default(null).describe('Current development task for documentation queries')
+        current_task: z.string().nullable().default(null).describe('Current development task for documentation queries'),
+        bulk_items: z.array(z.union([z.string(), z.object({
+          name: z.string().nullable().default(null),
+          type: z.string().nullable().default(null),
+          vendor: z.string().nullable().default(null),
+          sku: z.string().nullable().default(null),
+          title: z.string().nullable().default(null),
+          description: z.string().nullable().default(null)
+        }).strict()])).nullable().default(null).describe('Items to process in bulk operations (strings or objects)'),
+        bulk_operation_type: z.string().nullable().default(null).describe('Type of bulk operation (create, update, etc.)'),
+        bulk_progress: z.object({
+          total: z.number(),
+          completed: z.number(),
+          current_index: z.number()
+        }).nullable().default(null).describe('Progress tracking for bulk operations')
       }).nullable().default(null).describe('Optional context for the agent')
     }),
     
@@ -54,7 +68,10 @@ This is preferred over direct tool usage for:
           relevantMemories: context.relevant_memories || [],
           recentProducts: context.recent_products || [],
           currentTask: context.current_task,
-          currentTasks: null // Will be populated if available
+          currentTasks: null, // Will be populated if available
+          bulkItems: context.bulk_items || null,
+          bulkOperationType: context.bulk_operation_type || null,
+          bulkProgress: context.bulk_progress || null
         } : {};
         
         // Add current tasks if conversation ID is provided

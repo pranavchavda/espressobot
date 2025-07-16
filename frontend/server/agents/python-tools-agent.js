@@ -5,9 +5,10 @@
 import { Agent } from '@openai/agents';
 import { MCPServerStdio, setTracingDisabled } from '@openai/agents-core';
 import path from 'path';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
-// Disable tracing to prevent 7MB span output errors
-setTracingDisabled(true);
+// Re-enable tracing for OpenAI dashboard visibility
+// setTracingDisabled(true);
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,7 +50,7 @@ export async function createPythonToolsAgent(task = '', conversationId = null, r
   const mcpServer = await getPythonMCPServer();
   
   // Build the agent prompt with context
-  let systemPrompt = `You are a Python Tools Agent specialized in Shopify operations for iDrinkCoffee.com.
+  const baseInstructions = `You are a Python Tools Agent specialized in Shopify operations for iDrinkCoffee.com.
 
 You have access to Python-based tools for:
 - Product management (search, create, update)
@@ -68,6 +69,8 @@ Always use the appropriate tool for the task. Be precise and efficient.
 - Only ask questions if critical data is missing
 - Provide results, not progress updates`;
 
+  let systemPrompt = baseInstructions;
+  
   // Add rich context if provided
   if (richContext) {
     if (richContext.userProfile) {
@@ -100,11 +103,34 @@ Always use the appropriate tool for the task. Be precise and efficient.
     systemPrompt += 'When you complete your work, communicate back to the orchestrator what you accomplished.\n';
     systemPrompt += 'The orchestrator will handle updating the task status - this is the user\'s primary source of truth.\n';
   }
+  
+  // Add bulk operation context if available
+  if (richContext?.bulkItems && richContext.bulkItems.length > 0) {
+    systemPrompt += '\n\n## BULK OPERATION CONTEXT\n';
+    systemPrompt += `You are processing a bulk operation of type: ${richContext.bulkOperationType || 'update'}\n`;
+    if (richContext.bulkProgress) {
+      systemPrompt += `Progress: ${richContext.bulkProgress.completed}/${richContext.bulkProgress.total} items completed\n`;
+      systemPrompt += `Current item index: ${richContext.bulkProgress.current_index}\n`;
+    }
+    systemPrompt += '\n### Items to process:\n';
+    richContext.bulkItems.forEach((item, idx) => {
+      systemPrompt += `${idx + 1}. ${JSON.stringify(item)}\n`;
+    });
+    systemPrompt += '\n### CRITICAL: You MUST process these items immediately without asking for clarification.\n';
+    systemPrompt += 'Use the appropriate tools to complete the bulk operation on ALL items listed above.\n';
+  }
+
+  // Build final instructions with agency context
+  const instructions = await buildAgentInstructions(systemPrompt, {
+    agentRole: 'Python Tools specialist',
+    conversationId,
+    taskDescription: task
+  });
 
   // Create the agent with the MCP server
   const agent = new Agent({
     name: 'Python Tools Agent',
-    instructions: systemPrompt,
+    instructions,
     mcpServers: [mcpServer],
     model: process.env.OPENAI_MODEL || 'gpt-4o',
     toolUseBehavior: 'run_llm_again'

@@ -4,6 +4,7 @@
 
 import { Agent } from '@openai/agents';
 import MCPServerManager from '../tools/mcp-server-manager.js';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
 let serverManager = null;
 let externalServers = [];
@@ -35,7 +36,7 @@ async function initializeExternalServers() {
 /**
  * Create an External MCP Agent with all configured external servers
  */
-export async function createExternalMCPAgent(task = '', richContext = null) {
+export async function createExternalMCPAgent(task = '', conversationId = null, richContext = null) {
   // Initialize servers if needed
   await initializeExternalServers();
   
@@ -86,10 +87,17 @@ Available MCP servers and their capabilities:`;
     instructions += `\n\nCurrent Task: ${task}`;
   }
 
+  // Build final instructions with agency context
+  const finalInstructions = await buildAgentInstructions(instructions, {
+    agentRole: 'External Tools specialist',
+    conversationId,
+    taskDescription: task
+  });
+
   // Create the agent
   const agent = new Agent({
     name: 'External MCP Agent',
-    instructions: instructions,
+    instructions: finalInstructions,
     mcpServers: mcpServers,
     model: process.env.OPENAI_MODEL || 'gpt-4o',
     toolUseBehavior: 'run_llm_again'

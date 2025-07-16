@@ -2,9 +2,10 @@ import { Agent, MCPServerStdio, tool, webSearchTool } from '@openai/agents';
 import { z } from 'zod';
 import { setTracingDisabled } from '@openai/agents-core';
 import fs from 'fs/promises';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
-// Disable tracing to prevent 7MB span output errors
-setTracingDisabled(true);
+// Re-enable tracing for OpenAI dashboard visibility
+// setTracingDisabled(true);
 import { executeBashCommand } from '../tools/bash-tool.js';
 import { learningTool, reflectAndLearnTool } from '../tools/learning-tool.js';
 
@@ -131,7 +132,7 @@ export async function createConnectedSWEAgent(task = '', conversationId = null, 
   const { buildPromptFromRichContext } = await import('../tools/bash-tool.js');
   const contextualPrompt = buildPromptFromRichContext(richContext);
   
-  const instructions = contextualPrompt + `
+  const baseInstructions = contextualPrompt + `
 
 ## Software Engineering Agent Capabilities
 
@@ -161,6 +162,13 @@ You have access to Shopify Dev MCP which provides:
 
 Your specific task: ${task}`;
   
+  // Build final instructions with agency context
+  const instructions = await buildAgentInstructions(baseInstructions, {
+    agentRole: 'Software Engineering specialist',
+    conversationId,
+    taskDescription: task
+  });
+
   // Create agent with connected servers
   const agent = new Agent({
     name: 'SWE_Agent_Connected',

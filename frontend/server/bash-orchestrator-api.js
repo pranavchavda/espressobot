@@ -4,6 +4,7 @@ import { runDynamicOrchestrator } from './espressobot1.js';
 import { authenticateToken } from './auth.js';
 import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/task-planning-agent.js';
 import { memoryOperations } from './memory/memory-operations-local.js';
+import { buildCompressedContext } from './agents/conversation-summarizer-agent.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -109,27 +110,50 @@ router.post('/run', authenticateToken, async (req, res) => {
     // Store the user ID globally for memory operations
     global.currentUserId = `user_${USER_ID}`;
     
-    // Create context without memories (they'll be added by getSmartContext)
+    // Create context with conversation compression
     let fullContext;
     if (conversationMessages.length > 0) {
-      // CONTEXT SIZE LIMIT: Only load last 10 messages to prevent context explosion
-      const MAX_HISTORY_MESSAGES = 10;
-      const recentMessages = conversationMessages.slice(-MAX_HISTORY_MESSAGES);
+      console.log(`[CONTEXT] Processing ${conversationMessages.length} messages with compression`);
       
-      console.log(`[CONTEXT] Loading ${recentMessages.length}/${conversationMessages.length} recent messages (limited to prevent size explosion)`);
+      // Use the summarization agent to build compressed context
+      const compressedContext = await buildCompressedContext(conversationMessages, {
+        maxRecentTurns: 8  // Keep last 8 messages unsummarized
+      });
       
-      const history = recentMessages.map(msg => {
-        // Truncate very long messages to prevent context explosion
-        const content = msg.content.length > 2000 ? 
-          msg.content.substring(0, 2000) + '\n[Message truncated for size]' : 
-          msg.content;
-        return `${msg.role === 'user' ? 'User' : 'Assistant'}: ${content}`;
-      }).join('\n\n');
+      // Build context string with summaries and recent messages
+      let contextParts = [`[Conversation ID: ${conversationId}]`];
       
-      fullContext = `[Conversation ID: ${conversationId}]\n\nPrevious conversation:\n${history}\n\nUser: ${message}`;
+      // Add conversation summary if available
+      if (compressedContext.finalSummary) {
+        contextParts.push(`\nConversation Summary (${compressedContext.summarizedCount} earlier messages):\n${compressedContext.finalSummary.summary}`);
+        
+        // Add pending items if any
+        if (compressedContext.finalSummary.pendingItems?.length > 0) {
+          contextParts.push(`\nPending items from earlier conversation:\n- ${compressedContext.finalSummary.pendingItems.join('\n- ')}`);
+        }
+      }
       
-      // Log total context size for monitoring
-      console.log(`[CONTEXT SIZE] Full context: ${fullContext.length} characters (${(fullContext.length/1024).toFixed(1)}KB)`);
+      // Add recent conversation
+      if (compressedContext.recentMessages.length > 0) {
+        const recentHistory = compressedContext.recentMessages.map(msg => {
+          // Still truncate individual messages if they're very long
+          const content = msg.content.length > 2000 ? 
+            msg.content.substring(0, 2000) + '\n[Message truncated for size]' : 
+            msg.content;
+          return `${msg.role === 'user' ? 'User' : 'Assistant'}: ${content}`;
+        }).join('\n\n');
+        
+        contextParts.push(`\nRecent conversation:\n${recentHistory}`);
+      }
+      
+      // Add current message
+      contextParts.push(`\nUser: ${message}`);
+      
+      fullContext = contextParts.join('\n');
+      
+      // Log compression statistics
+      console.log(`[CONTEXT COMPRESSION] Summary: ${compressedContext.summarizedCount} messages compressed, ${compressedContext.recentMessages.length} recent messages kept`);
+      console.log(`[CONTEXT SIZE] Compressed context: ${fullContext.length} characters (${(fullContext.length/1024).toFixed(1)}KB)`);
     } else {
       fullContext = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
     }

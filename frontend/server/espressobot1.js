@@ -7,7 +7,7 @@ import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool
 // import { memoryAgent } from './agents/memory-agent.js';
 // import { sweAgent } from './agents/swe-agent.js';
 import { createConnectedSWEAgent } from './agents/swe-agent-connected.js';
-import { taskPlanningAgent } from './agents/task-planning-agent.js';
+import { createTaskPlan } from './agents/task-planning-agent.js';
 import { createParallelExecutorAgent, validateParallelExecution } from './agents/parallel-executor-agent.js';
 import logger from './logger.js';
 import fs from 'fs/promises';
@@ -30,13 +30,14 @@ import { validateAndFixBase64 } from './vision-preprocessor.js';
 import { interceptConsoleForUser, restoreConsole } from './utils/console-interceptor.js';
 import { toolResultCache } from './memory/tool-result-cache.js';
 import { createSpawnMCPAgentTool } from './tools/spawn-mcp-agent-tool.js';
+import { buildAgentContextPreamble, buildAgentInstructions } from './utils/agent-context-builder.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
-// Disable tracing to prevent 7MB span output errors
-setTracingDisabled(true);
-console.log('[ORCHESTRATOR] OpenAI tracing disabled to prevent large output errors');
+// Re-enable tracing for OpenAI dashboard visibility
+// setTracingDisabled(true);
+console.log('[ORCHESTRATOR] OpenAI tracing ENABLED for dashboard visibility');
 
 // Store the current SSE emitter for access by spawned agents
 let currentSseEmitter = null;
@@ -85,6 +86,20 @@ async function buildAgentContext(options) {
   
   console.log(`[ORCHESTRATOR] Building tiered context for task: ${task.substring(0, 100)}...`);
   
+  // Check if we have adaptive context from bulk operation
+  if (bulkOperationState.isActive && 
+      bulkOperationState.conversationId === conversationId && 
+      bulkOperationState.adaptiveContext) {
+    console.log('[ORCHESTRATOR] Using existing adaptive context from bulk operation');
+    // Enhance the existing context if needed
+    const { enhanceContext } = await import('./context/adaptive-context-builder.js');
+    const context = await enhanceContext(bulkOperationState.adaptiveContext, [
+      'recent progress',
+      'failed items'
+    ]);
+    return context;
+  }
+  
   // Use the new tiered context builder
   const context = await buildTieredContext({
     task,
@@ -114,11 +129,23 @@ async function buildAgentContext(options) {
   
   // Log context slice type and size
   const contextSize = JSON.stringify(context).length;
-  console.log(`[ORCHESTRATOR] Built ${context.fullSlice ? 'FULL' : 'CORE'} context slice (${Math.round(contextSize / 1024)}KB)`);
-  console.log(`  - Memories: ${context.relevantMemories.length}`);
-  console.log(`  - Prompt Fragments: ${context.promptFragments?.length || 0}`);
-  console.log(`  - Rules: ${context.relevantRules?.length || 0}`);
-  console.log(`  - History: ${context.conversationHistory.length} turns`);
+  
+  // Handle different context structures (adaptive vs traditional)
+  if (context.adaptiveContext !== undefined || context.fetchedContext !== undefined) {
+    // Adaptive context structure
+    console.log(`[ORCHESTRATOR] Built ADAPTIVE context slice (${Math.round(contextSize / 1024)}KB)`);
+    console.log(`  - Token count: ${context.tokenCount || 0}`);
+    console.log(`  - Extracted data: ${context.extractedData ? 'Yes' : 'No'}`);
+    console.log(`  - Fetched context keys: ${Object.keys(context.fetchedContext || {}).length}`);
+    console.log(`  - Has learned patterns: ${context.learnedPatterns ? 'Yes' : 'No'}`);
+  } else {
+    // Traditional core/full context structure
+    console.log(`[ORCHESTRATOR] Built ${context.fullSlice ? 'FULL' : 'CORE'} context slice (${Math.round(contextSize / 1024)}KB)`);
+    console.log(`  - Memories: ${context.relevantMemories?.length || 0}`);
+    console.log(`  - Prompt Fragments: ${context.promptFragments?.length || 0}`);
+    console.log(`  - Rules: ${context.relevantRules?.length || 0}`);
+    console.log(`  - History: ${context.conversationHistory?.length || 0} turns`);
+  }
   
   // Debug prompt fragments
   if (context.promptFragments?.length > 0) {
@@ -878,7 +905,7 @@ async function buildOrchestratorTools() {
 }
 
 /**
- * Bulk operation state tracking for guardrails
+ * Bulk operation state tracking for guardrails with enhanced context
  */
 const bulkOperationState = {
   isActive: false,
@@ -887,7 +914,12 @@ const bulkOperationState = {
   itemList: [],
   conversationId: null,
   retryCount: 0,
-  maxRetries: 5
+  maxRetries: 5,
+  // Enhanced context fields
+  taskData: null,           // Structured task data from task-data-extractor
+  checkpoints: [],          // Progress checkpoints
+  adaptiveContext: null,    // Adaptive context built for this operation
+  lastCheckpointIndex: -1   // Track last saved checkpoint
 };
 
 /**
@@ -896,7 +928,9 @@ const bulkOperationState = {
 const bulkOperationInputChokidar = new Agent({
   name: 'Bulk Operation Chokidar',
   model: 'gpt-4.1-mini',
-  instructions: `You are an intelligent chokidar (guard) that detects bulk operations vs simple questions.
+  instructions: `You are an intelligent chokidar (guard) agent in the EspressoBot agency - an AI-powered assistant system that supports iDrinkCoffee.com with all manner of e-commerce tasks including product management, pricing updates, inventory control, and business operations.
+
+Your specific role is to detect bulk operations vs simple questions.
 
 BULK OPERATIONS to detect:
 - Commands to process multiple items (fix all SKUs, update pricing for products, create batch)
@@ -940,6 +974,56 @@ const bulkOperationInputGuardrail = {
         bulkOperationState.conversationId = global.currentConversationId;
         bulkOperationState.operationType = analysis.operationType;
         
+        // Trigger Task Planning Agent and extract task data
+        console.log('[Chokidar] Triggering Task Planning Agent and data extraction for bulk operation');
+        try {
+          // Extract structured data from the task
+          const { extractTaskData } = await import('./agents/task-data-extractor-nano.js');
+          const extraction = await extractTaskData(inputText);
+          
+          if (extraction.success) {
+            bulkOperationState.taskData = extraction.data;
+            console.log(`[Chokidar] Extracted task data: ${extraction.data.entities.length} entities, action: ${extraction.data.action}`);
+          }
+          
+          // Create task plan
+          const { createTaskPlan, getTaskData } = await import('./agents/task-planning-agent.js');
+          const taskPlanResult = await createTaskPlan(inputText, global.currentConversationId);
+          
+          if (taskPlanResult.success && taskPlanResult.tasks.length > 0) {
+            console.log(`[Chokidar] Task plan created with ${taskPlanResult.tasks.length} tasks`);
+            bulkOperationState.itemList = taskPlanResult.tasks;
+            bulkOperationState.expectedItems = taskPlanResult.tasks.length;
+            
+            // Load any saved task data
+            const savedTaskData = await getTaskData(global.currentConversationId);
+            if (savedTaskData) {
+              bulkOperationState.taskData = savedTaskData;
+            }
+          }
+          
+          // Build adaptive context for the bulk operation
+          const { buildAdaptiveContext } = await import('./context/adaptive-context-builder.js');
+          bulkOperationState.adaptiveContext = await buildAdaptiveContext({
+            task: inputText,
+            conversationId: global.currentConversationId,
+            userId: global.currentUserId,
+            userMessage: inputText,
+            includeExtractedData: true
+          });
+          
+          // Load any existing checkpoints
+          const { loadLatestCheckpoint } = await import('./agents/progress-tracker-nano.js');
+          const checkpoint = await loadLatestCheckpoint(global.currentConversationId);
+          if (checkpoint) {
+            bulkOperationState.completedItems = checkpoint.stats?.completed || 0;
+            bulkOperationState.checkpoints = [checkpoint];
+            console.log(`[Chokidar] Loaded checkpoint: ${bulkOperationState.completedItems} items already completed`);
+          }
+        } catch (taskPlanError) {
+          console.error('[Chokidar] Failed to enhance bulk operation context:', taskPlanError.message);
+        }
+        
         return {
           outputInfo: `Bulk operation detected: ${analysis.reasoning}. Expected items: ${bulkOperationState.expectedItems}`,
           tripwireTriggered: false // Don't block input - just track the bulk operation
@@ -974,12 +1058,20 @@ const bulkOperationInputGuardrail = {
 };
 
 /**
- * LLM-powered output chokidar to detect "announce and stop" patterns intelligently
+ * Create output chokidar with current context
  */
-const bulkOperationOutputChokidar = new Agent({
-  name: 'Output Completion Chokidar',
-  model: 'gpt-4.1-mini',
-  instructions: `You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations.
+function createBulkOperationOutputChokidar(conversationId = null) {
+  const contextPreamble = buildAgentContextPreamble({
+    agentRole: 'output completion guard',
+    conversationId
+  });
+  
+  return new Agent({
+    name: 'Output Completion Chokidar',
+    model: 'gpt-4.1-mini',
+    instructions: `${contextPreamble}
+
+You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations.
 
 BULK OPERATION CONTEXT: The agent is supposed to be working on multiple items (${bulkOperationState.expectedItems || 'several'} items expected).
 
@@ -996,14 +1088,15 @@ LEGITIMATE PATTERNS (ALLOW THESE):
 - Error reports requiring user intervention
 
 Analyze if the agent is doing real work or just announcing/asking.`,
-  outputType: z.object({
-    isAnnounceAndStop: z.boolean(),
-    hasActualWork: z.boolean(),
-    isComplete: z.boolean(),
-    reasoning: z.string(),
-    progressCount: z.number().default(0).describe('Number of items actually processed (if detectable)')
-  }),
-});
+    outputType: z.object({
+      isAnnounceAndStop: z.boolean(),
+      hasActualWork: z.boolean(),
+      isComplete: z.boolean(),
+      reasoning: z.string(),
+      progressCount: z.number().default(0).describe('Number of items actually processed (if detectable)')
+    }),
+  });
+}
 
 const bulkOperationOutputGuardrail = {
   name: 'bulk_completion_validator',
@@ -1031,15 +1124,44 @@ CURRENT BULK STATE:
 
 Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior.`;
       
+      const bulkOperationOutputChokidar = createBulkOperationOutputChokidar(bulkOperationState.conversationId);
       const result = await run(bulkOperationOutputChokidar, contextualPrompt, { context });
       const analysis = result.finalOutput;
       
       console.log(`[Chokidar] Analysis: ${analysis.isAnnounceAndStop ? 'ANNOUNCE & STOP' : 'LEGITIMATE'} - ${analysis.reasoning}`);
       
-      // Update progress tracking
+      // Update progress tracking and save checkpoint
       if (analysis.progressCount > 0) {
         bulkOperationState.completedItems += analysis.progressCount;
         console.log(`[Chokidar] Progress updated: ${bulkOperationState.completedItems}/${bulkOperationState.expectedItems} items`);
+        
+        // Extract and save checkpoint
+        try {
+          const { extractProgress, saveCheckpoint } = await import('./agents/progress-tracker-nano.js');
+          const progress = await extractProgress(outputText, bulkOperationState.itemList);
+          
+          if (progress.success) {
+            const checkpointData = {
+              ...progress.progress,
+              bulkOperation: {
+                type: bulkOperationState.operationType,
+                totalExpected: bulkOperationState.expectedItems,
+                adaptiveContext: bulkOperationState.adaptiveContext ? {
+                  tokenCount: bulkOperationState.adaptiveContext.tokenCount,
+                  hasExtractedData: !!bulkOperationState.adaptiveContext.extractedData
+                } : null
+              }
+            };
+            
+            const saved = await saveCheckpoint(bulkOperationState.conversationId, checkpointData);
+            if (saved.success) {
+              bulkOperationState.lastCheckpointIndex = saved.checkpointIndex;
+              console.log(`[Chokidar] Saved checkpoint ${saved.checkpointIndex}`);
+            }
+          }
+        } catch (checkpointError) {
+          console.error('[Chokidar] Failed to save checkpoint:', checkpointError.message);
+        }
       }
       
       // Check for completion
@@ -1191,6 +1313,10 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMC
         const conversationId = global.currentConversationId;
         const enhancedRequest = request + (conversationId ? `\n\nIMPORTANT: Use conversation_id: "${conversationId}" when calling generate_todos.` : '');
         
+        // Import and create the task planning agent
+        const { createTaskPlanningAgent } = await import('./agents/task-planning-agent.js');
+        const { run } = await import('@openai/agents');
+        const taskPlanningAgent = await createTaskPlanningAgent(conversationId);
         const result = await run(taskPlanningAgent, enhancedRequest, { maxTurns: 130 });
         
         // Emit task planning events if SSE emitter is available
@@ -1357,7 +1483,7 @@ async function initializeOrchestratorTools() {
  * Run the dynamic orchestrator with a user message
  */
 export async function runDynamicOrchestrator(message, options = {}) {
-  const { conversationId, userId, sseEmitter, taskUpdater, abortSignal } = options;
+  const { conversationId, userId, sseEmitter, taskUpdater, abortSignal, contextOverride = null } = options;
   
   // Set global variables for SSE
   currentSseEmitter = sseEmitter;
@@ -1437,7 +1563,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
   
   // BUILD RICH CONTEXT FIRST - Orchestrator needs this for decision making
   console.log(`[Orchestrator] Building comprehensive context for decision making...`);
-  const orchestratorContext = await buildAgentContext({
+  const orchestratorContext = contextOverride || await buildAgentContext({
     task: message,
     conversationId,
     userId,
@@ -1476,6 +1602,10 @@ export async function runDynamicOrchestrator(message, options = {}) {
   try {
     // Build the orchestrator's message with its comprehensive context
     let contextualMessage = `[Conversation ID: ${conversationId}]\n\nUser: ${message}`;
+    
+    // Store the base message globally for guardrail retries
+    global.currentBaseMessage = message;
+    global.currentOriginalContextualMessage = null; // Will be set after building full context
     
     // CONTEXT SIZE MONITORING - Add logging and limits to prevent API failures
     const MAX_CONTEXT_SIZE = 150000; // 150KB limit to prevent context explosion
@@ -1603,6 +1733,9 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     console.log(`[Orchestrator] Prepared contextual message with rich context`);
+    
+    // Store the full contextual message globally for guardrail retries
+    global.currentOriginalContextualMessage = contextualMessage;
     
     // Check if already aborted before starting
     if (abortSignal?.aborted) {
@@ -1766,6 +1899,13 @@ export async function runDynamicOrchestrator(message, options = {}) {
       messageToSend = messageWithFileContext;
     }
     
+    // Import feedback loop for tracking
+    const { feedbackLoop } = await import('./context/feedback-loop.js');
+    const operationId = `${conversationId}-${Date.now()}`;
+    
+    // Start tracking this operation
+    feedbackLoop.startOperation(operationId, message, orchestratorContext);
+    
     // Use streaming for better user experience
     let result;
     let fullResponse = ''; // Declare at proper scope for guardrail access
@@ -1828,8 +1968,95 @@ export async function runDynamicOrchestrator(message, options = {}) {
     
     console.log('========= ORCHESTRATOR COMPLETE =========\n');
     
+    // Complete feedback tracking for successful operation
+    try {
+      const outcome = {
+        success: true,
+        summary: typeof result === 'string' ? result.substring(0, 200) : 'Operation completed successfully',
+        confidence: 0.9
+      };
+      
+      const analysis = await feedbackLoop.completeOperation(operationId, true, outcome);
+      
+      // Learn from this operation if we used adaptive context
+      if (orchestratorContext.adaptiveContext || bulkOperationState.adaptiveContext) {
+        const { learnFromOperation } = await import('./context/adaptive-context-builder.js');
+        await learnFromOperation(message, orchestratorContext, outcome);
+      }
+      
+      // Apply learning from context usage
+      if (analysis && analysis.efficiency > 0.7) {
+        const { learnFromContextUsage } = await import('./agents/context-analyzer-mini.js');
+        await learnFromContextUsage(message, orchestratorContext.fetchedContext || {}, outcome);
+      }
+      
+      console.log(`[FeedbackLoop] Operation completed with ${Math.round((analysis?.efficiency || 0.5) * 100)}% context efficiency`);
+    } catch (feedbackError) {
+      console.error('[FeedbackLoop] Failed to complete tracking:', feedbackError);
+    }
+    
     return result;
   } catch (error) {
+    // Track error for feedback loop
+    try {
+      feedbackLoop.trackError(operationId, error);
+      await feedbackLoop.completeOperation(operationId, false, {
+        success: false,
+        error: error.message,
+        summary: 'Operation failed'
+      });
+    } catch (feedbackError) {
+      console.error('[FeedbackLoop] Failed to track error:', feedbackError);
+    }
+    
+    // Track error for progressive enhancement
+    if (!error.isGuardrailError && bulkOperationState.isActive) {
+      try {
+        const { progressiveEnhancer } = await import('./context/progressive-enhancer.js');
+        const tracking = await progressiveEnhancer.trackAttempt(
+          conversationId,
+          message,
+          fullResponse || '',
+          error.message
+        );
+        
+        if (tracking.needsEnhancement && tracking.attemptCount <= 3) {
+          console.log('[Orchestrator] Progressive enhancement triggered after', tracking.attemptCount, 'attempts');
+          
+          // Enhance the context
+          const enhancedContext = await progressiveEnhancer.enhance(
+            message,
+            orchestratorContext,
+            tracking.analysis
+          );
+          
+          // Update bulk operation state with enhanced context
+          bulkOperationState.adaptiveContext = enhancedContext;
+          
+          // Retry with enhanced context
+          console.log('[Orchestrator] Retrying with enhanced context...');
+          const retryResult = await runDynamicOrchestrator(message, {
+            conversationId,
+            userId,
+            sseEmitter,
+            taskUpdater,
+            abortSignal,
+            contextOverride: enhancedContext
+          });
+          
+          // Learn from the outcome
+          await progressiveEnhancer.updatePatternEffectiveness(message, {
+            success: true,
+            summary: 'Enhanced context helped resolve the issue'
+          });
+          
+          return retryResult;
+        }
+      } catch (enhanceError) {
+        console.error('[Orchestrator] Progressive enhancement failed:', enhanceError);
+      }
+    }
+    
     // Handle guardrail tripwire errors specially
     if (error instanceof OutputGuardrailTripwireTriggered) {
       console.log('[Guardrail] 🚫 Output guardrail blocked premature return - FORCING CONTINUATION');
@@ -1901,15 +2128,63 @@ export async function runDynamicOrchestrator(message, options = {}) {
       }
       
       // FORCE CONTINUATION: Create a continuation prompt that preserves the streamed content
-      const continuationPrompt = `[PREVIOUS WORK COMPLETED] 
+      let bulkItemsContext = '';
+      let remainingItems = [];
+      
+      // Use checkpoint data to skip completed items
+      if (bulkOperationState.checkpoints.length > 0) {
+        const lastCheckpoint = bulkOperationState.checkpoints[bulkOperationState.checkpoints.length - 1];
+        const completedSet = new Set(lastCheckpoint.completed?.map(c => c.item) || []);
+        
+        // Filter out completed items
+        if (bulkOperationState.itemList && bulkOperationState.itemList.length > 0) {
+          remainingItems = bulkOperationState.itemList.filter((item, idx) => {
+            const itemIdentifier = typeof item === 'object' ? 
+              (item.title || item.description || `item_${idx}`) : item;
+            return !completedSet.has(itemIdentifier);
+          });
+          
+          console.log(`[Guardrail] Using checkpoint data: ${completedSet.size} items completed, ${remainingItems.length} remaining`);
+        }
+      } else if (bulkOperationState.itemList && bulkOperationState.itemList.length > 0) {
+        // Fallback to simple slice if no checkpoints
+        remainingItems = bulkOperationState.itemList.slice(bulkOperationState.completedItems);
+      }
+      
+      if (remainingItems.length > 0) {
+        bulkItemsContext = `\n\nREMAINING ITEMS TO PROCESS:\n${remainingItems.map((item, idx) => 
+          `${idx + 1}. ${typeof item === 'object' ? (item.description || JSON.stringify(item)) : item}`
+        ).join('\n')}\n`;
+      }
+      
+      // Build continuation prompt using original context + guardrail enforcement
+      let continuationPrompt = '';
+      
+      // If we have the original contextual message, use it as the base
+      if (global.currentOriginalContextualMessage) {
+        console.log('[Guardrail] Using original contextual message for retry');
+        continuationPrompt = global.currentOriginalContextualMessage + `
+
+[PREVIOUS WORK COMPLETED BY AGENT] 
 ${preservedContent}
 
 [GUARDRAIL ENFORCEMENT] The bulk operation is INCOMPLETE. You attempted to return control to the user, but this is prohibited during bulk operations.
 
 MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
-
+${bulkItemsContext}
 CRITICAL TOOL REQUIREMENTS:
 - Use spawn_mcp_agent to delegate work to specialized agents
+- When calling spawn_mcp_agent, PASS THE BULK ITEMS in the context parameter:
+  context: {
+    bulk_items: ${remainingItems.length > 0 ? JSON.stringify(remainingItems) : '[remaining items]'},
+    bulk_operation_type: "${bulkOperationState.operationType || 'update'}",
+    bulk_progress: { total: ${bulkOperationState.expectedItems}, completed: ${bulkOperationState.completedItems}, current_index: ${bulkOperationState.completedItems} },
+    adaptive_context: ${bulkOperationState.adaptiveContext ? JSON.stringify({
+      tokenCount: bulkOperationState.adaptiveContext.tokenCount,
+      hasExtractedData: !!bulkOperationState.adaptiveContext.extractedData,
+      fetchedContextKeys: Object.keys(bulkOperationState.adaptiveContext.fetchedContext || {})
+    }) : 'null'}
+  }
 - Use search_products, get_product, update_pricing MCP tools (NOT bash/CLI commands)
 - DO NOT use non-existent "shopify" CLI commands
 - DO NOT write Python scripts with placeholder URLs
@@ -1924,6 +2199,38 @@ IMMEDIATE ACTION REQUIRED:
 Expected items remaining: ${Math.max(0, bulkOperationState.expectedItems - bulkOperationState.completedItems)}
 
 CONTINUE NOW with the next item using proper MCP tools.`;
+      } else {
+        // Fallback to just the guardrail message if no original context
+        console.log('[Guardrail] WARNING: No original context found, using minimal retry prompt');
+        continuationPrompt = `[Conversation ID: ${conversationId}]
+
+User: ${global.currentBaseMessage || 'Continue bulk operation'}
+
+[PREVIOUS WORK COMPLETED] 
+${preservedContent}
+
+[GUARDRAIL ENFORCEMENT] The bulk operation is INCOMPLETE. You attempted to return control to the user, but this is prohibited during bulk operations.
+
+MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
+${bulkItemsContext}
+CRITICAL TOOL REQUIREMENTS:
+- Use spawn_mcp_agent to delegate work to specialized agents
+- When calling spawn_mcp_agent, PASS THE BULK ITEMS in the context parameter:
+  context: {
+    bulk_items: ${remainingItems.length > 0 ? JSON.stringify(remainingItems) : '[remaining items]'},
+    bulk_operation_type: "${bulkOperationState.operationType || 'update'}",
+    bulk_progress: { total: ${bulkOperationState.expectedItems}, completed: ${bulkOperationState.completedItems}, current_index: ${bulkOperationState.completedItems} },
+    adaptive_context: ${bulkOperationState.adaptiveContext ? JSON.stringify({
+      tokenCount: bulkOperationState.adaptiveContext.tokenCount,
+      hasExtractedData: !!bulkOperationState.adaptiveContext.extractedData,
+      fetchedContextKeys: Object.keys(bulkOperationState.adaptiveContext.fetchedContext || {})
+    }) : 'null'}
+  }
+
+Expected items remaining: ${Math.max(0, bulkOperationState.expectedItems - bulkOperationState.completedItems)}
+
+CONTINUE NOW with the next item using proper MCP tools.`;
+      }
 
       console.log('[Guardrail] 🔄 FORCING RETRY with continuation prompt');
       
@@ -1994,6 +2301,8 @@ CONTINUE NOW with the next item using proper MCP tools.`;
     global.currentUserMessage = null;
     global.currentIntentAnalysis = null;
     global.currentUserProfile = null;
+    global.currentBaseMessage = null;
+    global.currentOriginalContextualMessage = null;
     // Clear abort signal reference
     currentAbortSignal = null;
     global.currentAbortSignal = null;

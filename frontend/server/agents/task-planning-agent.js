@@ -2,9 +2,10 @@ import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { setTracingDisabled } from '@openai/agents-core';
 import { z } from 'zod';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
-// Disable tracing to prevent 7MB span output errors
-setTracingDisabled(true);
+// Re-enable tracing for OpenAI dashboard visibility
+// setTracingDisabled(true);
 import fs from 'node:fs';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -32,9 +33,10 @@ export const generateTodosTool = tool({
   description: 'Generate or update the todo task list for the current conversation',
   parameters: z.object({
     conversation_id: z.string(),
-    tasks: z.array(z.string()).describe('Array of task descriptions')
+    tasks: z.array(z.string()).describe('Array of task descriptions'),
+    taskData: z.array(z.object({}).passthrough()).nullable().default(null).describe('Optional structured data for each task')
   }),
-  execute: async ({ conversation_id, tasks }) => {
+  execute: async ({ conversation_id, tasks, taskData }) => {
     console.log(`[Task Planning] Generating ${tasks.length} tasks for conversation ${conversation_id}`);
     
     try {
@@ -44,6 +46,23 @@ export const generateTodosTool = tool({
       
       fs.writeFileSync(filePath, content, 'utf-8');
       console.log(`[Task Planning] Successfully wrote tasks to ${filePath}`);
+      
+      // Save task data if provided
+      if (taskData && taskData.length > 0) {
+        const dataPath = path.resolve(plansDir, `TODO-${conversation_id}-data.json`);
+        const dataContent = {
+          conversationId: conversation_id,
+          created: new Date().toISOString(),
+          tasks: tasks.map((task, index) => ({
+            description: task,
+            data: taskData[index] || {},
+            status: 'pending',
+            index
+          }))
+        };
+        fs.writeFileSync(dataPath, JSON.stringify(dataContent, null, 2), 'utf-8');
+        console.log(`[Task Planning] Saved task data to ${dataPath}`);
+      }
       
       return JSON.stringify(tasks);
     } catch (error) {
@@ -130,10 +149,9 @@ export const updateTaskStatusTool = tool({
   }
 });
 
-// Task Planning Agent - combines the best of Planning Agent and TaskGen
-export const taskPlanningAgent = new Agent({
-  name: 'Task_Planning_Agent',
-  instructions: `You are a task planning specialist that analyzes user requests and creates structured task plans.
+// Create Task Planning Agent with context
+export async function createTaskPlanningAgent(conversationId) {
+  const baseInstructions = `You are a task planning specialist that analyzes user requests and creates structured task plans.
 
 Your responsibilities:
 1. Analyze the user's request to understand what needs to be done
@@ -166,20 +184,30 @@ Examples:
 - User: "Create a bundle with espresso machine and coffee beans"
   Tasks: ["Find espresso machine products (search_products)", "Find coffee bean products (search_products)", "Create bundle configuration", "Create combo listing (create_combo)"]
 
-IMPORTANT: When generating tasks, call the generate_todos tool with the array of task descriptions.`,
-  
-  model: process.env.PLANNING_MODEL || 'o3',
-  modelSettings: { 
-    parallelToolCalls: false
-    
-  },
-  tools: [generateTodosTool, getTodosTool, updateTaskStatusTool]
-});
+IMPORTANT: When generating tasks, call the generate_todos tool with the array of task descriptions.`;
+
+  const instructions = await buildAgentInstructions(baseInstructions, {
+    agentRole: 'task planning specialist',
+    conversationId
+  });
+
+  return new Agent({
+    name: 'Task_Planning_Agent',
+    instructions,
+    model: process.env.PLANNING_MODEL || 'o3',
+    modelSettings: { 
+      parallelToolCalls: false
+    },
+    tools: [generateTodosTool, getTodosTool, updateTaskStatusTool]
+  });
+}
 
 // Main function to create a task plan
 export async function createTaskPlan(userRequest, conversationId) {
   try {
     console.log('[Task Planning] Creating task plan for conversation:', conversationId);
+    
+    const taskPlanningAgent = await createTaskPlanningAgent(conversationId);
     
     const prompt = `
 Analyze this user request and create a structured task plan:
@@ -198,8 +226,8 @@ Remember to:
     
     // Also return the tasks for immediate use
     try {
-      const todoResult = await getTodosTool.execute({ conversation_id: conversationId });
-      const tasks = JSON.parse(todoResult);
+      const getCurrentTasksResult = await getCurrentTasks(conversationId);
+      const tasks = getCurrentTasksResult.success ? getCurrentTasksResult.tasks : [];
       
       return {
         success: true,
@@ -258,6 +286,18 @@ export async function getCurrentTasks(conversationId) {
     const content = fsSync.readFileSync(filePath, 'utf-8');
     const tasks = [];
     
+    // Check if we have task data file
+    const dataPath = path.resolve(plansDir, `TODO-${conversationId}-data.json`);
+    let taskData = null;
+    if (fsSync.existsSync(dataPath)) {
+      try {
+        taskData = JSON.parse(fsSync.readFileSync(dataPath, 'utf-8'));
+      } catch (e) {
+        console.log('[Task Planning] Could not load task data:', e.message);
+      }
+    }
+    
+    let index = 0;
     for (const line of content.split(/\r?\n/)) {
       const match = line.match(/^\s*-\s*\[( |x)\]\s*(.+)$/i);
       if (match) {
@@ -266,11 +306,20 @@ export async function getCurrentTasks(conversationId) {
         const inProgress = description.startsWith('🔄 ');
         const cleanDescription = inProgress ? description.substring(3).trim() : description;
         
-        tasks.push({
+        const task = {
           title: cleanDescription,
           description: cleanDescription,
-          status: isCompleted ? 'completed' : (inProgress ? 'in_progress' : 'pending')
-        });
+          status: isCompleted ? 'completed' : (inProgress ? 'in_progress' : 'pending'),
+          index
+        };
+        
+        // Add data if available
+        if (taskData && taskData.tasks && taskData.tasks[index]) {
+          task.data = taskData.tasks[index].data;
+        }
+        
+        tasks.push(task);
+        index++;
       }
     }
     
@@ -282,6 +331,61 @@ export async function getCurrentTasks(conversationId) {
       error: error.message,
       tasks: []
     };
+  }
+}
+
+/**
+ * Get task data for a specific conversation
+ */
+export async function getTaskData(conversationId) {
+  try {
+    const dataPath = path.resolve(plansDir, `TODO-${conversationId}-data.json`);
+    if (!fsSync.existsSync(dataPath)) {
+      return null;
+    }
+    
+    return JSON.parse(fsSync.readFileSync(dataPath, 'utf-8'));
+  } catch (error) {
+    console.error('[Task Planning] Error loading task data:', error);
+    return null;
+  }
+}
+
+/**
+ * Update task data for a specific task
+ */
+export async function updateTaskData(conversationId, taskIndex, data) {
+  try {
+    const dataPath = path.resolve(plansDir, `TODO-${conversationId}-data.json`);
+    let taskData = await getTaskData(conversationId);
+    
+    if (!taskData) {
+      taskData = {
+        conversationId,
+        created: new Date().toISOString(),
+        tasks: []
+      };
+    }
+    
+    // Ensure task array is large enough
+    while (taskData.tasks.length <= taskIndex) {
+      taskData.tasks.push({ description: '', data: {}, status: 'pending' });
+    }
+    
+    // Update the specific task data
+    taskData.tasks[taskIndex].data = {
+      ...taskData.tasks[taskIndex].data,
+      ...data,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    fs.writeFileSync(dataPath, JSON.stringify(taskData, null, 2), 'utf-8');
+    console.log(`[Task Planning] Updated data for task ${taskIndex}`);
+    
+    return { success: true };
+  } catch (error) {
+    console.error('[Task Planning] Error updating task data:', error);
+    return { success: false, error: error.message };
   }
 }
 

@@ -2,6 +2,8 @@ import { getSmartContext } from '../context-loader/context-manager.js';
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { stripProductKeys, stripProductArray } from './product-key-stripper.js';
 import { promptFragmentConfig, filterPromptFragments } from './prompt-fragment-config.js';
+import { buildCompressedContext } from '../agents/conversation-summarizer-agent.js';
+import { buildAdaptiveContext } from './adaptive-context-builder.js';
 
 /**
  * Build a core context slice with essential information only
@@ -30,8 +32,8 @@ export async function buildCoreContext(options) {
     relevantMemories: [],
     // Core business rules only
     relevantRules: [],
-    // Last 3 conversation turns
-    conversationHistory: conversationHistory.slice(-3),
+    // Last few conversation turns (will be compressed if needed)
+    conversationHistory: [],
     // Current task status only
     currentTasks: [],
     // Essential state only
@@ -41,6 +43,24 @@ export async function buildCoreContext(options) {
       isBulkOperation: false
     }
   };
+  
+  // Handle conversation history compression for core context
+  if (conversationHistory && conversationHistory.length > 0) {
+    const compressedContext = await buildCompressedContext(conversationHistory, {
+      maxRecentTurns: 3  // Only keep last 3 turns for core context
+    });
+    
+    // Build compressed history array
+    if (compressedContext.finalSummary) {
+      coreContext.conversationHistory.push({
+        role: 'system',
+        content: `[Summary of ${compressedContext.summarizedCount} earlier messages]: ${compressedContext.finalSummary.summary}`
+      });
+    }
+    
+    // Add recent messages
+    coreContext.conversationHistory.push(...compressedContext.recentMessages);
+  }
   
   // Get top-5 memories only for core context
   if (userId) {
@@ -225,19 +245,44 @@ export async function buildFullContext(options, coreContext = null) {
     fullContext.promptFragments = [];
   }
   
-  // Get full conversation history (up to 8 turns, truncated for size)
+  // Get full conversation history with compression
   if (includeExtendedHistory && conversationId) {
-    // For now, use the provided conversation history or empty array
-    // In production, this would fetch from database
     const rawHistory = options.conversationHistory || [];
-    fullContext.conversationHistory = rawHistory.slice(-8).map(turn => {
-      // Truncate very long conversation turns
-      if (typeof turn === 'string') {
-        return turn.length > 1500 ? turn.substring(0, 1500) + '...' : turn;
+    
+    if (rawHistory.length > 0) {
+      const compressedContext = await buildCompressedContext(rawHistory, {
+        maxRecentTurns: 8  // Keep last 8 turns for full context
+      });
+      
+      fullContext.conversationHistory = [];
+      
+      // Add summary if available
+      if (compressedContext.finalSummary) {
+        fullContext.conversationHistory.push({
+          role: 'system',
+          content: `[Summary of ${compressedContext.summarizedCount} earlier messages]: ${compressedContext.finalSummary.summary}`
+        });
+        
+        if (compressedContext.finalSummary.pendingItems?.length > 0) {
+          fullContext.conversationHistory.push({
+            role: 'system',
+            content: `[Pending items from earlier]: ${compressedContext.finalSummary.pendingItems.join(', ')}`
+          });
+        }
       }
-      return turn;
-    });
-    console.log(`[CONTEXT] Limited conversation history to ${fullContext.conversationHistory.length} turns for size control`);
+      
+      // Add recent messages (still truncate if very long)
+      const truncatedRecent = compressedContext.recentMessages.map(turn => {
+        if (turn.content && turn.content.length > 1500) {
+          return { ...turn, content: turn.content.substring(0, 1500) + '...' };
+        }
+        return turn;
+      });
+      
+      fullContext.conversationHistory.push(...truncatedRecent);
+      
+      console.log(`[CONTEXT] Compressed ${compressedContext.summarizedCount} messages, kept ${compressedContext.recentMessages.length} recent`);
+    }
   }
   
   // Get all business rules and tools
@@ -434,9 +479,15 @@ export function requiresFullContext(task, userMessage = '') {
  * Build context with automatic tier selection
  */
 export async function buildTieredContext(options) {
-  const { task, userMessage = '', forceFullContext = false } = options;
+  const { task, userMessage = '', forceFullContext = false, useAdaptive = true } = options;
   
-  // Check if full context is needed
+  // Use adaptive context building for better efficiency
+  if (useAdaptive && !forceFullContext) {
+    console.log(`[CONTEXT] Using ADAPTIVE context building`);
+    return await buildAdaptiveContext(options);
+  }
+  
+  // Fall back to traditional tiered approach
   const needsFullContext = forceFullContext || requiresFullContext(task, userMessage);
   
   if (needsFullContext) {

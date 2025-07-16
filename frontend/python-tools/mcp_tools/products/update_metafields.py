@@ -89,12 +89,11 @@ INPUT_SCHEMA: Dict[str, Any] = {
         "product": {
             "type": "string",
             "description": "Identifier for the product you wish to update. Can be shopify GID, "
-                           "numeric product ID, handle or SKU. Required when using the top-level "
-                           "'metafields' field."
+                           "numeric product ID, handle or SKU. Used with 'metafields' for single product update."
         },
         "metafields": {
             "type": "array",
-            "description": "Metafields to write on the single product identified by 'product'.",
+            "description": "Metafields to write on the single product identified by 'product'. Use either this with 'product' OR use 'updates' for batch operations.",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -130,7 +129,7 @@ INPUT_SCHEMA: Dict[str, Any] = {
         # --------------------------------------------------------------
         "updates": {
             "type": "array",
-            "description": "Array of product + metafields tuples for batch updates.",
+            "description": "Array of product + metafields tuples for batch updates. Use either this OR use 'product' with 'metafields' for single operations.",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -182,10 +181,8 @@ INPUT_SCHEMA: Dict[str, Any] = {
             "minItems": 1,
         },
     },
-    "oneOf": [
-        {"required": ["product", "metafields"]},  # single-product path
-        {"required": ["updates"]},                 # batch path
-    ],
+    # NOTE: Removed oneOf constraint as it's not supported at top level by Claude's API
+    # The validation logic is now handled in the execute method
 }
 
 # ---------------------------------------------------------------------------
@@ -219,16 +216,24 @@ class UpdateMetafieldsTool(BaseMCPTool):
             client = ShopifyClient()
             all_inputs: List[Dict[str, Any]] = []
 
+            # ----- Validate input parameters (replaces oneOf constraint) -----------------
+            if updates and (product or metafields):
+                return {
+                    "success": False,
+                    "error": "Cannot use 'updates' together with 'product' or 'metafields'. Choose one approach.",
+                }
+            
+            if not updates and not (product and metafields):
+                return {
+                    "success": False,
+                    "error": "Provide either (product & metafields) or 'updates'.",
+                }
+
             # ----- Build the input list --------------------------------------------------
             if updates:
                 for entry in updates:
                     all_inputs.extend(self._build_inputs(client, entry["product"], entry["metafields"]))
             else:
-                if not (product and metafields):
-                    return {
-                        "success": False,
-                        "error": "Provide either (product & metafields) or 'updates'.",
-                    }
                 all_inputs.extend(self._build_inputs(client, product, metafields))
 
             if not all_inputs:
