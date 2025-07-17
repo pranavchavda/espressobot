@@ -2307,6 +2307,7 @@ IMMEDIATE ACTION REQUIRED:
 - DO NOT ask "what would you like me to do next"
 - DO NOT request permission to continue
 - DO NOT provide options or choices
+- IF task is completed, and you are certain of it, mark it as completed.
 
 Expected items remaining: ${Math.max(0, bulkOperationState.expectedItems - bulkOperationState.completedItems)}
 

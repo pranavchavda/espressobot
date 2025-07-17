@@ -118,6 +118,66 @@ const tools = mcpServer.getTools();  // ❌ Old pattern
 
 ---
 
+## Next Optimization (TODO - July 18, 2025)
+
+### 🎯 **Agent Specialization Phase 2**
+Split the Python Tools Agent into 9 specialized agents, one for each MCP server:
+
+**Planned Specialized Agents:**
+1. **Products Agent** → Products Server (6 tools)
+   - System prompt: Product operations, GraphQL, collections
+   - Expertise: Product lifecycle, search, basic CRUD
+   
+2. **Pricing Agent** → Pricing Server (3 tools) 
+   - System prompt: Pricing strategies, cost management, bulk updates
+   - Expertise: MAP pricing, sales, margin analysis
+   
+3. **Inventory Agent** → Inventory Server (3 tools)
+   - System prompt: Inventory policies, tagging, redirects
+   - Expertise: Stock management, URL management
+   
+4. **Sales Agent** → Sales Server (2 tools)
+   - System prompt: MAP sales, campaign management
+   - Expertise: Miele/Breville sales, promotional windows
+   
+5. **Features Agent** → Features Server (3 tools)
+   - System prompt: Content management, metafields, variant linking
+   - Expertise: Rich content, product relationships
+   
+6. **Media Agent** → Media Server (1 tool)
+   - System prompt: Image management, optimization
+   - Expertise: Product photography, alt text, SEO
+   
+7. **Integrations Agent** → Integrations Server (4 tools)
+   - System prompt: External systems, SkuVault, reviews
+   - Expertise: System integrations, data sync
+   
+8. **Product Management Agent** → Product Management Server (5 tools)
+   - System prompt: Complex product creation, variants, combos
+   - Expertise: Advanced product operations
+   
+9. **Utility Agent** → Utility Server (1 tool)
+   - System prompt: Memory operations, knowledge management
+   - Expertise: Information storage and retrieval
+
+**Benefits:**
+- Each agent becomes domain expert with specialized knowledge
+- Better prompts tailored to specific tool capabilities
+- Enhanced routing precision (agent-level instead of server-level)
+- Reduced context confusion between different operation types
+- More targeted error handling and troubleshooting
+
+**Implementation:**
+- Create 9 new agent files based on current python-tools-agent-v2.js
+- Each agent connects to only its assigned MCP server
+- Update orchestrator to route to specific agents instead of generic python_tools_agent
+- Enhanced routing logic based on task domain classification
+
+###  Bulk Operations Task Tracking
+- Make task list available to the orchestrator at all times when in bulk mode. Inject it to the end of the system prompt, along with instructions on how to mark the tasks as either in progress or complete.
+
+---
+
 ## Recent Fixes & Improvements
 
 ### July 17, 2025 - Direct MCP Agent Access
@@ -276,15 +336,6 @@ Successfully split the monolithic Python MCP server into specialized servers:
   - `/server/agents/documentation-mcp-agent.js`
   - `/server/agents/external-mcp-agent.js`
   - `/server/tools/spawn-mcp-agent-tool.js`
-
-### ✅ **NEW: Human-in-the-Loop Guardrails**
-- **Feature**: User control over guardrail enforcement
-- **Technology**: OpenAI SDK's `needsApproval` feature
-- **Benefits**: Prevents unwanted task blocking while maintaining quality
-- **Files**: 
-  - `/server/tools/guardrail-approval-tool.js`
-  - `/public/guardrail-approval-demo.html`
-  - `/docs/human-in-the-loop-guardrails.md`
 
 ### ✅ **LATEST: Direct MCP Agent Access**
 - **Problem**: spawn_mcp_agent added unnecessary routing overhead

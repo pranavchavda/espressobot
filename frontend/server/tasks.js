@@ -1,68 +1,73 @@
 import { Router } from 'express';
+import { PrismaClient } from '@prisma/client';
 import { authenticateToken } from './auth.js';
 
+const prisma = new PrismaClient();
 const router = Router();
 
-// Check Google Tasks authorization status
-router.get('/auth_status', authenticateToken, (req, res) => {
-  // For now, return not authorized since Google Tasks integration is not implemented
-  res.json({ is_authorized: false });
-});
+/**
+ * @swagger
+ * /api/tasks/{taskId}/status:
+ *   patch:
+ *     summary: Update the status of a task
+ *     description: Allows a sub-agent to update the status of a specific task (e.g., from 'in_progress' to 'completed').
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the task to update.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 description: The new status for the task.
+ *                 example: 'completed'
+ *     responses:
+ *       200:
+ *         description: Task status updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Task'
+ *       400:
+ *         description: Bad request, status is required.
+ *       404:
+ *         description: Task not found.
+ *       500:
+ *         description: Internal server error.
+ */
+router.patch('/:taskId/status', authenticateToken, async (req, res) => {
+  const { taskId } = req.params;
+  const { status } = req.body;
 
-// Get task lists
-router.get('/lists', authenticateToken, (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks integration is not configured',
-    message: 'This feature requires Google Tasks API setup'
-  });
-});
+  if (!status) {
+    return res.status(400).json({ error: 'Status is required' });
+  }
 
-// Get tasks
-router.get('/', authenticateToken, (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks integration is not configured',
-    message: 'This feature requires Google Tasks API setup'
-  });
-});
-
-// Create task
-router.post('/', authenticateToken, (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks integration is not configured',
-    message: 'This feature requires Google Tasks API setup'
-  });
-});
-
-// Update task
-router.put('/:taskId', authenticateToken, (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks integration is not configured',
-    message: 'This feature requires Google Tasks API setup'
-  });
-});
-
-// Complete task
-router.post('/:taskId/complete', authenticateToken, (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks integration is not configured',
-    message: 'This feature requires Google Tasks API setup'
-  });
-});
-
-// Delete task
-router.delete('/:taskId', authenticateToken, (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks integration is not configured',
-    message: 'This feature requires Google Tasks API setup'
-  });
-});
-
-// Google OAuth authorization endpoint placeholder
-router.get('/authorize/google', (req, res) => {
-  res.status(501).json({ 
-    error: 'Google Tasks OAuth is not configured',
-    message: 'This feature requires Google Tasks API and OAuth setup'
-  });
+  try {
+    const updatedTask = await prisma.task.update({
+      where: { id: taskId },
+      data: { status },
+    });
+    res.json(updatedTask);
+  } catch (error) {
+    // Prisma's P2025 code indicates that the record was not found
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    console.error('Error updating task status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 export default router;
