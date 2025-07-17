@@ -7,8 +7,9 @@ import { MCPServerStdio, setTracingDisabled } from '@openai/agents-core';
 import path from 'path';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
-// Re-enable tracing for OpenAI dashboard visibility
-// setTracingDisabled(true);
+// CRITICAL: Disable tracing to prevent massive costs from tool schemas
+// Each tools/list call returns 28 tools with full schemas = 4k+ lines
+setTracingDisabled(true);
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

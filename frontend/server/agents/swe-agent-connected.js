@@ -4,8 +4,8 @@ import { setTracingDisabled } from '@openai/agents-core';
 import fs from 'fs/promises';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
-// Re-enable tracing for OpenAI dashboard visibility
-// setTracingDisabled(true);
+// CRITICAL: Disable tracing to prevent massive costs
+setTracingDisabled(true);
 import { executeBashCommand } from '../tools/bash-tool.js';
 import { learningTool, reflectAndLearnTool } from '../tools/learning-tool.js';
 

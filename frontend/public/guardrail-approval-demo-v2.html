@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardrail Approval Demo V2</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .message-box {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .approval-card {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .approval-header {
+            font-size: 18px;
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        .approval-message {
+            color: #856404;
+            margin-bottom: 15px;
+        }
+        .approval-context {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .approval-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .btn-approve {
+            background: #28a745;
+            color: white;
+        }
+        .btn-reject {
+            background: #dc3545;
+            color: white;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .event-log {
+            background: #222;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .event-log .timestamp {
+            color: #888;
+        }
+        .send-button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .send-button:disabled {
+            opacity: 0.5;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            resize: vertical;
+        }
+    </style>
+</head>
+<body>
+    <h1>Guardrail Approval Demo V2</h1>
+    
+    <div class="message-box">
+        <h3>Send a Message to Test Guardrails</h3>
+        <textarea id="message-input" rows="4" placeholder="Try: Create smart collections for Lemo and Mixer">Create smart collections for Lemo and Mixer</textarea>
+        <br><br>
+        <button class="send-button" id="send-button" onclick="sendMessage()">Send Message</button>
+    </div>
+    
+    <div id="approval-container">
+        <!-- Approval requests will appear here -->
+    </div>
+    
+    <div class="event-log" id="event-log">
+        <div>Event Log:</div>
+    </div>
+    
+    <script>
+        const approvalContainer = document.getElementById('approval-container');
+        const eventLog = document.getElementById('event-log');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        let currentEventSource = null;
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            eventLog.appendChild(entry);
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+        
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            // Disable button while processing
+            sendButton.disabled = true;
+            sendButton.textContent = 'Processing...';
+            
+            log(`Sending message: ${message}`);
+            
+            try {
+                // Make the POST request with proper headers
+                const response = await fetch('/api/bash-orchestrator/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer YOUR_TOKEN_HERE' // Update with actual token
+                    },
+                    body: JSON.stringify({ message })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                // Read the SSE stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            const event = line.slice(7);
+                            const dataLine = lines[lines.indexOf(line) + 1];
+                            if (dataLine && dataLine.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(dataLine.slice(6));
+                                    handleSSEEvent(event, data);
+                                } catch (e) {
+                                    console.error('Failed to parse SSE data:', e);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                log(`Error: ${error.message}`);
+                console.error('Request failed:', error);
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send Message';
+            }
+        }
+        
+        function handleSSEEvent(event, data) {
+            log(`Event: ${event} - ${JSON.stringify(data).substring(0, 100)}...`);
+            
+            switch (event) {
+                case 'guardrail_decision_needed':
+                    showApprovalRequest(data);
+                    break;
+                    
+                case 'approval_status':
+                    updateApprovalStatus(data.id, data.status);
+                    break;
+                    
+                case 'agent_message':
+                    if (data.message) {
+                        log(`Agent: ${data.message.substring(0, 100)}...`);
+                    }
+                    break;
+                    
+                case 'agent_status':
+                    log(`Status: ${data.status} - ${data.message || ''}`);
+                    break;
+                    
+                case 'error':
+                    log(`Error: ${data.message}`);
+                    break;
+            }
+        }
+        
+        function showApprovalRequest(data) {
+            const approvalId = `approval-${Date.now()}`;
+            const card = document.createElement('div');
+            card.className = 'approval-card';
+            card.id = approvalId;
+            card.innerHTML = `
+                <div class="approval-header">⚠️ Guardrail Decision Required</div>
+                <div class="approval-message">${data.message}</div>
+                <div class="approval-context">
+                    <div>Completed: ${data.context.completedItems} items</div>
+                    <div>Expected: ${data.context.expectedItems} items</div>
+                    <div>Output preview: ${data.context.outputPreview}</div>
+                </div>
+                <div class="approval-buttons">
+                    <button class="btn btn-approve" onclick="handleApproval('${approvalId}', true)">
+                        Enforce Completion
+                    </button>
+                    <button class="btn btn-reject" onclick="handleApproval('${approvalId}', false)">
+                        Allow Current Response
+                    </button>
+                </div>
+            `;
+            approvalContainer.appendChild(card);
+            
+            // Auto-scroll to show the approval card
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        async function handleApproval(approvalId, approved) {
+            // Disable buttons
+            const card = document.getElementById(approvalId);
+            const buttons = card.querySelectorAll('.btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            log(`User ${approved ? 'approved' : 'rejected'} guardrail enforcement for ${approvalId}`);
+            
+            // Send approval decision to backend
+            try {
+                const response = await fetch('/api/guardrail-decision', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer YOUR_TOKEN_HERE' // Update with actual token
+                    },
+                    body: JSON.stringify({
+                        approvalId: approvalId,
+                        approved: approved
+                    })
+                });
+                
+                if (response.ok) {
+                    log(`Decision sent successfully for ${approvalId}`);
+                    // Update the card UI
+                    card.style.opacity = '0.5';
+                    card.querySelector('.approval-message').textContent = 
+                        approved ? 'Enforcing completion...' : 'Continuing with current response...';
+                    
+                    // Remove after a delay
+                    setTimeout(() => card.remove(), 3000);
+                } else {
+                    log(`Failed to send decision: ${response.statusText}`);
+                    // Re-enable buttons on error
+                    buttons.forEach(btn => btn.disabled = false);
+                }
+            } catch (error) {
+                log(`Error sending decision: ${error.message}`);
+                // Re-enable buttons on error
+                buttons.forEach(btn => btn.disabled = false);
+            }
+        }
+        
+        function updateApprovalStatus(approvalId, status) {
+            const card = document.getElementById(approvalId);
+            if (card) {
+                setTimeout(() => {
+                    card.remove();
+                }, 2000);
+            }
+        }
+        
+        // Test with a default message on load
+        window.addEventListener('load', () => {
+            log('Page loaded. Ready to test guardrails.');
+            log('Note: Update the Authorization token in the code before testing!');
+        });
+    </script>
+</body>
+</html>

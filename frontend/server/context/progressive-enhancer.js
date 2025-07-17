@@ -44,10 +44,14 @@ Look for:
     });
 
     try {
-      const result = await run(analyzer, {
-        agentOutput: output,
-        task: task
-      }, { maxTurns: 1 });
+      const prompt = `Analyze this agent output for signs of missing context or confusion:
+
+Task: ${task}
+Agent Output: ${typeof output === 'string' ? output : JSON.stringify(output)}
+
+Look for uncertainty, missing information, tool failures, or requests for clarification.`;
+
+      const result = await run(analyzer, prompt, { maxTurns: 1 });
 
       return result.finalOutput || { needsEnhancement: false, confidence: 0.5 };
     } catch (error) {
@@ -84,11 +88,13 @@ Consider business rules, historical patterns, and related entities.`,
     });
 
     try {
-      const result = await run(suggester, {
-        missingContext: analysis.missingContext,
-        task: task,
-        currentContextKeys: Object.keys(currentContext.fetchedContext || {})
-      }, { maxTurns: 1 });
+      const prompt = `Missing context: ${JSON.stringify(analysis.missingContext)}
+Task: ${task}
+Current context keys: ${Object.keys(currentContext.fetchedContext || {}).join(', ')}
+
+Generate specific queries to find the missing information.`;
+      
+      const result = await run(suggester, prompt, { maxTurns: 1 });
 
       if (result.finalOutput) {
         return result.finalOutput.queries.map(q => q.query);

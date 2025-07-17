@@ -2,7 +2,7 @@
  * MCP Agent Router - Intelligently routes tasks to appropriate MCP agents
  */
 
-import { executePythonToolsTask } from '../agents/python-tools-agent.js';
+import { executePythonToolsTaskV2 } from '../agents/python-tools-agent-v2.js';
 import { executeExternalMCPTask, hasExternalMCPTool } from '../agents/external-mcp-agent.js';
 import { executeDocumentationQuery } from '../agents/documentation-mcp-agent.js';
 
@@ -97,7 +97,7 @@ export async function routeToMCPAgent(task, context = {}) {
       switch (routing.primaryAgent) {
         case 'python':
           console.log('[MCP Router] Routing to Python Tools Agent');
-          result = await executePythonToolsTask(task, context.conversationId, context.richContext);
+          result = await executePythonToolsTaskV2(task, context.conversationId, context.richContext);
           break;
           
         case 'documentation':
@@ -132,7 +132,7 @@ export async function routeToMCPAgent(task, context = {}) {
       } else {
         // Default to Python tools for Shopify-related tasks
         console.log('[MCP Router] No clear match, defaulting to Python Tools Agent');
-        result = await executePythonToolsTask(task, context.conversationId, context.richContext);
+        result = await executePythonToolsTaskV2(task, context.conversationId, context.richContext);
       }
     }
     
@@ -170,7 +170,7 @@ export async function routeToMCPAgent(task, context = {}) {
 async function routeToSpecificAgent(agentType, task, context) {
   switch (agentType) {
     case 'python':
-      return await executePythonToolsTask(task, context.conversationId, context.richContext);
+      return await executePythonToolsTaskV2(task, context.conversationId, context.richContext);
     case 'documentation':
       return await executeDocumentationQuery(task, context.richContext);
     case 'external':

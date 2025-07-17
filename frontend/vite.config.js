@@ -184,6 +184,10 @@ export default defineConfig({
         const promptLibraryRoutes = (await import('./server/api/prompt-library')).default;
         apiApp.use('/api/prompt-library', promptLibraryRoutes);
         
+        // Guardrail decision routes
+        const { setupGuardrailRoutes } = await import('./server/api/guardrail-decision-handler.js');
+        setupGuardrailRoutes(apiApp);
+        
         server.middlewares.use(apiApp);
       },
     },

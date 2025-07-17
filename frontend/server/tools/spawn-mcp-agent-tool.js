@@ -105,40 +105,25 @@ This is preferred over direct tool usage for:
           };
         }
         
-        // Extract meaningful response from agent result
-        if (result && result.state && result.state._generatedItems) {
-          // Look for message outputs
-          const messages = result.state._generatedItems.filter(
-            item => item.type === 'message_output'
-          );
+        // The agents now return cleaned up results with just the output
+        if (result && result.success === true && result.result) {
+          console.log(`[Spawn MCP Agent] Agent ${result.agent} completed successfully`);
           
-          if (messages.length > 0) {
-            // Return the last message content
-            const lastMessage = messages[messages.length - 1];
-            return {
-              success: true,
-              agent: routing.primaryAgent || 'unknown',
-              response: lastMessage.content,
-              confidence: routing.confidence
-            };
+          // Log token usage if available
+          if (result.tokenUsage) {
+            console.log(`[Spawn MCP Agent] Token usage - Input: ${result.tokenUsage.inputTokens}, Output: ${result.tokenUsage.outputTokens}, Total: ${result.tokenUsage.totalTokens}`);
           }
           
-          // Look for tool outputs as fallback
-          const toolOutputs = result.state._generatedItems.filter(
-            item => item.type === 'tool_call_output'
-          );
-          
-          if (toolOutputs.length > 0) {
-            return {
-              success: true,
-              agent: routing.primaryAgent || 'unknown',
-              response: toolOutputs[toolOutputs.length - 1].output,
-              confidence: routing.confidence
-            };
-          }
+          return {
+            success: true,
+            agent: result.agent || routing.primaryAgent || 'unknown',
+            response: result.result,
+            confidence: routing.confidence
+          };
         }
         
-        // Fallback: return the full result
+        // Fallback for unexpected format
+        console.warn('[Spawn MCP Agent] Unexpected result format:', typeof result);
         return {
           success: true,
           agent: routing.primaryAgent || 'unknown',

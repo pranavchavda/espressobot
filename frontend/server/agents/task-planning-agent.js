@@ -4,8 +4,8 @@ import { setTracingDisabled } from '@openai/agents-core';
 import { z } from 'zod';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 
-// Re-enable tracing for OpenAI dashboard visibility
-// setTracingDisabled(true);
+// CRITICAL: Disable tracing to prevent massive costs
+setTracingDisabled(true);
 import fs from 'node:fs';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -33,10 +33,9 @@ export const generateTodosTool = tool({
   description: 'Generate or update the todo task list for the current conversation',
   parameters: z.object({
     conversation_id: z.string(),
-    tasks: z.array(z.string()).describe('Array of task descriptions'),
-    taskData: z.array(z.object({}).passthrough()).nullable().default(null).describe('Optional structured data for each task')
+    tasks: z.array(z.string()).describe('Array of task descriptions')
   }),
-  execute: async ({ conversation_id, tasks, taskData }) => {
+  execute: async ({ conversation_id, tasks }) => {
     console.log(`[Task Planning] Generating ${tasks.length} tasks for conversation ${conversation_id}`);
     
     try {
@@ -46,23 +45,6 @@ export const generateTodosTool = tool({
       
       fs.writeFileSync(filePath, content, 'utf-8');
       console.log(`[Task Planning] Successfully wrote tasks to ${filePath}`);
-      
-      // Save task data if provided
-      if (taskData && taskData.length > 0) {
-        const dataPath = path.resolve(plansDir, `TODO-${conversation_id}-data.json`);
-        const dataContent = {
-          conversationId: conversation_id,
-          created: new Date().toISOString(),
-          tasks: tasks.map((task, index) => ({
-            description: task,
-            data: taskData[index] || {},
-            status: 'pending',
-            index
-          }))
-        };
-        fs.writeFileSync(dataPath, JSON.stringify(dataContent, null, 2), 'utf-8');
-        console.log(`[Task Planning] Saved task data to ${dataPath}`);
-      }
       
       return JSON.stringify(tasks);
     } catch (error) {

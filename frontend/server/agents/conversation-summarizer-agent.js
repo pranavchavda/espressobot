@@ -3,8 +3,8 @@ import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { setTracingDisabled } from '@openai/agents-core';
 import { z } from 'zod';
 
-// Re-enable tracing for OpenAI dashboard visibility
-// setTracingDisabled(true);
+// CRITICAL: Disable tracing to prevent massive costs
+setTracingDisabled(true);
 
 // Set the OpenAI API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);

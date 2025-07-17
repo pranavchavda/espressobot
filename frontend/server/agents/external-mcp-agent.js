@@ -3,8 +3,12 @@
  */
 
 import { Agent } from '@openai/agents';
+import { setTracingDisabled } from '@openai/agents-core';
 import MCPServerManager from '../tools/mcp-server-manager.js';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
+
+// CRITICAL: Disable tracing to prevent massive costs from tool schemas
+setTracingDisabled(true);
 
 let serverManager = null;
 let externalServers = [];
@@ -129,7 +133,42 @@ async function executeWithTimeout(agent, task, options = {}) {
       const result = await Promise.race([executionPromise, timeoutPromise]);
       
       console.log('[External MCP Agent] Task completed successfully');
-      return result;
+      
+      // Extract meaningful output instead of returning entire state
+      let finalOutput = '';
+      
+      // Check for final output first
+      if (result.finalOutput) {
+        finalOutput = result.finalOutput;
+      } 
+      // Check for message outputs in generated items
+      else if (result.state && result.state._generatedItems) {
+        const messages = result.state._generatedItems
+          .filter(item => item.type === 'message_output_item')
+          .map(item => item.rawItem?.content?.[0]?.text || '')
+          .filter(text => text);
+        
+        if (messages.length > 0) {
+          finalOutput = messages[messages.length - 1];
+        }
+      }
+      // Check for the new structure based on the example
+      else if (result.state && result.state.currentStep && result.state.currentStep.output) {
+        finalOutput = result.state.currentStep.output;
+      }
+      
+      // Log token usage if available
+      if (result.state?.context?.usage) {
+        const usage = result.state.context.usage;
+        console.log(`[External MCP Agent] Token usage - Input: ${usage.inputTokens}, Output: ${usage.outputTokens}, Total: ${usage.totalTokens}`);
+      }
+      
+      return {
+        success: true,
+        result: finalOutput || 'Task completed but no output generated',
+        agent: 'external-mcp',
+        tokenUsage: result.state?.context?.usage || null
+      };
       
     } catch (error) {
       const isTimeoutError = error.message.includes('timeout') || 

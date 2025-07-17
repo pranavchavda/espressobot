@@ -10,8 +10,8 @@ import { z } from 'zod';
 import { setTracingDisabled } from '@openai/agents-core';
 import { bashTool } from '../tools/bash-tool.js';
 
-// Re-enable tracing for OpenAI dashboard visibility
-// setTracingDisabled(true);
+// CRITICAL: Disable tracing to prevent massive costs
+setTracingDisabled(true);
 import { createSpawnMCPAgentTool } from '../tools/spawn-mcp-agent-tool.js';
 
 // Concurrency control

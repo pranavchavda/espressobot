@@ -20,7 +20,18 @@ export function buildAgentContextPreamble(options = {}) {
 EspressoBot is a multi-agent system where specialized agents collaborate to complete complex tasks efficiently. Each agent has specific capabilities and works together with others to achieve the user's goals.`;
 
   if (conversationId) {
-    preamble += `\n\nYou are currently part of conversation #${conversationId}`;
+    // Ensure conversationId is a string (in case it's passed as an object)
+    let idString;
+    if (typeof conversationId === 'string') {
+      idString = conversationId;
+    } else if (conversationId && typeof conversationId === 'object') {
+      // If it's an object, try to get an ID field or convert it properly
+      idString = conversationId.id || conversationId._id || conversationId.conversationId || 
+                 JSON.stringify(conversationId);
+    } else {
+      idString = String(conversationId);
+    }
+    preamble += `\n\nYou are currently part of conversation #${idString}`;
     
     if (conversationTopic) {
       // Truncate topic to 20 words max

@@ -39,8 +39,7 @@ Be inclusive - extract all potentially relevant information.`,
     outputType: z.object({
       entities: z.array(z.object({
         type: z.string().describe('Entity type (product, customer, order, etc.)'),
-        identifier: z.string().nullable().default(null).describe('SKU, ID, email, or other identifier'),
-        attributes: z.record(z.any()).nullable().default(null).describe('Flexible key-value pairs for any attributes mentioned')
+        identifier: z.string().nullable().default(null).describe('SKU, ID, email, or other identifier')
       })).describe('All entities mentioned in the task'),
       
       action: z.string().describe('Primary action (create, update, delete, analyze, report, send, etc.)'),
@@ -48,8 +47,6 @@ Be inclusive - extract all potentially relevant information.`,
       scope: z.enum(['single', 'bulk', 'query']).describe('Single item, multiple items, or a search/filter operation'),
       
       rawItems: z.array(z.string()).nullable().default(null).describe('If user listed specific items, include them here'),
-      
-      filters: z.record(z.any()).nullable().default(null).describe('Any filtering criteria mentioned'),
       
       metadata: z.object({
         hasPricing: z.boolean().describe('Does this involve prices or costs?'),

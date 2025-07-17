@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardrail Approval Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .approval-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .approval-header {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .approval-message {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .approval-context {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .approval-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .btn-approve {
+            background: #28a745;
+            color: white;
+        }
+        .btn-reject {
+            background: #dc3545;
+            color: white;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .event-log {
+            background: #222;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .event-log .timestamp {
+            color: #888;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-connected {
+            background: #28a745;
+        }
+        .status-disconnected {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <h1>Guardrail Approval Demo</h1>
+    
+    <div class="approval-card">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h3>SSE Connection Status</h3>
+            <div>
+                <span class="status-indicator" id="status-indicator"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+        </div>
+    </div>
+    
+    <div id="approval-container">
+        <!-- Approval requests will appear here -->
+    </div>
+    
+    <div class="event-log" id="event-log">
+        <div>Event Log:</div>
+    </div>
+    
+    <script>
+        let eventSource = null;
+        const approvalContainer = document.getElementById('approval-container');
+        const eventLog = document.getElementById('event-log');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            eventLog.appendChild(entry);
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+        
+        function connectSSE() {
+            // Connect to your SSE endpoint
+            eventSource = new EventSource('/api/sse'); // Update this to your actual SSE endpoint
+            
+            eventSource.onopen = () => {
+                log('SSE connection established');
+                statusIndicator.className = 'status-indicator status-connected';
+                statusText.textContent = 'Connected';
+            };
+            
+            eventSource.onerror = (error) => {
+                log('SSE connection error: ' + error.type);
+                statusIndicator.className = 'status-indicator status-disconnected';
+                statusText.textContent = 'Disconnected';
+            };
+            
+            // Handle guardrail decision needed events
+            eventSource.addEventListener('guardrail_decision_needed', (event) => {
+                const data = JSON.parse(event.data);
+                log(`Guardrail decision requested: ${data.message}`);
+                showApprovalRequest(data);
+            });
+            
+            // Handle approval status updates
+            eventSource.addEventListener('approval_status', (event) => {
+                const data = JSON.parse(event.data);
+                log(`Approval status update: ${data.id} - ${data.status}`);
+                updateApprovalStatus(data.id, data.status);
+            });
+            
+            // Handle general agent messages
+            eventSource.addEventListener('agent_message', (event) => {
+                const data = JSON.parse(event.data);
+                if (data.message) {
+                    log(`Agent: ${data.message.substring(0, 100)}...`);
+                }
+            });
+        }
+        
+        function showApprovalRequest(data) {
+            const approvalId = `approval-${Date.now()}`;
+            const card = document.createElement('div');
+            card.className = 'approval-card';
+            card.id = approvalId;
+            card.innerHTML = `
+                <div class="approval-header">Guardrail Decision Required</div>
+                <div class="approval-message">${data.message}</div>
+                <div class="approval-context">
+                    <div>Completed: ${data.context.completedItems} items</div>
+                    <div>Expected: ${data.context.expectedItems} items</div>
+                    <div>Output preview: ${data.context.outputPreview}</div>
+                </div>
+                <div class="approval-buttons">
+                    <button class="btn btn-approve" onclick="handleApproval('${approvalId}', true)">
+                        Enforce Completion
+                    </button>
+                    <button class="btn btn-reject" onclick="handleApproval('${approvalId}', false)">
+                        Allow Current Response
+                    </button>
+                </div>
+            `;
+            approvalContainer.appendChild(card);
+        }
+        
+        async function handleApproval(approvalId, approved) {
+            // Disable buttons
+            const card = document.getElementById(approvalId);
+            const buttons = card.querySelectorAll('.btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            log(`User ${approved ? 'approved' : 'rejected'} guardrail enforcement for ${approvalId}`);
+            
+            // Send approval decision to backend
+            try {
+                const response = await fetch('/api/guardrail-decision', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        approvalId: approvalId,
+                        approved: approved
+                    })
+                });
+                
+                if (response.ok) {
+                    log(`Decision sent successfully for ${approvalId}`);
+                    // Remove the card after a delay
+                    setTimeout(() => {
+                        card.style.opacity = '0.5';
+                        card.querySelector('.approval-message').textContent = 
+                            approved ? 'Enforcing completion...' : 'Continuing with current response...';
+                    }, 500);
+                } else {
+                    log(`Failed to send decision: ${response.statusText}`);
+                    // Re-enable buttons on error
+                    buttons.forEach(btn => btn.disabled = false);
+                }
+            } catch (error) {
+                log(`Error sending decision: ${error.message}`);
+                // Re-enable buttons on error
+                buttons.forEach(btn => btn.disabled = false);
+            }
+        }
+        
+        function updateApprovalStatus(approvalId, status) {
+            const card = document.getElementById(approvalId);
+            if (card) {
+                setTimeout(() => {
+                    card.remove();
+                }, 2000);
+            }
+        }
+        
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            log('Page loaded, attempting SSE connection...');
+            connectSSE();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>

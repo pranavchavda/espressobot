@@ -24,20 +24,27 @@ import { viewImageTool } from './tools/view-image-tool.js';
 import { parseFileTool } from './tools/file-parser-tool-safe.js';
 import { saveFileTool } from './tools/file-save-tool.js';
 import { fileOperationsTool } from './tools/file-operations-tool.js';
-import { initializeMCPTools, callMCPTool, getMCPTools } from './tools/mcp-client.js';
+// NOTE: No longer using old MCP client - using direct MCP agent access instead
 import { runWithVisionRetry } from './vision-retry-wrapper.js';
 import { validateAndFixBase64 } from './vision-preprocessor.js';
 import { interceptConsoleForUser, restoreConsole } from './utils/console-interceptor.js';
+import { feedbackLoop } from './context/feedback-loop.js';
 import { toolResultCache } from './memory/tool-result-cache.js';
-import { createSpawnMCPAgentTool } from './tools/spawn-mcp-agent-tool.js';
 import { buildAgentContextPreamble, buildAgentInstructions } from './utils/agent-context-builder.js';
+import { 
+  createPythonToolsAgentTool, 
+  createDocumentationAgentTool, 
+  createExternalMCPAgentTool,
+  createSmartMCPRouterTool 
+} from './tools/direct-mcp-agent-tools.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
-// Re-enable tracing for OpenAI dashboard visibility
-// setTracingDisabled(true);
-console.log('[ORCHESTRATOR] OpenAI tracing ENABLED for dashboard visibility');
+// CRITICAL: Disable tracing to prevent massive API costs
+// Tracing was sending 5.7MB outputs when max is 1MB, causing $15+ charges
+setTracingDisabled(true);
+console.log('[ORCHESTRATOR] OpenAI tracing DISABLED to prevent excessive costs');
 
 // Store the current SSE emitter for access by spawned agents
 let currentSseEmitter = null;
@@ -884,22 +891,41 @@ function createMCPToolWrapper(toolDef) {
  * Build orchestrator tools - now using MCP agents instead of wrapped tools
  */
 async function buildOrchestratorTools() {
-  const builtInSearchTool = webSearchTool();
+  let builtInSearchTool = null;
   
-  // Initialize MCP servers but don't wrap tools
+  // Try to create web search tool safely
   try {
-    await initializeMCPTools();
-    console.log('[Orchestrator] MCP servers initialized for agent delegation');
+    builtInSearchTool = webSearchTool();
+    console.log('[Orchestrator] Web search tool created successfully');
   } catch (error) {
-    console.error('[Orchestrator] Failed to initialize MCP servers:', error.message);
-    // Continue without MCP servers
+    console.error('[Orchestrator] Failed to create web search tool:', error.message);
+    builtInSearchTool = null;
   }
   
-  // Create the spawn MCP agent tool
-  const spawnMCPAgent = createSpawnMCPAgentTool();
+  // NOTE: No longer initializing old MCP client - using direct MCP agent access instead
+  // The Python Tools Agent V2 uses specialized MCP servers (1-6 tools each) for better performance
+  
+  // Create direct MCP agent tools
+  const pythonToolsAgent = createPythonToolsAgentTool();
+  const documentationAgent = createDocumentationAgentTool();
+  const externalMCPAgent = createExternalMCPAgentTool();
+  const smartMCPRouter = createSmartMCPRouterTool();
+  
+  // Validate all tools before returning
+  const tools = { pythonToolsAgent, documentationAgent, externalMCPAgent, smartMCPRouter };
+  
+  for (const [name, tool] of Object.entries(tools)) {
+    if (!tool || typeof tool !== 'object' || !tool.name) {
+      console.error(`[Orchestrator] Invalid tool detected: ${name}`, tool);
+      throw new Error(`Tool ${name} is not properly defined`);
+    }
+  }
   
   return {
-    spawnMCPAgent,
+    pythonToolsAgent,
+    documentationAgent,
+    externalMCPAgent,
+    smartMCPRouter,
     builtInSearchTool
   };
 }
@@ -942,6 +968,9 @@ NOT BULK OPERATIONS:
 - Questions about items ("are there priced SKUs?", "how many products?")  
 - Single item requests ("fix this SKU", "check one product")
 - Informational queries ("what is the price?", "tell me about...")
+- Creating 2-3 specific named items ("create Lemo and Mixer collections")
+- Research or documentation tasks ("how to create collections")
+- GraphQL query requests (not mutations)
 
 Analyze the input and determine if this is a bulk operation that needs guardrail tracking.`,
   outputType: z.object({
@@ -1071,23 +1100,48 @@ function createBulkOperationOutputChokidar(conversationId = null) {
     model: 'gpt-4.1-mini',
     instructions: `${contextPreamble}
 
-You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations.
+You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations while allowing genuine blockers and completions.
 
 BULK OPERATION CONTEXT: The agent is supposed to be working on multiple items (${bulkOperationState.expectedItems || 'several'} items expected).
 
 ANNOUNCE AND STOP PATTERNS (BLOCK THESE):
 - Promises to work autonomously but returns control ("working silently", "you'll hear from me", then stops)
-- Asking for permission mid-bulk ("would you like me to proceed?", "shall I continue?")
+- Asking for permission mid-bulk when it could proceed ("would you like me to proceed?", "shall I continue?")
 - Providing options instead of working ("next steps:", "how would you like to proceed?")
 - Status updates without actual work ("processing...", "working on it..." without tool calls)
+- Premature stopping when more work remains without a good reason
+- SHOWING GRAPHQL MUTATIONS instead of executing them ("here's the mutation", "you can use this")
+- Providing instructions or code samples when execution was requested
 
 LEGITIMATE PATTERNS (ALLOW THESE):
-- Actually calling tools (spawn_mcp_agent, search_products, update_pricing)
+- Actually calling tools (python_tools_agent, documentation_agent, external_mcp_agent, smart_mcp_execute)
 - Genuine completion with results ("✅ All 12 items updated successfully")
 - Progress reports WITH tool calls (showing actual work done)
-- Error reports requiring user intervention
+- TRUE BLOCKERS requiring user input:
+  * API rate limits with specific errors ("429 Too Many Requests", "Rate limit exceeded")
+  * Authentication failures needing credentials
+  * Missing required data the agent cannot determine
+  * Genuine ambiguity requiring clarification
+  * Partial completion with valid reason for stopping
+- Questions about handling errors or exceptions that occurred
+- Completion summaries asking about next steps AFTER finishing all work
 
-Analyze if the agent is doing real work or just announcing/asking.`,
+DECISION CRITERIA:
+1. If work is 80%+ complete AND there's a genuine blocker (rate limit, auth error, etc.) - ALLOW
+2. If the agent has done substantial work and hit a real technical barrier - ALLOW
+3. If asking for permission without trying first or very early in the process - BLOCK
+4. If the question is about post-completion actions (all work done) - ALLOW
+5. If reporting partial success with specific errors that need user decision - ALLOW
+6. If the task is NOT actually a bulk operation (single item, research task, query) - ALLOW
+7. If agent executed mutations and is reporting results - ALLOW
+8. If agent hit a SPECIFIC error (not generic "something went wrong") - ALLOW
+9. If showing GraphQL/code WITHOUT execution when user asked for action - BLOCK
+
+Consider: 
+- Has the agent made a good faith effort? 
+- Is there a legitimate technical or business reason to stop?
+- Did the user ask for execution or just information?
+- Is this truly a bulk operation or a single task?`,
     outputType: z.object({
       isAnnounceAndStop: z.boolean(),
       hasActualWork: z.boolean(),
@@ -1178,12 +1232,22 @@ Analyze this agent output and determine if it's legitimate work or "announce and
         };
       }
       
-      // Block announce and stop patterns
+      // Block announce and stop patterns (but allow human override)
       if (analysis.isAnnounceAndStop && !analysis.hasActualWork) {
-        console.log('[Chokidar] 🚫 BLOCKING ANNOUNCE AND STOP PATTERN');
+        console.log('[Chokidar] 🚫 DETECTED ANNOUNCE AND STOP PATTERN');
+        
+        // Store context for approval tool
+        bulkOperationState.pendingGuardrailDecision = {
+          pattern: 'announce_and_stop',
+          reasoning: analysis.reasoning,
+          completedItems: bulkOperationState.completedItems,
+          expectedItems: bulkOperationState.expectedItems
+        };
+        
         return {
-          outputInfo: `Blocking announce and stop: ${analysis.reasoning}`,
-          tripwireTriggered: true
+          outputInfo: `Detected announce and stop pattern: ${analysis.reasoning}`,
+          tripwireTriggered: true,  // Back to automatic enforcement
+          requiresApproval: true  // Keep for future use
         };
       }
       
@@ -1201,7 +1265,7 @@ Analyze this agent output and determine if it's legitimate work or "announce and
       const lowerOutput = outputText.toLowerCase();
       
       const prematurePatterns = ['autonomous', 'silently', 'you\'ll hear from me', 'working on it'];
-      const hasToolCalls = outputText.includes('spawn_mcp_agent') || outputText.includes('completed');
+      const hasToolCalls = outputText.includes('python_tools_agent') || outputText.includes('documentation_agent') || outputText.includes('external_mcp_agent') || outputText.includes('smart_mcp_execute') || outputText.includes('completed');
       const seemsPremature = prematurePatterns.some(pattern => lowerOutput.includes(pattern));
       
       if (seemsPremature && !hasToolCalls) {
@@ -1222,9 +1286,22 @@ Analyze this agent output and determine if it's legitimate work or "announce and
 /**
  * Create orchestrator agent with dynamic prompt based on context
  */
-function createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMCPAgent, builtInSearchTool, userProfile = null) {
+function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null) {
   // Build unified prompt based on task complexity
   const instructions = buildUnifiedOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
+  
+  // Validate MCP tools before adding to agent
+  const mcpToolsArray = [];
+  if (mcpTools) {
+    for (const [name, tool] of Object.entries(mcpTools)) {
+      if (tool && typeof tool === 'object' && tool.name) {
+        mcpToolsArray.push(tool);
+        console.log(`[Orchestrator] Added MCP tool: ${tool.name}`);
+      } else {
+        console.warn(`[Orchestrator] Skipping invalid MCP tool: ${name}`, tool);
+      }
+    }
+  }
   
   return new Agent({
     name: 'EspressoBot1',
@@ -1293,8 +1370,10 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMC
         return stats || { error: 'Could not retrieve cache statistics' };
       }
     }),
-    spawnMCPAgent,  // New MCP agent delegation tool
-    builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
+    ...mcpToolsArray,  // Add validated MCP tools
+    // builtInSearchTool,  // Temporarily disabled - causing SDK compatibility issues
+    ...(builtInSearchTool ? [builtInSearchTool] : []),  // Only add if it exists
+    guardrailApprovalTool,  // Human-in-the-loop guardrail control
     viewImageTool,
     parseFileTool,
     saveFileTool,
@@ -1484,6 +1563,10 @@ async function initializeOrchestratorTools() {
  */
 export async function runDynamicOrchestrator(message, options = {}) {
   const { conversationId, userId, sseEmitter, taskUpdater, abortSignal, contextOverride = null } = options;
+  
+  // Declare operationId at function scope so it's available in catch blocks
+  let operationId;
+  let feedbackLoop;
   
   // Set global variables for SSE
   currentSseEmitter = sseEmitter;
@@ -1796,10 +1879,16 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Initialize orchestrator tools if needed
-    const { spawnMCPAgent, builtInSearchTool } = await initializeOrchestratorTools();
+    const { pythonToolsAgent, documentationAgent, externalMCPAgent, smartMCPRouter, builtInSearchTool } = await buildOrchestratorTools();
+    
+    // Import guardrail approval tool
+    const { createGuardrailApprovalTool, handleGuardrailApproval } = await import('./tools/guardrail-approval-tool.js');
+    
+    // Create guardrail approval tool instance
+    const guardrailApprovalTool = createGuardrailApprovalTool(bulkOperationState, sseEmitter);
     
     // Create orchestrator with dynamic prompt based on context
-    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, spawnMCPAgent, builtInSearchTool, userProfile);
+    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, { pythonToolsAgent, documentationAgent, externalMCPAgent, smartMCPRouter }, null, guardrailApprovalTool, userProfile);
     
     // Check if we have image or file data from the API
     let messageToSend;
@@ -1900,8 +1989,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Import feedback loop for tracking
-    const { feedbackLoop } = await import('./context/feedback-loop.js');
-    const operationId = `${conversationId}-${Date.now()}`;
+    ({ feedbackLoop } = await import('./context/feedback-loop.js'));
+    operationId = `${conversationId}-${Date.now()}`;
     
     // Start tracking this operation
     feedbackLoop.startOperation(operationId, message, orchestratorContext);
@@ -1956,6 +2045,27 @@ export async function runDynamicOrchestrator(message, options = {}) {
         
         console.log('*** Full streamed response:', fullResponse);
       }
+      
+      // Check for interruptions (human-in-the-loop)
+      if (result && result.interruptions && result.interruptions.length > 0) {
+        console.log('[Orchestrator] Interruption detected - approval needed');
+        
+        // Handle the approval flow
+        const approvalResult = await handleGuardrailApproval(result, orchestratorContext, sseEmitter);
+        
+        if (approvalResult.needsApproval) {
+          if (approvalResult.approved) {
+            console.log('[Orchestrator] User approved guardrail enforcement');
+            // Force bulk operation mode
+            bulkOperationState.isActive = true;
+            // Re-run with enforcement
+            result = await run(orchestrator, { state: approvalResult.state }, runOptions);
+          } else {
+            console.log('[Orchestrator] User rejected guardrail enforcement');
+            // Continue with original response
+          }
+        }
+      }
     } catch (executionError) {
       // Re-throw to be handled by the main catch block
       throw executionError;
@@ -1999,12 +2109,14 @@ export async function runDynamicOrchestrator(message, options = {}) {
   } catch (error) {
     // Track error for feedback loop
     try {
-      feedbackLoop.trackError(operationId, error);
-      await feedbackLoop.completeOperation(operationId, false, {
-        success: false,
-        error: error.message,
-        summary: 'Operation failed'
-      });
+      if (feedbackLoop && operationId) {
+        feedbackLoop.trackError(operationId, error);
+        await feedbackLoop.completeOperation(operationId, false, {
+          success: false,
+          error: error.message,
+          summary: 'Operation failed'
+        });
+      }
     } catch (feedbackError) {
       console.error('[FeedbackLoop] Failed to track error:', feedbackError);
     }
@@ -2173,8 +2285,8 @@ ${preservedContent}
 MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
 ${bulkItemsContext}
 CRITICAL TOOL REQUIREMENTS:
-- Use spawn_mcp_agent to delegate work to specialized agents
-- When calling spawn_mcp_agent, PASS THE BULK ITEMS in the context parameter:
+- Use python_tools_agent to execute Shopify operations directly
+- When calling python_tools_agent, PASS THE BULK ITEMS in the context parameter:
   context: {
     bulk_items: ${remainingItems.length > 0 ? JSON.stringify(remainingItems) : '[remaining items]'},
     bulk_operation_type: "${bulkOperationState.operationType || 'update'}",
@@ -2191,7 +2303,7 @@ CRITICAL TOOL REQUIREMENTS:
 - DO NOT make up tool capabilities
 
 IMMEDIATE ACTION REQUIRED:
-- IMMEDIATELY call spawn_mcp_agent for the next unprocessed item
+- IMMEDIATELY call python_tools_agent for the next unprocessed item
 - DO NOT ask "what would you like me to do next"
 - DO NOT request permission to continue
 - DO NOT provide options or choices
@@ -2214,8 +2326,8 @@ ${preservedContent}
 MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
 ${bulkItemsContext}
 CRITICAL TOOL REQUIREMENTS:
-- Use spawn_mcp_agent to delegate work to specialized agents
-- When calling spawn_mcp_agent, PASS THE BULK ITEMS in the context parameter:
+- Use python_tools_agent to execute Shopify operations directly
+- When calling python_tools_agent, PASS THE BULK ITEMS in the context parameter:
   context: {
     bulk_items: ${remainingItems.length > 0 ? JSON.stringify(remainingItems) : '[remaining items]'},
     bulk_operation_type: "${bulkOperationState.operationType || 'update'}",
