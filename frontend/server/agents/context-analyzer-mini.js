@@ -210,7 +210,18 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
  * Learn from successful context usage
  */
 export async function learnFromContextUsage(task, usedContext, outcome) {
-  if (!outcome.success) return;
+  if (!outcome || !outcome.success) return;
+  
+  // Validate inputs
+  if (typeof task !== 'string') {
+    console.warn('[ContextAnalyzer] learnFromContextUsage called with non-string task:', typeof task);
+    return;
+  }
+  
+  if (!usedContext || typeof usedContext !== 'object') {
+    console.warn('[ContextAnalyzer] learnFromContextUsage called with invalid context:', typeof usedContext);
+    return;
+  }
   
   // Extract what context was actually helpful
   const learningAgent = new Agent({
@@ -225,11 +236,13 @@ export async function learnFromContextUsage(task, usedContext, outcome) {
   });
   
   try {
-    const analysis = await run(learningAgent, {
-      task,
-      context: Object.keys(usedContext),
-      outcome: outcome.summary
-    }, { maxTurns: 1 });
+    // Build a proper prompt string for the agent
+    const contextKeys = usedContext ? Object.keys(usedContext) : [];
+    const prompt = `Task: ${task}
+Context Used: ${contextKeys.length > 0 ? contextKeys.join(', ') : 'None'}
+Outcome: ${outcome.summary || 'Successful completion'}`;
+    
+    const analysis = await run(learningAgent, prompt, { maxTurns: 1 });
     
     if (analysis.finalOutput) {
       // Store this learning

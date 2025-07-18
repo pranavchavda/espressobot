@@ -1,11 +1,11 @@
 import { Agent, MCPServerStdio, tool, webSearchTool } from '@openai/agents';
 import { z } from 'zod';
-import { setTracingDisabled } from '@openai/agents-core';
 import fs from 'fs/promises';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
+import { initializeTracing } from '../config/tracing-config.js';
 
-// CRITICAL: Disable tracing to prevent massive costs
-setTracingDisabled(true);
+// Initialize tracing configuration for this agent
+initializeTracing('SWE Agent');
 import { executeBashCommand } from '../tools/bash-tool.js';
 import { learningTool, reflectAndLearnTool } from '../tools/learning-tool.js';
 

@@ -7,11 +7,11 @@
 
 import { Agent, tool } from '@openai/agents';
 import { z } from 'zod';
-import { setTracingDisabled } from '@openai/agents-core';
 import { bashTool } from '../tools/bash-tool.js';
+import { initializeTracing } from '../config/tracing-config.js';
 
-// CRITICAL: Disable tracing to prevent massive costs
-setTracingDisabled(true);
+// Initialize tracing configuration for this agent
+initializeTracing('Parallel Executor Agent');
 import { createSpawnMCPAgentTool } from '../tools/spawn-mcp-agent-tool.js';
 
 // Concurrency control

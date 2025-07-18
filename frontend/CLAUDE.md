@@ -118,10 +118,10 @@ const tools = mcpServer.getTools();  // ❌ Old pattern
 
 ---
 
-## Next Optimization (TODO - July 18, 2025)
+## Latest Updates (July 18, 2025)
 
-### 🎯 **Agent Specialization Phase 2**
-Split the Python Tools Agent into 9 specialized agents, one for each MCP server:
+### ✅ **Agent Specialization Phase 2 - COMPLETED**
+Successfully split the Python Tools Agent into 9 specialized agents:
 
 **Planned Specialized Agents:**
 1. **Products Agent** → Products Server (6 tools)
@@ -176,9 +176,45 @@ Split the Python Tools Agent into 9 specialized agents, one for each MCP server:
 ###  Bulk Operations Task Tracking
 - Make task list available to the orchestrator at all times when in bulk mode. Inject it to the end of the system prompt, along with instructions on how to mark the tasks as either in progress or complete.
 
+### ✅ **OpenAI Tracing Configuration** (NEW - July 18, 2025)
+Implemented flexible tracing system with cost controls:
+- **Environment-based control**: Enable/disable via `OPENAI_TRACING_ENABLED`
+- **Selective agent tracing**: Trace specific agents with `OPENAI_TRACING_AGENTS`
+- **Output size limits**: Prevent massive traces with `OPENAI_TRACING_MAX_OUTPUT`
+- **Automatic truncation**: Traces exceeding limits are truncated
+- **Cost safeguards**: Default disabled, requires explicit opt-in
+- **Documentation**: See `/docs/openai-tracing-guide.md`
+
+**Configuration Examples:**
+```bash
+# Enable for all agents (development only!)
+OPENAI_TRACING_ENABLED=true npm run dev
+
+# Enable for specific agents only
+OPENAI_TRACING_ENABLED=true OPENAI_TRACING_AGENTS="Products Agent,Pricing Agent" npm run dev
+
+# With size limit
+OPENAI_TRACING_ENABLED=true OPENAI_TRACING_MAX_OUTPUT=200 npm run dev
+```
+
 ---
 
 ## Recent Fixes & Improvements
+
+### July 18, 2025 - Agent Specialization & Tracing
+- **COMPLETED**: Agent Specialization Phase 2
+  - Created 9 specialized agents (Products, Pricing, Inventory, Sales, Features, Media, Integrations, Product Management, Utility)
+  - Each agent has domain-specific prompts and only loads relevant tools
+  - Updated orchestrator to use specialized agents directly
+  - Updated all prompts and guardrails to use new agent names
+  - Result: Better performance, clearer responsibilities, improved routing
+
+- **COMPLETED**: OpenAI Tracing Configuration
+  - Implemented environment-based tracing control
+  - Added output size limits to prevent massive traces
+  - Created selective agent tracing capability
+  - Documented in `/docs/openai-tracing-guide.md`
+  - Safe to re-enable tracing with proper controls
 
 ### July 17, 2025 - Direct MCP Agent Access
 - **MAJOR EFFICIENCY IMPROVEMENT**: Removed spawn_mcp_agent middleman

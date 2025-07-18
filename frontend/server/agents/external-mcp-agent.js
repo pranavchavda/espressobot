@@ -3,12 +3,12 @@
  */
 
 import { Agent } from '@openai/agents';
-import { setTracingDisabled } from '@openai/agents-core';
 import MCPServerManager from '../tools/mcp-server-manager.js';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
+import { initializeTracing } from '../config/tracing-config.js';
 
-// CRITICAL: Disable tracing to prevent massive costs from tool schemas
-setTracingDisabled(true);
+// Initialize tracing configuration for this agent
+initializeTracing('External MCP Agent');
 
 let serverManager = null;
 let externalServers = [];

@@ -4,12 +4,13 @@
  */
 
 import { Agent } from '@openai/agents';
-import { MCPServerStdio, setTracingDisabled } from '@openai/agents-core';
+import { MCPServerStdio } from '@openai/agents-core';
 import path from 'path';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
+import { initializeTracing } from '../config/tracing-config.js';
 
-// CRITICAL: Disable tracing to prevent massive costs from tool schemas
-setTracingDisabled(true);
+// Initialize tracing configuration for this agent
+initializeTracing('Python Tools Agent V2');
 
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

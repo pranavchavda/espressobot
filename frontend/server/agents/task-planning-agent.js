@@ -1,11 +1,11 @@
 import { Agent, run, tool } from '@openai/agents';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
-import { setTracingDisabled } from '@openai/agents-core';
 import { z } from 'zod';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
+import { initializeTracing } from '../config/tracing-config.js';
 
-// CRITICAL: Disable tracing to prevent massive costs
-setTracingDisabled(true);
+// Initialize tracing configuration for this agent
+initializeTracing('Task Planning Agent');
 import fs from 'node:fs';
 import fsSync from 'node:fs';
 import path from 'node:path';

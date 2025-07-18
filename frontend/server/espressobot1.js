@@ -1,7 +1,7 @@
 import { Agent, run, tool, webSearchTool, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered } from '@openai/agents';
 import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
-import { setTracingDisabled } from '@openai/agents-core';
+import { initializeTracing } from './config/tracing-config.js';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 // MEMORY SYSTEM DISABLED - Causing infinite loops
 // import { memoryAgent } from './agents/memory-agent.js';
@@ -32,19 +32,28 @@ import { feedbackLoop } from './context/feedback-loop.js';
 import { toolResultCache } from './memory/tool-result-cache.js';
 import { buildAgentContextPreamble, buildAgentInstructions } from './utils/agent-context-builder.js';
 import { 
-  createPythonToolsAgentTool, 
+  createProductsAgentTool,
+  createPricingAgentTool,
+  createInventoryAgentTool,
+  createSalesAgentTool,
+  createFeaturesAgentTool,
+  createMediaAgentTool,
+  createIntegrationsAgentTool,
+  createProductManagementAgentTool,
+  createUtilityAgentTool,
   createDocumentationAgentTool, 
   createExternalMCPAgentTool,
-  createSmartMCPRouterTool 
+  createSmartMCPExecuteTool,
+  createPythonToolsAgentTool  // Legacy support
 } from './tools/direct-mcp-agent-tools.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
 
-// CRITICAL: Disable tracing to prevent massive API costs
-// Tracing was sending 5.7MB outputs when max is 1MB, causing $15+ charges
-setTracingDisabled(true);
-console.log('[ORCHESTRATOR] OpenAI tracing DISABLED to prevent excessive costs');
+// Initialize tracing configuration
+// Previously disabled due to 5.7MB outputs causing $15+ charges
+// Now controlled by environment variable with output size limits
+initializeTracing('EspressoBot1');
 
 // Store the current SSE emitter for access by spawned agents
 let currentSseEmitter = null;
@@ -905,14 +914,28 @@ async function buildOrchestratorTools() {
   // NOTE: No longer initializing old MCP client - using direct MCP agent access instead
   // The Python Tools Agent V2 uses specialized MCP servers (1-6 tools each) for better performance
   
-  // Create direct MCP agent tools
-  const pythonToolsAgent = createPythonToolsAgentTool();
+  // Create all specialized MCP agent tools
+  const productsAgent = createProductsAgentTool();
+  const pricingAgent = createPricingAgentTool();
+  const inventoryAgent = createInventoryAgentTool();
+  const salesAgent = createSalesAgentTool();
+  const featuresAgent = createFeaturesAgentTool();
+  const mediaAgent = createMediaAgentTool();
+  const integrationsAgent = createIntegrationsAgentTool();
+  const productManagementAgent = createProductManagementAgentTool();
+  const utilityAgent = createUtilityAgentTool();
   const documentationAgent = createDocumentationAgentTool();
   const externalMCPAgent = createExternalMCPAgentTool();
-  const smartMCPRouter = createSmartMCPRouterTool();
+  const smartMCPExecute = createSmartMCPExecuteTool();
+  const pythonToolsAgent = createPythonToolsAgentTool();  // Legacy support
   
   // Validate all tools before returning
-  const tools = { pythonToolsAgent, documentationAgent, externalMCPAgent, smartMCPRouter };
+  const tools = { 
+    productsAgent, pricingAgent, inventoryAgent, salesAgent, 
+    featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
+    utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
+    pythonToolsAgent 
+  };
   
   for (const [name, tool] of Object.entries(tools)) {
     if (!tool || typeof tool !== 'object' || !tool.name) {
@@ -922,10 +945,19 @@ async function buildOrchestratorTools() {
   }
   
   return {
-    pythonToolsAgent,
+    productsAgent,
+    pricingAgent,
+    inventoryAgent,
+    salesAgent,
+    featuresAgent,
+    mediaAgent,
+    integrationsAgent,
+    productManagementAgent,
+    utilityAgent,
     documentationAgent,
     externalMCPAgent,
-    smartMCPRouter,
+    smartMCPExecute,
+    pythonToolsAgent,  // Legacy support
     builtInSearchTool
   };
 }
@@ -1879,7 +1911,12 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Initialize orchestrator tools if needed
-    const { pythonToolsAgent, documentationAgent, externalMCPAgent, smartMCPRouter, builtInSearchTool } = await buildOrchestratorTools();
+    const { 
+      productsAgent, pricingAgent, inventoryAgent, salesAgent,
+      featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
+      utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
+      pythonToolsAgent, builtInSearchTool 
+    } = await buildOrchestratorTools();
     
     // Import guardrail approval tool
     const { createGuardrailApprovalTool, handleGuardrailApproval } = await import('./tools/guardrail-approval-tool.js');
@@ -1888,7 +1925,13 @@ export async function runDynamicOrchestrator(message, options = {}) {
     const guardrailApprovalTool = createGuardrailApprovalTool(bulkOperationState, sseEmitter);
     
     // Create orchestrator with dynamic prompt based on context
-    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, { pythonToolsAgent, documentationAgent, externalMCPAgent, smartMCPRouter }, null, guardrailApprovalTool, userProfile);
+    const mcpAgentTools = {
+      productsAgent, pricingAgent, inventoryAgent, salesAgent,
+      featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
+      utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
+      pythonToolsAgent  // Legacy support
+    };
+    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile);
     
     // Check if we have image or file data from the API
     let messageToSend;
