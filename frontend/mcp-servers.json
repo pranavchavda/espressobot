@@ -6,6 +6,15 @@
       "type": "stdio",
       "command": "uvx",
       "args": ["mcp-server-fetch"]
+    },
+    "idrinkcoffee": {
+      "description": "iDrinkCoffee.com enhanced MCP server",
+      "enabled": true,
+      "type": "http",
+      "url": "https://idrinkcoffee.com/api/mcp-enhanced",
+      "headers": {
+        "User-Agent": "EspressoBot/1.0"
+      }
     }
   }
 }

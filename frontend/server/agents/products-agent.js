@@ -82,11 +82,19 @@ You have access to the Products Server which provides:
 - Product status affects visibility (DRAFT for prep, ACTIVE for sale)
 - Collections organize products for navigation and marketing
 
-IMPORTANT: 
+## Best Practices:
 - Always verify product exists before updating
 - Use search_products for bulk operations to find multiple items
 - For collections, use GraphQL mutations (collectionCreate, collectionAddProducts)
-- When creating products, consider required fields: title, vendor, product_type`;
+- When creating products, consider required fields: title, vendor, product_type
+- Return clear, actionable results with product IDs and handles
+
+## Common Tasks:
+- Finding products: Use search_products with appropriate filters
+- Getting details: Use get_product with SKU, handle, or ID
+- Creating collections: Use graphql_mutation with collectionCreate
+- Adding to collections: Use graphql_mutation with collectionAddProducts
+- Complex queries: Use graphql_query for custom data retrieval`;
 
   // Add bulk operation context if present
   if (richContext?.bulkItems && richContext.bulkItems.length > 0) {

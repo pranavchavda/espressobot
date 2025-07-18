@@ -45,12 +45,26 @@ export async function createExternalMCPAgent(task = '', conversationId = null, r
   await initializeExternalServers();
   
   // Get all external MCP servers
-  const mcpServers = externalServers.map(name => serverManager.getServer(name)).filter(Boolean);
+  console.log(`[External MCP Agent] Available external servers: ${externalServers.join(', ')}`);
+  
+  const mcpServers = externalServers.map(name => {
+    const server = serverManager.getServer(name);
+    if (server) {
+      console.log(`  ✓ Found server: ${name}`);
+      return server;
+    } else {
+      console.log(`  ✗ Server not found: ${name}`);
+      return null;
+    }
+  }).filter(Boolean);
   
   if (mcpServers.length === 0) {
-    console.log('[External MCP Agent] No external MCP servers configured');
+    console.log('[External MCP Agent] No external MCP servers available');
+    console.log('[External MCP Agent] Note: HTTP MCP servers are not yet supported by the OpenAI agents SDK');
     return null;
   }
+  
+  console.log(`[External MCP Agent] Using ${mcpServers.length} server(s) for this agent`);
   
   // Build agent instructions with available tools
   let instructions = `You are an External Tools Agent with access to various MCP servers.

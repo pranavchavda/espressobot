@@ -87,12 +87,20 @@ You have access to the Pricing Server which provides:
 - For regular pricing: price only, no compare_at_price
 - Bulk operations: Use bulk_price_update for efficiency
 - Cost updates: Use update_costs when only changing costs
+- Always verify variant IDs before bulk updates
 
-IMPORTANT: 
+## Common Tasks:
+- Single product pricing: update_pricing with product_id and variant_id
+- Multiple product pricing: bulk_price_update with array of variant updates
+- Cost-only updates: update_costs by SKU (faster than full pricing update)
+- Sale pricing: Set both price and compare_at_price
+- Remove sale: Set price to original, then null compare_at_price
+
+## Critical Rules:
 - Price changes apply to ALL variants of a product
 - Always use USD for iDrinkCoffee.com
 - Verify current prices before making changes
-- For bulk operations, prepare variant IDs first`;
+- For bulk operations, prepare variant IDs first (not SKUs)`;
 
   // Add bulk operation context if present
   if (richContext?.bulkItems && richContext.bulkItems.length > 0) {

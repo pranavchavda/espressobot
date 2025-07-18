@@ -1,4 +1,4 @@
-import { MCPServerStdio } from '@openai/agents-core';
+import { MCPServerStdio, MCPServerStreamableHttp } from '@openai/agents-core';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -33,22 +33,80 @@ class MCPServerManager {
   async initializeServers() {
     const config = await this.loadConfiguration();
     
+    console.log('[MCP Server Manager] Loading external MCP servers...');
+    
     // Initialize external servers
     for (const [name, serverConfig] of Object.entries(config)) {
-      if (serverConfig.enabled !== false) {
-        await this.createServer(name, serverConfig);
+      if (serverConfig.enabled === false) {
+        console.log(`[MCP Server Manager] Skipping disabled server: ${name}`);
+        continue;
       }
+      
+      // Handle different server types
+      if (serverConfig.type === 'http') {
+        await this.createHTTPServer(name, serverConfig);
+      } else if (!serverConfig.type || serverConfig.type === 'stdio') {
+        await this.createStdioServer(name, serverConfig);
+      } else {
+        console.warn(`[MCP Server Manager] Unknown server type '${serverConfig.type}' for server: ${name}`);
+      }
+      
+      // Handled above
     }
 
     // Add built-in servers
+    console.log('[MCP Server Manager] Adding built-in servers...');
     for (const [name, server] of this.builtInServers.entries()) {
       this.servers.set(name, server);
+      console.log(`  ✓ Built-in server: ${name}`);
+    }
+    
+    console.log(`[MCP Server Manager] Total servers available: ${this.servers.size}`);
+  }
+
+  async createHTTPServer(name, config) {
+    try {
+      console.log(`[MCP Server Manager] Initializing HTTP MCP server: ${name}`);
+      console.log(`  URL: ${config.url}`);
+      
+      const serverOptions = {
+        name: config.description || name,
+        url: config.url,
+        cacheToolsList: true
+      };
+
+      // Add headers if specified
+      if (config.headers) {
+        serverOptions.requestInit = {
+          headers: config.headers
+        };
+      }
+
+      const server = new MCPServerStreamableHttp(serverOptions);
+      await server.connect();
+      
+      this.servers.set(name, server);
+      console.log(`✓ HTTP MCP server '${name}' connected successfully`);
+      
+      // List available tools
+      try {
+        const tools = await server.listTools();
+        console.log(`  Available tools: ${tools.map(t => t.name).join(', ')}`);
+      } catch (toolsError) {
+        console.log(`  Could not list tools: ${toolsError.message}`);
+      }
+      
+    } catch (error) {
+      console.error(`Failed to initialize HTTP MCP server '${name}':`, error.message);
+      if (error.stack) {
+        console.error('Stack trace:', error.stack);
+      }
     }
   }
 
-  async createServer(name, config) {
+  async createStdioServer(name, config) {
     try {
-      console.log(`Initializing MCP server: ${name}`);
+      console.log(`[MCP Server Manager] Initializing stdio MCP server: ${name}`);
       
       const serverOptions = {
         name: config.description || name,
@@ -77,14 +135,14 @@ class MCPServerManager {
       await server.connect();
       
       this.servers.set(name, server);
-      console.log(`✓ MCP server '${name}' connected successfully`);
+      console.log(`✓ Stdio MCP server '${name}' connected successfully`);
       
       // List available tools
       const tools = await server.listTools();
       console.log(`  Available tools: ${tools.map(t => t.name).join(', ')}`);
       
     } catch (error) {
-      console.error(`Failed to initialize MCP server '${name}':`, error);
+      console.error(`Failed to initialize stdio MCP server '${name}':`, error);
     }
   }
 
@@ -98,7 +156,14 @@ class MCPServerManager {
 
     // Reconnect if enabled
     if (config.enabled !== false) {
-      await this.createServer(name, config);
+      // Handle different server types
+      if (config.type === 'http') {
+        await this.createHTTPServer(name, config);
+      } else if (!config.type || config.type === 'stdio') {
+        await this.createStdioServer(name, config);
+      } else {
+        console.warn(`[MCP Server Manager] Unknown server type '${config.type}' for server: ${name}`);
+      }
     }
   }
 

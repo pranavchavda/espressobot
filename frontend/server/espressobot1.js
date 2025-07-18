@@ -43,8 +43,7 @@ import {
   createUtilityAgentTool,
   createDocumentationAgentTool, 
   createExternalMCPAgentTool,
-  createSmartMCPExecuteTool,
-  createPythonToolsAgentTool  // Legacy support
+  createSmartMCPExecuteTool
 } from './tools/direct-mcp-agent-tools.js';
 
 // Set API key
@@ -682,7 +681,12 @@ Options:
 - Throttle: ${throttleMs}ms between operations
 - Retry limit: ${retryLimit} attempts per item
 
-Process each item according to the operation description. Use the appropriate MCP tools.
+Process each item according to the operation description. Use the appropriate specialized agent:
+- products_agent for product operations (search, create, update status)
+- pricing_agent for price/cost updates
+- inventory_agent for tags and inventory policies
+- Other specialized agents as needed (NOT smart_mcp_execute unless necessary)
+
 Report progress using the report_progress tool.
 ${dryRun ? 'This is a DRY RUN - simulate operations without making actual changes.' : ''}
       `);
@@ -927,14 +931,12 @@ async function buildOrchestratorTools() {
   const documentationAgent = createDocumentationAgentTool();
   const externalMCPAgent = createExternalMCPAgentTool();
   const smartMCPExecute = createSmartMCPExecuteTool();
-  const pythonToolsAgent = createPythonToolsAgentTool();  // Legacy support
   
   // Validate all tools before returning
   const tools = { 
     productsAgent, pricingAgent, inventoryAgent, salesAgent, 
     featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
-    utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-    pythonToolsAgent 
+    utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute
   };
   
   for (const [name, tool] of Object.entries(tools)) {
@@ -957,7 +959,6 @@ async function buildOrchestratorTools() {
     documentationAgent,
     externalMCPAgent,
     smartMCPExecute,
-    pythonToolsAgent,  // Legacy support
     builtInSearchTool
   };
 }
@@ -985,7 +986,7 @@ const bulkOperationState = {
  */
 const bulkOperationInputChokidar = new Agent({
   name: 'Bulk Operation Chokidar',
-  model: 'gpt-4.1-mini',
+  model: 'o4-mini',
   instructions: `You are an intelligent chokidar (guard) agent in the EspressoBot agency - an AI-powered assistant system that supports iDrinkCoffee.com with all manner of e-commerce tasks including product management, pricing updates, inventory control, and business operations.
 
 Your specific role is to detect bulk operations vs simple questions.
@@ -1129,7 +1130,7 @@ function createBulkOperationOutputChokidar(conversationId = null) {
   
   return new Agent({
     name: 'Output Completion Chokidar',
-    model: 'gpt-4.1-mini',
+    model: 'o4-mini',
     instructions: `${contextPreamble}
 
 You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations while allowing genuine blockers and completions.
@@ -1146,7 +1147,7 @@ ANNOUNCE AND STOP PATTERNS (BLOCK THESE):
 - Providing instructions or code samples when execution was requested
 
 LEGITIMATE PATTERNS (ALLOW THESE):
-- Actually calling tools (python_tools_agent, documentation_agent, external_mcp_agent, smart_mcp_execute)
+- Actually calling tools (products_agent, pricing_agent, inventory_agent, documentation_agent, external_mcp_agent, etc.)
 - Genuine completion with results ("✅ All 12 items updated successfully")
 - Progress reports WITH tool calls (showing actual work done)
 - TRUE BLOCKERS requiring user input:
@@ -1208,7 +1209,8 @@ CURRENT BULK STATE:
 - Completed items: ${bulkOperationState.completedItems}
 - Operation type: ${bulkOperationState.operationType || 'unknown'}
 
-Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior.`;
+Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior. Base your output on the agent's output and the current bulk state
+some times, the bulk statate may not look satisfied, but the agent is actually making progress. In those cases, allow the agent to continue, use your best judgement.`;
       
       const bulkOperationOutputChokidar = createBulkOperationOutputChokidar(bulkOperationState.conversationId);
       const result = await run(bulkOperationOutputChokidar, contextualPrompt, { context });
@@ -1297,7 +1299,10 @@ Analyze this agent output and determine if it's legitimate work or "announce and
       const lowerOutput = outputText.toLowerCase();
       
       const prematurePatterns = ['autonomous', 'silently', 'you\'ll hear from me', 'working on it'];
-      const hasToolCalls = outputText.includes('python_tools_agent') || outputText.includes('documentation_agent') || outputText.includes('external_mcp_agent') || outputText.includes('smart_mcp_execute') || outputText.includes('completed');
+      const hasToolCalls = outputText.includes('products_agent') || outputText.includes('pricing_agent') || 
+                           outputText.includes('inventory_agent') || outputText.includes('documentation_agent') || 
+                           outputText.includes('external_mcp_agent') || outputText.includes('smart_mcp_execute') || 
+                           outputText.includes('completed');
       const seemsPremature = prematurePatterns.some(pattern => lowerOutput.includes(pattern));
       
       if (seemsPremature && !hasToolCalls) {
@@ -1915,7 +1920,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       productsAgent, pricingAgent, inventoryAgent, salesAgent,
       featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
       utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-      pythonToolsAgent, builtInSearchTool 
+      builtInSearchTool 
     } = await buildOrchestratorTools();
     
     // Import guardrail approval tool
@@ -1928,8 +1933,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
     const mcpAgentTools = {
       productsAgent, pricingAgent, inventoryAgent, salesAgent,
       featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
-      utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-      pythonToolsAgent  // Legacy support
+      utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute
     };
     const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile);
     
@@ -2328,25 +2332,17 @@ ${preservedContent}
 MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
 ${bulkItemsContext}
 CRITICAL TOOL REQUIREMENTS:
-- Use python_tools_agent to execute Shopify operations directly
-- When calling python_tools_agent, PASS THE BULK ITEMS in the context parameter:
-  context: {
-    bulk_items: ${remainingItems.length > 0 ? JSON.stringify(remainingItems) : '[remaining items]'},
-    bulk_operation_type: "${bulkOperationState.operationType || 'update'}",
-    bulk_progress: { total: ${bulkOperationState.expectedItems}, completed: ${bulkOperationState.completedItems}, current_index: ${bulkOperationState.completedItems} },
-    adaptive_context: ${bulkOperationState.adaptiveContext ? JSON.stringify({
-      tokenCount: bulkOperationState.adaptiveContext.tokenCount,
-      hasExtractedData: !!bulkOperationState.adaptiveContext.extractedData,
-      fetchedContextKeys: Object.keys(bulkOperationState.adaptiveContext.fetchedContext || {})
-    }) : 'null'}
-  }
-- Use search_products, get_product, update_pricing MCP tools (NOT bash/CLI commands)
+- Use the APPROPRIATE specialized agent to execute operations directly:
+  - products_agent for product operations (search, create, status)
+  - pricing_agent for price/cost updates
+  - inventory_agent for tags and inventory policies
+  - Other specialized agents as needed
 - DO NOT use non-existent "shopify" CLI commands
 - DO NOT write Python scripts with placeholder URLs
 - DO NOT make up tool capabilities
 
 IMMEDIATE ACTION REQUIRED:
-- IMMEDIATELY call python_tools_agent for the next unprocessed item
+- IMMEDIATELY call the appropriate specialized agent for the next unprocessed item
 - DO NOT ask "what would you like me to do next"
 - DO NOT request permission to continue
 - DO NOT provide options or choices
@@ -2370,22 +2366,15 @@ ${preservedContent}
 MANDATORY NEXT ACTION: You MUST continue processing the remaining items from the bulk operation using ONLY the available MCP tools.
 ${bulkItemsContext}
 CRITICAL TOOL REQUIREMENTS:
-- Use python_tools_agent to execute Shopify operations directly
-- When calling python_tools_agent, PASS THE BULK ITEMS in the context parameter:
-  context: {
-    bulk_items: ${remainingItems.length > 0 ? JSON.stringify(remainingItems) : '[remaining items]'},
-    bulk_operation_type: "${bulkOperationState.operationType || 'update'}",
-    bulk_progress: { total: ${bulkOperationState.expectedItems}, completed: ${bulkOperationState.completedItems}, current_index: ${bulkOperationState.completedItems} },
-    adaptive_context: ${bulkOperationState.adaptiveContext ? JSON.stringify({
-      tokenCount: bulkOperationState.adaptiveContext.tokenCount,
-      hasExtractedData: !!bulkOperationState.adaptiveContext.extractedData,
-      fetchedContextKeys: Object.keys(bulkOperationState.adaptiveContext.fetchedContext || {})
-    }) : 'null'}
-  }
+- Use the APPROPRIATE specialized agent to execute operations directly:
+  - products_agent for product operations (search, create, status)
+  - pricing_agent for price/cost updates
+  - inventory_agent for tags and inventory policies
+  - Other specialized agents as needed
 
 Expected items remaining: ${Math.max(0, bulkOperationState.expectedItems - bulkOperationState.completedItems)}
 
-CONTINUE NOW with the next item using proper MCP tools.`;
+CONTINUE NOW with the next item using the appropriate specialized agent. Ensure the task progress is tracked using the Task Updater.`;
       }
 
       console.log('[Guardrail] 🔄 FORCING RETRY with continuation prompt');

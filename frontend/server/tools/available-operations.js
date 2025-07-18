@@ -4,49 +4,71 @@
  */
 
 export const availableOperations = {
-  // Python MCP Tools (via spawn_mcp_agent)
-  shopifyOperations: [
-    'search_products',
+  // Products Agent operations
+  productsOperations: [
     'get_product',
+    'search_products',
     'create_product',
     'update_status',
+    'graphql_query',
+    'graphql_mutation'
+  ],
+  
+  // Pricing Agent operations
+  pricingOperations: [
     'update_pricing',
     'bulk_price_update',
-    'manage_tags',
+    'update_costs'
+  ],
+  
+  // Inventory Agent operations
+  inventoryOperations: [
     'manage_inventory_policy',
-    'add_product_images',
-    'create_open_box',
-    'create_full_product',
-    'add_variants_to_product',
-    'create_combo',
-    'manage_variant_links',
-    'update_full_product',
-    'manage_features_metaobjects',
-    'manage_redirects',
+    'manage_tags',
+    'manage_redirects'
+  ],
+  
+  // Sales Agent operations
+  salesOperations: [
     'manage_miele_sales',
-    'manage_map_sales',
+    'manage_map_sales'
+  ],
+  
+  // Features Agent operations
+  featuresOperations: [
+    'manage_features_metaobjects',
+    'update_metafields',
+    'manage_variant_links'
+  ],
+  
+  // Media Agent operations
+  mediaOperations: [
+    'add_product_images'
+  ],
+  
+  // Integrations Agent operations
+  integrationsOperations: [
     'upload_to_skuvault',
     'manage_skuvault_kits',
     'send_review_request',
-    'graphql_query',
-    'graphql_mutation',
-    'update_metafields'
-  ],
-  
-  // Memory operations (via spawn_mcp_agent)
-  memoryOperations: [
-    'memory_search',
-    'memory_add',
-    'memory_list',
-    'memory_delete'
-  ],
-  
-  // Research operations (via spawn_mcp_agent)
-  researchOperations: [
     'perplexity_research'
   ],
   
-  // Documentation operations (via spawn_mcp_agent)
+  // Product Management Agent operations
+  productManagementOperations: [
+    'add_variants_to_product',
+    'create_full_product',
+    'update_full_product',
+    'create_combo',
+    'create_open_box'
+  ],
+  
+  // Utility Agent operations
+  utilityOperations: [
+    'memory_operations'
+  ],
+  
+  // Documentation Agent operations
   documentationOperations: [
     'introspect_admin_schema',
     'search_dev_docs',
@@ -54,7 +76,7 @@ export const availableOperations = {
     'get_started'
   ],
   
-  // External operations (via spawn_mcp_agent)
+  // External MCP Agent operations
   externalOperations: [
     'fetch' // Web content fetching
   ],
@@ -62,16 +84,27 @@ export const availableOperations = {
   // Native orchestrator tools
   orchestratorTools: [
     'search_tool_cache',
-    'spawn_mcp_agent',
     'spawn_bash_agent',
     'spawn_swe_agent',
-    'spawn_parallel_bash_agents',
     'spawn_parallel_executors',
     'task_planner',
     'view_image',
     'parse_file',
     'save_file',
-    'file_operations'
+    'file_operations',
+    // Direct agent access tools
+    'products_agent',
+    'pricing_agent',
+    'inventory_agent',
+    'sales_agent',
+    'features_agent',
+    'media_agent',
+    'integrations_agent',
+    'product_management_agent',
+    'utility_agent',
+    'documentation_agent',
+    'external_mcp_agent',
+    'smart_mcp_execute'
   ],
   
   // File system operations (via spawn_bash_agent)
@@ -92,9 +125,15 @@ export const availableOperations = {
 export function getAllOperationNames() {
   return [
     ...availableOperations.orchestratorTools,
-    ...availableOperations.shopifyOperations,
-    ...availableOperations.memoryOperations,
-    ...availableOperations.researchOperations,
+    ...availableOperations.productsOperations,
+    ...availableOperations.pricingOperations,
+    ...availableOperations.inventoryOperations,
+    ...availableOperations.salesOperations,
+    ...availableOperations.featuresOperations,
+    ...availableOperations.mediaOperations,
+    ...availableOperations.integrationsOperations,
+    ...availableOperations.productManagementOperations,
+    ...availableOperations.utilityOperations,
     ...availableOperations.documentationOperations,
     ...availableOperations.externalOperations,
     ...availableOperations.fileOperations
@@ -114,12 +153,24 @@ export function getOperationCategory(operationName) {
 }
 
 /**
- * Check if an operation requires MCP agent
+ * Get the appropriate agent for an operation
  */
-export function requiresMCPAgent(operationName) {
-  return availableOperations.shopifyOperations.includes(operationName) ||
-         availableOperations.memoryOperations.includes(operationName) ||
-         availableOperations.researchOperations.includes(operationName) ||
-         availableOperations.documentationOperations.includes(operationName) ||
-         availableOperations.externalOperations.includes(operationName);
+export function getAgentForOperation(operationName) {
+  const agentMap = {
+    productsOperations: 'products_agent',
+    pricingOperations: 'pricing_agent',
+    inventoryOperations: 'inventory_agent',
+    salesOperations: 'sales_agent',
+    featuresOperations: 'features_agent',
+    mediaOperations: 'media_agent',
+    integrationsOperations: 'integrations_agent',
+    productManagementOperations: 'product_management_agent',
+    utilityOperations: 'utility_agent',
+    documentationOperations: 'documentation_agent',
+    externalOperations: 'external_mcp_agent',
+    fileOperations: 'spawn_bash_agent'
+  };
+  
+  const category = getOperationCategory(operationName);
+  return agentMap[category] || null;
 }

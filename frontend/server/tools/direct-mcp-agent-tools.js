@@ -459,10 +459,3 @@ export function createSmartMCPExecuteTool() {
   });
 }
 
-/**
- * Legacy support - maps old tool names to new specialized agents
- */
-export function createPythonToolsAgentTool() {
-  console.warn('[Direct MCP Tools] python_tools_agent is deprecated, use specialized agents instead');
-  return createSmartMCPExecuteTool();
-}

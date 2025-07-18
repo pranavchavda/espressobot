@@ -12,7 +12,22 @@ import { initializeTracing } from '../config/tracing-config.js';
 
 // Initialize tracing configuration for this agent
 initializeTracing('Parallel Executor Agent');
-import { createSpawnMCPAgentTool } from '../tools/spawn-mcp-agent-tool.js';
+
+// Import all direct MCP agent tools
+import { 
+  createProductsAgentTool,
+  createPricingAgentTool,
+  createInventoryAgentTool,
+  createSalesAgentTool,
+  createFeaturesAgentTool,
+  createMediaAgentTool,
+  createIntegrationsAgentTool,
+  createProductManagementAgentTool,
+  createUtilityAgentTool,
+  createDocumentationAgentTool,
+  createExternalMCPAgentTool,
+  createSmartMCPExecuteTool
+} from '../tools/direct-mcp-agent-tools.js';
 
 // Concurrency control
 const CONCURRENCY_LIMIT = 5; // Max concurrent operations
@@ -50,7 +65,11 @@ ${JSON.stringify(items, null, 2)}
 ${customContext ? `## ADDITIONAL CONTEXT\n${customContext}\n` : ''}
 
 ## EXECUTION STRATEGY
-1. Use spawn_mcp_agent tool for each item - DO NOT use bash with fake shopify commands
+1. Use direct MCP agents for each item - Choose the RIGHT specialized agent:
+   - products_agent: For product search, creation, status updates
+   - pricing_agent: For price updates, bulk pricing, cost updates
+   - inventory_agent: For tags, inventory policies, redirects
+   - Other specialized agents as needed
 2. Process items in batches of ${CONCURRENCY_LIMIT}
 3. Track success/failure for each item
 4. Retry failed items up to ${retryLimit} times
@@ -58,10 +77,11 @@ ${customContext ? `## ADDITIONAL CONTEXT\n${customContext}\n` : ''}
 6. Return aggregated results
 
 ## CRITICAL TOOL USAGE
-- ALWAYS use spawn_mcp_agent for Shopify operations (search_products, get_product, update_pricing)
+- ALWAYS use the appropriate specialized agent for operations
 - DO NOT use bash with "shopify" CLI commands - they don't exist
 - DO NOT write Python scripts with placeholder URLs
 - Use sleep tool for throttling between operations
+- Choose the MOST SPECIFIC agent for each task (not smart_mcp_execute)
 
 ## SAFETY RULES
 - NEVER exceed ${CONCURRENCY_LIMIT} concurrent operations
@@ -133,13 +153,26 @@ Start processing immediately. Emit progress updates using the report_progress to
     }
   });
 
-  // Create spawn_mcp_agent tool for this executor
-  const spawnMCPAgentTool = await createSpawnMCPAgentTool();
+  // Create all direct MCP agent tools
+  const mcpAgentTools = [
+    createProductsAgentTool(),
+    createPricingAgentTool(),
+    createInventoryAgentTool(),
+    createSalesAgentTool(),
+    createFeaturesAgentTool(),
+    createMediaAgentTool(),
+    createIntegrationsAgentTool(),
+    createProductManagementAgentTool(),
+    createUtilityAgentTool(),
+    createDocumentationAgentTool(),
+    createExternalMCPAgentTool(),
+    createSmartMCPExecuteTool()
+  ];
 
   return new Agent({
     name: `ParallelExecutor_${instanceId}`,
     instructions,
-    tools: [spawnMCPAgentTool, progressTool, sleepTool, bashTool],
+    tools: [...mcpAgentTools, progressTool, sleepTool, bashTool],
     model: 'gpt-4.1-mini' // Optimized for speed/cost
   });
 }
