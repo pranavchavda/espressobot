@@ -588,10 +588,62 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
   // }, [debouncedInput]);
 
 
+  // Handle injecting a message during agent execution
+  const handleInjectMessage = async (messageContent = input) => {
+    const textToSend =
+      typeof messageContent === "string" ? messageContent.trim() : input.trim();
+
+    if (!textToSend || !streamingMessage || !convId) return;
+
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch('/api/agent/inject-message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({
+          conversationId: convId,
+          message: textToSend,
+          priority: 'normal'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to inject message');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Add message to chat immediately (marked as injected)
+        const injectedMessage = {
+          role: "user",
+          content: textToSend,
+          timestamp: new Date().toISOString(),
+          status: "injected"
+        };
+        setMessages((prev) => [...prev, injectedMessage]);
+        setInput('');
+        
+        // Show status message
+        console.log(`Message queued for injection (${result.queueLength} pending)`);
+      }
+    } catch (error) {
+      console.error('Error injecting message:', error);
+    }
+  };
+
   // Handle sending a message with streaming response
   const handleSend = async (messageContent = input) => {
     const textToSend =
       typeof messageContent === "string" ? messageContent.trim() : input.trim();
+
+    // If agent is running, inject message instead
+    if (streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete) {
+      return handleInjectMessage(messageContent);
+    }
 
     if ((!textToSend && !imageAttachment && !fileAttachment) || isSending) return;
 
@@ -1519,6 +1571,9 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                             {msg.edited_at && (
                               <span className="text-xs italic">edited</span>
                             )}
+                            {msg.status === "injected" && (
+                              <span className="text-xs italic text-blue-500">injected</span>
+                            )}
                             {editingMessageId !== msg.id && !streamingMessage && (
                               <button
                                 onClick={() => handleEditMessage(msg.id, msg.content)}
@@ -1808,7 +1863,11 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                 setSuggestions([]);
               }
             }}
-            placeholder="Type a message..."
+            placeholder={
+              streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
+                ? "Agent is processing... Type to queue a message"
+                : "Type a message..."
+            }
             rows={3}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -1836,7 +1895,11 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                 disabled={!input.trim() && !imageAttachment && !fileAttachment}
               >
                 <Send className="h-5 w-5" />
-                <span className="ml-2 hidden sm:inline">Send</span>
+                <span className="ml-2 hidden sm:inline">
+                  {streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
+                    ? "Queue"
+                    : "Send"}
+                </span>
               </Button>
             )}
           </div>

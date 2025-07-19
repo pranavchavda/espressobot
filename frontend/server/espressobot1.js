@@ -46,6 +46,8 @@ import {
   createSmartMCPExecuteTool,
   createGoogleWorkspaceAgentTool
 } from './tools/direct-mcp-agent-tools.js';
+import { createInjectContextTool, createManageInjectionTool } from './tools/inject-context-tool.js';
+import { messageInjector } from './utils/agent-message-injector.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -963,7 +965,9 @@ async function buildOrchestratorTools() {
     externalMCPAgent,
     smartMCPExecute,
     googleWorkspaceAgent,
-    builtInSearchTool
+    builtInSearchTool,
+    injectContextTool: createInjectContextTool(),
+    manageInjectionTool: createManageInjectionTool()
   };
 }
 
@@ -1316,7 +1320,7 @@ Analyze this agent output and determine if it's legitimate work or "announce and
 /**
  * Create orchestrator agent with dynamic prompt based on context
  */
-function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null) {
+function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null, injectContextTool = null, manageInjectionTool = null) {
   // Build unified prompt based on task complexity
   const instructions = buildUnifiedOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
   
@@ -1566,7 +1570,10 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
           };
         }
       }
-    })
+    }),
+    // Add injection tools if provided
+    ...(injectContextTool ? [injectContextTool] : []),
+    ...(manageInjectionTool ? [manageInjectionTool] : [])
   ]
 });
 }
@@ -1601,6 +1608,11 @@ export async function runDynamicOrchestrator(message, options = {}) {
   // Set global variables for SSE
   currentSseEmitter = sseEmitter;
   currentAbortSignal = abortSignal;
+  
+  // Initialize message injection for this conversation
+  if (conversationId) {
+    messageInjector.setAgentRunning(conversationId, true);
+  }
   
   // Reset bulk operation state for new conversations to prevent state leakage
   if (!bulkOperationState.conversationId || bulkOperationState.conversationId !== conversationId) {
@@ -1913,7 +1925,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       productsAgent, pricingAgent, inventoryAgent, salesAgent,
       featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
       utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-      googleWorkspaceAgent, builtInSearchTool 
+      googleWorkspaceAgent, builtInSearchTool, injectContextTool, manageInjectionTool
     } = await buildOrchestratorTools();
     
     // Import guardrail approval tool
@@ -1929,7 +1941,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
       googleWorkspaceAgent
     };
-    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile);
+    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile, injectContextTool, manageInjectionTool);
     
     // Check if we have image or file data from the API
     let messageToSend;
@@ -2427,6 +2439,11 @@ CONTINUE NOW with the next item using the appropriate specialized agent. Ensure 
   } finally {
     // Restore original console
     restoreConsole();
+    
+    // Stop message injection tracking
+    if (conversationId) {
+      messageInjector.setAgentRunning(conversationId, false);
+    }
     
     // Clear the SSE emitter reference
     currentSseEmitter = null;

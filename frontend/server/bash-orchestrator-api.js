@@ -529,4 +529,80 @@ router.get('/logs', async (req, res) => {
   });
 });
 
+/**
+ * Endpoint to queue messages for injection during active agent execution
+ */
+router.post('/inject-message', authenticateToken, async (req, res) => {
+  const { conversationId, message, priority = 'normal' } = req.body;
+  
+  if (!conversationId || !message) {
+    return res.status(400).json({
+      error: 'conversationId and message are required'
+    });
+  }
+  
+  try {
+    // Import message injector
+    const { messageInjector } = await import('./utils/agent-message-injector.js');
+    
+    // Check if agent is running for this conversation
+    const agentState = messageInjector.getAgentState(conversationId);
+    
+    if (!agentState.isRunning) {
+      return res.status(400).json({
+        error: 'No active agent execution for this conversation',
+        state: agentState
+      });
+    }
+    
+    // Queue the message
+    const messageId = messageInjector.queueMessage(conversationId, message, priority);
+    
+    console.log(`[API] Queued message for injection in conversation ${conversationId}: "${message.substring(0, 50)}..."`);
+    
+    res.json({
+      success: true,
+      messageId,
+      agentState,
+      queueLength: messageInjector.getPendingMessages(conversationId).length
+    });
+    
+  } catch (error) {
+    console.error('[API] Error queuing message for injection:', error);
+    res.status(500).json({
+      error: 'Failed to queue message',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Get injection status for a conversation
+ */
+router.get('/injection-status/:conversationId', authenticateToken, async (req, res) => {
+  const { conversationId } = req.params;
+  
+  try {
+    const { messageInjector } = await import('./utils/agent-message-injector.js');
+    
+    const agentState = messageInjector.getAgentState(conversationId);
+    const pendingMessages = messageInjector.getPendingMessages(conversationId);
+    
+    res.json({
+      conversationId,
+      agentState,
+      pendingMessages: pendingMessages.length,
+      canInject: messageInjector.canInject(conversationId),
+      messages: pendingMessages
+    });
+    
+  } catch (error) {
+    console.error('[API] Error getting injection status:', error);
+    res.status(500).json({
+      error: 'Failed to get injection status',
+      details: error.message
+    });
+  }
+});
+
 export default router;
