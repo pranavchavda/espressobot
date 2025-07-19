@@ -39,14 +39,16 @@ model embedding_cache {
 }
 
 model messages {
-  id            Int           @id @default(autoincrement())
-  conv_id       Int
-  role          String?
-  content       String
-  tool_call_id  String?
-  tool_name     String?
-  created_at    DateTime?
-  conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id               Int           @id @default(autoincrement())
+  conv_id          Int
+  role             String?
+  content          String
+  original_content String?       // Original content before edit
+  tool_call_id     String?
+  tool_name        String?
+  created_at       DateTime?
+  edited_at        DateTime?     // Timestamp when message was edited
+  conversations    conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model user_memories {

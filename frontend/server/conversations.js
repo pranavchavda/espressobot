@@ -119,6 +119,83 @@ router.put('/:id/topic', authenticateToken, async (req, res) => {
   }
 });
 
+// Edit a message and optionally re-process conversation from that point
+router.put('/:convId/messages/:msgId', authenticateToken, async (req, res) => {
+  const convId = Number(req.params.convId);
+  const msgId = Number(req.params.msgId);
+  const { content, reprocess = true } = req.body;
+  const USER_ID = req.user?.id || 1;
+  
+  if (!convId || !msgId) {
+    return res.status(400).json({ error: 'Invalid conversation or message ID' });
+  }
+  
+  if (!content || content.trim() === '') {
+    return res.status(400).json({ error: 'Content cannot be empty' });
+  }
+  
+  try {
+    // Verify the conversation belongs to the user
+    const conversation = await prisma.conversations.findFirst({
+      where: { id: convId, user_id: USER_ID }
+    });
+    
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    
+    // Get the message to edit
+    const message = await prisma.messages.findFirst({
+      where: { id: msgId, conv_id: convId }
+    });
+    
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    
+    // Update the message with edit tracking
+    const updatedMessage = await prisma.messages.update({
+      where: { id: msgId },
+      data: {
+        original_content: message.original_content || message.content, // Preserve original
+        content: content,
+        edited_at: new Date()
+      }
+    });
+    
+    // If reprocess is true, delete all messages after this one
+    if (reprocess) {
+      // Get the timestamp of the edited message
+      const editedMsgTime = message.created_at;
+      
+      // Delete all messages after the edited message
+      await prisma.messages.deleteMany({
+        where: {
+          conv_id: convId,
+          created_at: { gt: editedMsgTime }
+        }
+      });
+      
+      // Also delete any agent_runs created after this message
+      await prisma.agent_runs.deleteMany({
+        where: {
+          conv_id: convId,
+          created_at: { gt: editedMsgTime }
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: updatedMessage,
+      reprocessed: reprocess
+    });
+  } catch (error) {
+    console.error('Error editing message:', error);
+    res.status(500).json({ error: 'Failed to edit message' });
+  }
+});
+
 // Delete a conversation and its messages
 router.delete('/:id', authenticateToken, async (req, res) => {
   const convId = Number(req.params.id);

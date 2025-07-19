@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
-import { Loader2, Send, ImageIcon, X, Square, FileText, FileSpreadsheet, File, FileIcon } from "lucide-react";
+import { Loader2, Send, ImageIcon, X, Square, FileText, FileSpreadsheet, File, FileIcon, Edit2, Check, XCircle } from "lucide-react";
 import { MarkdownRenderer } from "@components/chat/MarkdownRenderer";
 import { UnifiedTaskDisplay } from "@components/chat/UnifiedTaskDisplay";
 import { Text, TextLink } from "@common/text";
@@ -37,6 +37,9 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
   const [agentProcessingStatus, setAgentProcessingStatus] = useState("");
   const [pendingApproval, setPendingApproval] = useState(null);
   const [approvalHistory, setApprovalHistory] = useState([]);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [isEditSaving, setIsEditSaving] = useState(false);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -476,6 +479,66 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
         url: imageUrl.trim()
       });
       setShowImageUrlInput(false);
+    }
+  };
+
+  // Edit message handlers
+  const handleEditMessage = (messageId, content) => {
+    setEditingMessageId(messageId);
+    setEditingContent(content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditingContent("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingContent.trim() || isEditSaving) return;
+
+    setIsEditSaving(true);
+    const token = localStorage.getItem('authToken');
+
+    try {
+      const response = await fetch(`/api/conversations/${convId}/messages/${editingMessageId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({
+          content: editingContent.trim(),
+          reprocess: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update message');
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Update the message in local state
+        setMessages(prev => prev.map(msg => 
+          msg.id === editingMessageId 
+            ? { ...msg, content: editingContent.trim(), edited_at: new Date().toISOString() }
+            : msg
+        ));
+
+        // If reprocessed, refresh the entire conversation
+        if (result.reprocessed) {
+          window.location.reload(); // Simple reload to refetch conversation
+        }
+
+        setEditingMessageId(null);
+        setEditingContent("");
+      }
+    } catch (error) {
+      console.error('Error editing message:', error);
+      // Could show error toast here
+    } finally {
+      setIsEditSaving(false);
     }
   };
 
@@ -1342,7 +1405,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                 return (
                   <React.Fragment key={msg.id || i}>
                     <div
-                      className={`flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                      className={`group flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                     >
                       <div className="flex-shrink-0">
                         {msg.role === "user" ? (
@@ -1405,28 +1468,80 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                               </div>
                             </div>
                           )}
-                          <MarkdownRenderer isAgent={msg.role === "assistant"}>
-                            {String(msg.content || "")}
-                          </MarkdownRenderer>
+                          {editingMessageId === msg.id ? (
+                            <div className="w-full">
+                              <Textarea
+                                value={editingContent}
+                                onChange={(e) => setEditingContent(e.target.value)}
+                                className="w-full min-h-[100px] mb-2 p-2 rounded border dark:border-zinc-700"
+                                autoFocus
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={handleSaveEdit}
+                                  disabled={isEditSaving}
+                                  className="flex items-center gap-1"
+                                >
+                                  {isEditSaving ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Check className="h-3 w-3" />
+                                  )}
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={handleCancelEdit}
+                                  disabled={isEditSaving}
+                                  className="flex items-center gap-1"
+                                >
+                                  <XCircle className="h-3 w-3" />
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <MarkdownRenderer isAgent={msg.role === "assistant"}>
+                              {String(msg.content || "")}
+                            </MarkdownRenderer>
+                          )}
                         </div>
                         <div
-                          className={`text-xs mt-2 flex items-center justify-end gap-2 ${
+                          className={`text-xs mt-2 flex items-center justify-between ${
                             msg.role === "user"
                               ? "text-gray-400 dark:text-gray-500"
                               : "text-zinc-500 dark:text-zinc-400"
                           }`}
                         >
-                          {msg.status === "sending" && (
-                            <span className="flex items-center">
-                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                              Processing
-                            </span>
-                          )}
-                          {msg.timestamp && !msg.status && (
-                            <span className="whitespace-nowrap">
-                              {formatTimestamp(msg.timestamp)}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {msg.edited_at && (
+                              <span className="text-xs italic">edited</span>
+                            )}
+                            {editingMessageId !== msg.id && !streamingMessage && (
+                              <button
+                                onClick={() => handleEditMessage(msg.id, msg.content)}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded"
+                                title="Edit message"
+                              >
+                                <Edit2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {msg.status === "sending" && (
+                              <span className="flex items-center">
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                Processing
+                              </span>
+                            )}
+                            {msg.timestamp && !msg.status && (
+                              <span className="whitespace-nowrap">
+                                {formatTimestamp(msg.timestamp)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
