@@ -15,6 +15,17 @@
       "headers": {
         "User-Agent": "EspressoBot/1.0"
       }
+    },
+    "google-workspace": {
+      "description": "Google Workspace integration (Gmail, Calendar, Drive, Tasks)",
+      "enabled": true,
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["workspace-mcp"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}"
+      }
     }
   }
 }

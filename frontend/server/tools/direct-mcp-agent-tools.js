@@ -18,6 +18,7 @@ import { executeProductManagementTask } from '../agents/product-management-agent
 import { executeUtilityTask } from '../agents/utility-agent.js';
 import { executeDocumentationQuery } from '../agents/documentation-mcp-agent.js';
 import { executeExternalMCPTask } from '../agents/external-mcp-agent.js';
+import { executeGoogleWorkspaceTask } from '../agents/google-workspace-agent.js';
 
 /**
  * Products Agent - Basic product operations and GraphQL
@@ -447,12 +448,52 @@ export function createSmartMCPExecuteTool() {
           return await executeDocumentationQuery(task, {});
         }
         
+        if (taskLower.includes('gmail') || taskLower.includes('email') || taskLower.includes('calendar') || 
+            taskLower.includes('drive') || taskLower.includes('google') || taskLower.includes('task list')) {
+          console.log('[Smart MCP Execute] Routing to Google Workspace Agent');
+          return await executeGoogleWorkspaceTask(task, global.currentConversationId, {});
+        }
+        
         // Default to Products Agent for general product operations
         console.log('[Smart MCP Execute] Defaulting to Products Agent');
         return await executeProductsTask(task, global.currentConversationId, {});
         
       } catch (error) {
         console.error(`[Smart MCP Execute] Failed:`, error);
+        return `Error: ${error.message}`;
+      }
+    }
+  });
+}
+
+/**
+ * Google Workspace Agent - Gmail, Calendar, Drive, and Tasks operations
+ */
+export function createGoogleWorkspaceAgentTool() {
+  return tool({
+    name: 'google_workspace_agent',
+    description: 'Google Workspace operations: Gmail (search, send, drafts), Calendar (events, scheduling), Drive (files, docs), Tasks (lists, to-dos)',
+    parameters: z.object({
+      task: z.string().describe('The Google Workspace operation to perform')
+    }),
+    execute: async ({ task }) => {
+      console.log(`[Google Workspace Agent] Executing: ${task.substring(0, 100)}...`);
+      
+      try {
+        const result = await executeGoogleWorkspaceTask(
+          task, 
+          global.currentConversationId,
+          {}
+        );
+        
+        if (result && result.success === false) {
+          return `Error: ${result.error || 'Operation failed'}`;
+        }
+        
+        return result.result || result || 'Task completed successfully';
+        
+      } catch (error) {
+        console.error(`[Google Workspace Agent] Failed:`, error);
         return `Error: ${error.message}`;
       }
     }

@@ -81,6 +81,18 @@ export const availableOperations = {
     'fetch' // Web content fetching
   ],
   
+  // Google Workspace Agent operations
+  googleWorkspaceOperations: [
+    'gmail_search',
+    'gmail_send',
+    'gmail_draft',
+    'calendar_events',
+    'calendar_create',
+    'drive_search',
+    'drive_upload',
+    'tasks_manage'
+  ],
+  
   // Native orchestrator tools
   orchestratorTools: [
     'search_tool_cache',
@@ -104,6 +116,7 @@ export const availableOperations = {
     'utility_agent',
     'documentation_agent',
     'external_mcp_agent',
+    'google_workspace_agent',
     'smart_mcp_execute'
   ],
   
@@ -136,6 +149,7 @@ export function getAllOperationNames() {
     ...availableOperations.utilityOperations,
     ...availableOperations.documentationOperations,
     ...availableOperations.externalOperations,
+    ...availableOperations.googleWorkspaceOperations,
     ...availableOperations.fileOperations
   ];
 }
@@ -168,6 +182,7 @@ export function getAgentForOperation(operationName) {
     utilityOperations: 'utility_agent',
     documentationOperations: 'documentation_agent',
     externalOperations: 'external_mcp_agent',
+    googleWorkspaceOperations: 'google_workspace_agent',
     fileOperations: 'spawn_bash_agent'
   };
   

@@ -242,6 +242,9 @@ You now have DIRECT access to specialized MCP agents for optimal performance:
 - **integrations_agent**: upload_to_skuvault, manage_skuvault_kits, send_review_request, perplexity_research
 - **utility_agent**: memory_operations (search, add, list, delete)
 
+**Communication & Productivity:**
+- **google_workspace_agent**: Gmail (search, send, drafts), Calendar (events, scheduling), Drive (files, docs), Tasks (lists, to-dos)
+
 **Other Agents:**
 - **documentation_agent**: API documentation, GraphQL schema queries
 - **external_mcp_agent**: Web fetching, GitHub, external tools

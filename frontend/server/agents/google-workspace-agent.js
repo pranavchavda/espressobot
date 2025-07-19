@@ -1,0 +1,239 @@
+/**
+ * Google Workspace Agent - Specialized agent for Gmail, Calendar, Drive, and Tasks operations
+ */
+
+import { Agent } from '@openai/agents';
+import { buildAgentInstructions } from '../utils/agent-context-builder.js';
+import { initializeTracing } from '../config/tracing-config.js';
+import MCPServerManager from '../tools/mcp-server-manager.js';
+
+// Initialize tracing configuration for this agent
+initializeTracing('Google Workspace Agent');
+
+let serverManager = null;
+let googleWorkspaceServer = null;
+
+/**
+ * Initialize Google Workspace MCP server
+ */
+async function initializeGoogleWorkspaceServer() {
+  if (googleWorkspaceServer) {
+    return googleWorkspaceServer;
+  }
+
+  if (!serverManager) {
+    console.log('[Google Workspace Agent] Initializing MCP Server Manager...');
+    serverManager = new MCPServerManager();
+    await serverManager.initializeServers();
+  }
+
+  // Get the Google Workspace server
+  googleWorkspaceServer = serverManager.getServer('google-workspace');
+  
+  if (!googleWorkspaceServer) {
+    console.log('[Google Workspace Agent] Google Workspace MCP server not found or disabled');
+    return null;
+  }
+
+  console.log('[Google Workspace Agent] Connected to Google Workspace MCP server');
+  
+  // List available tools
+  try {
+    const tools = await googleWorkspaceServer.listTools();
+    console.log(`[Google Workspace Agent] Available tools: ${tools.map(t => t.name).join(', ')}`);
+  } catch (error) {
+    console.log('[Google Workspace Agent] Could not list tools:', error.message);
+  }
+
+  return googleWorkspaceServer;
+}
+
+/**
+ * Create a Google Workspace-specialized agent
+ */
+async function createAgent(task, conversationId, richContext = {}) {
+  // Initialize server
+  const mcpServer = await initializeGoogleWorkspaceServer();
+  
+  if (!mcpServer) {
+    throw new Error('Google Workspace MCP server not available');
+  }
+
+  // Build system prompt with Google Workspace expertise
+  let systemPrompt = `You are a Google Workspace specialist agent with expertise in Gmail, Google Calendar, Drive, and Tasks.
+
+Your task: ${task}
+
+You have access to the Google Workspace MCP server which provides tools for:
+
+## Gmail
+- Search emails with advanced filters
+- Send emails with attachments
+- Create and manage drafts
+- Manage labels and filters
+- Handle email threads
+
+## Google Calendar
+- List and manage calendars
+- Create, update, and delete events
+- Handle recurring events
+- Check availability and schedule meetings
+- Manage event attendees and notifications
+
+## Google Drive
+- Search and list files/folders
+- Upload and download files
+- Create documents, spreadsheets, and presentations
+- Manage file permissions and sharing
+- Support for Microsoft Office formats
+
+## Google Tasks
+- Create and manage task lists
+- Add, update, and complete tasks
+- Set due dates and reminders
+- Organize tasks hierarchically
+
+## Your Expertise:
+- Email automation and management
+- Calendar scheduling and availability management
+- Document organization and collaboration
+- Task tracking and project management
+- Cross-service integration (e.g., creating calendar events from emails)
+
+## Business Context:
+- These tools help iDrinkCoffee.com manage communications and operations
+- Email is critical for customer service and supplier communications
+- Calendar manages meetings with vendors and team schedules
+- Drive stores product documentation and business files
+- Tasks track operational to-dos and projects
+
+## Best Practices:
+- Always verify authentication before operations
+- Use appropriate filters when searching to avoid overwhelming results
+- Be mindful of API quotas and rate limits
+- Maintain professional communication standards
+- Respect privacy and confidentiality of business data
+
+## Common Tasks:
+- Search for customer emails about specific products
+- Schedule meetings with suppliers
+- Create and share product documentation
+- Track operational tasks and deadlines
+- Generate reports from email/calendar data
+
+IMPORTANT:
+- Handle authentication errors gracefully
+- Provide clear feedback on operation results
+- Use batch operations when processing multiple items
+- Always confirm before sending emails or creating events`;
+
+  // Add bulk operation context if present
+  if (richContext?.bulkItems && richContext.bulkItems.length > 0) {
+    systemPrompt += '\n\n## BULK OPERATION CONTEXT\n';
+    systemPrompt += `You are processing a bulk operation\n`;
+    systemPrompt += `Total items: ${richContext.bulkItems.length}\n`;
+    systemPrompt += `Progress: ${richContext.bulkProgress?.completed || 0}/${richContext.bulkProgress?.total || richContext.bulkItems.length}\n\n`;
+    systemPrompt += 'Items to process:\n';
+    richContext.bulkItems.forEach((item, idx) => {
+      systemPrompt += `${idx + 1}. ${JSON.stringify(item)}\n`;
+    });
+    systemPrompt += '\n### CRITICAL: Process all items systematically.\n';
+  }
+
+  // Build final instructions
+  const instructions = await buildAgentInstructions(systemPrompt, {
+    agentRole: 'Google Workspace specialist',
+    conversationId,
+    taskDescription: task
+  });
+
+  // Create agent with Google Workspace server
+  const agent = new Agent({
+    name: 'Google Workspace Agent',
+    instructions,
+    mcpServers: [mcpServer],
+    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    toolUseBehavior: 'run_llm_again'
+  });
+
+  return agent;
+}
+
+/**
+ * Execute a Google Workspace-related task
+ */
+export async function executeGoogleWorkspaceTask(task, conversationId, richContext = {}) {
+  const { run } = await import('@openai/agents');
+  
+  try {
+    console.log('[Google Workspace Agent] Starting task execution...');
+    console.log('[Google Workspace Agent] Task:', task);
+    
+    // Create agent
+    const agent = await createAgent(task, conversationId, richContext);
+    
+    // Execute with timeout
+    const maxTurns = 10;
+    const timeout = 120000; // 2 minutes
+    
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Task execution timeout')), timeout);
+    });
+    
+    const executionPromise = run(agent, task, { maxTurns });
+    
+    const result = await Promise.race([executionPromise, timeoutPromise]);
+    
+    console.log('[Google Workspace Agent] Task completed successfully');
+    
+    // Extract meaningful output
+    if (result && result.state && result.state._generatedItems) {
+      const messages = result.state._generatedItems
+        .filter(item => item.type === 'text' && item.text && item.text.trim())
+        .map(item => item.text);
+      
+      const lastMessage = messages[messages.length - 1] || 'Task completed successfully';
+      
+      return {
+        success: true,
+        result: lastMessage,
+        fullResponse: result
+      };
+    }
+    
+    return {
+      success: true,
+      result: result
+    };
+    
+  } catch (error) {
+    console.error('[Google Workspace Agent] Task execution failed:', error);
+    
+    if (error.message === 'Task execution timeout') {
+      return {
+        success: false,
+        error: 'The operation took too long to complete. This might be due to network issues or complex operations.',
+        errorType: 'timeout'
+      };
+    }
+    
+    return {
+      success: false,
+      error: error.message,
+      errorType: 'execution_error'
+    };
+  }
+}
+
+/**
+ * Check if Google Workspace server is available
+ */
+export async function isGoogleWorkspaceAvailable() {
+  try {
+    const server = await initializeGoogleWorkspaceServer();
+    return server !== null;
+  } catch (error) {
+    console.error('[Google Workspace Agent] Availability check failed:', error);
+    return false;
+  }
+}

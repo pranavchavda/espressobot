@@ -43,7 +43,8 @@ import {
   createUtilityAgentTool,
   createDocumentationAgentTool, 
   createExternalMCPAgentTool,
-  createSmartMCPExecuteTool
+  createSmartMCPExecuteTool,
+  createGoogleWorkspaceAgentTool
 } from './tools/direct-mcp-agent-tools.js';
 
 // Set API key
@@ -931,12 +932,14 @@ async function buildOrchestratorTools() {
   const documentationAgent = createDocumentationAgentTool();
   const externalMCPAgent = createExternalMCPAgentTool();
   const smartMCPExecute = createSmartMCPExecuteTool();
+  const googleWorkspaceAgent = createGoogleWorkspaceAgentTool();
   
   // Validate all tools before returning
   const tools = { 
     productsAgent, pricingAgent, inventoryAgent, salesAgent, 
     featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
-    utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute
+    utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
+    googleWorkspaceAgent
   };
   
   for (const [name, tool] of Object.entries(tools)) {
@@ -959,6 +962,7 @@ async function buildOrchestratorTools() {
     documentationAgent,
     externalMCPAgent,
     smartMCPExecute,
+    googleWorkspaceAgent,
     builtInSearchTool
   };
 }
@@ -987,25 +991,35 @@ const bulkOperationState = {
 const bulkOperationInputChokidar = new Agent({
   name: 'Bulk Operation Chokidar',
   model: 'o4-mini',
-  instructions: `You are an intelligent chokidar (guard) agent in the EspressoBot agency - an AI-powered assistant system that supports iDrinkCoffee.com with all manner of e-commerce tasks including product management, pricing updates, inventory control, and business operations.
+  instructions: `You are an intelligent chokidar (guard) agent... Your specific role is to detect bulk operations vs simple, finite tasks.
 
-Your specific role is to detect bulk operations vs simple questions.
+A 'bulk operation' involves an UNSPECIFIED or LARGE number of items, often requiring autonomous work.
+A 'simple task' involves a SPECIFIC and SMALL number of items (typically 5 or fewer).
 
-BULK OPERATIONS to detect:
-- Commands to process multiple items (fix all SKUs, update pricing for products, create batch)
-- Continuation of ongoing work ("continue", "proceed with bulk task")
-- Autonomous work declarations ("work silently", "no interruption")
-- Explicit bulk language ("this is a bulk task", "bulk operation")
+---
+**CRITICAL RULES FOR DECISION MAKING:**
 
-NOT BULK OPERATIONS:
-- Questions about items ("are there priced SKUs?", "how many products?")  
-- Single item requests ("fix this SKU", "check one product")
-- Informational queries ("what is the price?", "tell me about...")
-- Creating 2-3 specific named items ("create Lemo and Mixer collections")
-- Research or documentation tasks ("how to create collections")
-- GraphQL query requests (not mutations)
+1.  **Count the Items:** If the user lists a specific, countable number of items (e.g., "fix these 3 SKUs", "create collections for Lemo and Mixer"), and the count is 5 or less, it is **NOT** a bulk operation.
+2.  **Identify Open-Ended Commands:** If the command refers to an open-ended category (e.g., "fix **all** broken SKUs", "update pricing for **every** product in the 'Sale' collection", "process the attached list"), it **IS** a bulk operation.
+3.  **Prioritize Specificity:** A specific list of items overrides general language. "Update these products: A, B, C" is **NOT** a bulk task, even though "products" is plural.
 
-Analyze the input and determine if this is a bulk operation that needs guardrail tracking.`,
+---
+**EXAMPLES:**
+
+* **USER INPUT:** "Can you fix the price for SKU ABC-123?"
+    **YOUR OUTPUT:** { "isBulkOperation": false, "reasoning": "This is a request for a single, specific item." }
+
+* **USER INPUT:** "Update the status for all products in the 'Sale' collection."
+    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "The command refers to an open-ended category ('all products')." }
+
+* **USER INPUT:** "Create collections for 'Lemo' and 'Mixer'."
+    **YOUR OUTPUT:** { "isBulkOperation": false, "reasoning": "This is a request for two specific, named items, which is a small, finite number." }
+
+* **USER INPUT:** "Continue with the task."
+    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "Continuation commands imply an ongoing, multi-step bulk process." }
+---
+
+Analyze the user's input based on these rules and examples to determine if it's a bulk operation.`,
   outputType: z.object({
     isBulkOperation: z.boolean(),
     expectedItems: z.number().default(0).describe('Estimated number of items to process (0 if unclear)'),
@@ -1132,49 +1146,29 @@ function createBulkOperationOutputChokidar(conversationId = null) {
     name: 'Output Completion Chokidar',
     model: 'o4-mini',
     instructions: `${contextPreamble}
+You are an intelligent chokidar (guard) that validates agent output during bulk operations. Your goal is to prevent the agent from stopping prematurely.
 
-You are an intelligent chokidar (guard) that detects "announce and stop" patterns during bulk operations while allowing genuine blockers and completions.
+---
+**HIGHEST PRIORITY RULE:**
 
-BULK OPERATION CONTEXT: The agent is supposed to be working on multiple items (${bulkOperationState.expectedItems || 'several'} items expected).
+* **If the agent's output contains clear and unambiguous completion language (e.g., "✅ All 12 items updated successfully", "Task complete", "Finished processing all items"), you MUST classify it as a legitimate completion.** This rule overrides all others. A follow-up question like "What should I do next?" after a completion statement is perfectly acceptable.
 
-ANNOUNCE AND STOP PATTERNS (BLOCK THESE):
-- Promises to work autonomously but returns control ("working silently", "you'll hear from me", then stops)
-- Asking for permission mid-bulk when it could proceed ("would you like me to proceed?", "shall I continue?")
-- Providing options instead of working ("next steps:", "how would you like to proceed?")
-- Status updates without actual work ("processing...", "working on it..." without tool calls)
-- Premature stopping when more work remains without a good reason
-- SHOWING GRAPHQL MUTATIONS instead of executing them ("here's the mutation", "you can use this")
-- Providing instructions or code samples when execution was requested
+---
+**PATTERNS TO BLOCK (Announce and Stop):**
 
-LEGITIMATE PATTERNS (ALLOW THESE):
-- Actually calling tools (products_agent, pricing_agent, inventory_agent, documentation_agent, external_mcp_agent, etc.)
-- Genuine completion with results ("✅ All 12 items updated successfully")
-- Progress reports WITH tool calls (showing actual work done)
-- TRUE BLOCKERS requiring user input:
-  * API rate limits with specific errors ("429 Too Many Requests", "Rate limit exceeded")
-  * Authentication failures needing credentials
-  * Missing required data the agent cannot determine
-  * Genuine ambiguity requiring clarification
-  * Partial completion with valid reason for stopping
-- Questions about handling errors or exceptions that occurred
-- Completion summaries asking about next steps AFTER finishing all work
+* **Promises without Action:** Announcing autonomous work ("working silently," "I will now process...") and then immediately stopping **before** calling any tools.
+* **Asking for Permission Mid-Task:** Asking "shall I continue?" or "should I proceed?" when the task is clearly not finished and no error has occurred.
+* **Providing Instructions Instead of Executing:** Showing the user code or a GraphQL mutation when they asked for the action to be performed.
 
-DECISION CRITERIA:
-1. If work is 80%+ complete AND there's a genuine blocker (rate limit, auth error, etc.) - ALLOW
-2. If the agent has done substantial work and hit a real technical barrier - ALLOW
-3. If asking for permission without trying first or very early in the process - BLOCK
-4. If the question is about post-completion actions (all work done) - ALLOW
-5. If reporting partial success with specific errors that need user decision - ALLOW
-6. If the task is NOT actually a bulk operation (single item, research task, query) - ALLOW
-7. If agent executed mutations and is reporting results - ALLOW
-8. If agent hit a SPECIFIC error (not generic "something went wrong") - ALLOW
-9. If showing GraphQL/code WITHOUT execution when user asked for action - BLOCK
+---
+**LEGITIMATE PATTERNS TO ALLOW:**
 
-Consider: 
-- Has the agent made a good faith effort? 
-- Is there a legitimate technical or business reason to stop?
-- Did the user ask for execution or just information?
-- Is this truly a bulk operation or a single task?`,
+* **Genuine Completion:** Any output that explicitly states the task is finished (See Highest Priority Rule).
+* **Tool Calls:** Any output that includes actual tool calls (products_agent, pricing_agent, etc.). This is evidence of work.
+* **True Blockers:** Reporting specific, legitimate errors like API rate limits, authentication failures, or missing data that requires user input.
+
+Analyze the agent output based on these rules.`,
+
     outputType: z.object({
       isAnnounceAndStop: z.boolean(),
       hasActualWork: z.boolean(),
@@ -1209,8 +1203,7 @@ CURRENT BULK STATE:
 - Completed items: ${bulkOperationState.completedItems}
 - Operation type: ${bulkOperationState.operationType || 'unknown'}
 
-Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior. Base your output on the agent's output and the current bulk state
-some times, the bulk statate may not look satisfied, but the agent is actually making progress. In those cases, allow the agent to continue, use your best judgement.`;
+Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior. Base your output on the agent's output and the current bulk state. Some times, the bulk state may not look satisfied, but the agent is actually making progress. In those cases, allow the agent to continue, use your best judgement.`;
       
       const bulkOperationOutputChokidar = createBulkOperationOutputChokidar(bulkOperationState.conversationId);
       const result = await run(bulkOperationOutputChokidar, contextualPrompt, { context });
@@ -1920,7 +1913,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       productsAgent, pricingAgent, inventoryAgent, salesAgent,
       featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
       utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-      builtInSearchTool 
+      googleWorkspaceAgent, builtInSearchTool 
     } = await buildOrchestratorTools();
     
     // Import guardrail approval tool
@@ -1933,7 +1926,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     const mcpAgentTools = {
       productsAgent, pricingAgent, inventoryAgent, salesAgent,
       featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
-      utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute
+      utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
+      googleWorkspaceAgent
     };
     const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile);
     
