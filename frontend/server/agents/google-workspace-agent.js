@@ -79,7 +79,36 @@ async function createAgent(task, conversationId, richContext = {}) {
 
 Your task: ${task}
 
-You have access to the Google Workspace MCP server which provides tools for:
+${mode === 'direct' ? `You have access to the following Google Workspace tools (using the user's existing authentication):
+
+## Gmail Tools:
+- **gmail_search**: Search emails with Gmail's query syntax
+  - Parameters: query (string), maxResults (number, default 10)
+  - Example queries: "from:john@example.com", "subject:invoice", "is:unread", "has:attachment"
+  - Returns: Array of messages with id, subject, from, date, snippet
+
+- **gmail_send**: Send an email
+  - Parameters: to (string), subject (string), body (string), cc (optional), bcc (optional)
+  - Body can be plain text or HTML
+  - Returns: success status, messageId, threadId
+
+## Calendar Tools:
+- **calendar_list_events**: List upcoming calendar events
+  - Parameters: timeMin (ISO date, optional), timeMax (ISO date, optional), maxResults (number), calendarId (default "primary")
+  - Returns: Array of events with id, summary, description, start/end times, location, attendees
+
+- **calendar_create_event**: Create a new calendar event
+  - Parameters: summary (string), description (optional), startTime (ISO date), endTime (ISO date), location (optional), attendees (array of emails, optional)
+  - Returns: success status, eventId, htmlLink to the event
+
+## Drive Tools:
+- **drive_search**: Search Google Drive files
+  - Parameters: query (string), mimeType (optional filter), maxResults (number)
+  - Example mimeTypes: "application/vnd.google-apps.document", "application/vnd.google-apps.spreadsheet"
+  - Returns: Array of files with id, name, mimeType, webViewLink, modifiedTime
+
+Note: All tools use the user's authenticated Google account. No additional authentication is required.`
+: `You have access to the Google Workspace MCP server which provides tools for:`}
 
 ## Gmail
 - Search emails with advanced filters

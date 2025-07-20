@@ -81,16 +81,13 @@ export const availableOperations = {
     'fetch' // Web content fetching
   ],
   
-  // Google Workspace Agent operations
+  // Google Workspace Agent operations (direct API tools)
   googleWorkspaceOperations: [
     'gmail_search',
     'gmail_send',
-    'gmail_draft',
-    'calendar_events',
-    'calendar_create',
-    'drive_search',
-    'drive_upload',
-    'tasks_manage'
+    'calendar_list_events',
+    'calendar_create_event',
+    'drive_search'
   ],
   
   // Native orchestrator tools

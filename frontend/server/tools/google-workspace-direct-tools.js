@@ -107,8 +107,8 @@ export function createGmailTools() {
         to: z.string().describe('Recipient email address'),
         subject: z.string().describe('Email subject'),
         body: z.string().describe('Email body (plain text or HTML)'),
-        cc: z.string().optional().describe('CC recipients (comma-separated)'),
-        bcc: z.string().optional().describe('BCC recipients (comma-separated)')
+        cc: z.string().nullable().default(null).describe('CC recipients (comma-separated)'),
+        bcc: z.string().nullable().default(null).describe('BCC recipients (comma-separated)')
       }),
       execute: async ({ to, subject, body, cc, bcc }) => {
         const userId = global.currentUserId;
@@ -155,8 +155,8 @@ export function createCalendarTools() {
       name: 'calendar_list_events',
       description: 'List upcoming calendar events',
       parameters: z.object({
-        timeMin: z.string().optional().describe('Start time (ISO format, defaults to now)'),
-        timeMax: z.string().optional().describe('End time (ISO format)'),
+        timeMin: z.string().nullable().default(null).describe('Start time (ISO format, defaults to now)'),
+        timeMax: z.string().nullable().default(null).describe('End time (ISO format)'),
         maxResults: z.number().default(10).describe('Maximum number of events'),
         calendarId: z.string().default('primary').describe('Calendar ID (default: primary)')
       }),
@@ -193,11 +193,11 @@ export function createCalendarTools() {
       description: 'Create a new calendar event',
       parameters: z.object({
         summary: z.string().describe('Event title'),
-        description: z.string().optional().describe('Event description'),
+        description: z.string().nullable().default(null).describe('Event description'),
         startTime: z.string().describe('Start time (ISO format)'),
         endTime: z.string().describe('End time (ISO format)'),
-        location: z.string().optional().describe('Event location'),
-        attendees: z.array(z.string()).optional().describe('Attendee email addresses')
+        location: z.string().nullable().default(null).describe('Event location'),
+        attendees: z.array(z.string()).nullable().default(null).describe('Attendee email addresses')
       }),
       execute: async ({ summary, description, startTime, endTime, location, attendees }) => {
         const userId = global.currentUserId;
@@ -238,7 +238,7 @@ export function createDriveTools() {
       description: 'Search Google Drive files',
       parameters: z.object({
         query: z.string().describe('Search query'),
-        mimeType: z.string().optional().describe('Filter by MIME type (e.g., "application/vnd.google-apps.document")'),
+        mimeType: z.string().nullable().default(null).describe('Filter by MIME type (e.g., "application/vnd.google-apps.document")'),
         maxResults: z.number().default(10).describe('Maximum results')
       }),
       execute: async ({ query, mimeType, maxResults }) => {
