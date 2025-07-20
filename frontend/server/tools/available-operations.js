@@ -93,7 +93,8 @@ export const availableOperations = {
     'tasks_create',
     'tasks_update',
     'tasks_delete',
-    'tasks_complete'
+    'tasks_complete',
+    'tasks_list_all'
   ],
   
   // Native orchestrator tools

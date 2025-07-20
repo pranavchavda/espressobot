@@ -296,21 +296,42 @@ export function createTasksTools() {
         taskListId: z.string().default('@default').describe('Task list ID (default: @default for primary list)'),
         showCompleted: z.boolean().default(false).describe('Include completed tasks'),
         showHidden: z.boolean().default(false).describe('Include hidden tasks'),
-        maxResults: z.number().default(20).describe('Maximum number of tasks to return')
+        maxResults: z.number().default(100).describe('Maximum number of tasks to return'),
+        pageToken: z.string().nullable().default(null).describe('Page token for pagination')
       }),
-      execute: async ({ taskListId, showCompleted, showHidden, maxResults }) => {
+      execute: async ({ taskListId, showCompleted, showHidden, maxResults, pageToken }) => {
         const userId = global.currentUserId;
         const auth = await getAuthClient(userId);
         const tasks = google.tasks({ version: 'v1', auth });
         
-        const response = await tasks.tasks.list({
-          tasklist: taskListId,
-          showCompleted,
-          showHidden,
-          maxResults
-        });
+        let allTasks = [];
+        let nextPageToken = pageToken;
         
-        const taskItems = (response.data.items || []).map(task => ({
+        // Fetch all pages to ensure we don't miss any tasks
+        do {
+          const response = await tasks.tasks.list({
+            tasklist: taskListId,
+            showCompleted,
+            showHidden,
+            maxResults: Math.min(maxResults, 100), // API max is 100
+            pageToken: nextPageToken,
+            showDeleted: false
+          });
+          
+          if (response.data.items) {
+            allTasks = allTasks.concat(response.data.items);
+          }
+          
+          nextPageToken = response.data.nextPageToken;
+          
+          // Stop if we've reached the requested maxResults
+          if (allTasks.length >= maxResults) {
+            allTasks = allTasks.slice(0, maxResults);
+            break;
+          }
+        } while (nextPageToken);
+        
+        const taskItems = allTasks.map(task => ({
           id: task.id,
           title: task.title,
           notes: task.notes,
@@ -319,11 +340,17 @@ export function createTasksTools() {
           completed: task.completed,
           position: task.position,
           parent: task.parent,
-          links: task.links
+          links: task.links,
+          updated: task.updated,
+          selfLink: task.selfLink,
+          etag: task.etag,
+          hidden: task.hidden
         }));
         
         return { 
-          tasks: taskItems
+          tasks: taskItems,
+          totalTasks: taskItems.length,
+          hasMore: !!nextPageToken
         };
       }
     }),
@@ -474,6 +501,72 @@ export function createTasksTools() {
             status: result.data.status,
             completed: result.data.completed
           }
+        };
+      }
+    }),
+    
+    tool({
+      name: 'tasks_list_all',
+      description: 'List ALL tasks including hidden and deleted ones (for debugging)',
+      parameters: z.object({
+        taskListId: z.string().default('@default').describe('Task list ID')
+      }),
+      execute: async ({ taskListId }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        let allTasks = [];
+        let nextPageToken = null;
+        
+        // Fetch ALL tasks without any filters
+        do {
+          const response = await tasks.tasks.list({
+            tasklist: taskListId,
+            maxResults: 100,
+            pageToken: nextPageToken,
+            showCompleted: true,
+            showHidden: true,
+            showDeleted: true
+          });
+          
+          if (response.data.items) {
+            allTasks = allTasks.concat(response.data.items);
+          }
+          
+          nextPageToken = response.data.nextPageToken;
+        } while (nextPageToken);
+        
+        // Group tasks by status
+        const tasksByStatus = {
+          needsAction: allTasks.filter(t => t.status === 'needsAction'),
+          completed: allTasks.filter(t => t.status === 'completed'),
+          deleted: allTasks.filter(t => t.deleted),
+          hidden: allTasks.filter(t => t.hidden)
+        };
+        
+        return { 
+          summary: {
+            total: allTasks.length,
+            needsAction: tasksByStatus.needsAction.length,
+            completed: tasksByStatus.completed.length,
+            deleted: tasksByStatus.deleted.length,
+            hidden: tasksByStatus.hidden.length
+          },
+          tasksByStatus,
+          allTasks: allTasks.map(task => ({
+            id: task.id,
+            title: task.title,
+            notes: task.notes,
+            status: task.status,
+            due: task.due,
+            completed: task.completed,
+            position: task.position,
+            parent: task.parent,
+            hidden: task.hidden,
+            deleted: task.deleted,
+            updated: task.updated
+          }))
         };
       }
     })
