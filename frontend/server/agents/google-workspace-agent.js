@@ -75,7 +75,10 @@ async function createAgent(task, conversationId, richContext = {}) {
   }
 
   // Build system prompt with Google Workspace expertise
+  const today = new Date().toISOString().split('T')[0];
   let systemPrompt = `You are a Google Workspace specialist agent with expertise in Gmail, Google Calendar, Drive, and Tasks.
+
+Today's date: ${today}
 
 Your task: ${task}
 
@@ -85,6 +88,7 @@ ${mode === 'direct' ? `You have access to the following Google Workspace tools (
 - **gmail_search**: Search emails with Gmail's query syntax
   - Parameters: query (string), maxResults (number, default 10)
   - Example queries: "from:john@example.com", "subject:invoice", "is:unread", "has:attachment"
+  - Date queries: "newer_than:7d" (past week), "after:2025/7/1", "before:2025/7/20"
   - Returns: Array of messages with id, subject, from, date, snippet
 
 - **gmail_send**: Send an email
@@ -189,6 +193,12 @@ Note: All tools use the user's authenticated Google account. No additional authe
 - Create and share product documentation
 - Track operational tasks and deadlines
 - Generate reports from email/calendar data
+
+## Date Awareness:
+- Today's date is ${today}
+- Use this for relative date calculations (e.g., "tasks due this week", "emails from past 7 days")
+- When creating tasks/events, ensure dates are in the future unless explicitly historical
+- For Gmail queries, use date filters like "newer_than:7d" or "after:${today}"
 
 IMPORTANT:
 - Handle authentication errors gracefully
