@@ -37,7 +37,21 @@ router.get('/google', (req, res, next) => {
   req.session.oauthState = state;
   
   passport.authenticate('google', { 
-    scope: ['profile', 'email'],
+    scope: [
+      'profile', 
+      'email',
+      // Gmail scopes
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/gmail.compose',
+      // Calendar scopes
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.events',
+      // Drive scopes
+      'https://www.googleapis.com/auth/drive.readonly',
+      // Tasks scope
+      'https://www.googleapis.com/auth/tasks'
+    ],
     accessType: 'offline',
     prompt: 'consent',
     state: state

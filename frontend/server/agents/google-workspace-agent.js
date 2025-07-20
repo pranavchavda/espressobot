@@ -52,11 +52,26 @@ async function initializeGoogleWorkspaceServer() {
  * Create a Google Workspace-specialized agent
  */
 async function createAgent(task, conversationId, richContext = {}) {
-  // Initialize server
-  const mcpServer = await initializeGoogleWorkspaceServer();
+  // Check integration mode
+  const mode = process.env.GOOGLE_WORKSPACE_MODE || 'mcp';
   
-  if (!mcpServer) {
-    throw new Error('Google Workspace MCP server not available');
+  let tools = [];
+  let mcpServers = [];
+  
+  if (mode === 'direct') {
+    // Use direct Google API integration with stored tokens
+    const { createGoogleWorkspaceTools } = await import('../tools/google-workspace-direct-tools.js');
+    tools = createGoogleWorkspaceTools();
+    console.log('[Google Workspace Agent] Using direct API integration (single sign-in)');
+  } else {
+    // Initialize MCP server
+    const mcpServer = await initializeGoogleWorkspaceServer();
+    
+    if (!mcpServer) {
+      throw new Error('Google Workspace MCP server not available');
+    }
+    mcpServers = [mcpServer];
+    console.log('[Google Workspace Agent] Using MCP server integration');
   }
 
   // Build system prompt with Google Workspace expertise
@@ -147,11 +162,11 @@ IMPORTANT:
     taskDescription: task
   });
 
-  // Create agent with Google Workspace server
+  // Create agent with appropriate tools/servers
   const agent = new Agent({
     name: 'Google Workspace Agent',
     instructions,
-    mcpServers: [mcpServer],
+    ...(mode === 'direct' ? { tools } : { mcpServers }),
     model: process.env.OPENAI_MODEL || 'gpt-4o',
     toolUseBehavior: 'run_llm_again'
   });

@@ -86,6 +86,9 @@ model users {
   created_at             DateTime?
   google_id              String?                  @unique(map: "idx_users_google_id")
   profile_picture        String?
+  google_access_token    String?                  // Google OAuth access token
+  google_refresh_token   String?                  // Google OAuth refresh token  
+  google_token_expiry    DateTime?                // Token expiration time
   conversations          conversations[]
   user_memories          user_memories[]
   user_memory_embeddings user_memory_embeddings[]

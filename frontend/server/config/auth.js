@@ -47,7 +47,7 @@ const configureGoogleStrategy = () => {
           });
 
           if (!user) {
-            // Create new user
+            // Create new user with tokens
             user = await prisma.users.create({
               data: {
                 email: userEmail,
@@ -57,10 +57,13 @@ const configureGoogleStrategy = () => {
                 created_at: new Date(),
                 is_whitelisted: allowedEmails.includes(userEmail),
                 is_admin: userEmail.includes('pranav'),
+                google_access_token: accessToken,
+                google_refresh_token: refreshToken,
+                google_token_expiry: new Date(Date.now() + 3600 * 1000),
               },
             });
           } else {
-            // Update existing user
+            // Update existing user with tokens
             user = await prisma.users.update({
               where: { id: user.id },
               data: {
@@ -69,6 +72,9 @@ const configureGoogleStrategy = () => {
                 profile_picture: profile.photos[0]?.value,
                 is_whitelisted: allowedEmails.includes(userEmail),
                 is_admin: userEmail.includes('pranav'),
+                google_access_token: accessToken,
+                google_refresh_token: refreshToken || user.google_refresh_token,
+                google_token_expiry: new Date(Date.now() + 3600 * 1000),
               },
             });
           }

@@ -33,6 +33,7 @@
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "framer-motion": "^12.16.0",
+    "googleapis": "^153.0.0",
     "highlight.js": "^11.11.1",
     "js-md5": "^0.8.3",
     "jsonwebtoken": "^9.0.2",

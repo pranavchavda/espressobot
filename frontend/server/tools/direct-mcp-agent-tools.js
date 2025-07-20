@@ -472,7 +472,7 @@ export function createSmartMCPExecuteTool() {
 export function createGoogleWorkspaceAgentTool() {
   return tool({
     name: 'google_workspace_agent',
-    description: 'Google Workspace operations: Gmail (search, send, drafts), Calendar (events, scheduling), Drive (files, docs), Tasks (lists, to-dos)',
+    description: 'Google Workspace operations using single sign-in: Gmail (search, send), Calendar (events, create), Drive (search files). No additional authentication required.',
     parameters: z.object({
       task: z.string().describe('The Google Workspace operation to perform')
     }),
