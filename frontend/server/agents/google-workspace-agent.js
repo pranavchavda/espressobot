@@ -213,6 +213,11 @@ export async function executeGoogleWorkspaceTask(task, conversationId, richConte
     console.log('[Google Workspace Agent] Starting task execution...');
     console.log('[Google Workspace Agent] Task:', task);
     
+    // Set the current user ID for direct tools
+    if (richContext.userId) {
+      global.currentUserId = richContext.userId;
+    }
+    
     // Create agent
     const agent = await createAgent(task, conversationId, richContext);
     
@@ -230,24 +235,50 @@ export async function executeGoogleWorkspaceTask(task, conversationId, richConte
     
     console.log('[Google Workspace Agent] Task completed successfully');
     
+    // Debug: Log the result structure
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Google Workspace Agent] Result structure:', {
+        hasState: !!result?.state,
+        hasGeneratedItems: !!result?.state?._generatedItems,
+        generatedItemsCount: result?.state?._generatedItems?.length || 0,
+        hasContent: !!result?.content,
+        hasMessages: !!result?.messages,
+        hasText: !!result?.text,
+        hasOutput: !!result?.output,
+        resultKeys: result ? Object.keys(result) : []
+      });
+    }
+    
     // Extract meaningful output
-    if (result && result.state && result.state._generatedItems) {
+    let finalOutput = '';
+    
+    if (result.finalOutput) {
+      finalOutput = result.finalOutput;
+    } else if (result.state && result.state._generatedItems) {
+      // Look for message_output_item type (OpenAI SDK v0.11 structure)
       const messages = result.state._generatedItems
-        .filter(item => item.type === 'text' && item.text && item.text.trim())
-        .map(item => item.text);
+        .filter(item => item.type === 'message_output_item')
+        .map(item => item.rawItem?.content?.[0]?.text || '')
+        .filter(text => text);
       
-      const lastMessage = messages[messages.length - 1] || 'Task completed successfully';
-      
-      return {
-        success: true,
-        result: lastMessage,
-        fullResponse: result
-      };
+      if (messages.length > 0) {
+        finalOutput = messages[messages.length - 1];
+      }
+    } else if (result.state && result.state.currentStep && result.state.currentStep.output) {
+      finalOutput = result.state.currentStep.output;
+    }
+    
+    // Log token usage if available
+    if (result.state?.context?.usage) {
+      const usage = result.state.context.usage;
+      console.log(`[Google Workspace Agent] Token usage - Input: ${usage.inputTokens}, Output: ${usage.outputTokens}, Total: ${usage.totalTokens}`);
     }
     
     return {
       success: true,
-      result: result
+      result: finalOutput || 'Task completed but no output generated',
+      agent: 'google_workspace',
+      tokenUsage: result.state?.context?.usage || null
     };
     
   } catch (error) {

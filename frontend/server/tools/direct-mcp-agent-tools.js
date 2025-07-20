@@ -451,7 +451,7 @@ export function createSmartMCPExecuteTool() {
         if (taskLower.includes('gmail') || taskLower.includes('email') || taskLower.includes('calendar') || 
             taskLower.includes('drive') || taskLower.includes('google') || taskLower.includes('task list')) {
           console.log('[Smart MCP Execute] Routing to Google Workspace Agent');
-          return await executeGoogleWorkspaceTask(task, global.currentConversationId, {});
+          return await executeGoogleWorkspaceTask(task, global.currentConversationId, { userId: global.currentUserId });
         }
         
         // Default to Products Agent for general product operations
@@ -483,7 +483,7 @@ export function createGoogleWorkspaceAgentTool() {
         const result = await executeGoogleWorkspaceTask(
           task, 
           global.currentConversationId,
-          {}
+          { userId: global.currentUserId }
         );
         
         if (result && result.success === false) {
