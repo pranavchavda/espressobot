@@ -87,7 +87,13 @@ export const availableOperations = {
     'gmail_send',
     'calendar_list_events',
     'calendar_create_event',
-    'drive_search'
+    'drive_search',
+    'tasks_list_tasklists',
+    'tasks_list',
+    'tasks_create',
+    'tasks_update',
+    'tasks_delete',
+    'tasks_complete'
   ],
   
   // Native orchestrator tools

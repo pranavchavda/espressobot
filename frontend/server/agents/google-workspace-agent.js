@@ -107,6 +107,31 @@ ${mode === 'direct' ? `You have access to the following Google Workspace tools (
   - Example mimeTypes: "application/vnd.google-apps.document", "application/vnd.google-apps.spreadsheet"
   - Returns: Array of files with id, name, mimeType, webViewLink, modifiedTime
 
+## Tasks Tools:
+- **tasks_list_tasklists**: List all task lists
+  - Parameters: maxResults (number, default 20)
+  - Returns: Array of task lists
+
+- **tasks_list**: List tasks from a specific task list
+  - Parameters: taskListId (default "@default"), showCompleted (boolean), showHidden (boolean), maxResults (number)
+  - Returns: Array of tasks with id, title, notes, status, due date, completion status
+
+- **tasks_create**: Create a new task
+  - Parameters: title (required), notes (optional), due (ISO date optional), taskListId (default "@default"), parent (for subtasks), previous (for ordering)
+  - Returns: Created task details
+
+- **tasks_update**: Update an existing task
+  - Parameters: taskId (required), taskListId (default "@default"), title, notes, status ("needsAction" or "completed"), due date
+  - Returns: Updated task details
+
+- **tasks_delete**: Delete a task
+  - Parameters: taskId (required), taskListId (default "@default")
+  - Returns: Success confirmation
+
+- **tasks_complete**: Mark a task as completed
+  - Parameters: taskId (required), taskListId (default "@default")
+  - Returns: Updated task with completed status
+
 Note: All tools use the user's authenticated Google account. No additional authentication is required.`
 : `You have access to the Google Workspace MCP server which provides tools for:`}
 

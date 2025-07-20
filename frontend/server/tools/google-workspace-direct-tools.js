@@ -264,12 +264,230 @@ export function createDriveTools() {
 }
 
 /**
+ * Tasks Tools
+ */
+export function createTasksTools() {
+  return [
+    tool({
+      name: 'tasks_list_tasklists',
+      description: 'List all task lists',
+      parameters: z.object({
+        maxResults: z.number().default(20).describe('Maximum number of task lists to return')
+      }),
+      execute: async ({ maxResults }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        const response = await tasks.tasklists.list({
+          maxResults
+        });
+        
+        return { 
+          taskLists: response.data.items || []
+        };
+      }
+    }),
+    
+    tool({
+      name: 'tasks_list',
+      description: 'List tasks from a specific task list',
+      parameters: z.object({
+        taskListId: z.string().default('@default').describe('Task list ID (default: @default for primary list)'),
+        showCompleted: z.boolean().default(false).describe('Include completed tasks'),
+        showHidden: z.boolean().default(false).describe('Include hidden tasks'),
+        maxResults: z.number().default(20).describe('Maximum number of tasks to return')
+      }),
+      execute: async ({ taskListId, showCompleted, showHidden, maxResults }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        const response = await tasks.tasks.list({
+          tasklist: taskListId,
+          showCompleted,
+          showHidden,
+          maxResults
+        });
+        
+        const taskItems = (response.data.items || []).map(task => ({
+          id: task.id,
+          title: task.title,
+          notes: task.notes,
+          status: task.status,
+          due: task.due,
+          completed: task.completed,
+          position: task.position,
+          parent: task.parent,
+          links: task.links
+        }));
+        
+        return { 
+          tasks: taskItems
+        };
+      }
+    }),
+    
+    tool({
+      name: 'tasks_create',
+      description: 'Create a new task',
+      parameters: z.object({
+        title: z.string().describe('Task title'),
+        notes: z.string().nullable().default(null).describe('Task notes/description'),
+        due: z.string().nullable().default(null).describe('Due date (RFC 3339 timestamp)'),
+        taskListId: z.string().default('@default').describe('Task list ID (default: @default)'),
+        parent: z.string().nullable().default(null).describe('Parent task ID for subtasks'),
+        previous: z.string().nullable().default(null).describe('Previous task ID for ordering')
+      }),
+      execute: async ({ title, notes, due, taskListId, parent, previous }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        const task = {
+          title,
+          ...(notes && { notes }),
+          ...(due && { due }),
+          ...(parent && { parent })
+        };
+        
+        const result = await tasks.tasks.insert({
+          tasklist: taskListId,
+          requestBody: task,
+          ...(previous && { previous })
+        });
+        
+        return {
+          success: true,
+          task: {
+            id: result.data.id,
+            title: result.data.title,
+            notes: result.data.notes,
+            status: result.data.status,
+            due: result.data.due,
+            position: result.data.position
+          }
+        };
+      }
+    }),
+    
+    tool({
+      name: 'tasks_update',
+      description: 'Update an existing task',
+      parameters: z.object({
+        taskId: z.string().describe('Task ID to update'),
+        taskListId: z.string().default('@default').describe('Task list ID'),
+        title: z.string().nullable().default(null).describe('New title'),
+        notes: z.string().nullable().default(null).describe('New notes'),
+        status: z.enum(['needsAction', 'completed']).nullable().default(null).describe('Task status'),
+        due: z.string().nullable().default(null).describe('New due date (RFC 3339 timestamp)')
+      }),
+      execute: async ({ taskId, taskListId, title, notes, status, due }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        // First get the current task
+        const current = await tasks.tasks.get({
+          tasklist: taskListId,
+          task: taskId
+        });
+        
+        // Merge updates
+        const updatedTask = {
+          ...current.data,
+          ...(title !== null && { title }),
+          ...(notes !== null && { notes }),
+          ...(status !== null && { status }),
+          ...(due !== null && { due })
+        };
+        
+        const result = await tasks.tasks.update({
+          tasklist: taskListId,
+          task: taskId,
+          requestBody: updatedTask
+        });
+        
+        return {
+          success: true,
+          task: {
+            id: result.data.id,
+            title: result.data.title,
+            notes: result.data.notes,
+            status: result.data.status,
+            due: result.data.due,
+            completed: result.data.completed
+          }
+        };
+      }
+    }),
+    
+    tool({
+      name: 'tasks_delete',
+      description: 'Delete a task',
+      parameters: z.object({
+        taskId: z.string().describe('Task ID to delete'),
+        taskListId: z.string().default('@default').describe('Task list ID')
+      }),
+      execute: async ({ taskId, taskListId }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        await tasks.tasks.delete({
+          tasklist: taskListId,
+          task: taskId
+        });
+        
+        return {
+          success: true,
+          message: `Task ${taskId} deleted successfully`
+        };
+      }
+    }),
+    
+    tool({
+      name: 'tasks_complete',
+      description: 'Mark a task as completed',
+      parameters: z.object({
+        taskId: z.string().describe('Task ID to complete'),
+        taskListId: z.string().default('@default').describe('Task list ID')
+      }),
+      execute: async ({ taskId, taskListId }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const tasks = google.tasks({ version: 'v1', auth });
+        
+        const result = await tasks.tasks.update({
+          tasklist: taskListId,
+          task: taskId,
+          requestBody: {
+            status: 'completed'
+          }
+        });
+        
+        return {
+          success: true,
+          task: {
+            id: result.data.id,
+            title: result.data.title,
+            status: result.data.status,
+            completed: result.data.completed
+          }
+        };
+      }
+    })
+  ];
+}
+
+/**
  * Create all Google Workspace tools
  */
 export function createGoogleWorkspaceTools() {
   return [
     ...createGmailTools(),
     ...createCalendarTools(),
-    ...createDriveTools()
+    ...createDriveTools(),
+    ...createTasksTools()
   ];
 }
