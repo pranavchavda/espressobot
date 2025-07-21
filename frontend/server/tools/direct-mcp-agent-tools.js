@@ -555,6 +555,26 @@ export function createGA4AnalyticsAgentTool() {
   });
 }
 
+/**
+ * Create all direct MCP agent tools
+ */
+export function createAllDirectMCPAgentTools() {
+  return [
+    createProductsAgentTool(),
+    createPricingAgentTool(),
+    createInventoryAgentTool(),
+    createSalesAgentTool(),
+    createFeaturesAgentTool(),
+    createMediaAgentTool(),
+    createIntegrationsAgentTool(),
+    createProductManagementAgentTool(),
+    createUtilityAgentTool(),
+    createSmartMCPExecuteTool(),
+    createShopifyOrdersAgentTool(),
+    createGA4AnalyticsAgentTool()
+  ];
+}
+
 // Add to the end of the file:
 
 /**

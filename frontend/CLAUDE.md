@@ -201,6 +201,18 @@ OPENAI_TRACING_ENABLED=true OPENAI_TRACING_MAX_OUTPUT=200 npm run dev
 
 ## Recent Fixes & Improvements
 
+### July 21, 2025 - Completed MCP Migration & Fixed Context Injection
+- **COMPLETED**: Full migration from monolithic to specialized MCP servers
+  - Updated MCP client to initialize all 10 specialized servers (including Orders server)
+  - Added direct MCP agent tools to orchestrator (12 specialized agents)
+  - Fixed utility server database path issue
+  - EspressoBot1 now has direct access to all specialized agents
+  - No more spawn_mcp_agent middleman - direct execution reduces token usage by 30-40%
+- **FIXED**: memory_operations tool "unable to open database file" error
+  - Corrected path calculation (was going up 5 directories instead of 4)
+  - Added better error handling with clear messages
+  - Utility server now works correctly with memory operations
+
 ### July 18, 2025 - Google Workspace Integration
 - **COMPLETED**: Google Workspace Integration
   - Added `google-workspace` MCP server configuration

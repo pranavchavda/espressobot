@@ -32,7 +32,9 @@ class RAGSystemPromptManager {
       includeMemories = true,
       userId = null,
       agentType = 'general',
-      minScore = 0.6
+      minScore = 0.6,
+      useAdaptiveContext = true,  // Use adaptive context with filtering
+      skipContextInjection = false  // Skip adding memories/fragments if already filtered
     } = options;
 
     const cacheKey = `${context.slice(0, 50)}_${agentType}_${userId}`;
@@ -75,6 +77,12 @@ class RAGSystemPromptManager {
       );
     }
 
+    // Skip context injection if requested (e.g., when adaptive context already filtered)
+    if (skipContextInjection) {
+      console.log('[RAGSystemPromptManager] Skipping context injection - using base prompt only');
+      return basePrompt;
+    }
+    
     const prompt = await this.constructPrompt({
       base: basePrompt,
       fragments: relevantFragments,

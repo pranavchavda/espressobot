@@ -1176,6 +1176,21 @@ You are an intelligent chokidar (guard) that validates agent output during bulk 
 * **Genuine Completion:** Any output that explicitly states the task is finished (See Highest Priority Rule).
 * **Tool Calls:** Any output that includes actual tool calls (products_agent, pricing_agent, etc.). This is evidence of work.
 * **True Blockers:** Reporting specific, legitimate errors like API rate limits, authentication failures, or missing data that requires user input.
+* **Actual Results/Data:** Output that contains real data results like product lists with SKUs, prices, inventory counts, or other concrete information. This indicates work was already done, even if no tool calls are visible in the current output.
+
+---
+**DETECTING COMPLETED WORK:**
+
+Look for evidence that actual work was completed, such as:
+- Lists of products with details (SKUs, prices, inventory)
+- Search results with specific data
+- Status updates with concrete information
+- Any formatted data output that answers the user's request
+
+If the output contains actual results/data AND the bulk state shows expected != completed, it likely means:
+1. The work was done in a previous turn (tool calls not visible)
+2. The agent forgot to update task status
+3. This is NOT "announce and stop" - it's completed work with poor status tracking
 
 Analyze the agent output based on these rules.`,
 
@@ -1205,6 +1220,24 @@ const bulkOperationOutputGuardrail = {
     try {
       const outputText = typeof agentOutput === 'string' ? agentOutput : JSON.stringify(agentOutput);
       
+      // Get recent tool call context from checkpoints
+      let recentToolCallsContext = '';
+      if (bulkOperationState.checkpoints && bulkOperationState.checkpoints.length > 0) {
+        const lastCheckpoint = bulkOperationState.checkpoints[bulkOperationState.checkpoints.length - 1];
+        if (lastCheckpoint.completed && lastCheckpoint.completed.length > 0) {
+          recentToolCallsContext = `\n\nRECENT TOOL CALLS FROM PREVIOUS TURNS:
+- ${lastCheckpoint.completed.length} items were processed
+- Last update: ${lastCheckpoint.timestamp || 'unknown'}
+- Items completed: ${lastCheckpoint.completed.map(c => c.item).join(', ')}`;
+        }
+      }
+
+      // Check if output contains actual data results
+      const hasDataResults = outputText.match(/SKU:\s*[\w-]+|Price:\s*\$[\d,]+|Inventory:\s*\d+|units/i) ||
+                           outputText.includes('successfully') ||
+                           outputText.includes('completed') ||
+                           outputText.includes('✅');
+
       // Update the chokidar's instructions with current state
       const contextualPrompt = `${outputText}
 
@@ -1212,8 +1245,11 @@ CURRENT BULK STATE:
 - Expected items: ${bulkOperationState.expectedItems}
 - Completed items: ${bulkOperationState.completedItems}
 - Operation type: ${bulkOperationState.operationType || 'unknown'}
+- Output contains data results: ${hasDataResults ? 'YES' : 'NO'}${recentToolCallsContext}
 
-Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior. Base your output on the agent's output and the current bulk state. Some times, the bulk state may not look satisfied, but the agent is actually making progress. In those cases, allow the agent to continue, use your best judgement.`;
+Analyze this agent output and determine if it's legitimate work or "announce and stop" behavior. Base your output on the agent's output and the current bulk state. 
+
+IMPORTANT: If the output contains actual data (SKUs, prices, inventory counts, etc.), this indicates work was ALREADY DONE, even if the bulk state counters don't match. The agent likely completed the work but forgot to update task status.`;
       
       const bulkOperationOutputChokidar = createBulkOperationOutputChokidar(bulkOperationState.conversationId);
       const result = await run(bulkOperationOutputChokidar, contextualPrompt, { context });
@@ -1482,6 +1518,21 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
     spawnParallelBashAgents,
     spawnParallelExecutors,
     // orchestratorBash,
+    
+    // Direct MCP agent tools (specialized servers)
+    createProductsAgentTool(),
+    createPricingAgentTool(),
+    createInventoryAgentTool(),
+    createSalesAgentTool(),
+    createFeaturesAgentTool(),
+    createMediaAgentTool(),
+    createIntegrationsAgentTool(),
+    createProductManagementAgentTool(),
+    createUtilityAgentTool(),
+    createShopifyOrdersAgentTool(),
+    createGA4AnalyticsAgentTool(),
+    createSmartMCPExecuteTool(),
+    
     // Task reading and updating tools
     tool({
       name: 'get_current_tasks',
@@ -1542,6 +1593,44 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
         } catch (error) {
           return `Error updating task: ${error.message}`;
         }
+      }
+    }),
+    tool({
+      name: 'update_bulk_progress',
+      description: 'Update bulk operation progress counters. Use this after completing each item in a bulk operation.',
+      parameters: z.object({
+        itemsCompleted: z.number().describe('Number of items just completed (usually 1)'),
+        itemDescription: z.string().nullable().default(null).describe('Optional description of completed item(s)')
+      }),
+      execute: async ({ itemsCompleted, itemDescription }) => {
+        if (!bulkOperationState.isActive) {
+          return 'No active bulk operation';
+        }
+        
+        // Update counters
+        bulkOperationState.completedItems += itemsCompleted;
+        console.log(`[Bulk Progress] Updated: ${bulkOperationState.completedItems}/${bulkOperationState.expectedItems} items completed`);
+        
+        // Add to checkpoint
+        if (itemDescription) {
+          const checkpoint = {
+            timestamp: new Date().toISOString(),
+            completed: [{
+              item: itemDescription,
+              index: bulkOperationState.completedItems - 1
+            }]
+          };
+          bulkOperationState.checkpoints.push(checkpoint);
+        }
+        
+        // Check if complete
+        if (bulkOperationState.completedItems >= bulkOperationState.expectedItems) {
+          console.log('[Bulk Progress] 🎉 Bulk operation complete!');
+          bulkOperationState.isActive = false;
+          return `Bulk operation complete! All ${bulkOperationState.expectedItems} items processed.`;
+        }
+        
+        return `Progress updated: ${bulkOperationState.completedItems}/${bulkOperationState.expectedItems} items completed`;
       }
     }),
     tool({
@@ -1782,9 +1871,18 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Add relevant memories if any (limit to top 3 to prevent size explosion)
-    if (orchestratorContext.relevantMemories?.length > 0) {
+    // Filter memories by relevance score (similar to prompt fragments)
+    const relevantMemories = orchestratorContext.relevantMemories?.filter(memory => {
+      // Only include memories with high relevance scores
+      const scoreThreshold = 0.7;
+      return memory.score && memory.score >= scoreThreshold;
+    }) || [];
+    
+    console.log(`[Orchestrator] Filtered to ${relevantMemories.length} highly relevant memories (score >= 0.7)`);
+    
+    if (relevantMemories.length > 0) {
       const memoriesContent = '\n\n## Relevant Past Experiences:' + 
-        orchestratorContext.relevantMemories.slice(0, 3).map(memory => 
+        relevantMemories.slice(0, 3).map(memory => 
           `\n- ${memory.content.substring(0, 500)}` + (memory.content.length > 500 ? '...' : '')
         ).join('');
       
@@ -1805,12 +1903,25 @@ export async function runDynamicOrchestrator(message, options = {}) {
     
     // Add relevant prompt fragments from library with size limits
     console.log(`[Orchestrator] Checking prompt fragments: ${orchestratorContext.promptFragments?.length || 0} found`);
-    if (orchestratorContext.promptFragments?.length > 0) {
+    
+    // IMPORTANT: Only add prompt fragments if they're actually relevant
+    // The adaptive context builder may include fragments that aren't relevant to the current task
+    // Check if we have a high-confidence score threshold
+    const relevantFragments = orchestratorContext.promptFragments?.filter(fragment => {
+      // Only include fragments with high relevance scores
+      // Default threshold of 0.7 for relevance (configurable)
+      const scoreThreshold = 0.7;
+      return fragment.score && fragment.score >= scoreThreshold;
+    }) || [];
+    
+    console.log(`[Orchestrator] Filtered to ${relevantFragments.length} highly relevant fragments (score >= 0.7)`);
+    
+    if (relevantFragments.length > 0) {
       let fragmentsContent = '\n\n## Relevant Documentation (from Prompt Library):';
       
       // For core context, just list the fragments with size limits
       if (!orchestratorContext.fullSlice) {
-        for (const fragment of orchestratorContext.promptFragments) {
+        for (const fragment of relevantFragments) {
           const fragmentText = `\n\n### ${fragment.category || 'General'} (Priority: ${fragment.priority || 'medium'}):\n${fragment.content.substring(0, 1000)}` + 
             (fragment.content.length > 1000 ? '\n[Fragment truncated for size]' : '');
           
@@ -1823,7 +1934,18 @@ export async function runDynamicOrchestrator(message, options = {}) {
       } else if (orchestratorContext.promptFragmentsByCategory) {
         // For full context, organize by category with limits
         let categoriesProcessed = 0;
-        for (const [category, fragments] of Object.entries(orchestratorContext.promptFragmentsByCategory)) {
+        
+        // First, reorganize relevant fragments by category
+        const relevantByCategory = {};
+        for (const fragment of relevantFragments) {
+          const cat = fragment.category || 'general';
+          if (!relevantByCategory[cat]) {
+            relevantByCategory[cat] = [];
+          }
+          relevantByCategory[cat].push(fragment);
+        }
+        
+        for (const [category, fragments] of Object.entries(relevantByCategory)) {
           if (categoriesProcessed >= 5) { // Limit categories
             fragmentsContent += '\n\n[Additional categories truncated to prevent context explosion]';
             break;

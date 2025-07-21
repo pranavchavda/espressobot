@@ -102,10 +102,22 @@ export async function buildAdaptiveContext(options) {
       
       // Step 4.5: Filter fetched context for relevance
       console.log('[AdaptiveContext] Filtering fetched context for relevance...');
+      console.log(`[AdaptiveContext] Pre-filter context keys: ${Object.keys(fetched.context).join(', ')}`);
+      
       const filteredContext = await filterFetchedContext(task, fetched.context, {
         maxTokens: maxTokens - context.tokenCount,
         conversationId
       });
+      
+      console.log(`[AdaptiveContext] Post-filter context keys: ${Object.keys(filteredContext).join(', ')}`);
+      
+      // Log what was filtered out
+      const originalKeys = new Set(Object.keys(fetched.context));
+      const filteredKeys = new Set(Object.keys(filteredContext));
+      const removedKeys = [...originalKeys].filter(k => !filteredKeys.has(k));
+      if (removedKeys.length > 0) {
+        console.log(`[AdaptiveContext] Filtered out irrelevant context: ${removedKeys.join(', ')}`);
+      }
       
       // Recalculate total tokens after filtering
       let filteredTokens = 0;
@@ -166,22 +178,32 @@ export async function buildAdaptiveContext(options) {
     const extractedPromptFragments = [];
     
     if (context.fetchedContext) {
+      console.log('[AdaptiveContext] Extracting memories and fragments from filtered context...');
+      
       for (const [key, value] of Object.entries(context.fetchedContext)) {
+        // Only extract from context that passed the relevance filter
+        // The filterFetchedContext function only includes relevant items
+        // So if it's in fetchedContext, it should be included
+        
         if (value.source === 'memory' && value.results) {
           // Add memories with their original structure
-          extractedMemories.push(...value.results.map(result => ({
+          const memories = value.results.map(result => ({
             content: result.memory || result.content || '',
             score: result.score || 0,
             metadata: result.metadata || {}
-          })));
+          }));
+          extractedMemories.push(...memories);
+          console.log(`[AdaptiveContext] Extracted ${memories.length} memories from "${key}"`);
         } else if (value.source === 'rules' && value.results) {
           // Add rules/prompt fragments
-          extractedPromptFragments.push(...value.results.map(result => ({
+          const fragments = value.results.map(result => ({
             content: result.memory || result.content || '',
             category: result.metadata?.category || 'general',
             priority: result.metadata?.priority || value.priority,
             score: result.score || 0
-          })));
+          }));
+          extractedPromptFragments.push(...fragments);
+          console.log(`[AdaptiveContext] Extracted ${fragments.length} prompt fragments from "${key}"`);
         }
       }
     }

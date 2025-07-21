@@ -26,24 +26,88 @@ export async function initializeMCPTools() {
     // Create server manager instance
     serverManager = new MCPServerManager();
     
-    // Register built-in Python tools server
-    const pythonToolsServer = new MCPServerStdio({
-      name: 'EspressoBot Python Tools',
-      command: 'python3',
-      args: [path.join(__dirname, '../../python-tools/mcp-server.py')],
-      env: {
-        ...process.env,
-        PYTHONUNBUFFERED: '1'  // Ensure Python output is not buffered
+    // Define specialized MCP servers
+    const specializedServers = [
+      { 
+        name: 'products', 
+        file: 'mcp-products-server.py',
+        description: 'Product operations (get, search, create, update)' 
       },
-      cacheToolsList: true
-    });
+      { 
+        name: 'pricing', 
+        file: 'mcp-pricing-server.py',
+        description: 'Pricing operations (update, bulk update, costs)'
+      },
+      { 
+        name: 'inventory', 
+        file: 'mcp-inventory-server.py',
+        description: 'Inventory management (policy, tags, redirects)'
+      },
+      { 
+        name: 'sales', 
+        file: 'mcp-sales-server.py',
+        description: 'Sales operations (MAP sales, Miele sales)'
+      },
+      { 
+        name: 'features', 
+        file: 'mcp-features-server.py',
+        description: 'Product features (metafields, variant links, content)'
+      },
+      { 
+        name: 'media', 
+        file: 'mcp-media-server.py',
+        description: 'Media operations (image management)'
+      },
+      { 
+        name: 'integrations', 
+        file: 'mcp-integrations-server.py',
+        description: 'External integrations (SkuVault, reviews, research)'
+      },
+      { 
+        name: 'product-management', 
+        file: 'mcp-product-management-server.py',
+        description: 'Advanced product operations (combos, open box, full creation)'
+      },
+      { 
+        name: 'utility', 
+        file: 'mcp-utility-server.py',
+        description: 'Utility operations (memory management)'
+      },
+      { 
+        name: 'orders', 
+        file: 'mcp-orders-server.py',
+        description: 'Order analytics (daily sales, revenue reports, order data)'
+      }
+    ];
     
-    // Connect Python tools server
-    console.log('[MCP Client] Connecting to Python tools MCP server...');
-    await pythonToolsServer.connect();
+    // Initialize all specialized servers
+    console.log('[MCP Client] Initializing specialized MCP servers...');
     
-    // Register as built-in server
-    serverManager.registerBuiltInServer('python-tools', pythonToolsServer);
+    for (const serverConfig of specializedServers) {
+      try {
+        const server = new MCPServerStdio({
+          name: `EspressoBot ${serverConfig.name} Server`,
+          command: 'python3',
+          args: [path.join(__dirname, '../../python-tools', serverConfig.file)],
+          env: {
+            ...process.env,
+            PYTHONUNBUFFERED: '1'
+          },
+          cacheToolsList: true
+        });
+        
+        console.log(`[MCP Client] Connecting to ${serverConfig.name} server...`);
+        await server.connect();
+        
+        // Register as built-in server
+        serverManager.registerBuiltInServer(serverConfig.name, server);
+        console.log(`[MCP Client] ✓ ${serverConfig.name} server connected - ${serverConfig.description}`);
+        
+      } catch (error) {
+        console.error(`[MCP Client] Failed to initialize ${serverConfig.name} server:`, error);
+        // Continue with other servers even if one fails
+      }
+    }
     
     // Initialize external servers from config
     await serverManager.initializeServers();
