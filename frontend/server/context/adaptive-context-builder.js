@@ -6,7 +6,7 @@
  */
 
 import { extractTaskData } from '../agents/task-data-extractor-nano.js';
-import { analyzeContextNeeds, fetchSuggestedContext } from '../agents/context-analyzer-mini.js';
+import { analyzeContextNeeds, fetchSuggestedContext, filterFetchedContext } from '../agents/context-analyzer-mini.js';
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { buildCompressedContext } from '../agents/conversation-summarizer-agent.js';
 
@@ -100,14 +100,27 @@ export async function buildAdaptiveContext(options) {
         userId
       );
       
-      // Add fetched context if within token limits
-      if (context.tokenCount + fetched.totalTokens < maxTokens) {
-        context.fetchedContext = fetched.context;
-        context.tokenCount += fetched.totalTokens;
+      // Step 4.5: Filter fetched context for relevance
+      console.log('[AdaptiveContext] Filtering fetched context for relevance...');
+      const filteredContext = await filterFetchedContext(task, fetched.context, {
+        maxTokens: maxTokens - context.tokenCount,
+        conversationId
+      });
+      
+      // Recalculate total tokens after filtering
+      let filteredTokens = 0;
+      for (const value of Object.values(filteredContext)) {
+        filteredTokens += value.tokenCount || 0;
+      }
+      
+      // Add filtered context
+      if (context.tokenCount + filteredTokens < maxTokens) {
+        context.fetchedContext = filteredContext;
+        context.tokenCount += filteredTokens;
       } else {
         // Only add critical context if over limit
         const criticalContext = {};
-        for (const [key, value] of Object.entries(fetched.context)) {
+        for (const [key, value] of Object.entries(filteredContext)) {
           if (value.priority === 'critical') {
             criticalContext[key] = value;
             context.tokenCount += value.tokenCount;
@@ -147,11 +160,45 @@ export async function buildAdaptiveContext(options) {
       truncated: context.truncated || false
     });
     
+    // Extract memories and rules from fetchedContext for compatibility
+    const extractedMemories = [];
+    const extractedRules = [];
+    const extractedPromptFragments = [];
+    
+    if (context.fetchedContext) {
+      for (const [key, value] of Object.entries(context.fetchedContext)) {
+        if (value.source === 'memory' && value.results) {
+          // Add memories with their original structure
+          extractedMemories.push(...value.results.map(result => ({
+            content: result.memory || result.content || '',
+            score: result.score || 0,
+            metadata: result.metadata || {}
+          })));
+        } else if (value.source === 'rules' && value.results) {
+          // Add rules/prompt fragments
+          extractedPromptFragments.push(...value.results.map(result => ({
+            content: result.memory || result.content || '',
+            category: result.metadata?.category || 'general',
+            priority: result.metadata?.priority || value.priority,
+            score: result.score || 0
+          })));
+        }
+      }
+    }
+    
     // Ensure compatibility with code expecting traditional context structure
-    context.relevantMemories = context.relevantMemories || [];
+    context.relevantMemories = extractedMemories.length > 0 ? extractedMemories : [];
     context.relevantRules = context.relevantRules || [];
     context.conversationHistory = context.conversationHistory || context.recentMessages || [];
-    context.promptFragments = context.promptFragments || [];
+    context.promptFragments = extractedPromptFragments.length > 0 ? extractedPromptFragments : [];
+    
+    // Log what was extracted
+    if (extractedMemories.length > 0) {
+      console.log(`[AdaptiveContext] Extracted ${extractedMemories.length} memories from fetchedContext`);
+    }
+    if (extractedPromptFragments.length > 0) {
+      console.log(`[AdaptiveContext] Extracted ${extractedPromptFragments.length} prompt fragments from fetchedContext`);
+    }
     
     return context;
     

@@ -72,7 +72,8 @@ class MemoryOperationsTool(BaseMCPTool):
     def __init__(self):
         super().__init__()
         # Database path - matching the bash orchestrator's memory system
-        self.db_path = Path(__file__).parent.parent.parent.parent.parent / 'server' / 'memory' / 'data' / 'espressobot_memory.db'
+        # From /python-tools/mcp_tools/memory/operations.py to /server/memory/data/
+        self.db_path = Path(__file__).parent.parent.parent.parent / 'server' / 'memory' / 'data' / 'espressobot_memory.db'
         
     async def execute(self, operation: str, **kwargs) -> Dict[str, Any]:
         """Execute memory operation"""
@@ -101,10 +102,17 @@ class MemoryOperationsTool(BaseMCPTool):
         """Search memories"""
         if not query:
             return {"success": False, "error": "Query required for search"}
+        
+        # Check if database exists
+        if not self.db_path.exists():
+            return {"success": False, "error": f"Database not found at {self.db_path}"}
             
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+        except sqlite3.Error as e:
+            return {"success": False, "error": f"Database connection error: {str(e)}"}
         
         try:
             # For now, do simple text search

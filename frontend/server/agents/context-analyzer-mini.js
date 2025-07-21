@@ -83,7 +83,47 @@ export async function analyzeContextNeeds(task, extractedData = null, options = 
     
     if (result.finalOutput) {
       // Filter suggestions based on feedback insights if available
-      let filteredSuggestions = result.finalOutput.suggestedContext;
+      let filteredSuggestions = [...result.finalOutput.suggestedContext];
+      
+      // Always add a direct semantic memory search based on the original task
+      // This ensures we don't miss relevant memories by being too specific
+      console.log(`[ContextAnalyzer] Checking for direct memory search in ${filteredSuggestions.length} suggestions`);
+      const hasDirectMemorySearch = filteredSuggestions.some(s => 
+        s.source === 'memory' && 
+        s.priority === 'critical' &&
+        (s.searchQuery === task || s.searchQuery.includes(task.substring(0, 50)))
+      );
+      
+      console.log(`[ContextAnalyzer] Has direct memory search: ${hasDirectMemorySearch}`);
+      
+      if (!hasDirectMemorySearch) {
+        console.log(`[ContextAnalyzer] Adding direct semantic memory search for: "${task}"`);
+        filteredSuggestions.unshift({
+          description: `Relevant past experiences and knowledge`,
+          source: 'memory',
+          priority: 'critical',
+          searchQuery: task,
+          type: 'semantic_memory'
+        });
+      }
+      
+      // Also add a direct search for prompt fragments/rules
+      const hasDirectRulesSearch = filteredSuggestions.some(s => 
+        s.source === 'rules' && 
+        s.priority === 'critical' &&
+        (s.searchQuery === task || s.searchQuery.includes(task.substring(0, 50)))
+      );
+      
+      if (!hasDirectRulesSearch) {
+        filteredSuggestions.unshift({
+          description: `Relevant guidelines and documentation`,
+          source: 'rules',
+          priority: 'critical',
+          searchQuery: task,
+          type: 'semantic_rules'
+        });
+        console.log(`[ContextAnalyzer] Added direct semantic search for prompt fragments`);
+      }
       
       if (options.feedbackInsights) {
         const { prioritizeContext, avoidContext } = options.feedbackInsights;
@@ -147,9 +187,12 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
       switch (suggestion.source) {
         case 'memory':
           if (userId) {
+            // Format userId properly for memory search (handle both string and number)
+            const userIdStr = String(userId);
+            const memoryUserId = userIdStr.startsWith('user_') ? userIdStr : `user_${userIdStr}`;
             results = await memoryOperations.search(
               suggestion.searchQuery,
-              userId,
+              memoryUserId,
               suggestion.priority === 'critical' ? 5 : 3
             );
           }
@@ -204,6 +247,126 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
     context: fetchedContext,
     totalTokens
   };
+}
+
+/**
+ * Filter fetched context for relevance to the actual task
+ */
+export async function filterFetchedContext(task, fetchedContext, options = {}) {
+  const { maxTokens = 15000, conversationId = null } = options;
+  
+  console.log('[ContextAnalyzer] Filtering fetched context for relevance...');
+  
+  // Create a relevance filter agent
+  const contextPreamble = buildAgentContextPreamble({
+    agentRole: 'context relevance filter',
+    conversationId
+  });
+  
+  const filterAgent = new Agent({
+    name: 'ContextRelevanceFilter',
+    model: 'gpt-4.1-mini',
+    instructions: `${contextPreamble}
+
+You are a context relevance filter. Your job is to evaluate whether fetched context items are actually relevant to the task at hand.
+
+For each context item, determine:
+1. Is it directly relevant to completing the task?
+2. Does it provide necessary background or constraints?
+3. Is it just keyword-matched but not contextually relevant?
+
+Be strict - only mark items as relevant if they genuinely help with the task.
+For example, product documentation is NOT relevant to email searches.`,
+    
+    outputType: z.object({
+      filteredContext: z.array(z.object({
+        key: z.string().describe('Context key/description'),
+        relevant: z.boolean().describe('Is this context relevant to the task?'),
+        reason: z.string().describe('Why is this relevant or irrelevant?'),
+        priority: z.enum(['critical', 'helpful', 'optional']).describe('Adjusted priority if relevant')
+      })),
+      totalRelevant: z.number().describe('Number of relevant context items'),
+      explanation: z.string().describe('Brief explanation of filtering decisions')
+    })
+  });
+  
+  try {
+    // Prepare context items for evaluation
+    const contextItems = [];
+    for (const [key, value] of Object.entries(fetchedContext)) {
+      if (value.results && value.results.length > 0) {
+        // Sample first few results for evaluation
+        const samples = value.results.slice(0, 2).map(r => 
+          (r.memory || r.content || '').substring(0, 200)
+        );
+        contextItems.push({
+          key,
+          source: value.source,
+          priority: value.priority,
+          sampleContent: samples.join(' | '),
+          resultCount: value.results.length
+        });
+      }
+    }
+    
+    if (contextItems.length === 0) {
+      console.log('[ContextAnalyzer] No context items to filter');
+      return fetchedContext;
+    }
+    
+    const prompt = `Task: ${task}
+
+Context items to evaluate:
+${JSON.stringify(contextItems, null, 2)}
+
+Determine which context items are actually relevant to completing this task.`;
+    
+    const result = await run(filterAgent, prompt, { maxTurns: 1 });
+    
+    if (result.finalOutput) {
+      console.log(`[ContextAnalyzer] Filtering results: ${result.finalOutput.totalRelevant}/${contextItems.length} items relevant`);
+      console.log(`[ContextAnalyzer] Explanation: ${result.finalOutput.explanation}`);
+      
+      // Apply filtering decisions
+      const filteredContext = {};
+      let currentTokens = 0;
+      
+      for (const decision of result.finalOutput.filteredContext) {
+        if (decision.relevant && fetchedContext[decision.key]) {
+          const contextItem = fetchedContext[decision.key];
+          
+          // Check token limit
+          if (currentTokens + contextItem.tokenCount > maxTokens) {
+            console.log(`[ContextAnalyzer] Skipping ${decision.key} - would exceed token limit`);
+            continue;
+          }
+          
+          // Add to filtered context with adjusted priority
+          filteredContext[decision.key] = {
+            ...contextItem,
+            priority: decision.priority,
+            filterReason: decision.reason
+          };
+          currentTokens += contextItem.tokenCount;
+          
+          console.log(`[ContextAnalyzer] Including: ${decision.key} (${decision.priority}) - ${decision.reason}`);
+        } else {
+          console.log(`[ContextAnalyzer] Excluding: ${decision.key} - ${decision.reason}`);
+        }
+      }
+      
+      return filteredContext;
+    }
+    
+    // Fallback to original context if filtering fails
+    console.log('[ContextAnalyzer] Filtering failed, returning original context');
+    return fetchedContext;
+    
+  } catch (error) {
+    console.error('[ContextAnalyzer] Error filtering context:', error.message);
+    // Return original context on error
+    return fetchedContext;
+  }
 }
 
 /**
