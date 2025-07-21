@@ -97,6 +97,19 @@ export const availableOperations = {
     'tasks_list_all'
   ],
   
+  // GA4 Analytics Agent operations
+  ga4AnalyticsOperations: [
+    'analytics_run_report',
+    'analytics_get_realtime',
+    'analytics_get_ecommerce',
+    'analytics_get_traffic_sources',
+    'analytics_get_product_performance',
+    'analytics_get_ads_performance',
+    'analytics_get_campaign_performance',
+    'analytics_get_ads_keywords',
+    'analytics_compare_channels'
+  ],
+  
   // Native orchestrator tools
   orchestratorTools: [
     'search_tool_cache',
@@ -121,6 +134,7 @@ export const availableOperations = {
     'documentation_agent',
     'external_mcp_agent',
     'google_workspace_agent',
+    'ga4_analytics_agent',
     'smart_mcp_execute'
   ],
   
@@ -154,6 +168,7 @@ export function getAllOperationNames() {
     ...availableOperations.documentationOperations,
     ...availableOperations.externalOperations,
     ...availableOperations.googleWorkspaceOperations,
+    ...availableOperations.ga4AnalyticsOperations,
     ...availableOperations.fileOperations
   ];
 }
@@ -187,6 +202,7 @@ export function getAgentForOperation(operationName) {
     documentationOperations: 'documentation_agent',
     externalOperations: 'external_mcp_agent',
     googleWorkspaceOperations: 'google_workspace_agent',
+    ga4AnalyticsOperations: 'ga4_analytics_agent',
     fileOperations: 'spawn_bash_agent'
   };
   

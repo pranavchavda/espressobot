@@ -89,6 +89,8 @@ model users {
   google_access_token    String?                  // Google OAuth access token
   google_refresh_token   String?                  // Google OAuth refresh token  
   google_token_expiry    DateTime?                // Token expiration time
+  ga4_property_id        String?                  // Google Analytics 4 property ID
+  ga4_enabled            Boolean                  @default(false) // GA4 integration enabled
   conversations          conversations[]
   user_memories          user_memories[]
   user_memory_embeddings user_memory_embeddings[]

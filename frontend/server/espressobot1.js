@@ -44,7 +44,8 @@ import {
   createDocumentationAgentTool, 
   createExternalMCPAgentTool,
   createSmartMCPExecuteTool,
-  createGoogleWorkspaceAgentTool
+  createGoogleWorkspaceAgentTool,
+  createGA4AnalyticsAgentTool
 } from './tools/direct-mcp-agent-tools.js';
 import { createInjectContextTool, createManageInjectionTool } from './tools/inject-context-tool.js';
 import { messageInjector } from './utils/agent-message-injector.js';
@@ -935,13 +936,14 @@ async function buildOrchestratorTools() {
   const externalMCPAgent = createExternalMCPAgentTool();
   const smartMCPExecute = createSmartMCPExecuteTool();
   const googleWorkspaceAgent = createGoogleWorkspaceAgentTool();
+  const ga4AnalyticsAgent = createGA4AnalyticsAgentTool();
   
   // Validate all tools before returning
   const tools = { 
     productsAgent, pricingAgent, inventoryAgent, salesAgent, 
     featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
     utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-    googleWorkspaceAgent
+    googleWorkspaceAgent, ga4AnalyticsAgent
   };
   
   for (const [name, tool] of Object.entries(tools)) {
@@ -965,6 +967,7 @@ async function buildOrchestratorTools() {
     externalMCPAgent,
     smartMCPExecute,
     googleWorkspaceAgent,
+    ga4AnalyticsAgent,
     builtInSearchTool,
     injectContextTool: createInjectContextTool(),
     manageInjectionTool: createManageInjectionTool()
@@ -1925,7 +1928,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       productsAgent, pricingAgent, inventoryAgent, salesAgent,
       featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
       utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-      googleWorkspaceAgent, builtInSearchTool, injectContextTool, manageInjectionTool
+      googleWorkspaceAgent, ga4AnalyticsAgent, builtInSearchTool, injectContextTool, manageInjectionTool
     } = await buildOrchestratorTools();
     
     // Import guardrail approval tool

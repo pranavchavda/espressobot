@@ -19,6 +19,7 @@ import { executeUtilityTask } from '../agents/utility-agent.js';
 import { executeDocumentationQuery } from '../agents/documentation-mcp-agent.js';
 import { executeExternalMCPTask } from '../agents/external-mcp-agent.js';
 import { executeGoogleWorkspaceTask } from '../agents/google-workspace-agent.js';
+import { executeGA4Task } from '../agents/ga4-analytics-agent.js';
 
 /**
  * Products Agent - Basic product operations and GraphQL
@@ -454,6 +455,13 @@ export function createSmartMCPExecuteTool() {
           return await executeGoogleWorkspaceTask(task, global.currentConversationId, { userId: global.currentUserId });
         }
         
+        if (taskLower.includes('analytics') || taskLower.includes('ga4') || taskLower.includes('traffic') || 
+            taskLower.includes('revenue') || taskLower.includes('conversion') || taskLower.includes('google ads') ||
+            taskLower.includes('roas') || taskLower.includes('ad spend') || taskLower.includes('campaign')) {
+          console.log('[Smart MCP Execute] Routing to GA4 Analytics Agent');
+          return await executeGA4Task(task, global.currentConversationId, { userId: global.currentUserId });
+        }
+        
         // Default to Products Agent for general product operations
         console.log('[Smart MCP Execute] Defaulting to Products Agent');
         return await executeProductsTask(task, global.currentConversationId, {});
@@ -494,6 +502,40 @@ export function createGoogleWorkspaceAgentTool() {
         
       } catch (error) {
         console.error(`[Google Workspace Agent] Failed:`, error);
+        return `Error: ${error.message}`;
+      }
+    }
+  });
+}
+
+/**
+ * GA4 Analytics Agent - Google Analytics 4 data and advertising metrics
+ */
+export function createGA4AnalyticsAgentTool() {
+  return tool({
+    name: 'ga4_analytics_agent',
+    description: 'Google Analytics 4 operations: analytics reports, ecommerce metrics, traffic analysis, product performance, Google Ads metrics (spend, ROAS, campaigns), channel comparison. Requires GA4 property ID configuration.',
+    parameters: z.object({
+      task: z.string().describe('The GA4 analytics query or report to generate')
+    }),
+    execute: async ({ task }) => {
+      console.log(`[GA4 Analytics Agent] Executing: ${task.substring(0, 100)}...`);
+      
+      try {
+        const result = await executeGA4Task(
+          task, 
+          global.currentConversationId,
+          { userId: global.currentUserId }
+        );
+        
+        if (result && result.success === false) {
+          return `Error: ${result.error || 'Operation failed'}`;
+        }
+        
+        return result.result || result || 'Task completed successfully';
+        
+      } catch (error) {
+        console.error(`[GA4 Analytics Agent] Failed:`, error);
         return `Error: ${error.message}`;
       }
     }

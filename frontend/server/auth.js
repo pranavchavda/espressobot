@@ -50,7 +50,9 @@ router.get('/google', (req, res, next) => {
       // Drive scopes
       'https://www.googleapis.com/auth/drive.readonly',
       // Tasks scope
-      'https://www.googleapis.com/auth/tasks'
+      'https://www.googleapis.com/auth/tasks',
+      // Google Analytics scope
+      'https://www.googleapis.com/auth/analytics.readonly'
     ],
     accessType: 'offline',
     prompt: 'consent',
