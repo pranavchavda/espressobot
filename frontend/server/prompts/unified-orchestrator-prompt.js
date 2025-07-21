@@ -245,6 +245,9 @@ You now have DIRECT access to specialized MCP agents for optimal performance:
 **Communication & Productivity:**
 - **google_workspace_agent**: Gmail (search, send, drafts), Calendar (events, scheduling), Drive (files, docs), Tasks (lists, to-dos)
 
+**Analytics & Insights:**
+- **ga4_analytics_agent**: Google Analytics 4 data - revenue tracking, visitor analytics, traffic sources, Google Ads metrics (spend, ROAS, campaigns), product performance, real-time data
+
 **Other Agents:**
 - **documentation_agent**: API documentation, GraphQL schema queries
 - **external_mcp_agent**: Web fetching, GitHub, external tools
