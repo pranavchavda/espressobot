@@ -408,5 +408,22 @@ Successfully split the monolithic Python MCP server into specialized servers:
 
 ---
 
-*Last Updated: July 18, 2025*
+### July 21, 2025 - Google Workspace Enhancements
+- **COMPLETED**: Added Google Tasks API Integration
+  - Added 6 Google Tasks tools (list, create, update, delete, complete, debug)
+  - Implemented proper pagination for fetching all tasks
+  - Added tasks_list_all debug tool for troubleshooting
+  - All tools use existing OAuth tokens (single sign-in)
+- **COMPLETED**: Fixed Google Workspace Agent Output Extraction
+  - Updated to properly extract output from OpenAI SDK v0.11 structure
+  - Fixed message_output_item type extraction
+  - Agent responses now properly flow to orchestrator
+- **COMPLETED**: Added Date Awareness to Google Workspace Agent
+  - Agent now knows current date for accurate operations
+  - Handles relative date queries ("past week", "this month")
+  - Added Gmail date query examples and best practices
+
+---
+
+*Last Updated: July 21, 2025*
 ```
