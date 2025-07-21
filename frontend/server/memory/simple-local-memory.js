@@ -6,6 +6,7 @@
 
 import Database from 'better-sqlite3';
 import { OpenAI } from 'openai';
+import { createOpenAIWithRetry } from '../utils/openai-with-retry.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -23,9 +24,7 @@ const dbPath = path.join(dataDir, 'espressobot_memory.db');
 const db = new Database(dbPath);
 
 // Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const openai = createOpenAIWithRetry();
 
 // Initialize database schema
 db.exec(`

@@ -247,6 +247,7 @@ You now have DIRECT access to specialized MCP agents for optimal performance:
 
 **Analytics & Insights:**
 - **ga4_analytics_agent**: Google Analytics 4 data - revenue tracking, visitor analytics, traffic sources, Google Ads metrics (spend, ROAS, campaigns), product performance, real-time data
+- **shopify_orders_agent**: Shopify order analytics - daily sales summaries, revenue reports, order breakdowns, period comparisons (WoW, MoM), product performance, handles 100-200+ daily orders efficiently
 
 **Other Agents:**
 - **documentation_agent**: API documentation, GraphQL schema queries

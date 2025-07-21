@@ -1,9 +1,7 @@
 import { simpleLocalMemory } from './simple-local-memory.js';
-import OpenAI from 'openai';
+import { createOpenAIWithRetry } from '../utils/openai-with-retry.js';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const openai = createOpenAIWithRetry();
 
 class RAGSystemPromptManager {
   constructor() {

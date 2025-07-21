@@ -8,7 +8,7 @@
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { learnFromOperation } from './adaptive-context-builder.js';
 import { learnFromContextUsage } from '../agents/context-analyzer-mini.js';
-import { Agent, run } from '@openai/agents';
+import { Agent, run } from '../utils/model-with-retry.js';
 import { z } from 'zod';
 
 class ContextFeedbackLoop {
@@ -146,7 +146,20 @@ Determine which context was useful, what was unused, and what was missing.`;
       };
     } catch (error) {
       console.error('[FeedbackLoop] Analysis failed:', error);
-      return null;
+      
+      // If it's a model not found error, log it specifically
+      if (error.message && error.message.includes('Model not found')) {
+        console.error('[FeedbackLoop] Model not found error - fallback should have handled this');
+      }
+      
+      // Return a basic analysis instead of null
+      return {
+        usefulContext: [],
+        unusedContext: operation.contextKeys,
+        missingContext: [],
+        efficiency: 0.5,
+        recommendations: ['Analysis failed - using default values']
+      };
     }
   }
 

@@ -5,7 +5,7 @@
  * Adapts to the specific needs of each operation without predefined templates.
  */
 
-import { Agent, run } from '@openai/agents';
+import { Agent, run } from '../utils/model-with-retry.js';
 import { z } from 'zod';
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { buildAgentContextPreamble } from '../utils/agent-context-builder.js';

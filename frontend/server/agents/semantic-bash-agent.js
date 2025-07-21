@@ -5,7 +5,7 @@
  * OpenAI's file search, providing the best of both worlds.
  */
 
-import { Agent } from '@openai/agents';
+import { Agent } from '../utils/model-with-retry.js';
 import { fileSearchTool } from '@openai/agents-openai';
 import { bashTool } from '../tools/bash-tool.js';
 import { getVectorStoreId } from '../context-loader/vector-store-manager.js';

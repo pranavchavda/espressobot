@@ -19,7 +19,7 @@ from mcp_base_server import EnhancedMCPServer, MCPResource, MCPPrompt
 # Import only the product management tools
 from mcp_tools.products.create_full import CreateFullProductTool
 from mcp_tools.products.update_full import UpdateFullProductTool
-from mcp_tools.products.add_variants import AddVariantsToProductTool
+from mcp_tools.products.add_variants import AddVariantsTool
 from mcp_tools.products.create_combo import CreateComboTool
 from mcp_tools.products.create_open_box import CreateOpenBoxTool
 
@@ -38,7 +38,7 @@ class ProductManagementMCPServer(EnhancedMCPServer):
         # Add the product management tools
         self.add_tool(CreateFullProductTool())
         self.add_tool(UpdateFullProductTool())
-        self.add_tool(AddVariantsToProductTool())
+        self.add_tool(AddVariantsTool())
         self.add_tool(CreateComboTool())
         self.add_tool(CreateOpenBoxTool())
         

@@ -7,7 +7,7 @@
 
 import { enhanceContext, checkContextSufficiency } from './adaptive-context-builder.js';
 import { memoryOperations } from '../memory/memory-operations-local.js';
-import { Agent, run } from '@openai/agents';
+import { Agent, run } from '../utils/model-with-retry.js';
 import { z } from 'zod';
 
 /**

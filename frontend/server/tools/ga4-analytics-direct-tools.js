@@ -83,8 +83,8 @@ export function createGA4CoreTools() {
           dimension: z.string(),
           operator: z.enum(['EXACT', 'BEGINS_WITH', 'ENDS_WITH', 'CONTAINS', 'NUMERIC_EQUAL', 'NUMERIC_GREATER_THAN', 'NUMERIC_LESS_THAN']),
           value: z.string()
-        }).optional().describe('Optional dimension filter'),
-        orderBy: z.string().optional().describe('Metric or dimension to order by'),
+        }).nullable().default(null).describe('Optional dimension filter'),
+        orderBy: z.string().nullable().default(null).describe('Metric or dimension to order by'),
         limit: z.number().default(10).describe('Maximum number of rows to return')
       }),
       execute: async ({ startDate, endDate, dimensions, metrics, dimensionFilter, orderBy, limit }) => {
@@ -92,7 +92,7 @@ export function createGA4CoreTools() {
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const request = {
@@ -156,7 +156,7 @@ export function createGA4CoreTools() {
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const [response] = await analyticsDataClient.runRealtimeReport({
@@ -186,14 +186,14 @@ export function createGA4CoreTools() {
       parameters: z.object({
         startDate: z.string().describe('Start date (YYYY-MM-DD or relative)'),
         endDate: z.string().describe('End date (YYYY-MM-DD or relative)'),
-        groupBy: z.enum(['date', 'week', 'month', 'deviceCategory', 'country']).optional().describe('Group results by dimension')
+        groupBy: z.enum(['date', 'week', 'month', 'deviceCategory', 'country']).nullable().default(null).describe('Group results by dimension')
       }),
       execute: async ({ startDate, endDate, groupBy }) => {
         const userId = global.currentUserId;
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const dimensions = groupBy ? [{ name: groupBy }] : [];
@@ -245,7 +245,7 @@ export function createGA4CoreTools() {
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const [response] = await analyticsDataClient.runReport({
@@ -321,7 +321,7 @@ export function createGA4CoreTools() {
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const [response] = await analyticsDataClient.runReport({
@@ -374,14 +374,14 @@ export function createGA4AdvertisingTools() {
       parameters: z.object({
         startDate: z.string().describe('Start date'),
         endDate: z.string().describe('End date'),
-        groupBy: z.enum(['date', 'campaign', 'adGroup', 'keyword']).optional().describe('Group results by dimension')
+        groupBy: z.enum(['date', 'campaign', 'adGroup', 'keyword']).nullable().default(null).describe('Group results by dimension')
       }),
       execute: async ({ startDate, endDate, groupBy }) => {
         const userId = global.currentUserId;
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const dimensionMap = {
@@ -437,14 +437,14 @@ export function createGA4AdvertisingTools() {
       parameters: z.object({
         startDate: z.string().describe('Start date'),
         endDate: z.string().describe('End date'),
-        campaignName: z.string().optional().describe('Filter by specific campaign name')
+        campaignName: z.string().nullable().default(null).describe('Filter by specific campaign name')
       }),
       execute: async ({ startDate, endDate, campaignName }) => {
         const userId = global.currentUserId;
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const request = {
@@ -512,7 +512,7 @@ export function createGA4AdvertisingTools() {
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const [response] = await analyticsDataClient.runReport({
@@ -562,7 +562,7 @@ export function createGA4AdvertisingTools() {
         const { oauth2Client, propertyId } = await getAuthClient(userId);
         
         const analyticsDataClient = new BetaAnalyticsDataClient({
-          auth: oauth2Client
+          authClient: oauth2Client
         });
 
         const [response] = await analyticsDataClient.runReport({

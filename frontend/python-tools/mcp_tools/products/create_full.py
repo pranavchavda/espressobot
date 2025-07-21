@@ -161,10 +161,30 @@ class CreateFullProductTool(BaseMCPTool):
                      tech_specs: Optional[Dict[str, Any]] = None, variant_preview: Optional[str] = None,
                      sale_end: Optional[str] = None, seasonal: Optional[bool] = None,
                      tags: Optional[List[str]] = None, status: str = "DRAFT",
-                     auto_tags: bool = True) -> Dict[str, Any]:
+                     auto_tags: bool = True, metafields: Optional[Dict[str, Any]] = None,
+                     variants: Optional[List[Dict[str, Any]]] = None,
+                     inventory_policy: Optional[str] = None,
+                     collections: Optional[List[str]] = None,
+                     **kwargs) -> Dict[str, Any]:
         """Execute product creation"""
         try:
             client = ShopifyClient()
+            
+            # Handle metafields parameter if provided
+            if metafields:
+                # Extract known metafield values
+                if 'tech_specs' in metafields and not tech_specs:
+                    tech_specs = metafields['tech_specs']
+                if 'buybox' in metafields and not buybox:
+                    buybox = metafields['buybox']
+                if 'faqs' in metafields and not faqs:
+                    faqs = metafields['faqs']
+                if 'variant_preview' in metafields and not variant_preview:
+                    variant_preview = metafields['variant_preview']
+                if 'sale_end' in metafields and not sale_end:
+                    sale_end = metafields['sale_end']
+                if 'seasonal' in metafields and seasonal is None:
+                    seasonal = metafields['seasonal']
             
             # Step 1: Create basic product
             product_data = {
@@ -191,12 +211,19 @@ class CreateFullProductTool(BaseMCPTool):
             inventory_item_id = product_result["inventory_item_id"]
             
             # Step 2: Update variant details
+            # If variants provided, use the first one for initial variant
+            if variants and len(variants) > 0:
+                first_variant = variants[0]
+                sku = first_variant.get('sku', sku)
+                cost = first_variant.get('cost', cost)
+                price = first_variant.get('price', price)
+                
             if any([sku, cost, weight, price, compare_at_price]):
                 print("Updating variant details...")
                 variant_result = await self._update_variant_details(
                     client, product_id, variant_id, inventory_item_id,
                     sku=sku, cost=cost, weight=weight, price=price,
-                    compare_at_price=compare_at_price
+                    compare_at_price=compare_at_price, inventory_policy=inventory_policy
                 )
                 
                 if not variant_result["success"]:
@@ -315,7 +342,8 @@ class CreateFullProductTool(BaseMCPTool):
     async def _update_variant_details(self, client: ShopifyClient, product_id: str, variant_id: str,
                                      inventory_item_id: str, sku: Optional[str] = None,
                                      cost: Optional[str] = None, weight: Optional[float] = None,
-                                     price: Optional[str] = None, compare_at_price: Optional[str] = None) -> Dict[str, Any]:
+                                     price: Optional[str] = None, compare_at_price: Optional[str] = None,
+                                     inventory_policy: Optional[str] = None) -> Dict[str, Any]:
         """Update variant details"""
         mutation = """
         mutation updateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
@@ -347,7 +375,7 @@ class CreateFullProductTool(BaseMCPTool):
         
         variant_input = {
             "id": variant_id,
-            "inventoryPolicy": "DENY",  # Always set to DENY
+            "inventoryPolicy": inventory_policy if inventory_policy else "DENY",  # Default to DENY
             "inventoryItem": {
                 "tracked": True  # Always enable tracking
             }

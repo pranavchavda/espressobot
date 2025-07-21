@@ -20,6 +20,7 @@ import { executeDocumentationQuery } from '../agents/documentation-mcp-agent.js'
 import { executeExternalMCPTask } from '../agents/external-mcp-agent.js';
 import { executeGoogleWorkspaceTask } from '../agents/google-workspace-agent.js';
 import { executeGA4Task } from '../agents/ga4-analytics-agent.js';
+import { executeOrdersTask } from '../agents/shopify-orders-agent.js';
 
 /**
  * Products Agent - Basic product operations and GraphQL
@@ -449,17 +450,29 @@ export function createSmartMCPExecuteTool() {
           return await executeDocumentationQuery(task, {});
         }
         
+        // Check for Shopify Orders/Sales analytics
+        if (taskLower.includes('order') && (taskLower.includes('analytics') || taskLower.includes('report') || taskLower.includes('sales'))) {
+          console.log('[Smart MCP Execute] Routing to Shopify Orders Agent');
+          return await executeOrdersTask(task, global.currentConversationId, { userId: global.currentUserId });
+        }
+        
+        if (taskLower.includes('daily sales') || taskLower.includes('revenue report') || taskLower.includes('sales summary')) {
+          console.log('[Smart MCP Execute] Routing to Shopify Orders Agent');
+          return await executeOrdersTask(task, global.currentConversationId, { userId: global.currentUserId });
+        }
+        
+        // Check for GA4/Analytics (after Shopify orders check)
+        if (taskLower.includes('analytics') || taskLower.includes('ga4') || taskLower.includes('traffic') || 
+            taskLower.includes('visitor') || taskLower.includes('pageview') || taskLower.includes('google ads') ||
+            taskLower.includes('roas') || taskLower.includes('ad spend') || taskLower.includes('campaign')) {
+          console.log('[Smart MCP Execute] Routing to GA4 Analytics Agent');
+          return await executeGA4Task(task, global.currentConversationId, { userId: global.currentUserId });
+        }
+        
         if (taskLower.includes('gmail') || taskLower.includes('email') || taskLower.includes('calendar') || 
             taskLower.includes('drive') || taskLower.includes('google') || taskLower.includes('task list')) {
           console.log('[Smart MCP Execute] Routing to Google Workspace Agent');
           return await executeGoogleWorkspaceTask(task, global.currentConversationId, { userId: global.currentUserId });
-        }
-        
-        if (taskLower.includes('analytics') || taskLower.includes('ga4') || taskLower.includes('traffic') || 
-            taskLower.includes('revenue') || taskLower.includes('conversion') || taskLower.includes('google ads') ||
-            taskLower.includes('roas') || taskLower.includes('ad spend') || taskLower.includes('campaign')) {
-          console.log('[Smart MCP Execute] Routing to GA4 Analytics Agent');
-          return await executeGA4Task(task, global.currentConversationId, { userId: global.currentUserId });
         }
         
         // Default to Products Agent for general product operations
@@ -542,3 +555,38 @@ export function createGA4AnalyticsAgentTool() {
   });
 }
 
+// Add to the end of the file:
+
+/**
+ * Shopify Orders Agent - Order analytics and sales reporting
+ */
+export function createShopifyOrdersAgentTool() {
+  return tool({
+    name: 'shopify_orders_agent',
+    description: 'Shopify order analytics and sales reporting: daily sales summaries, revenue reports, order analytics with product breakdowns, period comparisons (WoW, MoM), customer insights. Handles 100-200+ daily orders efficiently.',
+    parameters: z.object({
+      task: z.string().describe('The order analytics or sales report to generate')
+    }),
+    execute: async ({ task }) => {
+      console.log(`[Shopify Orders Agent] Executing: ${task.substring(0, 100)}...`);
+      
+      try {
+        const result = await executeOrdersTask(
+          task, 
+          global.currentConversationId,
+          { userId: global.currentUserId }
+        );
+        
+        if (result && result.success === false) {
+          return `Error: ${result.error || 'Operation failed'}`;
+        }
+        
+        return result.output || result || 'Task completed successfully';
+        
+      } catch (error) {
+        console.error(`[Shopify Orders Agent] Failed:`, error);
+        return `Error: ${error.message}`;
+      }
+    }
+  });
+}
