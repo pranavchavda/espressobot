@@ -47,6 +47,22 @@ async function getAuthClient(userId) {
     refresh_token: user.google_refresh_token
   });
 
+  // Check if user has analytics scope
+  try {
+    const tokenInfo = await oauth2Client.getTokenInfo(user.google_access_token);
+    const scopes = tokenInfo.scopes || [];
+    
+    if (!scopes.includes('https://www.googleapis.com/auth/analytics.readonly')) {
+      throw new Error('Google Analytics permission not granted. Please log out and log in again to authorize analytics access.');
+    }
+  } catch (error) {
+    if (error.message?.includes('Google Analytics permission')) {
+      throw error;
+    }
+    // Token might be expired, let OAuth client handle refresh
+    console.log('Token validation failed, will attempt refresh:', error.message);
+  }
+
   return { oauth2Client, propertyId: user.ga4_property_id };
 }
 

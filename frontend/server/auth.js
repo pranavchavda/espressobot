@@ -36,6 +36,12 @@ router.get('/google', (req, res, next) => {
   const state = Math.random().toString(36).substring(7);
   req.session.oauthState = state;
   
+  // Check if this is a re-authorization request
+  const isReauth = req.query.reauth === '1';
+  if (isReauth) {
+    console.log('Re-authorization requested - will force new consent');
+  }
+  
   passport.authenticate('google', { 
     scope: [
       'profile', 
@@ -55,7 +61,7 @@ router.get('/google', (req, res, next) => {
       'https://www.googleapis.com/auth/analytics.readonly'
     ],
     accessType: 'offline',
-    prompt: 'consent',
+    prompt: 'consent', // Forces consent screen to show every time
     state: state
   })(req, res, next);
 });
