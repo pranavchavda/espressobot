@@ -6,7 +6,7 @@
  */
 
 import { extractTaskData } from '../agents/task-data-extractor-nano.js';
-import { analyzeContextNeeds, fetchSuggestedContext, filterFetchedContext } from '../agents/context-analyzer-mini.js';
+import { analyzeContextNeeds, fetchSuggestedContext } from '../agents/context-analyzer-mini.js';
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { buildCompressedContext } from '../agents/conversation-summarizer-agent.js';
 
@@ -100,24 +100,11 @@ export async function buildAdaptiveContext(options) {
         userId
       );
       
-      // Step 4.5: Filter fetched context for relevance
-      console.log('[AdaptiveContext] Filtering fetched context for relevance...');
-      console.log(`[AdaptiveContext] Pre-filter context keys: ${Object.keys(fetched.context).join(', ')}`);
+      // Step 4.5: Use fetched context directly (filtering replaced by synthesis approach)
+      console.log('[AdaptiveContext] Using fetched context directly (no filtering - synthesis handles relevance)');
+      console.log(`[AdaptiveContext] Context keys: ${Object.keys(fetched.context).join(', ')}`);
       
-      const filteredContext = await filterFetchedContext(task, fetched.context, {
-        maxTokens: maxTokens - context.tokenCount,
-        conversationId
-      });
-      
-      console.log(`[AdaptiveContext] Post-filter context keys: ${Object.keys(filteredContext).join(', ')}`);
-      
-      // Log what was filtered out
-      const originalKeys = new Set(Object.keys(fetched.context));
-      const filteredKeys = new Set(Object.keys(filteredContext));
-      const removedKeys = [...originalKeys].filter(k => !filteredKeys.has(k));
-      if (removedKeys.length > 0) {
-        console.log(`[AdaptiveContext] Filtered out irrelevant context: ${removedKeys.join(', ')}`);
-      }
+      const filteredContext = fetched.context; // Direct pass-through - synthesis handles relevance
       
       // Recalculate total tokens after filtering
       let filteredTokens = 0;
@@ -181,9 +168,7 @@ export async function buildAdaptiveContext(options) {
       console.log('[AdaptiveContext] Extracting memories and fragments from filtered context...');
       
       for (const [key, value] of Object.entries(context.fetchedContext)) {
-        // Only extract from context that passed the relevance filter
-        // The filterFetchedContext function only includes relevant items
-        // So if it's in fetchedContext, it should be included
+        // Extract from available context (synthesis approach handles relevance)
         
         if (value.source === 'memory' && value.results) {
           // Add memories with their original structure

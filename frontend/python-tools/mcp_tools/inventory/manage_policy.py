@@ -87,11 +87,20 @@ class ManageInventoryPolicyTool(BaseMCPTool):
             
             for variant in variants:
                 try:
+                    # Validate variant data
+                    variant_id = variant.get('id')
+                    if not variant_id:
+                        errors.append(f"Variant missing ID: {variant}")
+                        continue
+                    
                     # Use product ID from variant if available, otherwise from first variant
                     variant_product_id = variant.get('product', {}).get('id') or product_id
+                    if not variant_product_id:
+                        errors.append(f"Variant {variant_id}: No product ID found")
+                        continue
                     
                     result = await self._update_variant_inventory_policy(
-                        client, variant['id'], inventory_policy, variant_product_id
+                        client, variant_id, inventory_policy, variant_product_id
                     )
                     if result['success']:
                         updated_variants.append({
@@ -119,6 +128,9 @@ class ManageInventoryPolicyTool(BaseMCPTool):
     async def _find_variants(self, client: ShopifyClient, identifier: str) -> List[Dict[str, Any]]:
         """Find variants based on identifier (variant ID, SKU, or product handle)"""
         
+        if not identifier:
+            return []
+        
         # Clean identifier - remove GID prefix if present
         if identifier.startswith("gid://shopify/"):
             if "/ProductVariant/" in identifier:
@@ -138,6 +150,7 @@ class ManageInventoryPolicyTool(BaseMCPTool):
                     title
                     inventoryPolicy
                     product {
+                        id
                         title
                         handle
                     }
@@ -163,6 +176,7 @@ class ManageInventoryPolicyTool(BaseMCPTool):
                         title
                         inventoryPolicy
                         product {
+                            id
                             title
                             handle
                         }
@@ -245,7 +259,19 @@ class ManageInventoryPolicyTool(BaseMCPTool):
         }
         """
         
-        # Ensure IDs are in GID format
+        # Validate and ensure IDs are in GID format
+        if not variant_id:
+            return {
+                "success": False,
+                "error": "Variant ID is None or empty"
+            }
+        
+        if not product_id:
+            return {
+                "success": False,
+                "error": "Product ID is None or empty"
+            }
+        
         if not variant_id.startswith("gid://"):
             variant_id = f"gid://shopify/ProductVariant/{variant_id}"
         if not product_id.startswith("gid://"):

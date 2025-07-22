@@ -75,6 +75,10 @@ You have access to the Product Management Server which provides:
 - Open box and refurbished product handling
 - Comprehensive product updates
 
+## IMPORTANT ROUTING:
+- **For simple inventory policy changes (DENY/ALLOW)**: Inform the user that this should be handled by the **Inventory Agent** using the **manage_inventory_policy** tool, which is more efficient for this specific task
+- Only use update_full_product for complex updates involving multiple fields
+
 ## Tool Capabilities:
 
 ### create_full_product:

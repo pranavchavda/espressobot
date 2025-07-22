@@ -329,11 +329,15 @@ class UpdateFullProductTool(BaseMCPTool):
                 if variant.get("taxable") is not None:
                     formatted_variant["taxable"] = variant["taxable"]
                 
-                if variant.get("option_values"):
+                # Handle option values - skip for existing variants (causes GraphQL errors)
+                # optionValues are not updateable for existing variants in Shopify GraphQL
+                if variant.get("option_values") and not variant.get("id"):
+                    # Only for new variants - use the correct GraphQL structure
                     formatted_variant["optionValues"] = [
-                        {"optionName": ov["option_name"], "value": ov["value"]}
+                        {"name": ov["option_name"], "value": ov["value"]}
                         for ov in variant["option_values"]
                     ]
+                # Note: For existing variants, optionValues cannot be updated via productSet
                 
                 formatted_variants.append(formatted_variant)
             

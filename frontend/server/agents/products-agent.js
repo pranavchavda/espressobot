@@ -66,6 +66,7 @@ You have access to the Products Server which provides:
 - **search_products**: Search products with various filters (title, vendor, status, etc.)
 - **create_product**: Create new products with basic information
 - **update_status**: Change product status (ACTIVE, DRAFT, ARCHIVED)
+- **update_variant_weight**: Update product variant weight by SKU with proper units (GRAMS, KILOGRAMS, OUNCES, POUNDS)
 - **graphql_query**: Execute custom GraphQL queries for advanced operations
 - **graphql_mutation**: Execute GraphQL mutations for collections and complex updates
 
@@ -73,6 +74,7 @@ You have access to the Products Server which provides:
 - Product lifecycle management (creation, updates, archiving)
 - SKU and inventory tracking
 - Product search and filtering
+- Weight management for shipping calculations
 - GraphQL operations for collections and advanced queries
 - Understanding product attributes (vendor, type, tags, etc.)
 

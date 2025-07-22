@@ -18,6 +18,14 @@ import {
   getAutonomyRecommendation, 
   formatThreadForAgent 
 } from './tools/conversation-thread-manager.js';
+import { 
+  buildCorePrompt,
+  buildUnifiedOrchestratorPrompt,
+  analyzeTaskComplexity,
+  buildAgentSection,
+  buildBusinessRulesSection,
+  buildWorkflowSection
+} from './prompts/unified-orchestrator-prompt.js';
 import { getSmartContext } from './context-loader/context-manager.js';
 import { memoryOperations } from './memory/memory-operations-local.js';
 import { viewImageTool } from './tools/view-image-tool.js';
@@ -83,8 +91,6 @@ async function getSWEAgent(task = '', conversationId = null, richContext = null)
 
 // Import tiered context builder
 import { buildTieredContext, buildCoreContext, buildFullContext } from './context/tiered-context-builder.js';
-// Import unified orchestrator prompt
-import { buildUnifiedOrchestratorPrompt } from './prompts/unified-orchestrator-prompt.js';
 
 // Task Manager Agent removed - functionality merged into Task Planning Agent
 
@@ -1088,15 +1094,24 @@ const bulkOperationInputGuardrail = {
             }
           }
           
-          // Build adaptive context for the bulk operation
-          const { buildAdaptiveContext } = await import('./context/adaptive-context-builder.js');
-          bulkOperationState.adaptiveContext = await buildAdaptiveContext({
-            task: inputText,
+          // Build enhanced context for the bulk operation using new synthesis approach
+          const { runContextAnalyzer } = await import('./agents/context-analyzer-mini.js');
+          const contextResult = await runContextAnalyzer(inputText, {
+            userId: global.currentUserId || 'user_2',
             conversationId: global.currentConversationId,
-            userId: global.currentUserId,
-            userMessage: inputText,
-            includeExtractedData: true
+            rawContext: {}
           });
+          
+          if (contextResult.success) {
+            bulkOperationState.adaptiveContext = {
+              synthesizedContext: contextResult.context.synthesizedFragment,
+              keyInsights: contextResult.context.keyInsights,
+              includedSources: contextResult.context.includedSources
+            };
+          } else {
+            console.warn('[Chokidar] Context synthesis failed, using minimal context');
+            bulkOperationState.adaptiveContext = { synthesizedContext: '', keyInsights: [], includedSources: [] };
+          }
           
           // Load any existing checkpoints
           const { loadLatestCheckpoint } = await import('./agents/progress-tracker-nano.js');
@@ -1401,9 +1416,27 @@ IMPORTANT: If the output contains actual data (SKUs, prices, inventory counts, e
 /**
  * Create orchestrator agent with dynamic prompt based on context
  */
-function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null, injectContextTool = null, manageInjectionTool = null) {
-  // Build unified prompt based on task complexity
-  const instructions = buildUnifiedOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
+async function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null, injectContextTool = null, manageInjectionTool = null) {
+  // Check if we have pre-filtered context (indicating early context synthesis)
+  const hasPreFilteredContext = orchestratorContext?.relevantMemories?.some(m => m.synthesized) || 
+                                orchestratorContext?.promptFragments?.some(f => f.category === 'synthesized');
+  
+  let instructions;
+  try {
+    if (hasPreFilteredContext) {
+      // Use basic prompt since context is already synthesized and relevant
+      console.log('[Orchestrator] Using basic prompt - context already synthesized');
+      instructions = buildCorePrompt(userProfile);
+    } else {
+      // Use full tiered prompt with complexity analysis
+      console.log('[Orchestrator] Using tiered prompt - no pre-synthesis');
+      instructions = buildUnifiedOrchestratorPrompt(contextualMessage, orchestratorContext, userProfile);
+    }
+  } catch (error) {
+    console.error('[Orchestrator] Error building instructions:', error.message);
+    // Fallback to a basic prompt
+    instructions = buildCorePrompt(userProfile);
+  }
   
   // Validate MCP tools before adding to agent
   const mcpToolsArray = [];
@@ -1422,6 +1455,7 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
     name: 'EspressoBot1',
     model: 'gpt-4.1',  // Back to gpt-4.1 until o3 organization verification is complete
     instructions: instructions,
+ 
     
     // Guardrails to enforce bulk operation behavior
     inputGuardrails: [bulkOperationInputGuardrail],
@@ -1705,6 +1739,7 @@ function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTool
         }
       }
     }),
+
     // Add injection tools if provided
     ...(injectContextTool ? [injectContextTool] : []),
     ...(manageInjectionTool ? [manageInjectionTool] : [])
@@ -1820,17 +1855,91 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
   }
   
+  // EARLY CONTEXT FILTERING - Filter and rewrite context before orchestration begins
+  console.log(`[Orchestrator] Running early context filter for user message...`);
+  let preFilteredContext = null;
+  
+  if (!contextOverride) {
+    try {
+      // Build initial context to understand what we have
+      const rawContext = await buildAgentContext({
+        task: message,
+        conversationId,
+        userId,
+        userMessage: message,
+        autonomyLevel: intentAnalysis.level,
+        additionalContext: null,
+        userProfile
+      });
+      
+      // Create a minimal orchestrator context for complexity analysis
+      const mockOrchestratorContext = {
+        businessLogic: rawContext?.businessLogic || {},
+        currentTasks: rawContext?.currentTasks || []
+      };
+      
+      // Analyze complexity and build relevant sections
+      const complexity = analyzeTaskComplexity(message, mockOrchestratorContext);
+      
+      let tieredPromptSections = {};
+      
+      if (complexity.needsAgentDetails) {
+        tieredPromptSections['Agent Coordination'] = buildAgentSection();
+      }
+      
+      if (complexity.needsBusinessRules) {
+        tieredPromptSections['Business Rules'] = buildBusinessRulesSection();
+      }
+      
+      if (complexity.needsWorkflowPatterns || complexity.needsBulkHandling) {
+        tieredPromptSections['Workflow Patterns'] = buildWorkflowSection();
+      }
+      
+      console.log(`[Orchestrator] Including tiered prompt sections: ${Object.keys(tieredPromptSections).join(', ')}`);
+      
+      // Run context analyzer to filter and rewrite the context
+      const { runContextAnalyzer } = await import('./agents/context-analyzer-mini.js');
+      const filteredResult = await runContextAnalyzer(message, {
+        userId: userId || 'user_2',
+        conversationId,
+        rawContext,
+        tieredPromptSections
+      });
+      
+      if (filteredResult.success && filteredResult.context) {
+        preFilteredContext = {
+          ...rawContext,
+          // Override with filtered context
+          relevantMemories: filteredResult.context.memories || [],
+          promptFragments: filteredResult.context.promptFragments || [],
+          // Keep other context as-is
+          businessLogic: rawContext.businessLogic,
+          currentTasks: rawContext.currentTasks,
+          conversationTopic: rawContext.conversationTopic
+        };
+        console.log(`[Orchestrator] Early context filter complete - filtered to ${preFilteredContext.relevantMemories?.length || 0} memories, ${preFilteredContext.promptFragments?.length || 0} fragments`);
+      } else {
+        console.log('[Orchestrator] Early context filter failed, using raw context');
+        preFilteredContext = rawContext;
+      }
+    } catch (filterError) {
+      console.error('[Orchestrator] Early context filtering failed:', filterError.message);
+      // Fallback to normal context building
+      preFilteredContext = await buildAgentContext({
+        task: message,
+        conversationId,
+        userId,
+        userMessage: message,
+        autonomyLevel: intentAnalysis.level,
+        additionalContext: null,
+        userProfile
+      });
+    }
+  }
+
   // BUILD RICH CONTEXT FIRST - Orchestrator needs this for decision making
-  console.log(`[Orchestrator] Building comprehensive context for decision making...`);
-  const orchestratorContext = contextOverride || await buildAgentContext({
-    task: message,
-    conversationId,
-    userId,
-    userMessage: message,
-    autonomyLevel: intentAnalysis.level,
-    additionalContext: null,
-    userProfile
-  });
+  console.log(`[Orchestrator] Using ${preFilteredContext ? 'pre-filtered' : 'override'} context for orchestration...`);
+  const orchestratorContext = contextOverride || preFilteredContext;
   
   // Store orchestrator's full context globally for reference
   global.orchestratorContext = orchestratorContext;
@@ -1910,14 +2019,10 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Add relevant memories if any (limit to top 3 to prevent size explosion)
-    // Filter memories by relevance score (similar to prompt fragments)
-    const relevantMemories = orchestratorContext.relevantMemories?.filter(memory => {
-      // Only include memories with high relevance scores
-      const scoreThreshold = 0.7;
-      return memory.score && memory.score >= scoreThreshold;
-    }) || [];
+    // Note: Early context filtering already applied relevance scores
+    const relevantMemories = orchestratorContext.relevantMemories || [];
     
-    console.log(`[Orchestrator] Filtered to ${relevantMemories.length} highly relevant memories (score >= 0.7)`);
+    console.log(`[Orchestrator] Using ${relevantMemories.length} pre-filtered relevant memories`);
     
     if (relevantMemories.length > 0) {
       const memoriesContent = '\n\n## Relevant Past Experiences:' + 
@@ -1941,19 +2046,10 @@ export async function runDynamicOrchestrator(message, options = {}) {
     }
     
     // Add relevant prompt fragments from library with size limits
-    console.log(`[Orchestrator] Checking prompt fragments: ${orchestratorContext.promptFragments?.length || 0} found`);
+    // Note: Early context filtering already applied relevance analysis
+    const relevantFragments = orchestratorContext.promptFragments || [];
     
-    // IMPORTANT: Only add prompt fragments if they're actually relevant
-    // The adaptive context builder may include fragments that aren't relevant to the current task
-    // Check if we have a high-confidence score threshold
-    const relevantFragments = orchestratorContext.promptFragments?.filter(fragment => {
-      // Only include fragments with high relevance scores
-      // Default threshold of 0.7 for relevance (configurable)
-      const scoreThreshold = 0.7;
-      return fragment.score && fragment.score >= scoreThreshold;
-    }) || [];
-    
-    console.log(`[Orchestrator] Filtered to ${relevantFragments.length} highly relevant fragments (score >= 0.7)`);
+    console.log(`[Orchestrator] Using ${relevantFragments.length} pre-filtered relevant fragments`);
     
     if (relevantFragments.length > 0) {
       let fragmentsContent = '\n\n## Relevant Documentation (from Prompt Library):';
@@ -2108,7 +2204,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
       utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
       googleWorkspaceAgent, ga4AnalyticsAgent, shopifyOrdersAgent, builtInSearchTool
     };
-    const orchestrator = createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile, injectContextTool, manageInjectionTool);
+    const orchestrator = await createOrchestratorAgent(contextualMessage, orchestratorContext, mcpAgentTools, null, guardrailApprovalTool, userProfile, injectContextTool, manageInjectionTool);
     
     // Check if we have image or file data from the API
     let messageToSend;

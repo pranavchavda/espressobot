@@ -28,7 +28,7 @@ import { executeOrdersTask } from '../agents/shopify-orders-agent.js';
 export function createProductsAgentTool() {
   return tool({
     name: 'products_agent',
-    description: 'Product operations: get_product, search_products, create_product, update_status, graphql_query, graphql_mutation',
+    description: 'Product operations: get_product, search_products, create_product, update_status, update_variant_weight, graphql_query, graphql_mutation',
     parameters: z.object({
       task: z.string().describe('The product operation to perform')
     }),

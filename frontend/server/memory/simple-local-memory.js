@@ -44,7 +44,21 @@ db.exec(`
 
 // Helper function to calculate cosine similarity
 function cosineSimilarity(a, b) {
-  if (a.length !== b.length) return 0;
+  // Null safety checks
+  if (!a || !b || !Array.isArray(a) || !Array.isArray(b)) {
+    console.warn('[Memory] cosineSimilarity: Invalid embeddings - one or both are null/undefined');
+    return 0;
+  }
+  
+  if (a.length !== b.length) {
+    console.warn(`[Memory] cosineSimilarity: Embedding dimension mismatch - a: ${a.length}, b: ${b.length}`);
+    return 0;
+  }
+  
+  if (a.length === 0 || b.length === 0) {
+    console.warn('[Memory] cosineSimilarity: Empty embeddings');
+    return 0;
+  }
   
   let dotProduct = 0;
   let normA = 0;
@@ -56,7 +70,13 @@ function cosineSimilarity(a, b) {
     normB += b[i] * b[i];
   }
   
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+  if (denominator === 0) {
+    console.warn('[Memory] cosineSimilarity: Zero norm detected');
+    return 0;
+  }
+  
+  return dotProduct / denominator;
 }
 
 // Generate embeddings using OpenAI
@@ -177,22 +197,31 @@ class SimpleLocalMemory {
       let mostSimilarContent = null;
       
       for (const mem of memoriesToCheck) {
-        const memEmbedding = JSON.parse(mem.embedding);
-        const similarity = cosineSimilarity(embedding, memEmbedding);
-        
-        if (similarity > highestSimilarity) {
-          highestSimilarity = similarity;
-          mostSimilarContent = mem.content;
-        }
-        
-        if (similarity > semanticThreshold) {
-          console.log(`[Memory] Found semantic duplicate (${similarity.toFixed(3)}): "${mem.content.substring(0, 50)}..."`);
-          return { 
-            isDuplicate: true, 
-            reason: 'semantic_match', 
-            similarity,
-            existingContent: mem.content
-          };
+        try {
+          if (!mem.embedding) {
+            console.warn(`[Memory] Missing embedding for memory ${mem.id} in duplicate check`);
+            continue;
+          }
+          const memEmbedding = JSON.parse(mem.embedding);
+          const similarity = cosineSimilarity(embedding, memEmbedding);
+          
+          if (similarity > highestSimilarity) {
+            highestSimilarity = similarity;
+            mostSimilarContent = mem.content;
+          }
+          
+          if (similarity > semanticThreshold) {
+            console.log(`[Memory] Found semantic duplicate (${similarity.toFixed(3)}): "${mem.content.substring(0, 50)}..."`);
+            return { 
+              isDuplicate: true, 
+              reason: 'semantic_match', 
+              similarity,
+              existingContent: mem.content
+            };
+          }
+        } catch (error) {
+          console.error(`[Memory] Error processing memory ${mem.id} in duplicate check:`, error);
+          continue;
         }
       }
       
@@ -374,16 +403,39 @@ class SimpleLocalMemory {
       
       // Calculate similarities
       const results = memories.map(mem => {
-        const memEmbedding = JSON.parse(mem.embedding);
-        const similarity = cosineSimilarity(queryEmbedding, memEmbedding);
-        
-        return {
-          id: mem.id,
-          memory: mem.content,
-          score: similarity,
-          metadata: JSON.parse(mem.metadata || '{}'),
-          createdAt: mem.created_at
-        };
+        try {
+          // Check if embedding data exists
+          if (!mem.embedding) {
+            console.warn(`[Memory] Missing embedding for memory ${mem.id}`);
+            return {
+              id: mem.id,
+              memory: mem.content,
+              score: 0,
+              metadata: JSON.parse(mem.metadata || '{}'),
+              createdAt: mem.created_at
+            };
+          }
+          
+          const memEmbedding = JSON.parse(mem.embedding);
+          const similarity = cosineSimilarity(queryEmbedding, memEmbedding);
+          
+          return {
+            id: mem.id,
+            memory: mem.content,
+            score: similarity,
+            metadata: JSON.parse(mem.metadata || '{}'),
+            createdAt: mem.created_at
+          };
+        } catch (error) {
+          console.error(`[Memory] Error processing embedding for memory ${mem.id}:`, error);
+          return {
+            id: mem.id,
+            memory: mem.content,
+            score: 0,
+            metadata: JSON.parse(mem.metadata || '{}'),
+            createdAt: mem.created_at
+          };
+        }
       });
       
       // Sort by similarity and limit results
@@ -710,24 +762,44 @@ Do NOT extract:
       for (let i = 0; i < memories.length; i++) {
         if (processed.has(memories[i].id)) continue;
         
-        const group = [memories[i]];
-        const embedding1 = JSON.parse(memories[i].embedding);
-        
-        for (let j = i + 1; j < memories.length; j++) {
-          if (processed.has(memories[j].id)) continue;
-          
-          const embedding2 = JSON.parse(memories[j].embedding);
-          const similarity = cosineSimilarity(embedding1, embedding2);
-          
-          if (similarity > mergeThreshold) {
-            group.push(memories[j]);
-            processed.add(memories[j].id);
+        try {
+          if (!memories[i].embedding) {
+            console.warn(`[Memory] Missing embedding for memory ${memories[i].id} in merge operation`);
+            continue;
           }
-        }
-        
-        if (group.length > 1) {
-          mergeGroups.push(group);
-          group.forEach(mem => processed.add(mem.id));
+          
+          const group = [memories[i]];
+          const embedding1 = JSON.parse(memories[i].embedding);
+          
+          for (let j = i + 1; j < memories.length; j++) {
+            if (processed.has(memories[j].id)) continue;
+            
+            try {
+              if (!memories[j].embedding) {
+                console.warn(`[Memory] Missing embedding for memory ${memories[j].id} in merge operation`);
+                continue;
+              }
+              
+              const embedding2 = JSON.parse(memories[j].embedding);
+              const similarity = cosineSimilarity(embedding1, embedding2);
+              
+              if (similarity > mergeThreshold) {
+                group.push(memories[j]);
+                processed.add(memories[j].id);
+              }
+            } catch (error) {
+              console.error(`[Memory] Error processing memory ${memories[j].id} in merge:`, error);
+              continue;
+            }
+          }
+          
+          if (group.length > 1) {
+            mergeGroups.push(group);
+            group.forEach(mem => processed.add(mem.id));
+          }
+        } catch (error) {
+          console.error(`[Memory] Error processing memory ${memories[i].id} in merge:`, error);
+          continue;
         }
       }
       

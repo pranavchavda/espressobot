@@ -5,7 +5,8 @@
  * or encounter errors, learning from these patterns for future operations.
  */
 
-import { enhanceContext, checkContextSufficiency } from './adaptive-context-builder.js';
+// UPDATED: Use new context synthesis approach instead of old adaptive context builder
+import { runContextAnalyzer } from '../agents/context-analyzer-mini.js';
 import { memoryOperations } from '../memory/memory-operations-local.js';
 import { Agent, run } from '../utils/model-with-retry.js';
 import { z } from 'zod';
@@ -164,8 +165,23 @@ Generate specific queries to find the missing information.`;
       return currentContext;
     }
 
-    // Apply enhancements
-    const enhanced = await enhanceContext(currentContext, queries);
+    // Apply enhancements using new context synthesis approach
+    const queryString = queries.map(q => q.query).join('. ');
+    const contextResult = await runContextAnalyzer(`${task}. Additional context needed: ${queryString}`, {
+      userId: currentContext.userId || 'user_2',
+      conversationId: currentContext.conversationId || null,
+      rawContext: currentContext
+    });
+    
+    let enhanced = currentContext;
+    if (contextResult.success) {
+      enhanced = {
+        ...currentContext,
+        synthesizedFragment: contextResult.context.synthesizedFragment,
+        keyInsights: contextResult.context.keyInsights,
+        enhancementQueries: queries
+      };
+    }
     
     // Store this enhancement pattern for learning
     await this.storeEnhancementPattern(task, analysis, queries, enhanced);

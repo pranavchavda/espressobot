@@ -33,6 +33,22 @@ async function generateEmbedding(text) {
  * Calculate cosine similarity between two vectors
  */
 function cosineSimilarity(vec1, vec2) {
+  // Null safety checks
+  if (!vec1 || !vec2 || !Array.isArray(vec1) || !Array.isArray(vec2)) {
+    console.warn('[SimpleMemoryStore] cosineSimilarity: Invalid vectors - one or both are null/undefined');
+    return 0;
+  }
+  
+  if (vec1.length !== vec2.length) {
+    console.warn(`[SimpleMemoryStore] cosineSimilarity: Vector dimension mismatch - vec1: ${vec1.length}, vec2: ${vec2.length}`);
+    return 0;
+  }
+  
+  if (vec1.length === 0 || vec2.length === 0) {
+    console.warn('[SimpleMemoryStore] cosineSimilarity: Empty vectors');
+    return 0;
+  }
+  
   let dotProduct = 0;
   let norm1 = 0;
   let norm2 = 0;
@@ -43,7 +59,13 @@ function cosineSimilarity(vec1, vec2) {
     norm2 += vec2[i] * vec2[i];
   }
   
-  return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+  const denominator = Math.sqrt(norm1) * Math.sqrt(norm2);
+  if (denominator === 0) {
+    console.warn('[SimpleMemoryStore] cosineSimilarity: Zero norm detected');
+    return 0;
+  }
+  
+  return dotProduct / denominator;
 }
 
 /**
@@ -164,10 +186,29 @@ export const simpleMemoryStore = {
       }
       
       // Calculate similarities
-      const memoriesWithScores = userMemories.map(memory => ({
-        ...memory,
-        score: cosineSimilarity(queryEmbedding, memory.embedding)
-      }));
+      const memoriesWithScores = userMemories.map(memory => {
+        try {
+          // Validate embedding before similarity calculation
+          if (!memory.embedding || !Array.isArray(memory.embedding)) {
+            console.warn(`[SimpleMemoryStore] Invalid embedding for memory ${memory.id}`);
+            return {
+              ...memory,
+              score: 0
+            };
+          }
+          
+          return {
+            ...memory,
+            score: cosineSimilarity(queryEmbedding, memory.embedding)
+          };
+        } catch (error) {
+          console.error(`[SimpleMemoryStore] Error calculating similarity for memory ${memory.id}:`, error);
+          return {
+            ...memory,
+            score: 0
+          };
+        }
+      });
       
       // Sort by score and take top results
       memoriesWithScores.sort((a, b) => b.score - a.score);

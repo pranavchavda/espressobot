@@ -249,123 +249,200 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
   };
 }
 
+// REMOVED: filterFetchedContext function - replaced by context synthesis approach
+// The ContextRelevanceFilter agent and filtering logic have been superseded by 
+// the synthesizeContextFragment function which creates cohesive context instead of filtering
+
 /**
- * Filter fetched context for relevance to the actual task
+ * Synthesize fetched context into a cohesive, task-specific context fragment
  */
-export async function filterFetchedContext(task, fetchedContext, options = {}) {
-  const { maxTokens = 15000, conversationId = null } = options;
+export async function synthesizeContextFragment(task, fetchedContext, options = {}) {
+  const { maxTokens = 8000, conversationId = null } = options;
   
-  console.log('[ContextAnalyzer] Filtering fetched context for relevance...');
+  console.log('[ContextAnalyzer] Synthesizing context into task-specific fragment...');
   
-  // Create a relevance filter agent
+  // Create a context synthesis agent
   const contextPreamble = buildAgentContextPreamble({
-    agentRole: 'context relevance filter',
+    agentRole: 'context synthesis expert',
     conversationId
   });
   
-  const filterAgent = new Agent({
-    name: 'ContextRelevanceFilter',
+  const synthesisAgent = new Agent({
+    name: 'ContextSynthesizer',
     model: 'gpt-4.1-mini',
     instructions: `${contextPreamble}
 
-You are a context relevance filter. Your job is to evaluate whether fetched context items are actually relevant to the task at hand.
+You are a context synthesis expert. Your job is to take multiple context sources and synthesize them into a single, cohesive context fragment that contains ONLY the information needed to complete the specific task.
 
-For each context item, determine:
-1. Is it directly relevant to completing the task?
-2. Does it provide necessary background or constraints?
-3. Is it just keyword-matched but not contextually relevant?
+Your synthesized context should:
+1. Combine relevant information from all sources
+2. Remove duplicates and redundancies  
+3. Be concise but complete
+4. Focus specifically on the task at hand
+5. Organize information logically
+6. Use clear, actionable language
 
-Be strict - only mark items as relevant if they genuinely help with the task.
-For example, product documentation is NOT relevant to email searches.`,
+Write the synthesized context as if you're briefing someone on exactly what they need to know to complete this task. Include:
+- Key facts and background
+- Relevant procedures or workflows
+- Important constraints or requirements
+- User preferences that affect execution
+
+Exclude:
+- Irrelevant background information
+- Overly detailed explanations
+- Information not directly related to the task`,
     
     outputType: z.object({
-      filteredContext: z.array(z.object({
-        key: z.string().describe('Context key/description'),
-        relevant: z.boolean().describe('Is this context relevant to the task?'),
-        reason: z.string().describe('Why is this relevant or irrelevant?'),
-        priority: z.enum(['critical', 'helpful', 'optional']).describe('Adjusted priority if relevant')
-      })),
-      totalRelevant: z.number().describe('Number of relevant context items'),
-      explanation: z.string().describe('Brief explanation of filtering decisions')
+      synthesizedContext: z.string().describe('The synthesized context fragment containing only task-relevant information'),
+      includedSources: z.array(z.string()).describe('Which context sources were included in the synthesis'),
+      excludedSources: z.array(z.string()).describe('Which context sources were excluded and why'),
+      keyInsights: z.array(z.string()).describe('Key insights or requirements extracted from the context')
     })
   });
   
   try {
-    // Prepare context items for evaluation
-    const contextItems = [];
+    // Prepare all context content for synthesis
+    let allContextContent = '';
+    const sourcesList = [];
+    
     for (const [key, value] of Object.entries(fetchedContext)) {
       if (value.results && value.results.length > 0) {
-        // Sample first few results for evaluation
-        const samples = value.results.slice(0, 2).map(r => 
-          (r.memory || r.content || '').substring(0, 200)
-        );
-        contextItems.push({
-          key,
-          source: value.source,
-          priority: value.priority,
-          sampleContent: samples.join(' | '),
-          resultCount: value.results.length
-        });
-      }
-    }
-    
-    if (contextItems.length === 0) {
-      console.log('[ContextAnalyzer] No context items to filter');
-      return fetchedContext;
-    }
-    
-    const prompt = `Task: ${task}
-
-Context items to evaluate:
-${JSON.stringify(contextItems, null, 2)}
-
-Determine which context items are actually relevant to completing this task.`;
-    
-    const result = await run(filterAgent, prompt, { maxTurns: 1 });
-    
-    if (result.finalOutput) {
-      console.log(`[ContextAnalyzer] Filtering results: ${result.finalOutput.totalRelevant}/${contextItems.length} items relevant`);
-      console.log(`[ContextAnalyzer] Explanation: ${result.finalOutput.explanation}`);
-      
-      // Apply filtering decisions
-      const filteredContext = {};
-      let currentTokens = 0;
-      
-      for (const decision of result.finalOutput.filteredContext) {
-        if (decision.relevant && fetchedContext[decision.key]) {
-          const contextItem = fetchedContext[decision.key];
-          
-          // Check token limit
-          if (currentTokens + contextItem.tokenCount > maxTokens) {
-            console.log(`[ContextAnalyzer] Skipping ${decision.key} - would exceed token limit`);
-            continue;
+        sourcesList.push(key);
+        allContextContent += `\n\n=== ${key.toUpperCase()} ===\n`;
+        
+        // Include all relevant content from this source
+        for (const result of value.results) {
+          const content = result.memory || result.content || '';
+          if (content.trim()) {
+            allContextContent += content.substring(0, 1000) + '\n';
           }
-          
-          // Add to filtered context with adjusted priority
-          filteredContext[decision.key] = {
-            ...contextItem,
-            priority: decision.priority,
-            filterReason: decision.reason
-          };
-          currentTokens += contextItem.tokenCount;
-          
-          console.log(`[ContextAnalyzer] Including: ${decision.key} (${decision.priority}) - ${decision.reason}`);
-        } else {
-          console.log(`[ContextAnalyzer] Excluding: ${decision.key} - ${decision.reason}`);
         }
       }
-      
-      return filteredContext;
     }
     
-    // Fallback to original context if filtering fails
-    console.log('[ContextAnalyzer] Filtering failed, returning original context');
-    return fetchedContext;
+    if (!allContextContent.trim()) {
+      console.log('[ContextAnalyzer] No context content to synthesize');
+      return {
+        success: false,
+        synthesizedFragment: null,
+        includedSources: [],
+        excludedSources: sourcesList
+      };
+    }
+    
+    const prompt = `Task to complete: ${task}
+
+Available context from multiple sources:
+${allContextContent}
+
+Synthesize this context into a single, focused fragment that contains exactly what's needed to complete the task. Be concise but comprehensive.`;
+    
+    const result = await run(synthesisAgent, prompt, { maxTurns: 1 });
+    
+    if (result.finalOutput) {
+      const synthesis = result.finalOutput;
+      console.log(`[ContextAnalyzer] Context synthesized - included ${synthesis.includedSources.length} sources, excluded ${synthesis.excludedSources.length}`);
+      console.log(`[ContextAnalyzer] Key insights: ${synthesis.keyInsights.join(', ')}`);
+      
+      return {
+        success: true,
+        synthesizedFragment: synthesis.synthesizedContext,
+        includedSources: synthesis.includedSources,
+        excludedSources: synthesis.excludedSources,
+        keyInsights: synthesis.keyInsights,
+        tokenCount: synthesis.synthesizedContext.length / 4 // Rough token estimate
+      };
+    }
+    
+    // Fallback
+    console.log('[ContextAnalyzer] Synthesis failed, no output generated');
+    return {
+      success: false,
+      synthesizedFragment: null,
+      includedSources: [],
+      excludedSources: sourcesList
+    };
     
   } catch (error) {
-    console.error('[ContextAnalyzer] Error filtering context:', error.message);
-    // Return original context on error
-    return fetchedContext;
+    console.error('[ContextAnalyzer] Error synthesizing context:', error.message);
+    return {
+      success: false,
+      synthesizedFragment: null,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Full context analysis pipeline - run early filtering and rewriting
+ */
+export async function runContextAnalyzer(message, options = {}) {
+  const { userId, conversationId, rawContext, tieredPromptSections } = options;
+  
+  try {
+    console.log('[ContextAnalyzer] Running full context analysis pipeline...');
+    
+    // Step 1: Analyze what context we need for this task
+    const analysis = await analyzeContextNeeds(message, null, {
+      conversationId,
+      maxTokens: 12000
+    });
+    
+    if (!analysis.success) {
+      return { success: false, error: 'Context analysis failed' };
+    }
+    
+    // Step 2: Fetch suggested context
+    const fetchResult = await fetchSuggestedContext(analysis.analysis.suggestedContext, userId);
+    const fetchedContext = fetchResult.context; // Extract the actual context data
+    
+    // Step 3: Add tiered prompt sections to the context for synthesis
+    if (tieredPromptSections && typeof tieredPromptSections === 'object') {
+      for (const [sectionName, sectionContent] of Object.entries(tieredPromptSections)) {
+        if (sectionContent && sectionContent.trim()) {
+          fetchedContext[`Tiered Prompt - ${sectionName}`] = {
+            priority: 'helpful',
+            source: 'rules',
+            results: [{ content: sectionContent }],
+            tokenCount: sectionContent.length / 4
+          };
+        }
+      }
+    }
+    
+    // Step 4: Synthesize the fetched context into a cohesive fragment
+    const synthesisResult = await synthesizeContextFragment(message, fetchedContext, {
+      maxTokens: 8000,
+      conversationId
+    });
+    
+    if (!synthesisResult.success) {
+      return { success: false, error: 'Context synthesis failed' };
+    }
+    
+    console.log(`[ContextAnalyzer] Pipeline complete - synthesized context from ${synthesisResult.includedSources.length} sources`);
+    
+    return {
+      success: true,
+      context: {
+        synthesizedFragment: synthesisResult.synthesizedFragment,
+        includedSources: synthesisResult.includedSources,
+        keyInsights: synthesisResult.keyInsights,
+        // Legacy format for compatibility
+        memories: [],
+        promptFragments: [{
+          category: 'synthesized',
+          content: synthesisResult.synthesizedFragment,
+          priority: 'high',
+          score: 1.0
+        }]
+      }
+    };
+    
+  } catch (error) {
+    console.error('[ContextAnalyzer] Pipeline failed:', error.message);
+    return { success: false, error: error.message };
   }
 }
 

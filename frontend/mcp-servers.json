@@ -15,6 +15,16 @@
       "headers": {
         "User-Agent": "EspressoBot/1.0"
       }
+    },
+    "perplexity-ask": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "server-perplexity-ask"
+      ],
+      "env": {
+        "PERPLEXITY_API_KEY": "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"
+      }
     }
   }
 }

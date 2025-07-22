@@ -48,7 +48,21 @@ db.exec(`
 
 // Helper function to calculate cosine similarity
 function cosineSimilarity(a, b) {
-  if (a.length !== b.length) return 0;
+  // Null safety checks
+  if (!a || !b || !Array.isArray(a) || !Array.isArray(b)) {
+    console.warn('[ToolCache] cosineSimilarity: Invalid embeddings - one or both are null/undefined');
+    return 0;
+  }
+  
+  if (a.length !== b.length) {
+    console.warn(`[ToolCache] cosineSimilarity: Embedding dimension mismatch - a: ${a.length}, b: ${b.length}`);
+    return 0;
+  }
+  
+  if (a.length === 0 || b.length === 0) {
+    console.warn('[ToolCache] cosineSimilarity: Empty embeddings');
+    return 0;
+  }
   
   let dotProduct = 0;
   let normA = 0;
@@ -60,7 +74,13 @@ function cosineSimilarity(a, b) {
     normB += b[i] * b[i];
   }
   
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+  if (denominator === 0) {
+    console.warn('[ToolCache] cosineSimilarity: Zero norm detected');
+    return 0;
+  }
+  
+  return dotProduct / denominator;
 }
 
 // Generate embeddings using OpenAI
@@ -164,22 +184,35 @@ class ToolResultCache {
       
       // Calculate similarity scores
       const scoredResults = results.map(result => {
-        if (!result.input_embedding) {
-          console.log('[ToolCache] No embedding for result:', result.tool_name);
+        try {
+          if (!result.input_embedding) {
+            console.log('[ToolCache] No embedding for result:', result.tool_name);
+            return null;
+          }
+          
+          const embedding = new Float32Array(result.input_embedding.buffer);
+          const embeddingArray = Array.from(embedding);
+          
+          // Validate embeddings before comparison
+          if (!embeddingArray || embeddingArray.length === 0) {
+            console.warn('[ToolCache] Invalid embedding data for result:', result.tool_name);
+            return null;
+          }
+          
+          const similarity = cosineSimilarity(queryEmbedding, embeddingArray);
+          
+          console.log(`[ToolCache] Similarity for ${result.tool_name}: ${similarity}`);
+          
+          return {
+            ...result,
+            similarity,
+            output_result: JSON.parse(result.output_result),
+            metadata: JSON.parse(result.metadata || '{}')
+          };
+        } catch (error) {
+          console.error(`[ToolCache] Error processing result ${result.tool_name}:`, error);
           return null;
         }
-        
-        const embedding = new Float32Array(result.input_embedding.buffer);
-        const similarity = cosineSimilarity(queryEmbedding, Array.from(embedding));
-        
-        console.log(`[ToolCache] Similarity for ${result.tool_name}: ${similarity}`);
-        
-        return {
-          ...result,
-          similarity,
-          output_result: JSON.parse(result.output_result),
-          metadata: JSON.parse(result.metadata || '{}')
-        };
       }).filter(r => r && r.similarity >= similarityThreshold);
       
       // Sort by similarity and return top results

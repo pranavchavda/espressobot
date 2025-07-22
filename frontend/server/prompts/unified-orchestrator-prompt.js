@@ -6,7 +6,7 @@
 /**
  * Analyze task complexity to determine which sections to include
  */
-function analyzeTaskComplexity(contextualMessage, orchestratorContext) {
+export function analyzeTaskComplexity(contextualMessage, orchestratorContext) {
   const messageLower = contextualMessage.toLowerCase();
   
   // Analysis results
@@ -85,7 +85,7 @@ Admin: ${userProfile.is_admin ? 'Yes' : 'No'}`;
 /**
  * Core prompt - always included
  */
-function buildCorePrompt(userProfile) {
+export function buildCorePrompt(userProfile) {
   const date = new Date();
   const formattedDate = date.toLocaleDateString('en-US', {
     year: 'numeric',
@@ -232,7 +232,7 @@ When you need to create collections, update products, or any GraphQL operation:
 You now have DIRECT access to specialized MCP agents for optimal performance:
 
 **Core Product Operations:**
-- **products_agent**: get_product, search_products, create_product, update_status, graphql_query, graphql_mutation
+- **products_agent**: get_product, search_products, create_product, update_status, update_variant_weight, graphql_query, graphql_mutation
 - **pricing_agent**: update_pricing, bulk_price_update, update_costs
 - **inventory_agent**: manage_inventory_policy, manage_tags, manage_redirects
 
@@ -301,7 +301,7 @@ ${userContext}
 /**
  * Agent coordination section - included for complex multi-agent tasks
  */
-function buildAgentSection() {
+export function buildAgentSection() {
   return `
 ## Agent Coordination Framework
 
@@ -328,7 +328,7 @@ function buildAgentSection() {
 /**
  * Business rules section - included when rules/processes questioned
  */
-function buildBusinessRulesSection() {
+export function buildBusinessRulesSection() {
   return `
 ## Business Rules & Patterns
 
@@ -360,7 +360,7 @@ If vendor = "Escarpment Coffee Roasters" and type = "Fresh Coffee":
 /**
  * Workflow patterns section - included for complex operations
  */
-function buildWorkflowSection() {
+export function buildWorkflowSection() {
   return `
 ## Complex Workflow Patterns
 

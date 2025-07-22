@@ -10,6 +10,7 @@ export const availableOperations = {
     'search_products',
     'create_product',
     'update_status',
+    'update_variant_weight',
     'graphql_query',
     'graphql_mutation'
   ],

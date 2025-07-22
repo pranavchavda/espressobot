@@ -161,7 +161,7 @@ class SearchProductsTool(BaseMCPTool):
                 filters.append(query)
             else:
                 # Use wildcards for general text search
-                filters.append(f'title:*{query}* OR vendor:*{query}* OR product_type:*{query}* OR handle:*{query}*')
+                filters.append(f'title:*{query}* OR vendor:*{query}* OR product_type:*{query}* OR handle:*{query}* OR sku:*{query}*')
         
         # Add status filter (skip empty strings)
         status = kwargs.get("status")

@@ -21,6 +21,7 @@ from mcp_tools.products.get import GetProductTool
 from mcp_tools.products.search import SearchProductsTool
 from mcp_tools.products.create import CreateProductTool
 from mcp_tools.products.update_status import UpdateStatusTool
+from mcp_tools.products.update_variant_weight import UpdateVariantWeightTool
 
 # Import GraphQL tools for collections and advanced operations
 from mcp_tools.graphql.query import GraphQLQueryTool
@@ -38,11 +39,12 @@ class ProductsMCPServer(EnhancedMCPServer):
         
     def _load_tools(self):
         """Load only product-related tools"""
-        # Add the 4 product tools
+        # Add the 5 product tools
         self.add_tool(GetProductTool())
         self.add_tool(SearchProductsTool())
         self.add_tool(CreateProductTool())
         self.add_tool(UpdateStatusTool())
+        self.add_tool(UpdateVariantWeightTool())
         
         # Add GraphQL tools for collections and advanced operations
         self.add_tool(GraphQLQueryTool())

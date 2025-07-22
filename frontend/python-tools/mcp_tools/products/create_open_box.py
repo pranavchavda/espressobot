@@ -21,15 +21,20 @@ class CreateOpenBoxTool(BaseMCPTool):
     Features:
     - Duplicates original product with all details
     - Automatic pricing with discount options
-    - Adds open-box and ob-YYMM tags
+    - Complete tagging system with condition-specific tags
+    - Inventory quantity set to 1, policy set to DENY
     - Optional condition notes
     - Preserves original product metadata
     
-    Conditions:
-    - Excellent: Near-new, minimal signs of use
-    - Good: Light wear, fully functional
-    - Fair: Moderate wear, may have cosmetic issues
-    - Scratch & Dent: Cosmetic damage only
+    Condition Types:
+    - 14-day-return: Returns within 14 days (displays as "Return")
+    - 45-day-return: Returns within 45 days 
+    - used-trade-in: Trade-in items (displays as "Used")
+    - store-demo: Store demonstration units
+    - open-box: Standard open box items
+    - shipping-damage: Items damaged in shipping
+    - last-ones: Final clearance items
+    - imperfection: Items with cosmetic imperfections
     
     Business Rules:
     - Default 10% discount if not specified
@@ -51,7 +56,7 @@ class CreateOpenBoxTool(BaseMCPTool):
             },
             "condition": {
                 "type": "string",
-                "description": "Condition (Excellent, Good, Fair, Scratch & Dent)"
+                "description": "Condition type: 14-day-return, 45-day-return, used-trade-in, store-demo, open-box, shipping-damage, last-ones, imperfection (or custom description)"
             },
             "price": {
                 "type": "number",
@@ -131,6 +136,10 @@ class CreateOpenBoxTool(BaseMCPTool):
                     title
                     description
                 }
+                options {
+                    name
+                    values
+                }
                 variants(first: 10) {
                     edges {
                         node {
@@ -139,10 +148,20 @@ class CreateOpenBoxTool(BaseMCPTool):
                             sku
                             price
                             compareAtPrice
+                            selectedOptions {
+                                name
+                                value
+                            }
                             inventoryItem {
                                 id
                                 unitCost {
                                     amount
+                                }
+                                measurement {
+                                    weight {
+                                        value
+                                        unit
+                                    }
                                 }
                             }
                         }
@@ -180,6 +199,167 @@ class CreateOpenBoxTool(BaseMCPTool):
             return result['data']['product']
         return None
     
+    def _get_default_location(self, client: ShopifyClient) -> str:
+        """Get the default location ID for inventory."""
+        query = '''
+        {
+            locations(first: 1) {
+                edges {
+                    node {
+                        id
+                        name
+                        isActive
+                    }
+                }
+            }
+        }
+        '''
+        
+        result = client.execute_graphql(query)
+        locations = result.get('data', {}).get('locations', {}).get('edges', [])
+        
+        if not locations:
+            raise Exception("No locations found for inventory")
+        
+        return locations[0]['node']['id']
+    
+    async def _adjust_inventory_quantity(self, client: ShopifyClient, inventory_item_id: str):
+        """Set inventory quantity to 1 for open box items."""
+        try:
+            # Get current quantity
+            variant_query = """
+            query getInventoryItem($id: ID!) {
+                inventoryItem(id: $id) {
+                    inventoryLevels(first: 1) {
+                        edges {
+                            node {
+                                quantities(names: ["available"]) {
+                                    name
+                                    quantity
+                                }
+                                location {
+                                    id
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            """
+            
+            result = client.execute_graphql(variant_query, {'id': inventory_item_id})
+            inventory_levels = result.get('data', {}).get('inventoryItem', {}).get('inventoryLevels', {}).get('edges', [])
+            
+            if not inventory_levels:
+                return
+                
+            # Get available quantity from the quantities array
+            quantities = inventory_levels[0]['node']['quantities']
+            current_quantity = 0
+            for q in quantities:
+                if q['name'] == 'available':
+                    current_quantity = q['quantity']
+                    break
+            
+            location_id = inventory_levels[0]['node']['location']['id']
+            
+            # Calculate adjustment needed (we want 1)
+            adjustment = 1 - current_quantity
+            
+            if adjustment == 0:
+                return  # Already at 1
+            
+            # Adjust inventory
+            mutation = """
+            mutation inventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
+                inventoryAdjustQuantities(input: $input) {
+                    inventoryAdjustmentGroup {
+                        reason
+                        changes {
+                            name
+                            delta
+                        }
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+            """
+            
+            variables = {
+                'input': {
+                    'reason': 'correction',
+                    'name': 'available',
+                    'changes': [{
+                        'inventoryItemId': inventory_item_id,
+                        'locationId': location_id,
+                        'delta': adjustment
+                    }]
+                }
+            }
+            
+            client.execute_graphql(mutation, variables)
+            
+        except Exception as e:
+            # Don't fail the whole operation if inventory adjustment fails
+            print(f"Warning: Failed to adjust inventory: {e}")
+    
+    async def _update_variant_sku_and_policy(self, client: ShopifyClient, product_id: str, variant_id: str, sku: str, price: float):
+        """Update variant SKU, price, and inventory policy using productVariantsBulkUpdate."""
+        try:
+            
+            mutation = """
+            mutation updateVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    productVariants {
+                        id
+                        sku
+                        inventoryQuantity
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+            """
+            
+            variables = {
+                "productId": product_id,
+                "variants": [{
+                    "id": variant_id,
+                    "inventoryItem": {
+                        "sku": sku
+                    },
+                    "price": str(price),
+                    "inventoryPolicy": "DENY"
+                }]
+            }
+            
+            print(f"Updating variant with variables: {variables}")
+            result = client.execute_graphql(mutation, variables)
+            print(f"GraphQL response: {result}")
+            
+            # Check for errors and log them
+            if result.get('data', {}).get('productVariantsBulkUpdate', {}).get('userErrors'):
+                errors = result['data']['productVariantsBulkUpdate']['userErrors']
+                print(f"Error: Failed to update variant: {errors}")
+                raise Exception(f"Failed to update variant: {errors}")
+            
+            # Log success
+            updated_variants = result.get('data', {}).get('productVariantsBulkUpdate', {}).get('productVariants', [])
+            if updated_variants:
+                variant = updated_variants[0]
+                print(f"Success: Updated variant SKU to {variant.get('sku')}, inventory to {variant.get('inventoryQuantity')}")
+            else:
+                print("Warning: No variants returned from productVariantsBulkUpdate")
+                
+        except Exception as e:
+            print(f"Error: Failed to update variant: {e}")
+            raise e
+    
     async def _create_open_box_product(self, client: ShopifyClient, original: Dict[str, Any],
                                       serial: str, condition: str, price: Optional[float],
                                       discount_pct: Optional[float], note: Optional[str],
@@ -204,9 +384,24 @@ class CreateOpenBoxTool(BaseMCPTool):
             # Default 10% discount
             ob_price = original_price * 0.9
         
-        # Create SKU and title
+        # Create SKU and title with condition mapping
+        condition_lower = condition.lower()
+        condition_display_map = {
+            '14-day-return': 'Return',
+            '45-day-return': '45 day return',
+            'used-trade-in': 'Used',
+            'store-demo': 'Store Demo',
+            'open-box': 'Open Box',
+            'shipping-damage': 'Shipping Damage',
+            'last-ones': 'Last Ones',
+            'imperfection': 'Cosmetic Imperfection'
+        }
+        
+        # Use mapped display name or original condition if no mapping exists
+        display_condition = condition_display_map.get(condition_lower, condition)
+        
         ob_sku = f"OB-{yymm}-{serial}-{original_sku}"
-        ob_title = f"{original['title']} |{serial}| - {condition}"
+        ob_title = f"{original['title']} |{serial}| - {display_condition}"
         
         # Step 1: Duplicate the product
         mutation = """
@@ -258,14 +453,40 @@ class CreateOpenBoxTool(BaseMCPTool):
         variant_id = variant['id']
         inventory_item_id = variant['inventoryItem']['id']
         
+        # Get original variant option values for productSet
+        original_variant = original['variants']['edges'][0]['node']
+        
         # Build description with note if provided
         description_html = original.get('descriptionHtml', '')
         if note:
             description_html = f"<p><strong>Open Box Note:</strong> {note}</p>\n{description_html}"
         
-        # Prepare tags
+        # Prepare tags with complete open box tagging logic
         original_tags = original.get('tags', [])
-        tags = original_tags + ['open-box', f'ob-{yymm}']
+        yymm_dd = now.strftime("%y%m%d")  # YYMMDD format for specific date tag
+        
+        # Base open box tags
+        new_tags = ['open-box', 'openbox', f'ob-{yymm}', f'ob-{yymm_dd}']
+        
+        # Add condition-specific tags based on condition type
+        condition_tag_map = {
+            '14-day-return': 'ob-return-d',
+            '45-day-return': 'ob-return-45-d',
+            'used-trade-in': 'ob-used-d',
+            'store-demo': 'ob-storedemo-d',
+            'open-box': 'ob-openbox-d',
+            'shipping-damage': 'ob-damage-d',
+            'last-ones': 'ob-lastones-d',
+            'imperfection': 'ob-imperfection-d',
+            'return': 'ob-return-d'  # Generic return (backward compatibility)
+        }
+        
+        # Add condition-specific tag if mapping exists
+        condition_tag = condition_tag_map.get(condition_lower)
+        if condition_tag:
+            new_tags.append(condition_tag)
+            
+        tags = original_tags + new_tags
         
         # Update using productSet
         mutation = """
@@ -289,14 +510,13 @@ class CreateOpenBoxTool(BaseMCPTool):
             "title": ob_title,
             "descriptionHtml": description_html,
             "tags": tags,
+            "productOptions": [{"name": opt["name"], "values": [{"name": val} for val in opt["values"]]} for opt in original.get("options", [])],
             "variants": [{
                 "id": variant_id,
                 "price": str(ob_price),
                 "compareAtPrice": str(original_price),
-                "inventoryItem": {
-                    "id": inventory_item_id,
-                    "sku": ob_sku
-                }
+                "inventoryPolicy": "DENY",
+                "optionValues": [{"optionName": option["name"], "name": option["value"]} for option in original_variant.get("selectedOptions", [])]
             }]
         }
         
@@ -317,6 +537,12 @@ class CreateOpenBoxTool(BaseMCPTool):
             }
         
         updated_product = result['data']['productSet']['product']
+        
+        # Step 3: Update SKU, price, and inventory policy using productVariantsBulkUpdate 
+        await self._update_variant_sku_and_policy(client, product_id, variant_id, ob_sku, ob_price)
+        
+        # Step 4: Set inventory quantity to 1 using separate mutation (required for existing variants)
+        await self._adjust_inventory_quantity(client, inventory_item_id)
         
         # Calculate savings
         savings = original_price - ob_price
