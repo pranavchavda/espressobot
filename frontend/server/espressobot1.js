@@ -1285,6 +1285,45 @@ IMPORTANT: If the output contains actual data (SKUs, prices, inventory counts, e
               bulkOperationState.lastCheckpointIndex = saved.checkpointIndex;
               console.log(`[Chokidar] Saved checkpoint ${saved.checkpointIndex}`);
             }
+            
+            // AUTO-UPDATE TASK STATUS: If progress tracker identified completed work,
+            // automatically update task status to match reality
+            if (progress.progress.completed && progress.progress.completed.length > 0) {
+              try {
+                console.log(`[Chokidar] Progress tracker found ${progress.progress.completed.length} completed items - auto-updating task status`);
+                
+                // Try to update task status for bulk operations
+                const { readTasksForConversation, updateTaskStatus } = await import('./utils/task-reader.js');
+                const tasksResult = await readTasksForConversation(bulkOperationState.conversationId);
+                
+                if (tasksResult.success && tasksResult.tasks.length > 0) {
+                  // Find tasks that should be marked complete based on progress
+                  const bulkTasks = tasksResult.tasks.filter(task => 
+                    task.status !== 'completed' && 
+                    (task.description.toLowerCase().includes('search') ||
+                     task.description.toLowerCase().includes('process') ||
+                     task.description.toLowerCase().includes('update') ||
+                     task.description.toLowerCase().includes('create'))
+                  );
+                  
+                  // If we have concrete completed items and bulk work is substantially done
+                  const completionRatio = progress.progress.stats.completed / (progress.progress.stats.total || bulkOperationState.expectedItems || 1);
+                  
+                  if (completionRatio >= 0.8 || progress.progress.stats.completed >= bulkOperationState.expectedItems) {
+                    // Mark relevant tasks as completed
+                    for (let i = 0; i < Math.min(bulkTasks.length, 2); i++) {
+                      const taskIndex = tasksResult.tasks.indexOf(bulkTasks[i]);
+                      if (taskIndex >= 0) {
+                        await updateTaskStatus(bulkOperationState.conversationId, taskIndex, 'completed');
+                        console.log(`[Chokidar] Auto-completed task ${taskIndex}: ${bulkTasks[i].description.substring(0, 50)}...`);
+                      }
+                    }
+                  }
+                }
+              } catch (taskUpdateError) {
+                console.error('[Chokidar] Failed to auto-update task status:', taskUpdateError.message);
+              }
+            }
           }
         } catch (checkpointError) {
           console.error('[Chokidar] Failed to save checkpoint:', checkpointError.message);
