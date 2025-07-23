@@ -439,3 +439,4 @@ Successfully split the monolithic Python MCP server into specialized servers:
 
 *Last Updated: July 21, 2025*
 ```
+IMPORTANT: This repo is indexed on DeepWiki and the DeepWiki MCP can be invoked to gather context about the code instead of having to search through and read the code directly. https://deepwiki.com/pranavchavda/espressobot
