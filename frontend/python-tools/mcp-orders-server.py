@@ -19,6 +19,10 @@ logger = logging.getLogger('orders-server')
 
 # Import base server and tools
 from mcp_base_server import EnhancedMCPServer as MCPServerBase
+
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 from mcp_tools.analytics import (
     OrderAnalyticsTool,
     DailySalesTool,
@@ -38,6 +42,10 @@ class OrdersServer(MCPServerBase):
         self.add_tool(OrderAnalyticsTool())
         self.add_tool(DailySalesTool())
         self.add_tool(RevenueReportsTool())
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
         
         logger.info(f"Orders MCP Server initialized with {len(self.tools)} tools")
     

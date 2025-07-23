@@ -593,7 +593,26 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
     const textToSend =
       typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
-    if (!textToSend || !streamingMessage || !convId) return;
+    console.log('[DEBUG] handleInjectMessage called:', {
+      textToSend,
+      hasStreamingMessage: !!streamingMessage,
+      streamingMessageState: streamingMessage ? {
+        isStreaming: streamingMessage.isStreaming,
+        isComplete: streamingMessage.isComplete,
+        content: streamingMessage.content?.substring(0, 50) + '...'
+      } : null,
+      convId,
+      activeConv
+    });
+
+    if (!textToSend || !streamingMessage || !convId) {
+      console.log('[DEBUG] handleInjectMessage early return:', {
+        noText: !textToSend,
+        noStreamingMessage: !streamingMessage,
+        noConvId: !convId
+      });
+      return;
+    }
 
     try {
       const token = localStorage.getItem('authToken');
@@ -640,8 +659,19 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
     const textToSend =
       typeof messageContent === "string" ? messageContent.trim() : input.trim();
 
+    console.log('[DEBUG] handleSend called:', {
+      textToSend,
+      streamingState: streamingMessage ? {
+        isStreaming: streamingMessage.isStreaming,
+        isComplete: streamingMessage.isComplete,
+        hasContent: !!streamingMessage.content
+      } : null,
+      shouldInject: streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
+    });
+
     // If agent is running, inject message instead
     if (streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete) {
+      console.log('[DEBUG] Routing to handleInjectMessage');
       return handleInjectMessage(messageContent);
     }
 
@@ -1289,6 +1319,20 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
                   setDispatcherStatus("");
                   setSynthesizerStatus("");
                   setIsSending(false);
+                  break;
+                
+                case 'bulk_retry':
+                  console.log("FRONTEND: Received 'bulk_retry' event", JSON.stringify(actualEventPayload));
+                  setToolCallStatus(actualEventPayload.message || "Bulk operation continuing...");
+                  // Keep streaming state active during bulk operation retry
+                  setStreamingMessage(prev => ({ 
+                    ...prev, 
+                    content: (prev?.content || "") + (actualEventPayload.injectedMessages > 0 ? 
+                      `\n\n*Continuing with ${actualEventPayload.injectedMessages} user update(s)...*` : 
+                      "\n\n*Continuing bulk operation...*"), 
+                    isStreaming: true, 
+                    isComplete: false 
+                  }));
                   break;
                 case 'approval_required':
                   console.log("FRONTEND: Approval required", actualEventPayload);

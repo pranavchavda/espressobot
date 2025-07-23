@@ -19,6 +19,9 @@ from mcp_base_server import EnhancedMCPServer, MCPResource, MCPPrompt
 # Import only the utility tools
 from mcp_tools.memory.operations import MemoryOperationsTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class UtilityMCPServer(EnhancedMCPServer):
     """Specialized MCP server for utility operations"""
@@ -34,6 +37,10 @@ class UtilityMCPServer(EnhancedMCPServer):
         # Add the utility tool
         self.add_tool(MemoryOperationsTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup utility-related resources"""
         # Resource for memory management guidelines

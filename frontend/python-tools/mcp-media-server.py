@@ -19,6 +19,9 @@ from mcp_base_server import EnhancedMCPServer, MCPResource, MCPPrompt
 # Import only the media-related tools
 from mcp_tools.media.add_images import AddProductImagesTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class MediaMCPServer(EnhancedMCPServer):
     """Specialized MCP server for media operations"""
@@ -34,6 +37,10 @@ class MediaMCPServer(EnhancedMCPServer):
         # Add the media tool
         self.add_tool(AddProductImagesTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup media-related resources"""
         # Resource for image guidelines

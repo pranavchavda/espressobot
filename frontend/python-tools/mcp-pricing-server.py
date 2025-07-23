@@ -21,6 +21,9 @@ from mcp_tools.pricing.update import UpdatePricingTool
 from mcp_tools.pricing.bulk_update import BulkPriceUpdateTool
 from mcp_tools.pricing.update_costs import UpdateCostsTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class PricingMCPServer(EnhancedMCPServer):
     """Specialized MCP server for pricing operations"""
@@ -37,6 +40,10 @@ class PricingMCPServer(EnhancedMCPServer):
         self.add_tool(BulkPriceUpdateTool())
         self.add_tool(UpdateCostsTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup pricing-related resources"""
         # Resource for pricing rules

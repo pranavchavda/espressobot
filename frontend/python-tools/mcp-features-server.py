@@ -21,6 +21,9 @@ from mcp_tools.features.manage_metaobjects import ManageFeaturesMetaobjectsTool
 from mcp_tools.products.update_metafields import UpdateMetafieldsTool
 from mcp_tools.products.manage_variant_links import ManageVariantLinksTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class FeaturesMCPServer(EnhancedMCPServer):
     """Specialized MCP server for product features and content management"""
@@ -37,6 +40,10 @@ class FeaturesMCPServer(EnhancedMCPServer):
         self.add_tool(UpdateMetafieldsTool())
         self.add_tool(ManageVariantLinksTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup features-related resources"""
         # Resource for metafield structure

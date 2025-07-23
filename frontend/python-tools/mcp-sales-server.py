@@ -20,6 +20,9 @@ from mcp_base_server import EnhancedMCPServer, MCPResource, MCPPrompt
 from mcp_tools.sales.manage_miele_sales import ManageMieleSalesTool
 from mcp_tools.sales.manage_map_sales import ManageMapSalesTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class SalesMCPServer(EnhancedMCPServer):
     """Specialized MCP server for sales and promotion management"""
@@ -35,6 +38,10 @@ class SalesMCPServer(EnhancedMCPServer):
         self.add_tool(ManageMieleSalesTool())
         self.add_tool(ManageMapSalesTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup sales-related resources"""
         # Resource for MAP pricing rules

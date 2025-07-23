@@ -10,8 +10,9 @@ import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
 import TasksPage from './pages/TasksPage';
 import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
+import DashboardPage from './pages/DashboardPage';
 import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon } from 'lucide-react';
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, FileTextIcon } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
@@ -19,6 +20,7 @@ import { Heading } from "@common/heading";
 import { MemoryManagementModal } from './components/memory/MemoryManagementModal';
 import TopNavDropdown from './components/common/TopNavDropdown';
 import LogDrawer from './components/LogDrawer';
+import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -30,6 +32,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [showLogDrawer, setShowLogDrawer] = useState(false);
+  const [showScratchpadDialog, setShowScratchpadDialog] = useState(false);
   
   // Keyboard shortcut for log drawer (Ctrl/Cmd + Shift + L)
   useEffect(() => {
@@ -232,6 +235,15 @@ function App() {
                   >
                     <MessageSquarePlusIcon className="h-4 w-4" /> New Chat
                   </Button>
+              
+              <Button 
+                    className="w-full cursor-pointer mb-4"
+                    color="zinc"
+                    outline
+                    onClick={() => setShowScratchpadDialog(true)}
+                  >
+                    <FileTextIcon className="h-4 w-4" /> Scratchpad
+                  </Button>
               <Divider
               soft = "true"
               />
@@ -248,8 +260,7 @@ function App() {
                       
                       <Button
                           outline
-                          small
-                          className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                          className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-xs"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -324,6 +335,7 @@ function App() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />
         <Route path="/admin/memory" element={
@@ -347,6 +359,12 @@ function App() {
       isOpen={showLogDrawer}
       onToggle={() => setShowLogDrawer(prev => !prev)}
       token={localStorage.getItem('authToken')}
+    />
+    
+    {/* Scratchpad Dialog */}
+    <ScratchpadDialog 
+      isOpen={showScratchpadDialog}
+      onClose={() => setShowScratchpadDialog(false)}
     />
     </>
   );

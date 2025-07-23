@@ -22,6 +22,9 @@ from mcp_tools.skuvault.manage_kits import ManageSkuVaultKitsTool
 from mcp_tools.marketing.send_review_request import SendReviewRequestTool
 from mcp_tools.research.perplexity import PerplexityResearchTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class IntegrationsMCPServer(EnhancedMCPServer):
     """Specialized MCP server for external integrations"""
@@ -40,6 +43,10 @@ class IntegrationsMCPServer(EnhancedMCPServer):
         self.add_tool(SendReviewRequestTool())
         self.add_tool(PerplexityResearchTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup integration-related resources"""
         # Resource for SkuVault integration guidelines

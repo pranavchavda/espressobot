@@ -188,6 +188,14 @@ export default defineConfig({
         const { setupGuardrailRoutes } = await import('./server/api/guardrail-decision-handler.js');
         setupGuardrailRoutes(apiApp);
         
+        // Dashboard analytics routes
+        const dashboardAnalyticsRoutes = (await import('./server/api/dashboard-analytics.js')).default;
+        apiApp.use('/api/dashboard', dashboardAnalyticsRoutes);
+        
+        // Scratchpad routes
+        const scratchpadRoutes = (await import('./server/api/scratchpad.js')).default;
+        apiApp.use('/api/scratchpad', scratchpadRoutes);
+        
         server.middlewares.use(apiApp);
       },
     },

@@ -280,3 +280,25 @@ class EnhancedMCPServer:
                 logger.error(f"Server error: {e}")
                 
         logger.info("Server shutting down")
+    def add_tool_from_def(self, tool_def):
+        """Add a tool from a tool definition dictionary"""
+        class DynamicTool:
+            def __init__(self, name, description, input_schema, handler):
+                self.name = name
+                self.description = description
+                self.input_schema = input_schema
+                self._handler = handler
+            
+            async def execute(self, **kwargs):
+                if asyncio.iscoroutinefunction(self._handler):
+                    return await self._handler(**kwargs)
+                else:
+                    return self._handler(**kwargs)
+        
+        tool = DynamicTool(
+            tool_def['name'],
+            tool_def['description'], 
+            tool_def['inputSchema'],
+            tool_def['handler']
+        )
+        self.add_tool(tool)

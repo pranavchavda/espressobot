@@ -21,6 +21,9 @@ from mcp_tools.inventory.manage_policy import ManageInventoryPolicyTool
 from mcp_tools.products.manage_tags import ManageTagsTool
 from mcp_tools.store.manage_redirects import ManageRedirectsTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class InventoryMCPServer(EnhancedMCPServer):
     """Specialized MCP server for inventory and catalog management"""
@@ -37,6 +40,10 @@ class InventoryMCPServer(EnhancedMCPServer):
         self.add_tool(ManageTagsTool())
         self.add_tool(ManageRedirectsTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup inventory-related resources"""
         # Resource for inventory policies

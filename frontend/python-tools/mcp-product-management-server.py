@@ -23,6 +23,9 @@ from mcp_tools.products.add_variants import AddVariantsTool
 from mcp_tools.products.create_combo import CreateComboTool
 from mcp_tools.products.create_open_box import CreateOpenBoxTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 
 class ProductManagementMCPServer(EnhancedMCPServer):
     """Specialized MCP server for advanced product management"""
@@ -42,6 +45,10 @@ class ProductManagementMCPServer(EnhancedMCPServer):
         self.add_tool(CreateComboTool())
         self.add_tool(CreateOpenBoxTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup product management resources"""
         # Resource for product creation templates

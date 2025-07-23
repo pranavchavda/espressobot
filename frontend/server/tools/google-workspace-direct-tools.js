@@ -9,6 +9,8 @@ import { google } from 'googleapis';
 import { tool } from '@openai/agents';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+import path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -229,35 +231,318 @@ export function createCalendarTools() {
 }
 
 /**
+ * Extract folder ID from Google Drive URL
+ */
+function extractFolderIdFromUrl(url) {
+  if (!url) return null;
+  
+  // Handle various Google Drive folder URL formats
+  const patterns = [
+    /\/folders\/([a-zA-Z0-9-_]+)/,  // https://drive.google.com/drive/folders/FOLDER_ID
+    /\/drive\/u\/\d+\/folders\/([a-zA-Z0-9-_]+)/, // https://drive.google.com/drive/u/0/folders/FOLDER_ID
+    /id=([a-zA-Z0-9-_]+)/, // https://drive.google.com/drive/folders/FOLDER_ID?id=FOLDER_ID
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  
+  return null;
+}
+
+/**
  * Drive Tools  
  */
 export function createDriveTools() {
   return [
     tool({
       name: 'drive_search',
-      description: 'Search Google Drive files',
+      description: 'Search Google Drive files, optionally within a specific folder',
       parameters: z.object({
         query: z.string().describe('Search query'),
         mimeType: z.string().nullable().default(null).describe('Filter by MIME type (e.g., "application/vnd.google-apps.document")'),
-        maxResults: z.number().default(10).describe('Maximum results')
+        maxResults: z.number().default(10).describe('Maximum results'),
+        folderUrl: z.string().nullable().default(null).describe('Google Drive folder URL to search within (optional)'),
+        folderId: z.string().nullable().default(null).describe('Google Drive folder ID to search within (optional)')
       }),
-      execute: async ({ query, mimeType, maxResults }) => {
+      execute: async ({ query, mimeType, maxResults, folderUrl, folderId }) => {
         const userId = global.currentUserId;
         const auth = await getAuthClient(userId);
         const drive = google.drive({ version: 'v3', auth });
+        
+        // Extract folder ID from URL if provided
+        const targetFolderId = folderId || extractFolderIdFromUrl(folderUrl);
         
         let q = `name contains '${query}'`;
         if (mimeType) {
           q += ` and mimeType='${mimeType}'`;
         }
+        if (targetFolderId) {
+          q += ` and '${targetFolderId}' in parents`;
+        }
         
         const response = await drive.files.list({
           q,
           pageSize: maxResults,
-          fields: 'files(id, name, mimeType, webViewLink, modifiedTime)'
+          fields: 'files(id, name, mimeType, webViewLink, modifiedTime, parents)'
         });
         
-        return { files: response.data.files };
+        return { 
+          files: response.data.files,
+          searchedInFolder: targetFolderId ? { id: targetFolderId, url: folderUrl } : null
+        };
+      }
+    }),
+
+    tool({
+      name: 'drive_list_folder',
+      description: 'List all files in a specific Google Drive folder',
+      parameters: z.object({
+        folderUrl: z.string().nullable().default(null).describe('Google Drive folder URL'),
+        folderId: z.string().nullable().default(null).describe('Google Drive folder ID'),
+        maxResults: z.number().default(50).describe('Maximum results'),
+        includeSubfolders: z.boolean().default(false).describe('Include files from subfolders')
+      }),
+      execute: async ({ folderUrl, folderId, maxResults, includeSubfolders }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const drive = google.drive({ version: 'v3', auth });
+        
+        // Extract folder ID from URL if provided
+        const targetFolderId = folderId || extractFolderIdFromUrl(folderUrl);
+        
+        if (!targetFolderId) {
+          return {
+            success: false,
+            error: 'No valid folder ID or URL provided'
+          };
+        }
+        
+        try {
+          // Get folder information first
+          const folderInfo = await drive.files.get({
+            fileId: targetFolderId,
+            fields: 'id, name, mimeType, webViewLink'
+          });
+          
+          // Build query
+          let q = `'${targetFolderId}' in parents and trashed=false`;
+          
+          const response = await drive.files.list({
+            q,
+            pageSize: maxResults,
+            fields: 'files(id, name, mimeType, webViewLink, modifiedTime, size, parents), nextPageToken',
+            orderBy: 'name'
+          });
+          
+          const files = response.data.files || [];
+          
+          // Separate folders and files
+          const folders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
+          const regularFiles = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
+          
+          return {
+            success: true,
+            folder: {
+              id: folderInfo.data.id,
+              name: folderInfo.data.name,
+              webViewLink: folderInfo.data.webViewLink
+            },
+            totalFiles: files.length,
+            folders: folders.map(f => ({
+              id: f.id,
+              name: f.name,
+              webViewLink: f.webViewLink,
+              modifiedTime: f.modifiedTime
+            })),
+            files: regularFiles.map(f => ({
+              id: f.id,
+              name: f.name,
+              mimeType: f.mimeType,
+              webViewLink: f.webViewLink,
+              modifiedTime: f.modifiedTime,
+              size: f.size
+            })),
+            hasMore: !!response.data.nextPageToken
+          };
+          
+        } catch (error) {
+          return {
+            success: false,
+            error: error.message,
+            message: `Failed to list folder contents for ID: ${targetFolderId}`
+          };
+        }
+      }
+    }),
+
+    tool({
+      name: 'drive_download',
+      description: 'Download a Google Drive file to local filesystem',
+      parameters: z.object({
+        fileId: z.string().describe('Google Drive file ID'),
+        fileName: z.string().nullable().default(null).describe('Optional custom filename (will use original name if not provided)'),
+        downloadPath: z.string().default('./downloads').describe('Local directory to save file (default: ./downloads)')
+      }),
+      execute: async ({ fileId, fileName, downloadPath }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const drive = google.drive({ version: 'v3', auth });
+        
+        try {
+          // Get file metadata first
+          const fileMetadata = await drive.files.get({
+            fileId,
+            fields: 'id, name, mimeType, size'
+          });
+          
+          const originalName = fileMetadata.data.name;
+          const mimeType = fileMetadata.data.mimeType;
+          const finalFileName = fileName || originalName;
+          
+          // Ensure download directory exists
+          if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath, { recursive: true });
+          }
+          
+          const filePath = path.join(downloadPath, finalFileName);
+          
+          // Handle Google Workspace files (need to export to different format)
+          if (mimeType.startsWith('application/vnd.google-apps.')) {
+            let exportMimeType;
+            let extension = '';
+            
+            switch (mimeType) {
+              case 'application/vnd.google-apps.document':
+                exportMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                extension = '.docx';
+                break;
+              case 'application/vnd.google-apps.spreadsheet':
+                exportMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                extension = '.xlsx';
+                break;
+              case 'application/vnd.google-apps.presentation':
+                exportMimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+                extension = '.pptx';
+                break;
+              case 'application/vnd.google-apps.drawing':
+                exportMimeType = 'image/png';
+                extension = '.png';
+                break;
+              default:
+                // For other Google Apps formats, try PDF
+                exportMimeType = 'application/pdf';
+                extension = '.pdf';
+            }
+            
+            // Add extension if not already present
+            const finalFileNameWithExt = finalFileName.includes('.') ? finalFileName : finalFileName + extension;
+            const finalFilePath = path.join(downloadPath, finalFileNameWithExt);
+            
+            const response = await drive.files.export({
+              fileId,
+              mimeType: exportMimeType
+            }, { responseType: 'stream' });
+            
+            const writer = fs.createWriteStream(finalFilePath);
+            response.data.pipe(writer);
+            
+            return new Promise((resolve, reject) => {
+              writer.on('finish', () => {
+                resolve({
+                  success: true,
+                  fileName: finalFileNameWithExt,
+                  filePath: finalFilePath,
+                  originalName,
+                  mimeType,
+                  exportFormat: exportMimeType,
+                  message: `Google Workspace file "${originalName}" exported and downloaded as ${finalFileNameWithExt}`
+                });
+              });
+              writer.on('error', reject);
+            });
+            
+          } else {
+            // Handle regular files (images, PDFs, etc.)
+            const response = await drive.files.get({
+              fileId,
+              alt: 'media'
+            }, { responseType: 'stream' });
+            
+            const writer = fs.createWriteStream(filePath);
+            response.data.pipe(writer);
+            
+            return new Promise((resolve, reject) => {
+              writer.on('finish', () => {
+                resolve({
+                  success: true,
+                  fileName: finalFileName,
+                  filePath,
+                  originalName,
+                  mimeType,
+                  size: fileMetadata.data.size,
+                  message: `File "${originalName}" downloaded successfully`
+                });
+              });
+              writer.on('error', reject);
+            });
+          }
+          
+        } catch (error) {
+          return {
+            success: false,
+            error: error.message,
+            message: `Failed to download file with ID: ${fileId}`
+          };
+        }
+      }
+    }),
+
+    tool({
+      name: 'drive_get_file_info',
+      description: 'Get detailed information about a Google Drive file including download URL',
+      parameters: z.object({
+        fileId: z.string().describe('Google Drive file ID')
+      }),
+      execute: async ({ fileId }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const drive = google.drive({ version: 'v3', auth });
+        
+        try {
+          const response = await drive.files.get({
+            fileId,
+            fields: 'id, name, mimeType, size, webViewLink, webContentLink, downloadUrl, parents, createdTime, modifiedTime, owners, permissions'
+          });
+          
+          const file = response.data;
+          
+          return {
+            success: true,
+            file: {
+              id: file.id,
+              name: file.name,
+              mimeType: file.mimeType,
+              size: file.size,
+              webViewLink: file.webViewLink,
+              webContentLink: file.webContentLink,
+              downloadUrl: file.downloadUrl,
+              parents: file.parents,
+              createdTime: file.createdTime,
+              modifiedTime: file.modifiedTime,
+              owners: file.owners,
+              isGoogleWorkspaceFile: file.mimeType?.startsWith('application/vnd.google-apps.'),
+              canDownloadDirectly: !file.mimeType?.startsWith('application/vnd.google-apps.')
+            }
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error.message,
+            message: `Failed to get file info for ID: ${fileId}`
+          };
+        }
       }
     })
   ];

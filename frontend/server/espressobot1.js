@@ -58,6 +58,7 @@ import {
 } from './tools/direct-mcp-agent-tools.js';
 import { createInjectContextTool, createManageInjectionTool } from './tools/inject-context-tool.js';
 import { messageInjector } from './utils/agent-message-injector.js';
+import { scratchpadTool } from './tools/scratchpad-tool.js';
 
 // Set API key
 setDefaultOpenAIKey(process.env.OPENAI_API_KEY);
@@ -1527,6 +1528,7 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
     parseFileTool,
     saveFileTool,
     fileOperationsTool,
+    scratchpadTool,
     tool({
       name: 'task_planner',
       description: 'Analyze requests and create structured task plans with actionable steps. Pass any context you deem relevant.',
@@ -2585,6 +2587,28 @@ export async function runDynamicOrchestrator(message, options = {}) {
         ).join('\n')}\n`;
       }
       
+      // Check for injected messages during bulk operation
+      let injectedMessagesContext = '';
+      try {
+        const { messageInjector } = await import('./utils/agent-message-injector.js');
+        const pendingMessages = messageInjector.getPendingMessages(conversationId);
+        
+        if (pendingMessages.length > 0) {
+          console.log(`[Guardrail] Found ${pendingMessages.length} pending injected messages during bulk operation`);
+          injectedMessagesContext = '\n\n[USER UPDATES DURING EXECUTION]\n';
+          
+          // Process all pending messages
+          for (const message of pendingMessages) {
+            injectedMessagesContext += `User: ${message.message}\n`;
+            messageInjector.markInjected(message.id, conversationId);
+          }
+          
+          injectedMessagesContext += '\n[IMPORTANT] Incorporate these user updates into your continued work.\n';
+        }
+      } catch (error) {
+        console.log('[Guardrail] Warning: Could not check for injected messages:', error.message);
+      }
+
       // Build continuation prompt using original context + guardrail enforcement
       let continuationPrompt = '';
       
@@ -2594,7 +2618,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
         continuationPrompt = global.currentOriginalContextualMessage + `
 
 [PREVIOUS WORK COMPLETED BY AGENT] 
-${preservedContent}
+${preservedContent}${injectedMessagesContext}
 
 [GUARDRAIL ENFORCEMENT] The bulk operation is INCOMPLETE. You attempted to return control to the user, but this is prohibited during bulk operations.
 
@@ -2628,7 +2652,7 @@ CONTINUE NOW with the next item using proper MCP tools.`;
 User: ${global.currentBaseMessage || 'Continue bulk operation'}
 
 [PREVIOUS WORK COMPLETED] 
-${preservedContent}
+${preservedContent}${injectedMessagesContext}
 
 [GUARDRAIL ENFORCEMENT] The bulk operation is INCOMPLETE. You attempted to return control to the user, but this is prohibited during bulk operations.
 
@@ -2647,6 +2671,28 @@ CONTINUE NOW with the next item using the appropriate specialized agent. Ensure 
       }
 
       console.log('[Guardrail] 🔄 FORCING RETRY with continuation prompt');
+      
+      // Notify frontend that agent is continuing work (bulk operation retry)
+      if (sseEmitter) {
+        try {
+          sseEmitter('bulk_retry', {
+            message: 'Bulk operation continuing - processing remaining items...',
+            itemsCompleted: bulkOperationState.completedItems,
+            itemsRemaining: Math.max(0, bulkOperationState.expectedItems - bulkOperationState.completedItems),
+            injectedMessages: injectedMessagesContext ? injectedMessagesContext.split('User:').length - 1 : 0
+          });
+        } catch (error) {
+          console.log('[Guardrail] Warning: Could not send bulk retry SSE event:', error.message);
+        }
+      }
+      
+      // Ensure message injector knows agent is still running during retry
+      try {
+        const { messageInjector } = await import('./utils/agent-message-injector.js');
+        messageInjector.setAgentRunning(conversationId, true);
+      } catch (error) {
+        console.log('[Guardrail] Warning: Could not update message injector state:', error.message);
+      }
       
       // Recursively call the orchestrator with continuation prompt
       try {

@@ -23,6 +23,9 @@ from mcp_tools.products.create import CreateProductTool
 from mcp_tools.products.update_status import UpdateStatusTool
 from mcp_tools.products.update_variant_weight import UpdateVariantWeightTool
 
+# Scratchpad functionality
+from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
+
 # Import GraphQL tools for collections and advanced operations
 from mcp_tools.graphql.query import GraphQLQueryTool
 from mcp_tools.graphql.mutation import GraphQLMutationTool
@@ -50,6 +53,10 @@ class ProductsMCPServer(EnhancedMCPServer):
         self.add_tool(GraphQLQueryTool())
         self.add_tool(GraphQLMutationTool())
         
+        
+        # Add scratchpad tools
+        for tool_def in SCRATCHPAD_TOOLS:
+            self.add_tool_from_def(tool_def)
     def _setup_resources(self):
         """Setup product-related resources"""
         # Resource for product creation guidelines
