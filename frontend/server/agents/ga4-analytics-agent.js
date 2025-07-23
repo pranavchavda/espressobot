@@ -110,7 +110,7 @@ IMPORTANT:
     name: 'GA4 Analytics Agent',
     instructions: systemPrompt,
     tools,
-    model: 'gpt-4o'
+    model: 'gpt-4.1'
   });
 
   return agent;

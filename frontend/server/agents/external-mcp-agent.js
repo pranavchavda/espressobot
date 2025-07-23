@@ -117,7 +117,7 @@ Available MCP servers and their capabilities:`;
     name: 'External MCP Agent',
     instructions: finalInstructions,
     mcpServers: mcpServers,
-    model: process.env.OPENAI_MODEL || 'gpt-4o',
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
     toolUseBehavior: 'run_llm_again'
   });
 
