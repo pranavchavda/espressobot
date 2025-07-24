@@ -50,9 +50,9 @@ const DashboardPage = () => {
       const usersMatch = responseText.match(/Active Users[:\s]*(\d+)/i);
       if (usersMatch) metrics.ga4.users = usersMatch[1];
 
-      // Extract ROAS
-      const roasMatch = responseText.match(/ROAS[:\s]*([\d.]+)/i);
-      if (roasMatch) metrics.ga4.roas = roasMatch[1];
+      // Extract Ad Spend
+      const adSpendMatch = responseText.match(/Ad Spend[:\s]*\$?([\d,]+\.?\d*)/i);
+      if (adSpendMatch) metrics.ga4.ad_spend = adSpendMatch[1];
 
       return metrics;
     } catch (error) {
@@ -101,7 +101,7 @@ const DashboardPage = () => {
         },
         ga4: {
           users: data.ga4.users,
-          roas: data.ga4.roas
+          ad_spend: data.ga4.ad_spend
         }
       });
       setLastUpdated(new Date().toLocaleString());
@@ -317,9 +317,9 @@ const DashboardPage = () => {
             <div className="bg-white rounded-lg border border-zinc-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
-                  <Text className="text-sm font-medium text-zinc-600">ROAS</Text>
+                  <Text className="text-sm font-medium text-zinc-600">Ad Spend</Text>
                   <div className="text-2xl font-bold text-zinc-900 mt-1">
-                    {parsedMetrics?.ga4?.roas ? `${parsedMetrics.ga4.roas}x` : 'Loading...'}
+                    {dashboardData?.ga4?.ad_spend ? `$${dashboardData.ga4.ad_spend}` : 'Loading...'}
                   </div>
                   <Text className="text-xs text-zinc-500 mt-1">
                     {startDate === endDate ? 
@@ -329,7 +329,7 @@ const DashboardPage = () => {
                   </Text>
                 </div>
                 <div className="p-3 bg-orange-100 rounded-full">
-                  <TargetIcon className="h-8 w-8 text-orange-600" />
+                  <DollarSignIcon className="h-8 w-8 text-orange-600" />
                 </div>
               </div>
             </div>
