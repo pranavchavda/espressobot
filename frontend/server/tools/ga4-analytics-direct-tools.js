@@ -47,6 +47,17 @@ async function getAuthClient(userId) {
     refresh_token: user.google_refresh_token
   });
 
+  // Handle token refresh if needed
+  oauth2Client.on('tokens', async (tokens) => {
+    await prisma.users.update({
+      where: { id: userId },
+      data: {
+        google_access_token: tokens.access_token,
+        google_token_expiry: new Date(Date.now() + (tokens.expiry_date || 3600000))
+      }
+    });
+  });
+
   // Check if user has analytics scope
   try {
     const tokenInfo = await oauth2Client.getTokenInfo(user.google_access_token);
