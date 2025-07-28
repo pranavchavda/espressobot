@@ -22,7 +22,7 @@ router.get('/all', authenticateToken, isAdmin, async (req, res) => {
     const memories = await simpleLocalMemory.getAll(userId, limit);
     
     // Get statistics
-    const stats = simpleLocalMemory.getStats();
+    const stats = await simpleLocalMemory.getStats();
     
     res.json({
       memories,
@@ -60,7 +60,7 @@ router.get('/search', authenticateToken, isAdmin, async (req, res) => {
 // Get memory statistics
 router.get('/stats', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const stats = simpleLocalMemory.getStats();
+    const stats = await simpleLocalMemory.getStats();
     res.json(stats);
   } catch (error) {
     console.error('Error getting memory stats:', error);
@@ -113,7 +113,7 @@ router.delete('/user/:userId', authenticateToken, isAdmin, async (req, res) => {
 // Get all unique user IDs that have memories
 router.get('/users', authenticateToken, isAdmin, async (req, res) => {
   try {
-    const stats = simpleLocalMemory.getStats();
+    const stats = await simpleLocalMemory.getStats();
     const users = stats.byUser.map(u => ({
       userId: u.user_id,
       memoryCount: u.count
