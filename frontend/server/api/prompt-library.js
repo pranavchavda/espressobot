@@ -201,7 +201,7 @@ router.post('/export', authenticateToken, async (req, res) => {
       exported_at: new Date().toISOString(),
       exported_by: req.user?.email || 'unknown',
       fragments: fragments.map(f => ({
-        content: f.memory,
+        content: f.content || f.memory || 'No content',
         metadata: f.metadata
       }))
     };
@@ -294,7 +294,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
       by_priority: {},
       recent: fragments.slice(0, 5).map(f => ({
         id: f.id,
-        preview: f.memory.substring(0, 50) + '...',
+        preview: (f.content || f.memory || 'No content').substring(0, 50) + '...',
         created_at: f.createdAt
       }))
     };

@@ -273,7 +273,7 @@ export default function PromptLibraryManager() {
   const openEditModal = (fragment) => {
     setEditingFragment(fragment);
     setFormData({
-      fragment: fragment.memory,
+      fragment: fragment.content || fragment.memory || '',
       category: fragment.metadata?.category || 'general',
       priority: fragment.metadata?.priority || 'medium',
       agent_type: fragment.metadata?.agent_type || 'all',
@@ -403,7 +403,7 @@ export default function PromptLibraryManager() {
               <div key={fragment.id} className="border rounded-lg p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800">
                 <div className="flex justify-between items-start">
                   <div className="flex-1 mr-4">
-                    <p className="text-sm mb-2">{fragment.memory}</p>
+                    <p className="text-sm mb-2">{fragment.content || fragment.memory || 'No content available'}</p>
                     <div className="flex gap-2 items-center">
                       <Badge color={fragment.metadata?.category === 'tools' ? 'blue' : 
                                    fragment.metadata?.category === 'errors' ? 'red' : 'zinc'}>
