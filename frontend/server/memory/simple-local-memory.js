@@ -391,6 +391,7 @@ async function getMemoryStats() {
 
 // Create a compatible object that matches the old SQLite interface
 const simpleLocalMemory = {
+  // New interface (preferred)
   searchMemories,
   addMemory,
   updateMemory,
@@ -398,7 +399,45 @@ const simpleLocalMemory = {
   deleteUserMemories,
   getUserMemories,
   getMemoryStats,
-  createEmbedding
+  createEmbedding,
+  
+  // Legacy interface for backward compatibility
+  search: async (query, userId, limit = 10) => {
+    return await searchMemories(query, userId, { limit, strategy: 'hybrid' });
+  },
+  
+  getAll: async (userId = null, limit = 100) => {
+    if (userId) {
+      return await getUserMemories(userId, { limit });
+    } else {
+      // Get all memories for all users
+      const stats = await getMemoryStats();
+      const allMemories = [];
+      
+      for (const userStat of stats.byUser) {
+        const userMemories = await getUserMemories(userStat.user_id, { limit: 1000 });
+        allMemories.push(...userMemories);
+      }
+      
+      return allMemories.slice(0, limit);
+    }
+  },
+  
+  getStats: async () => {
+    return await getMemoryStats();
+  },
+  
+  update: async (memoryId, content, metadata = null) => {
+    return await updateMemory(memoryId, content, metadata);
+  },
+  
+  delete: async (memoryId) => {
+    return await deleteMemory(memoryId);
+  },
+  
+  deleteAll: async (userId) => {
+    return await deleteUserMemories(userId);
+  }
 };
 
 // Export both individual functions and the original object for backward compatibility
