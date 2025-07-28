@@ -368,15 +368,15 @@ export function MemoryManagementModal({ isOpen, onClose }) {
                             </div>
                             <div className="flex-1">
                               <Text className="text-zinc-900 dark:text-zinc-100 text-base leading-relaxed">
-                                {memory.memory || memory.content}
+                                {memory.content || memory.memory || 'No content available'}
                               </Text>
                               <div className="flex items-center gap-4 mt-3">
                                 <Badge color="zinc">
                                   ID: {memory.id}
                                 </Badge>
-                                {memory.userId && (
+                                {memory.user_id && (
                                   <Badge color="amber">
-                                    User: {memory.userId}
+                                    User: {memory.user_id}
                                   </Badge>
                                 )}
                                 {memory.score && (
@@ -385,14 +385,62 @@ export function MemoryManagementModal({ isOpen, onClose }) {
                                   </Badge>
                                 )}
                                 <Text className="text-xs text-zinc-500">
-                                  {new Date(memory.createdAt || memory.created_at).toLocaleString()}
+                                  {new Date(memory.created_at || memory.createdAt).toLocaleString()}
                                 </Text>
                               </div>
                               {memory.metadata && (
                                 <div className="mt-2">
-                                  <Text className="text-xs text-zinc-600 dark:text-zinc-400">
-                                    Metadata: {JSON.stringify(memory.metadata)}
-                                  </Text>
+                                  {(() => {
+                                    try {
+                                      const metadata = typeof memory.metadata === 'string' 
+                                        ? JSON.parse(memory.metadata) 
+                                        : memory.metadata;
+                                      
+                                      return (
+                                        <div className="space-y-2">
+                                          {metadata.type && (
+                                            <div className="flex items-center gap-2">
+                                              <Badge color="blue" small>
+                                                {metadata.type}
+                                              </Badge>
+                                              {metadata.category && (
+                                                <Badge color="green" small>
+                                                  {metadata.category}
+                                                </Badge>
+                                              )}
+                                              {metadata.priority && (
+                                                <Badge color={metadata.priority === 'high' ? 'red' : metadata.priority === 'medium' ? 'amber' : 'zinc'} small>
+                                                  {metadata.priority}
+                                                </Badge>
+                                              )}
+                                            </div>
+                                          )}
+                                          {metadata.tags && Array.isArray(metadata.tags) && metadata.tags.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                              {metadata.tags.map((tag, idx) => (
+                                                <Badge key={idx} color="purple" small>
+                                                  {tag}
+                                                </Badge>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {metadata.agent_type && (
+                                            <div>
+                                              <Badge color="indigo" small>
+                                                Agent: {metadata.agent_type}
+                                              </Badge>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    } catch (e) {
+                                      return (
+                                        <Text className="text-xs text-zinc-600 dark:text-zinc-400">
+                                          Metadata: {memory.metadata}
+                                        </Text>
+                                      );
+                                    }
+                                  })()}
                                 </div>
                               )}
                             </div>
@@ -400,7 +448,7 @@ export function MemoryManagementModal({ isOpen, onClose }) {
                               <Button
                                 onClick={() => {
                                   setEditingMemory(memory);
-                                  setEditContent(memory.memory || memory.content);
+                                  setEditContent(memory.content || memory.memory || '');
                                 }}
                                 outline
                                 className="flex items-center gap-1"
