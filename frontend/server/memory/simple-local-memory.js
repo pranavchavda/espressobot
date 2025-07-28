@@ -95,7 +95,7 @@ async function createEmbedding(text) {
 async function searchMemories(query, userId, options = {}) {
   const {
     limit = 10,
-    threshold = 0.1,
+    threshold = 0.7, // Increased threshold for higher quality semantic matches
     strategy = 'hybrid', // 'exact', 'fuzzy', 'semantic', 'hybrid'
     useNano = false
   } = options;
@@ -105,8 +105,8 @@ async function searchMemories(query, userId, options = {}) {
   let results = [];
 
   try {
+    // Step 1: Exact text search (highest priority)
     if (strategy === 'exact' || strategy === 'hybrid') {
-      // Exact text search
       const exactResults = await prisma.memories.findMany({
         where: {
           user_id: userId,
@@ -128,8 +128,46 @@ async function searchMemories(query, userId, options = {}) {
       console.log(`[Memory] Found ${results.length} exact matches`);
     }
 
+    // Step 2: High-quality semantic search (second priority, >0.7 threshold)
+    if ((strategy === 'semantic' || strategy === 'hybrid') && results.length < limit) {
+      const queryEmbedding = await createEmbedding(query);
+      const remaining = limit - results.length;
+
+      // Get all memories with embeddings for this user
+      const memoriesWithEmbeddings = await prisma.memories.findMany({
+        where: {
+          user_id: userId,
+          embedding: { not: null }
+        },
+        orderBy: { created_at: 'desc' }
+      });
+
+      // Calculate similarities - only high-quality matches (>0.7)
+      const semanticResults = memoriesWithEmbeddings
+        .map(memory => {
+          const embedding = bufferToFloatArray(memory.embedding);
+          if (!embedding || !Array.isArray(embedding)) {
+            return null;
+          }
+
+          const similarity = cosineSimilarity(queryEmbedding, embedding);
+          return {
+            ...memory,
+            similarity,
+            strategy: 'semantic'
+          };
+        })
+        .filter(result => result && result.similarity >= threshold) // High-quality threshold (0.7)
+        .filter(memory => !results.some(r => r.id === memory.id))
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, remaining);
+
+      results = [...results, ...semanticResults];
+      console.log(`[Memory] Added ${semanticResults.length} high-quality semantic matches (>${threshold})`);
+    }
+
+    // Step 3: Fuzzy search as fallback (lowest priority)
     if ((strategy === 'fuzzy' || strategy === 'hybrid') && results.length < limit) {
-      // Fuzzy search using contains with individual words
       const remaining = limit - results.length;
       const words = query.toLowerCase().split(' ').filter(word => word.length > 2);
       
@@ -155,50 +193,12 @@ async function searchMemories(query, userId, options = {}) {
         .filter(memory => !results.some(r => r.id === memory.id))
         .map(memory => ({
           ...memory,
-          similarity: 0.8,
+          similarity: 0.6, // Lower score for fuzzy matches
           strategy: 'fuzzy'
         }));
 
       results = [...results, ...newResults];
-      console.log(`[Memory] Added ${newResults.length} fuzzy matches`);
-    }
-
-    if ((strategy === 'semantic' || strategy === 'hybrid') && results.length < limit) {
-      // Semantic search using embeddings
-      const queryEmbedding = await createEmbedding(query);
-      const remaining = limit - results.length;
-
-      // Get all memories with embeddings for this user
-      const memoriesWithEmbeddings = await prisma.memories.findMany({
-        where: {
-          user_id: userId,
-          embedding: { not: null }
-        },
-        orderBy: { created_at: 'desc' }
-      });
-
-      // Calculate similarities
-      const semanticResults = memoriesWithEmbeddings
-        .map(memory => {
-          const embedding = bufferToFloatArray(memory.embedding);
-          if (!embedding || !Array.isArray(embedding)) {
-            return null;
-          }
-
-          const similarity = cosineSimilarity(queryEmbedding, embedding);
-          return {
-            ...memory,
-            similarity,
-            strategy: 'semantic'
-          };
-        })
-        .filter(result => result && result.similarity >= threshold)
-        .filter(memory => !results.some(r => r.id === memory.id))
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, remaining);
-
-      results = [...results, ...semanticResults];
-      console.log(`[Memory] Added ${semanticResults.length} semantic matches`);
+      console.log(`[Memory] Added ${newResults.length} fuzzy matches as fallback`);
     }
 
     // Sort by similarity and limit
@@ -206,7 +206,7 @@ async function searchMemories(query, userId, options = {}) {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit);
 
-    console.log(`[Memory] Returning ${results.length} total results`);
+    console.log(`[Memory] Returning ${results.length} total results (exact: ${results.filter(r => r.strategy === 'exact').length}, semantic: ${results.filter(r => r.strategy === 'semantic').length}, fuzzy: ${results.filter(r => r.strategy === 'fuzzy').length})`);
     return results;
 
   } catch (error) {
@@ -402,6 +402,10 @@ const simpleLocalMemory = {
   createEmbedding,
   
   // Legacy interface for backward compatibility
+  add: async (content, userId, metadata = {}) => {
+    return await addMemory(content, userId, metadata);
+  },
+
   search: async (query, userId, limit = 10) => {
     return await searchMemories(query, userId, { limit, strategy: 'hybrid' });
   },
@@ -437,6 +441,140 @@ const simpleLocalMemory = {
   
   deleteAll: async (userId) => {
     return await deleteUserMemories(userId);
+  },
+
+  // Memory extraction methods
+  extractMemorySummary: async (conversationText, context = {}) => {
+    // Determine which model to use based on context or environment
+    const useNano = process.env.USE_GPT_NANO_FOR_MEMORY === 'true' || context.useNano;
+    const model = useNano ? 'gpt-4.1-nano' : 'o4-mini';
+    
+    try {
+      console.log(`[Memory] Using ${model} for extraction`);
+      
+      // Split long conversations into exchanges
+      const exchanges = simpleLocalMemory.splitIntoExchanges(conversationText);
+      const allFacts = [];
+      
+      // Process each exchange separately (max 2 facts per exchange)
+      for (const exchange of exchanges) {
+        if (exchange.trim().length < 20) continue; // Skip very short exchanges
+        
+        // Use GPT to extract key facts from this exchange
+        const response = await openai.chat.completions.create({
+          model: model,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a memory extraction system. Extract important facts from conversations as single, self-contained sentences. Each fact should be independently understandable without context.
+Rules:
+1. Extract facts worth remembering long-term, not temporary conversation state
+2. Each fact must be a complete, standalone sentence
+3. Maximum 2 facts per message exchange (user message + assistant response)
+4. You don't have to extract facts from every exchange. If you don't see any facts, just return an empty list.
+5. ALWAYS extract when user says "remember that" or "remember this" or similar
+6. Include confirmed facts from assistant responses (e.g., "The CEO is X" when user confirms)
+7. Focus on: personal info, preferences, business context, decisions, confirmed information, future plans, and any other relevant information.
+8. Format: Return each fact on a new line
+Priority facts to extract:
+- Explicit "remember" requests: User says to remember something
+- Personal information: Names, roles, birthdays, locations
+- Preferences: "I prefer X", "I like Y", "My favorite is Z"  
+- Business facts: Company info, project names, important metrics
+- Confirmed corrections: When user corrects or confirms information
+Good examples:
+- The user's name is Pranav.
+- Pranav works as a generalist at iDrinkCoffee.com.
+- Bruno is a customer support chatbot project.
+- Espressobot is one of Pranav's recent projects.
+- The user prefers to review changes before applying them.
+- The CEO of iDrinkCoffee.com is Slawek Janicki.
+Do NOT extract:
+- Questions or requests: "Can you help with X?"
+- Temporary states: "User is looking at Y"
+- Process descriptions: "User is focused on gathering requirements"
+- Unconfirmed suggestions: "You might want to try X"`
+            },
+            {
+              role: 'user',
+              content: exchange
+            }
+          ],
+          reasoning_effort: 'low'
+        });
+        
+        const exchangeFacts = response.choices[0].message.content
+          .split('\n')
+          .filter(line => line.trim().length > 0)
+          .map(fact => fact.trim())
+          .slice(0, 2);  // Enforce max 2 facts per exchange
+        allFacts.push(...exchangeFacts);
+      }
+      
+      console.log(`[Memory] Extracted ${allFacts.length} total facts from ${exchanges.length} exchanges`);
+      
+      return allFacts.map(fact => ({
+        content: fact,
+        metadata: {
+          timestamp: new Date().toISOString(),
+          conversationId: context.conversationId || 'unknown',
+          agent: context.agent || 'unknown',
+          extractedFrom: 'conversation',
+          source: model
+        }
+      }));
+    } catch (error) {
+      console.error(`Error extracting memory with ${model}:`, error);
+      
+      // Fallback to simple extraction
+      const lines = conversationText.trim().split('\n').filter(line => line.trim());
+      const summary = lines
+        .filter(line => line.includes('User:') || line.includes('Assistant:'))
+        .join(' ')
+        .replace(/User:|Assistant:/g, '')
+        .trim();
+      
+      return [{
+        content: summary,
+        metadata: {
+          timestamp: new Date().toISOString(),
+          conversationId: context.conversationId || 'unknown',
+          agent: context.agent || 'unknown',
+          extractedFrom: 'conversation',
+          source: 'fallback'
+        }
+      }];
+    }
+  },
+
+  // Helper method for extractMemorySummary
+  splitIntoExchanges: (conversationText) => {
+    // Try to split by User:/Assistant: pattern
+    const lines = conversationText.split('\n');
+    const exchanges = [];
+    let currentExchange = '';
+    
+    for (const line of lines) {
+      if (line.startsWith('User:') && currentExchange.includes('Assistant:')) {
+        // Start of new exchange, save the previous one
+        exchanges.push(currentExchange.trim());
+        currentExchange = line;
+      } else {
+        currentExchange += '\n' + line;
+      }
+    }
+    
+    // Don't forget the last exchange
+    if (currentExchange.trim()) {
+      exchanges.push(currentExchange.trim());
+    }
+    
+    // If no clear pattern, just return the whole conversation
+    if (exchanges.length === 0) {
+      return [conversationText];
+    }
+    
+    return exchanges;
   }
 };
 

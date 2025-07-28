@@ -187,7 +187,7 @@ SCRATCHPAD_TOOLS = [
             },
             'required': ['content']
         },
-        'handler': lambda content: scratchpad_write(content)
+        'handler': scratchpad_write
     },
     {
         'name': 'scratchpad_append',
@@ -202,7 +202,7 @@ SCRATCHPAD_TOOLS = [
             },
             'required': ['content']
         },
-        'handler': lambda content: scratchpad_append(content)
+        'handler': scratchpad_append
     },
     {
         'name': 'scratchpad_add_entry',
@@ -222,7 +222,7 @@ SCRATCHPAD_TOOLS = [
             },
             'required': ['content']
         },
-        'handler': lambda content, author='unknown': scratchpad_add_entry(content, author)
+        'handler': scratchpad_add_entry
     },
     {
         'name': 'scratchpad_clear',
