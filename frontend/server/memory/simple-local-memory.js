@@ -389,8 +389,8 @@ async function getMemoryStats() {
   }
 }
 
-// Export all functions
-export {
+// Create a compatible object that matches the old SQLite interface
+const simpleLocalMemory = {
   searchMemories,
   addMemory,
   updateMemory,
@@ -400,3 +400,19 @@ export {
   getMemoryStats,
   createEmbedding
 };
+
+// Export both individual functions and the original object for backward compatibility
+export {
+  searchMemories,
+  addMemory,
+  updateMemory,
+  deleteMemory,
+  deleteUserMemories,
+  getUserMemories,
+  getMemoryStats,
+  createEmbedding,
+  simpleLocalMemory
+};
+
+// Also export as default for compatibility
+export default simpleLocalMemory;
