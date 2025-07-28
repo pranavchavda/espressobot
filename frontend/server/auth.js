@@ -7,6 +7,55 @@ const router = Router();
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-this';
 
+// Verify JWT token middleware (moved to top to avoid initialization error)
+export const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  console.log('[Auth] JWT verification:', {
+    hasToken: !!token,
+    jwtSecret: JWT_SECRET.substring(0, 10) + '...',
+    authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'none'
+  });
+
+  if (!token) {
+    // Allow localhost terminal requests for testing
+    const isLocalhost = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+    const isTerminalRequest = req.headers['x-terminal-request'] === 'true';
+    
+    if (isLocalhost && isTerminalRequest) {
+      // Use the userId from the request body if provided, convert to integer
+      let userId = req.body?.userId;
+      
+      // Convert string user IDs to integers
+      if (userId === 'user_2') userId = 2;
+      else if (userId === 'user_1') userId = 1;
+      else if (typeof userId === 'string') userId = parseInt(userId);
+      else if (!userId) userId = 2; // Default to user 2
+      
+      req.user = { id: userId, email: `user${userId}@localhost`, name: 'Terminal User' };
+      return next();
+    }
+    
+    // In development, allow unauthenticated access with default user
+    if (process.env.NODE_ENV === 'development' && process.env.ALLOW_UNAUTHENTICATED === 'true') {
+      req.user = { id: 1, email: 'dev@localhost', name: 'Development User' };
+      return next();
+    }
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      console.error('[Auth] JWT verification failed:', err.message);
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    console.log('[Auth] JWT verified successfully for user:', user.email);
+    req.user = user;
+    next();
+  });
+};
+
 // Generate JWT token
 const generateToken = (user) => {
   return jwt.sign(
@@ -132,7 +181,7 @@ router.get('/google/callback', (req, res, next) => {
 });
 
 // Get current user
-router.get('/me', async (req, res) => {
+router.get('/me', authenticateToken, async (req, res) => {
   if (req.user) {
     // Fetch fresh user data to get is_whitelisted status
     try {
@@ -174,46 +223,5 @@ router.post('/logout', (req, res) => {
     res.json({ message: 'Logged out successfully' });
   });
 });
-
-// Verify JWT token middleware
-export const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    // Allow localhost terminal requests for testing
-    const isLocalhost = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
-    const isTerminalRequest = req.headers['x-terminal-request'] === 'true';
-    
-    if (isLocalhost && isTerminalRequest) {
-      // Use the userId from the request body if provided, convert to integer
-      let userId = req.body?.userId;
-      
-      // Convert string user IDs to integers
-      if (userId === 'user_2') userId = 2;
-      else if (userId === 'user_1') userId = 1;
-      else if (typeof userId === 'string') userId = parseInt(userId);
-      else if (!userId) userId = 2; // Default to user 2
-      
-      req.user = { id: userId, email: `user${userId}@localhost`, name: 'Terminal User' };
-      return next();
-    }
-    
-    // In development, allow unauthenticated access with default user
-    if (process.env.NODE_ENV === 'development' && process.env.ALLOW_UNAUTHENTICATED === 'true') {
-      req.user = { id: 1, email: 'dev@localhost', name: 'Development User' };
-      return next();
-    }
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    req.user = user;
-    next();
-  });
-};
 
 export default router;
