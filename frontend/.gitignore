@@ -66,3 +66,5 @@ server/memory/venv/
 server/plans/
 server/data/
 TODO-*.mdscripts/sqlite-export.json
+*.env.backup
+scripts/*-export.json

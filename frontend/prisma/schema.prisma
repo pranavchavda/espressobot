@@ -116,3 +116,29 @@ model conversation_summaries {
   
   @@index([conv_id, chunk_number])
 }
+
+// Memory System Tables (migrated from separate SQLite DB)
+model memories {
+  id         String   @id
+  user_id    String
+  content    String
+  embedding  Bytes?   // Vector embeddings for semantic search
+  metadata   String?  // JSON metadata
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model tool_result_cache {
+  id             String   @id @default(cuid())
+  tool_name      String
+  input_hash     String   @unique
+  result         String   // JSON serialized result
+  created_at     DateTime @default(now())
+  last_accessed  DateTime @default(now())
+  
+  @@index([tool_name])
+  @@index([created_at])
+}
