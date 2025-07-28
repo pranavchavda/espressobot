@@ -65,4 +65,4 @@ server/memory/venv/
 # Task planning files
 server/plans/
 server/data/
-TODO-*.md
+TODO-*.mdscripts/sqlite-export.json
