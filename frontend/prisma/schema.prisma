@@ -142,3 +142,265 @@ model tool_result_cache {
   @@index([tool_name])
   @@index([created_at])
 }
+
+// Price Monitoring System Tables
+
+model competitors {
+  id                String    @id @default(cuid())
+  name              String    // "Home Coffee Solutions", "Kitchen Barista", etc.
+  domain            String    @unique // "homecoffeesolutions.com"
+  collections       String[]  // Array of collection paths to scrape
+  is_active         Boolean   @default(true)
+  scrape_schedule   String?   // Cron expression for automated scraping
+  rate_limit_ms     Int       @default(2000) // Milliseconds between requests
+  last_scraped_at   DateTime?
+  total_products    Int       @default(0)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  
+  // Relations
+  competitor_products competitor_products[]
+  scrape_jobs         scrape_jobs[]
+  
+  @@index([is_active])
+  @@index([last_scraped_at])
+}
+
+model monitored_brands {
+  id         String   @id @default(cuid())
+  brand_name String   @unique // "ECM", "Profitec", "Eureka"
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  
+  // Relations
+  idc_products idc_products[]
+  
+  @@index([is_active])
+}
+
+model monitored_collections {
+  id              String   @id @default(cuid())
+  collection_name String   @unique // "espresso-machines", "grinders"
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  
+  @@index([is_active])
+}
+
+model idc_products {
+  id                String          @id @default(cuid())
+  shopify_id        String          @unique // Shopify product ID
+  title             String
+  vendor            String
+  product_type      String?
+  handle            String?
+  sku               String?
+  price             Decimal?        @db.Decimal(10, 2)
+  compare_at_price  Decimal?        @db.Decimal(10, 2)
+  available         Boolean         @default(true)
+  inventory_quantity Int?           // Stock level from Shopify
+  image_url         String?
+  description       String?
+  features          String?         // JSON string of extracted features
+  embedding         String?         // JSON array of embedding vector
+  last_synced_at    DateTime        @default(now())
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  
+  // Foreign keys
+  brand_id          String
+  monitored_brand   monitored_brands @relation(fields: [brand_id], references: [id])
+  
+  // Relations
+  product_matches   product_matches[] @relation("IdcProduct")
+  
+  @@index([vendor])
+  @@index([product_type])
+  @@index([available])
+  @@index([last_synced_at])
+}
+
+model competitor_products {
+  id                String       @id @default(cuid())
+  external_id       String       // Original product ID from competitor site
+  competitor_id     String
+  title             String
+  vendor            String?
+  product_type      String?
+  handle            String?
+  sku               String?
+  price             Decimal?     @db.Decimal(10, 2)
+  compare_at_price  Decimal?     @db.Decimal(10, 2)
+  available         Boolean      @default(true)
+  image_url         String?
+  product_url       String?      // Direct link to competitor product page
+  description       String?
+  features          String?      // JSON string of extracted features
+  embedding         String?      // JSON array of embedding vector
+  scraped_at        DateTime     @default(now())
+  created_at        DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
+  
+  // Foreign keys
+  competitor        competitors  @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
+  
+  // Relations
+  product_matches   product_matches[] @relation("CompetitorProduct")
+  price_history     price_history[]
+  
+  @@unique([external_id, competitor_id])
+  @@index([competitor_id])
+  @@index([vendor])
+  @@index([price])
+  @@index([scraped_at])
+}
+
+model product_matches {
+  id                      String              @id @default(cuid())
+  idc_product_id          String
+  competitor_product_id   String
+  
+  // Similarity scores (0-1 scale)
+  overall_score           Float               // Overall confidence score
+  brand_similarity        Float?              // Brand/vendor match score
+  title_similarity        Float?              // Title similarity score
+  embedding_similarity    Float?              // Semantic embedding similarity
+  price_similarity        Float?              // Price proximity score
+  
+  // Price analysis
+  price_difference        Decimal?            @db.Decimal(10, 2) // iDC price - competitor price
+  price_difference_percent Float?             // Percentage difference
+  
+  // MAP violation tracking
+  is_map_violation        Boolean             @default(false) // Competitor price < iDC price
+  violation_amount        Decimal?            @db.Decimal(10, 2) // Amount below iDC price
+  violation_percentage    Float?              // Percentage below iDC price
+  first_violation_date    DateTime?
+  last_checked_at         DateTime            @default(now())
+  
+  // Match status
+  is_manual_match         Boolean             @default(false) // Admin confirmed match
+  is_rejected             Boolean             @default(false) // Admin rejected match
+  confidence_level        String              @default("low") // "low", "medium", "high"
+  
+  created_at              DateTime            @default(now())
+  updated_at              DateTime            @updatedAt
+  
+  // Foreign keys and relations
+  idc_product             idc_products        @relation("IdcProduct", fields: [idc_product_id], references: [id], onDelete: Cascade)
+  competitor_product      competitor_products @relation("CompetitorProduct", fields: [competitor_product_id], references: [id], onDelete: Cascade)
+  
+  // Relations
+  price_alerts            price_alerts[]
+  violation_history       violation_history[]
+  
+  @@unique([idc_product_id, competitor_product_id])
+  @@index([overall_score])
+  @@index([is_map_violation])
+  @@index([confidence_level])
+  @@index([last_checked_at])
+}
+
+model price_alerts {
+  id                String          @id @default(cuid())
+  product_match_id  String
+  alert_type        String          // "new_violation", "price_drop", "price_increase", "violation_resolved"
+  title             String
+  message           String
+  severity          String          @default("medium") // "low", "medium", "high", "critical"
+  
+  // Price change data
+  old_price         Decimal?        @db.Decimal(10, 2)
+  new_price         Decimal?        @db.Decimal(10, 2)
+  price_change      Decimal?        @db.Decimal(10, 2)
+  
+  // Status
+  status            String          @default("unread") // "unread", "read", "dismissed", "resolved"
+  is_read           Boolean         @default(false)
+  
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  
+  // Foreign keys
+  product_match     product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
+  
+  @@index([alert_type])
+  @@index([severity])
+  @@index([status])
+  @@index([created_at])
+}
+
+model scrape_jobs {
+  id                String       @id @default(cuid())
+  competitor_id     String
+  status            String       @default("pending") // "pending", "running", "completed", "failed"
+  
+  // Job configuration
+  collections       String[]     // Collections to scrape in this job
+  
+  // Results
+  products_found    Int?
+  products_updated  Int?
+  products_created  Int?
+  errors            String?      // JSON array of error messages
+  
+  // Timing
+  started_at        DateTime?
+  completed_at      DateTime?
+  duration_seconds  Int?
+  
+  created_at        DateTime     @default(now())
+  
+  // Foreign keys
+  competitor        competitors  @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
+  
+  @@index([competitor_id])
+  @@index([status])
+  @@index([created_at])
+}
+
+model price_history {
+  id                    String              @id @default(cuid())
+  competitor_product_id String
+  price                 Decimal             @db.Decimal(10, 2)
+  compare_at_price      Decimal?            @db.Decimal(10, 2)
+  available             Boolean             @default(true)
+  recorded_at           DateTime            @default(now())
+  
+  // Foreign keys
+  competitor_product    competitor_products @relation(fields: [competitor_product_id], references: [id], onDelete: Cascade)
+  
+  @@index([competitor_product_id, recorded_at])
+}
+
+model violation_history {
+  id                String          @id @default(cuid())
+  product_match_id  String
+  
+  // Violation details
+  violation_type    String          // "new_violation", "price_change", "resolved"
+  competitor_price  Decimal         @db.Decimal(10, 2)
+  idc_price         Decimal         @db.Decimal(10, 2)
+  violation_amount  Decimal         @db.Decimal(10, 2)
+  violation_percent Float
+  
+  // Context
+  previous_price    Decimal?        @db.Decimal(10, 2)
+  price_change      Decimal?        @db.Decimal(10, 2)
+  
+  // Evidence
+  screenshot_url    String?         // URL to screenshot evidence
+  competitor_url    String?         // Link to competitor product page
+  notes            String?         // Additional notes
+  
+  detected_at      DateTime        @default(now())
+  
+  // Foreign keys
+  product_match    product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
+  
+  @@index([product_match_id])
+  @@index([violation_type])
+  @@index([detected_at])
+}

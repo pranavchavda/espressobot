@@ -1832,8 +1832,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
   let userProfile = null;
   if (userId) {
     try {
-      const { PrismaClient } = await import('@prisma/client');
-      const prisma = new PrismaClient();
+      const prisma = (await import('./lib/prisma.js')).default;
       userProfile = await prisma.users.findUnique({
         where: { id: userId },
         select: {

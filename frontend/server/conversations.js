@@ -2,16 +2,13 @@ import { config } from 'dotenv';
 config();
 
 import { Router } from 'express';
-// Fix CommonJS import issue with Prisma
-import pkg from '@prisma/client';
-const { PrismaClient } = pkg;
+import prisma from './lib/prisma.js';
 import { authenticateToken } from './auth.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const prisma = new PrismaClient();
 const router = Router();
 
 // List all conversations for the authenticated user

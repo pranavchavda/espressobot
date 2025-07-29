@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import * as prismaClient from '@prisma/client';
+import prisma from './lib/prisma.js';
 import { runDynamicOrchestrator } from './espressobot1.js';
 import { authenticateToken } from './auth.js';
 import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/task-planning-agent.js';
@@ -9,8 +9,6 @@ import fs from 'fs/promises';
 import path from 'path';
 
 const router = Router();
-const { PrismaClient } = prismaClient;
-const prisma = new PrismaClient();
 
 // Store AbortController instances per conversation for interrupt functionality
 const conversationAbortControllers = new Map();

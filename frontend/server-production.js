@@ -57,6 +57,7 @@ async function setupRoutes() {
     const promptLibraryRoutes = (await import('./server/api/prompt-library.js')).default;
     const dashboardAnalyticsRoutes = (await import('./server/api/dashboard-analytics.js')).default;
     const scratchpadRoutes = (await import('./server/api/scratchpad.js')).default;
+    const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
     
     // Setup routes
     app.use('/api/auth', authRoutes);
@@ -67,6 +68,7 @@ async function setupRoutes() {
     app.use('/api/prompt-library', promptLibraryRoutes);
     app.use('/api/dashboard', dashboardAnalyticsRoutes);
     app.use('/api/scratchpad', scratchpadRoutes);
+    app.use('/api/price-monitor', priceMonitorRoutes);
     
     // Guardrail routes
     const { setupGuardrailRoutes } = await import('./server/api/guardrail-decision-handler.js');

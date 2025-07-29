@@ -1,7 +1,7 @@
 import React from 'react';
 import { Menu, MenuButton, MenuItems, MenuItem, Transition } from '@headlessui/react';
 import { Link } from 'react-router-dom';
-import { ChevronDownIcon, InformationCircleIcon, Cog8ToothIcon, ArrowLeftStartOnRectangleIcon, UserCircleIcon, ChartBarIcon } from '@heroicons/react/20/solid';
+import { ChevronDownIcon, InformationCircleIcon, Cog8ToothIcon, ArrowLeftStartOnRectangleIcon, UserCircleIcon, ChartBarIcon, PresentationChartLineIcon } from '@heroicons/react/20/solid';
 import md5 from 'js-md5';
 import { Avatar } from './avatar';
 
@@ -46,6 +46,12 @@ function TopNavDropdown({ user, onLogout }) {
             <Link to="/dashboard" className="group flex w-full items-center gap-x-2.5 rounded-lg p-2.5 data-[focus]:bg-zinc-100 dark:data-[focus]:bg-zinc-800">
               <ChartBarIcon className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
               Dashboard
+            </Link>
+          </MenuItem>
+          <MenuItem>
+            <Link to="/price-monitor" className="group flex w-full items-center gap-x-2.5 rounded-lg p-2.5 data-[focus]:bg-zinc-100 dark:data-[focus]:bg-zinc-800">
+              <PresentationChartLineIcon className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
+              Price Monitor
             </Link>
           </MenuItem>
           <MenuItem>

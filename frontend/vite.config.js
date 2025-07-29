@@ -196,6 +196,10 @@ export default defineConfig({
         const scratchpadRoutes = (await import('./server/api/scratchpad.js')).default;
         apiApp.use('/api/scratchpad', scratchpadRoutes);
         
+        // Price monitor routes
+        const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
+        apiApp.use('/api/price-monitor', priceMonitorRoutes);
+        
         server.middlewares.use(apiApp);
       },
     },
