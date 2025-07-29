@@ -340,7 +340,7 @@ router.get('/idc-products', async (req, res) => {
         skip,
         take: parseInt(limit),
         include: {
-          monitored_brand: true
+          monitored_brands: true
         },
         orderBy: { last_synced_at: 'desc' }
       }),
@@ -492,7 +492,7 @@ router.get('/products-by-brand/:brandName', async (req, res) => {
         skip,
         take: parseInt(limit),
         include: {
-          monitored_brand: true,
+          monitored_brands: true,
           _count: {
             select: {
               product_matches: true

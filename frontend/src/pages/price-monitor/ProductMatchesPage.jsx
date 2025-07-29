@@ -7,6 +7,14 @@ import { useToast } from '@common/toast';
 export default function ProductMatchesPage() {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 50,
+    total: 0,
+    total_pages: 0,
+    has_next: false,
+    has_prev: false
+  });
   const [showManualMatch, setShowManualMatch] = useState(false);
   const [idcProducts, setIdcProducts] = useState([]);
   const [competitorProducts, setCompetitorProducts] = useState([]);
@@ -20,14 +28,14 @@ export default function ProductMatchesPage() {
   const [previewSimilarity, setPreviewSimilarity] = useState(null);
   const { toast } = useToast();
 
-  const fetchMatches = async () => {
+  const fetchMatches = async (page = 1) => {
     try {
       setLoading(true);
-      const response = await fetch('/api/price-monitor/product-matching/matches');
+      const response = await fetch(`/api/price-monitor/product-matching/matches?page=${page}&limit=${pagination.limit}`);
       if (response.ok) {
         const data = await response.json();
-        // API now handles sorting with manual matches pinned to top
         setMatches(data.matches || []);
+        setPagination(data.pagination || {});
       } else {
         toast.error('Failed to load product matches');
       }
@@ -147,8 +155,28 @@ export default function ProductMatchesPage() {
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             View and manage product matches between IDC and competitors
           </p>
+          {pagination.total > 0 && (
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Total: {pagination.total} matches
+            </p>
+          )}
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
+          {/* Page Size Selector */}
+          <select
+            value={pagination.limit}
+            onChange={(e) => {
+              const newLimit = parseInt(e.target.value);
+              setPagination(prev => ({ ...prev, limit: newLimit }));
+              fetchMatches(1); // Reset to page 1 when changing limit
+            }}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+          >
+            <option value={25}>25 per page</option>
+            <option value={50}>50 per page</option>
+            <option value={100}>100 per page</option>
+          </select>
+          
           <Button 
             onClick={() => {
               setShowManualMatch(true);
@@ -159,7 +187,7 @@ export default function ProductMatchesPage() {
             Create Manual Match
           </Button>
           <Button 
-            onClick={fetchMatches}
+            onClick={() => fetchMatches(pagination.page)}
             disabled={loading}
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
@@ -255,7 +283,7 @@ export default function ProductMatchesPage() {
                       {/* Competitor Product Preview */}
                       <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg">
                         <div className="text-sm font-medium text-orange-800 dark:text-orange-300 mb-1">
-                          Competitor Product ({getSelectedCompetitorProduct()?.competitor?.name || 'Unknown'})
+                          Competitor Product ({getSelectedCompetitorProduct()?.competitors?.name || 'Unknown'})
                         </div>
                         <div className="font-medium">{getSelectedCompetitorProduct()?.title}</div>
                         <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -373,21 +401,21 @@ export default function ProductMatchesPage() {
                 <tr key={match.id}>
                   <td className="px-6 py-4 text-sm">
                     <div className="font-medium text-gray-900 dark:text-white">
-                      {match.idc_product?.title || 'Unknown Product'}
+                      {match.idc_products?.title || 'Unknown Product'}
                     </div>
                     <div className="text-gray-500 dark:text-gray-400 text-xs">
-                      {match.idc_product?.vendor} • ${match.idc_product?.price} • {match.idc_product?.sku}
+                      {match.idc_products?.vendor} • ${match.idc_products?.price} • {match.idc_products?.sku}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm">
                     <div className="font-medium text-gray-900 dark:text-white">
-                      {match.competitor_product?.title || 'Unknown Product'}
+                      {match.competitor_products?.title || 'Unknown Product'}
                     </div>
                     <div className="text-gray-500 dark:text-gray-400 text-xs">
                       <div className="font-medium text-orange-600">
-                        {match.competitor_product?.competitor?.name || 'Unknown'}
+                        {match.competitor_products?.competitors?.name || 'Unknown'}
                       </div>
-                      <div>{match.competitor_product?.vendor} • ${match.competitor_product?.price}</div>
+                      <div>{match.competitor_products?.vendor} • ${match.competitor_products?.price}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -423,6 +451,80 @@ export default function ProductMatchesPage() {
               ))}
             </tbody>
           </table>
+          
+          {/* Pagination Controls */}
+          {pagination.total_pages > 1 && (
+            <div className="bg-white dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <Button
+                  onClick={() => fetchMatches(pagination.page - 1)}
+                  disabled={!pagination.has_prev}
+                  className="relative inline-flex items-center px-4 py-2 border text-sm font-medium"
+                >
+                  Previous
+                </Button>
+                <Button
+                  onClick={() => fetchMatches(pagination.page + 1)}
+                  disabled={!pagination.has_next}
+                  className="ml-3 relative inline-flex items-center px-4 py-2 border text-sm font-medium"
+                >
+                  Next
+                </Button>
+              </div>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    Showing{' '}
+                    <span className="font-medium">{(pagination.page - 1) * pagination.limit + 1}</span>
+                    {' '}to{' '}
+                    <span className="font-medium">
+                      {Math.min(pagination.page * pagination.limit, pagination.total)}
+                    </span>
+                    {' '}of{' '}
+                    <span className="font-medium">{pagination.total}</span>
+                    {' '}results
+                  </p>
+                </div>
+                <div>
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                    <Button
+                      onClick={() => fetchMatches(pagination.page - 1)}
+                      disabled={!pagination.has_prev}
+                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border text-sm font-medium"
+                    >
+                      Previous
+                    </Button>
+                    
+                    {/* Page Numbers */}
+                    {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
+                      const pageNum = i + 1;
+                      return (
+                        <Button
+                          key={pageNum}
+                          onClick={() => fetchMatches(pageNum)}
+                          className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                            pagination.page === pageNum
+                              ? 'bg-blue-50 border-blue-500 text-blue-600'
+                              : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                    
+                    <Button
+                      onClick={() => fetchMatches(pagination.page + 1)}
+                      disabled={!pagination.has_next}
+                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border text-sm font-medium"
+                    >
+                      Next
+                    </Button>
+                  </nav>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center">

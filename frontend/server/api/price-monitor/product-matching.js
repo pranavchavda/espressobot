@@ -386,7 +386,7 @@ router.post('/auto-match', async (req, res) => {
               sku: idcProduct.sku,
               price: idcProduct.price
             },
-            competitor_product: {
+            competitor_products: {
               title: bestMatch.competitor_product.title,
               vendor: bestMatch.competitor_product.vendor,
               sku: bestMatch.competitor_product.sku,
@@ -518,10 +518,10 @@ router.get('/matches', async (req, res) => {
         skip,
         take: parseInt(limit),
         include: {
-          idc_product: true,
-          competitor_product: {
+          idc_products: true,
+          competitor_products: {
             include: {
-              competitor: true
+              competitors: true
             }
           },
           price_alerts: {

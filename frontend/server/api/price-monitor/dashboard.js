@@ -307,8 +307,8 @@ router.get('/summary', async (req, res) => {
     // Process competitor performance data
     const competitorPerformance = {};
     competitorPerformanceData.forEach(alert => {
-      if (alert.product_match?.competitor_product?.competitor) {
-        const competitor = alert.product_match.competitor_product.competitor;
+      if (alert.product_matches?.competitor_products?.competitors) {
+        const competitor = alert.product_matches.competitor_products.competitors;
         if (!competitorPerformance[competitor.id]) {
           competitorPerformance[competitor.id] = {
             competitor_name: competitor.name,

@@ -79,7 +79,7 @@ router.post('/scan-violations', async (req, res) => {
       whereClause.idc_product = { vendor: { in: brands } };
     }
 
-    const productMatches = await prisma.product_matches.findMany({
+    const productMatches = await prisma.product_match.findMany({
       where: whereClause,
       include: {
         idc_products: true,
@@ -479,7 +479,7 @@ router.get('/trends', async (req, res) => {
         _sum: { price_change: true }
       }),
 
-      // Top violating competitors - get from product_matches relation
+      // Top violating competitors - get from product_match relation
       prisma.price_alerts.findMany({
         where,
         select: {

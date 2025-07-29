@@ -59,7 +59,7 @@ export default function PriceAlertsPage() {
   const processedViolations = violations
     .filter(violation => {
       // Filter by minimum similarity
-      const matchScore = violation.product_match?.is_manual_match ? 1.0 : (violation.product_match?.overall_score || 0);
+      const matchScore = violation.product_matches?.is_manual_match ? 1.0 : (violation.product_matches?.overall_score || 0);
       const similarityPercent = matchScore * 100;
       return similarityPercent >= minSimilarity;
     })
@@ -216,34 +216,56 @@ export default function PriceAlertsPage() {
               <TableRow key={violation.id}>
                 <TableCell>
                   <div className="font-medium">
-                    {violation.product_match?.idc_product?.title || 'Unknown Product'}
+                    {violation.product_matches?.idc_products?.handle ? (
+                      <a 
+                        href={`https://idrinkcoffee.com/products/${violation.product_matches.idc_products.handle}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {violation.product_matches.idc_products.title || 'Unknown Product'}
+                      </a>
+                    ) : (
+                      violation.product_matches?.idc_products?.title || 'Unknown Product'
+                    )}
                   </div>
                   <div className="text-zinc-500 text-xs">
-                    {violation.product_match?.idc_product?.vendor} • SKU: {violation.product_match?.idc_product?.sku}
+                    {violation.product_matches?.idc_products?.vendor} • SKU: {violation.product_matches?.idc_products?.sku}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="font-medium">
-                    {violation.product_match?.competitor_product?.title || 'Unknown Product'}
+                    {violation.product_matches?.competitor_products?.product_url ? (
+                      <a 
+                        href={violation.product_matches.competitor_products.product_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {violation.product_matches.competitor_products.title || 'Unknown Product'}
+                      </a>
+                    ) : (
+                      violation.product_matches?.competitor_products?.title || 'Unknown Product'
+                    )}
                   </div>
                   <div className="text-zinc-500 text-xs">
-                    {violation.product_match?.competitor_product?.competitor?.name || 'Unknown'} • ${parseFloat(violation.product_match?.competitor_product?.price || 0).toFixed(2)}
+                    {violation.product_matches?.competitor_products?.competitors?.name || 'Unknown'} • ${parseFloat(violation.product_matches?.competitor_products?.price || 0).toFixed(2)}
                   </div>
                   <div className="text-zinc-500 text-xs">
-                    {violation.product_match?.competitor_product?.competitor?.domain}
+                    {violation.product_matches?.competitor_products?.competitors?.domain}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Badge color={
-                      violation.product_match?.is_manual_match ? 'green' :
-                      (violation.product_match?.overall_score || 0) >= 0.8 ? 'green' :
-                      (violation.product_match?.overall_score || 0) >= 0.7 ? 'blue' :
-                      (violation.product_match?.overall_score || 0) >= 0.6 ? 'yellow' : 'red'
+                      violation.product_matches?.is_manual_match ? 'green' :
+                      (violation.product_matches?.overall_score || 0) >= 0.8 ? 'green' :
+                      (violation.product_matches?.overall_score || 0) >= 0.7 ? 'blue' :
+                      (violation.product_matches?.overall_score || 0) >= 0.6 ? 'yellow' : 'red'
                     }>
-                      {violation.product_match?.is_manual_match ? '100.0%' : ((violation.product_match?.overall_score || 0) * 100).toFixed(1) + '%'}
+                      {violation.product_matches?.is_manual_match ? '100.0%' : ((violation.product_matches?.overall_score || 0) * 100).toFixed(1) + '%'}
                     </Badge>
-                    {violation.product_match?.is_manual_match && (
+                    {violation.product_matches?.is_manual_match && (
                       <span className="text-xs text-blue-600 font-medium">📌 Manual</span>
                     )}
                   </div>
