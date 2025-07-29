@@ -118,15 +118,45 @@ class EmbeddingsService {
     return features.join(', ');
   }
 
-  // Generate text for embedding from product data with feature extraction
+  // Generate text for embedding from product data using title + description
   generateProductText(product) {
-    // Create enhanced text with extracted features
-    const titleText = `${product.vendor || ''} ${product.title || ''}`.trim();
-    const extractedFeatures = this.extractProductFeatures(product);
-    const featuresText = `${product.product_type || ''} ${extractedFeatures}`.trim();
+    // Use full title and description for richer semantic matching
+    const parts = [];
     
-    // Combine both for comprehensive matching
-    return `${titleText} | ${featuresText}`.trim();
+    // Add vendor/brand
+    if (product.vendor) {
+      parts.push(`Brand: ${product.vendor}`);
+    }
+    
+    // Add product type
+    if (product.product_type) {
+      parts.push(`Type: ${product.product_type}`);
+    }
+    
+    // Add full title
+    if (product.title) {
+      parts.push(`Title: ${product.title}`);
+    }
+    
+    // Add description (clean HTML and truncate if needed)
+    if (product.description) {
+      const cleanDescription = product.description
+        .replace(/<[^>]*>/g, ' ') // Remove HTML tags
+        .replace(/\s+/g, ' ')     // Normalize whitespace
+        .trim();
+      
+      if (cleanDescription) {
+        // Truncate description to avoid token limits while keeping meaningful content
+        const maxDescLength = 800; // Reasonable limit to stay under token limits
+        const truncatedDesc = cleanDescription.length > maxDescLength 
+          ? cleanDescription.substring(0, maxDescLength) + '...'
+          : cleanDescription;
+        
+        parts.push(`Description: ${truncatedDesc}`);
+      }
+    }
+    
+    return parts.join(' | ');
   }
 
   // Generate embedding for a single product

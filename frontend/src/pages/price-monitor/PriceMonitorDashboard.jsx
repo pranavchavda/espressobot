@@ -10,6 +10,8 @@ export default function PriceMonitorDashboard() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [matchingLoading, setMatchingLoading] = useState(false);
   const [scrapingLoading, setScrapingLoading] = useState(false);
+  const [violationScanLoading, setViolationScanLoading] = useState(false);
+  const [matchingThreshold, setMatchingThreshold] = useState('medium'); // New state for threshold
   const { toast } = useToast();
 
   const fetchDashboardData = async () => {
@@ -61,7 +63,7 @@ export default function PriceMonitorDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          min_confidence: 'medium', 
+          min_confidence: matchingThreshold, 
           dry_run: false
         })
       });
@@ -119,6 +121,34 @@ export default function PriceMonitorDashboard() {
       toast.error('Error running competitor scraping');
     } finally {
       setScrapingLoading(false);
+    }
+  };
+
+  const scanForViolations = async () => {
+    try {
+      setViolationScanLoading(true);
+      const response = await fetch('/api/price-monitor/map-violations/scan-violations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          create_alerts: true,
+          dry_run: false
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const violationsMsg = result.violations_found === 1 ? 'violation' : 'violations';
+        toast.success(`Found ${result.violations_found} MAP ${violationsMsg} from ${result.total_matches_scanned} matches`);
+        fetchDashboardData(); // Refresh dashboard
+      } else {
+        toast.error('Failed to scan for violations');
+      }
+    } catch (error) {
+      console.error('Error scanning for violations:', error);
+      toast.error('Error scanning for violations');
+    } finally {
+      setViolationScanLoading(false);
     }
   };
 
@@ -186,7 +216,7 @@ export default function PriceMonitorDashboard() {
       )}
 
       {/* Action Buttons */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
           <h3 className="text-lg font-semibold mb-2">Sync Shopify Products</h3>
           <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
@@ -206,12 +236,36 @@ export default function PriceMonitorDashboard() {
           <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
             Use AI embeddings to match your products with competitor products.
           </p>
+          
+          {/* Confidence Threshold Selector */}
+          <div className="mb-4">
+            <label htmlFor="matching-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Confidence Threshold
+            </label>
+            <select
+              id="matching-threshold"
+              value={matchingThreshold}
+              onChange={(e) => setMatchingThreshold(e.target.value)}
+              disabled={matchingLoading}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="low">Low (60%+) - More matches, less precision</option>
+              <option value="medium">Medium (70%+) - Balanced approach</option>
+              <option value="high">High (80%+) - Fewer matches, higher precision</option>
+            </select>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {matchingThreshold === 'low' && 'Find more potential matches, may include false positives'}
+              {matchingThreshold === 'medium' && 'Recommended balance between precision and recall'}
+              {matchingThreshold === 'high' && 'Only very confident matches, may miss some valid matches'}
+            </p>
+          </div>
+          
           <Button 
             onClick={runProductMatching} 
             disabled={matchingLoading}
             className="w-full bg-green-600 hover:bg-green-700 text-white"
           >
-            {matchingLoading ? 'Matching...' : 'Match Products'}
+            {matchingLoading ? 'Matching...' : `Match Products (${matchingThreshold} confidence)`}
           </Button>
         </div>
 
@@ -226,6 +280,20 @@ export default function PriceMonitorDashboard() {
             className="w-full bg-purple-600 hover:bg-purple-700 text-white"
           >
             {scrapingLoading ? 'Scraping...' : 'Start Scraping'}
+          </Button>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+          <h3 className="text-lg font-semibold mb-2">Scan for Violations</h3>
+          <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+            Scan existing product matches for MAP pricing violations and generate alerts.
+          </p>
+          <Button 
+            onClick={scanForViolations} 
+            disabled={violationScanLoading}
+            className="w-full bg-red-600 hover:bg-red-700 text-white"
+          >
+            {violationScanLoading ? 'Scanning...' : 'Scan Violations'}
           </Button>
         </div>
       </div>
