@@ -1,5 +1,6 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
+import { randomUUID } from 'crypto';
 
 const router = express.Router();
 
@@ -184,7 +185,8 @@ router.post('/', async (req, res) => {
         exclude_patterns,
         is_active,
         scrape_schedule,
-        rate_limit_ms
+        rate_limit_ms,
+        updated_at: new Date()
       }
     });
     
@@ -330,9 +332,11 @@ router.post('/:id/scrape', async (req, res) => {
     // Create a scrape job
     const scrapeJob = await prisma.scrape_jobs.create({
       data: {
+        id: randomUUID(),
         competitor_id: id,
         collections: collections || competitor.collections,
-        status: 'pending'
+        status: 'pending',
+        updated_at: new Date()
       }
     });
     

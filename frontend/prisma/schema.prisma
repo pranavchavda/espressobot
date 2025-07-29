@@ -13,15 +13,16 @@ model agent_runs {
   conv_id       Int
   tasks         String
   created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt @default(now())
   conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
 }
 
 model alembic_version {
-  version_num String @id
+  version_num String @id @default(cuid())
 }
 
 model competitor_products {
-  id               String            @id
+  id               String            @id @default(cuid())
   external_id      String
   competitor_id    String
   title            String
@@ -39,7 +40,7 @@ model competitor_products {
   embedding        String?
   scraped_at       DateTime          @default(now())
   created_at       DateTime          @default(now())
-  updated_at       DateTime
+  updated_at       DateTime          @updatedAt @default(now())
   competitors      competitors       @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
   price_history    price_history[]
   product_matches  product_matches[]
@@ -52,7 +53,7 @@ model competitor_products {
 }
 
 model competitors {
-  id                  String                @id
+  id                  String                @id @default(cuid())
   name                String
   domain              String                @unique
   collections         String[]
@@ -82,6 +83,7 @@ model conversation_summaries {
   end_msg_index   Int
   chunk_number    Int
   created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt @default(now())
   conversations   conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
 
   @@index([conv_id, chunk_number])
@@ -114,7 +116,7 @@ model embedding_cache {
 }
 
 model idc_products {
-  id                 String            @id
+  id                 String            @id @default(cuid())
   shopify_id         String            @unique
   title              String
   vendor             String
@@ -143,7 +145,7 @@ model idc_products {
 }
 
 model memories {
-  id         String   @id
+  id         String   @id @default(cuid())
   user_id    String
   content    String
   embedding  Bytes?
@@ -169,7 +171,7 @@ model messages {
 }
 
 model monitored_brands {
-  id           String         @id
+  id           String         @id @default(cuid())
   brand_name   String         @unique
   is_active    Boolean        @default(true)
   created_at   DateTime       @default(now())
@@ -180,7 +182,7 @@ model monitored_brands {
 }
 
 model monitored_collections {
-  id              String   @id
+  id              String   @id @default(cuid())
   collection_name String   @unique
   is_active       Boolean  @default(true)
   created_at      DateTime @default(now())
@@ -190,7 +192,7 @@ model monitored_collections {
 }
 
 model price_alerts {
-  id               String          @id
+  id               String          @id @default(cuid())
   product_match_id String
   alert_type       String
   title            String
@@ -202,7 +204,7 @@ model price_alerts {
   status           String          @default("unread")
   is_read          Boolean         @default(false)
   created_at       DateTime        @default(now())
-  updated_at       DateTime
+  updated_at       DateTime          @updatedAt @default(now())
   product_matches  product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
 
   @@index([alert_type])
@@ -212,19 +214,20 @@ model price_alerts {
 }
 
 model price_history {
-  id                    String              @id
+  id                    String              @id @default(cuid())
   competitor_product_id String
   price                 Decimal             @db.Decimal(10, 2)
   compare_at_price      Decimal?            @db.Decimal(10, 2)
   available             Boolean             @default(true)
   recorded_at           DateTime            @default(now())
+  updated_at            DateTime            @updatedAt @default(now())
   competitor_products   competitor_products @relation(fields: [competitor_product_id], references: [id], onDelete: Cascade)
 
   @@index([competitor_product_id, recorded_at])
 }
 
 model product_matches {
-  id                       String              @id
+  id                       String              @id @default(cuid())
   idc_product_id           String
   competitor_product_id    String
   overall_score            Float
@@ -257,7 +260,7 @@ model product_matches {
 }
 
 model scrape_jobs {
-  id               String      @id
+  id               String      @id @default(cuid())
   competitor_id    String
   status           String      @default("pending")
   collections      String[]
@@ -269,6 +272,7 @@ model scrape_jobs {
   completed_at     DateTime?
   duration_seconds Int?
   created_at       DateTime    @default(now())
+  updated_at       DateTime    @updatedAt @default(now())
   competitors      competitors @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
 
   @@index([competitor_id])
@@ -277,11 +281,12 @@ model scrape_jobs {
 }
 
 model tool_result_cache {
-  id            String   @id
+  id            String   @id @default(cuid())
   tool_name     String
   input_hash    String   @unique
   result        String
   created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt @default(now())
   last_accessed DateTime @default(now())
 
   @@index([created_at])
@@ -334,7 +339,7 @@ model users {
 }
 
 model violation_history {
-  id                String          @id
+  id                String          @id @default(cuid())
   product_match_id  String
   violation_type    String
   competitor_price  Decimal         @db.Decimal(10, 2)
@@ -347,6 +352,7 @@ model violation_history {
   competitor_url    String?
   notes             String?
   detected_at       DateTime        @default(now())
+  updated_at        DateTime        @updatedAt @default(now())
   product_matches   product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
 
   @@index([detected_at])

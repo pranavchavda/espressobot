@@ -117,11 +117,11 @@ router.get('/stats', async (req, res) => {
         } 
       },
       select: {
-        product_match: {
+        product_matches: {
           select: {
-            competitor_product: {
+            competitor_products: {
               select: {
-                competitor: {
+                competitors: {
                   select: { id: true, name: true, domain: true }
                 }
               }
@@ -137,8 +137,8 @@ router.get('/stats', async (req, res) => {
       // Group by competitor to find worst offender
       const competitorViolations = {};
       worstOffenderData.forEach(alert => {
-        if (alert.product_match?.competitor_product?.competitor) {
-          const competitor = alert.product_match.competitor_product.competitor;
+        if (alert.product_matches?.competitor_products?.competitors) {
+          const competitor = alert.product_matches.competitor_products.competitors;
           if (!competitorViolations[competitor.id]) {
             competitorViolations[competitor.id] = {
               competitor,
@@ -195,11 +195,11 @@ router.get('/stats', async (req, res) => {
       // No limit - show all recent violations
       orderBy: { created_at: 'desc' },
       include: {
-        product_match: {
+        product_matches: {
           include: {
-            idc_product: true,
-            competitor_product: {
-              include: { competitor: true }
+            idc_products: true,
+            competitor_products: {
+              include: { competitors: true }
             }
           }
         }
@@ -208,8 +208,8 @@ router.get('/stats', async (req, res) => {
 
     const recentAlerts = recentViolations.map(violation => ({
       id: violation.id,
-      product_title: violation.product_match?.competitor_product?.title || 'Unknown Product',
-      competitor: violation.product_match?.competitor_product?.competitor?.name || 'Unknown Competitor',
+      product_title: violation.product_matches?.competitor_products?.title || 'Unknown Product',
+      competitor: violation.product_matches?.competitor_products?.competitors?.name || 'Unknown Competitor',
       alert_type: violation.alert_type || 'map_violation',
       severity: violation.severity,
       map_price: parseFloat(violation.old_price || 0),
@@ -289,11 +289,11 @@ router.get('/summary', async (req, res) => {
         }
       },
       select: {
-        product_match: {
+        product_matches: {
           select: {
-            competitor_product: {
+            competitor_products: {
               select: {
-                competitor: {
+                competitors: {
                   select: { id: true, name: true, domain: true }
                 }
               }

@@ -82,10 +82,10 @@ router.post('/scan-violations', async (req, res) => {
     const productMatches = await prisma.product_matches.findMany({
       where: whereClause,
       include: {
-        idc_product: true,
-        competitor_product: {
+        idc_products: true,
+        competitor_products: {
           include: {
-            competitor: true
+            competitors: true
           }
         },
         price_alerts: {
@@ -102,11 +102,11 @@ router.post('/scan-violations', async (req, res) => {
     console.log(`📦 Scanning ${productMatches.length} product matches for violations`);
 
     for (const match of productMatches) {
-      const { idc_product, competitor_product } = match;
+      const { idc_products, competitor_products } = match;
       
       // Use iDC price as MAP (could be enhanced to have dedicated MAP field)
-      const mapPrice = idc_product.price;
-      const competitorPrice = competitor_product.price;
+      const mapPrice = idc_products.price;
+      const competitorPrice = competitor_products.price;
 
       if (!mapPrice || !competitorPrice) {
         continue;
@@ -120,13 +120,14 @@ router.post('/scan-violations', async (req, res) => {
         const violationData = {
           product_match_id: match.id,
           alert_type: 'map_violation',
-          title: `MAP Violation: ${competitor_product.title}`,
-          message: `${competitor_product.competitor.name} is selling "${competitor_product.title}" for $${competitorPrice}, which is $${impact.price_gap.toFixed(2)} below the MAP price of $${mapPrice}`,
+          title: `MAP Violation: ${competitor_products.title}`,
+          message: `${competitor_products.competitors.name} is selling "${competitor_products.title}" for $${competitorPrice}, which is $${impact.price_gap.toFixed(2)} below the MAP price of $${mapPrice}`,
           severity: severity,
           old_price: mapPrice,
           new_price: competitorPrice,
           price_change: -impact.price_gap,
-          status: 'unread'
+          status: 'unread',
+          updated_at: new Date()
         };
 
         // Create alert if requested and not in dry run
@@ -158,18 +159,18 @@ router.post('/scan-violations', async (req, res) => {
         results.violations.push({
           match_id: match.id,
           idc_product: {
-            title: idc_product.title,
-            vendor: idc_product.vendor,
-            sku: idc_product.sku,
+            title: idc_products.title,
+            vendor: idc_products.vendor,
+            sku: idc_products.sku,
             price: mapPrice
           },
           competitor_product: {
-            title: competitor_product.title,
-            vendor: competitor_product.vendor,
-            sku: competitor_product.sku,
+            title: competitor_products.title,
+            vendor: competitor_products.vendor,
+            sku: competitor_products.sku,
             price: competitorPrice,
-            competitor: competitor_product.competitor.name,
-            domain: competitor_product.competitor.domain
+            competitor: competitor_products.competitors.name,
+            domain: competitor_products.competitors.domain
           },
           violation: {
             severity: severity,
@@ -218,13 +219,13 @@ router.get('/violations', async (req, res) => {
     }
 
     if (brand || competitor) {
-      where.product_match = {};
+      where.product_matches = {};
       if (brand) {
-        where.product_match.idc_product = { vendor: brand };
+        where.product_matches.idc_products = { vendor: brand };
       }
       if (competitor) {
-        where.product_match.competitor_product = {
-          competitor: {
+        where.product_matches.competitor_products = {
+          competitors: {
             name: { contains: competitor, mode: 'insensitive' }
           }
         };
@@ -254,12 +255,12 @@ router.get('/violations', async (req, res) => {
         skip,
         take: parseInt(limit),
         include: {
-          product_match: {
+          product_matches: {
             include: {
-              idc_product: true,
-              competitor_product: {
+              idc_products: true,
+              competitor_products: {
                 include: {
-                  competitor: true
+                  competitors: true
                 }
               }
             }
@@ -324,12 +325,12 @@ router.get('/violations/:violationId', async (req, res) => {
     const violation = await prisma.price_alerts.findUnique({
       where: { id: violationId },
       include: {
-        product_match: {
+        product_matches: {
           include: {
-            idc_product: true,
-            competitor_product: {
+            idc_products: true,
+            competitor_products: {
               include: {
-                competitor: true,
+                competitors: true,
                 price_history: {
                   orderBy: { recorded_at: 'desc' }
                   // No limit - show complete price history
@@ -442,13 +443,13 @@ router.get('/trends', async (req, res) => {
     };
 
     if (brand || competitor) {
-      where.product_match = {};
+      where.product_matches = {};
       if (brand) {
-        where.product_match.idc_product = { vendor: brand };
+        where.product_matches.idc_products = { vendor: brand };
       }
       if (competitor) {
-        where.product_match.competitor_product = {
-          competitor: {
+        where.product_matches.competitor_products = {
+          competitors: {
             name: { contains: competitor, mode: 'insensitive' }
           }
         };
@@ -478,15 +479,15 @@ router.get('/trends', async (req, res) => {
         _sum: { price_change: true }
       }),
 
-      // Top violating competitors - get from product_match relation
+      // Top violating competitors - get from product_matches relation
       prisma.price_alerts.findMany({
         where,
         select: {
-          product_match: {
+          product_matches: {
             select: {
-              competitor_product: {
+              competitor_products: {
                 select: {
-                  competitor: {
+                  competitors: {
                     select: { id: true, name: true, domain: true }
                   }
                 }
@@ -502,8 +503,8 @@ router.get('/trends', async (req, res) => {
     // Process top violators from the fetched data
     const competitorStats = {};
     topViolators.forEach(alert => {
-      if (alert.product_match?.competitor_product?.competitor) {
-        const competitor = alert.product_match.competitor_product.competitor;
+      if (alert.product_matches?.competitor_products?.competitors) {
+        const competitor = alert.product_matches.competitor_products.competitors;
         if (!competitorStats[competitor.id]) {
           competitorStats[competitor.id] = {
             competitor,

@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
 import embeddingsService from '../../services/embeddings-service.js';
+import { randomUUID } from 'crypto';
 
 const router = express.Router();
 
@@ -286,40 +287,47 @@ class CompetitorScraper {
         }
       },
       create: {
+        id: randomUUID(),
         ...productData,
         created_at: new Date()
       },
-      update: productData
+      update: {
+        ...productData,
+        updated_at: new Date()
+      }
     });
 
     // Store price history if price changed
     if (lowestPrice) {
-      const lastPrice = await prisma.price_history.findFirst({
+      // First find the competitor product to get its ID
+      const competitorProduct = await prisma.competitor_products.findUnique({
         where: {
-          competitor_product: {
+          external_id_competitor_id: {
             external_id: productData.external_id,
             competitor_id: productData.competitor_id
           }
         },
-        orderBy: { recorded_at: 'desc' }
+        select: { id: true }
       });
+
+      const lastPrice = competitorProduct ? await prisma.price_history.findFirst({
+        where: {
+          competitor_product_id: competitorProduct.id
+        },
+        orderBy: { recorded_at: 'desc' }
+      }) : null;
 
       // Only store if price is different from last recorded price
       if (!lastPrice || Math.abs(lastPrice.price - lowestPrice) > 0.01) {
         await prisma.price_history.create({
           data: {
-            competitor_product_id: (await prisma.competitor_products.findUnique({
-              where: {
-                external_id_competitor_id: {
-                  external_id: productData.external_id,
-                  competitor_id: productData.competitor_id
-                }
-              }
-            })).id,
+            id: randomUUID(),
+            competitor_product_id: competitorProduct.id,
             price: lowestPrice,
             compare_at_price: compareAtPrice,
             available: productData.available,
-            recorded_at: new Date()
+            recorded_at: new Date(),
+            updated_at: new Date()
           }
         });
       }
@@ -777,10 +785,12 @@ router.post('/start-scrape', async (req, res) => {
     // Create scrape job
     const scrapeJob = await prisma.scrape_jobs.create({
       data: {
+        id: randomUUID(),
         competitor_id,
         collections: collections || competitor.collections,
         status: 'running',
-        started_at: new Date()
+        started_at: new Date(),
+        updated_at: new Date()
       }
     });
 
@@ -872,7 +882,7 @@ router.get('/job/:jobId/status', async (req, res) => {
     const job = await prisma.scrape_jobs.findUnique({
       where: { id: jobId },
       include: {
-        competitor: {
+        competitors: {
           select: { name: true, domain: true }
         }
       }
@@ -884,7 +894,7 @@ router.get('/job/:jobId/status', async (req, res) => {
 
     res.json({
       id: job.id,
-      competitor: job.competitor,
+      competitor: job.competitors,
       status: job.status,
       collections: job.collections,
       products_found: job.products_found,
@@ -916,7 +926,7 @@ router.get('/jobs', async (req, res) => {
       take: parseInt(limit),
       orderBy: { created_at: 'desc' },
       include: {
-        competitor: {
+        competitors: {
           select: { name: true, domain: true }
         }
       }
@@ -924,7 +934,7 @@ router.get('/jobs', async (req, res) => {
 
     const formattedJobs = jobs.map(job => ({
       id: job.id,
-      competitor: job.competitor,
+      competitor: job.competitors,
       status: job.status,
       collections: job.collections,
       products_found: job.products_found,
@@ -1021,10 +1031,12 @@ router.post('/bulk-scrape', async (req, res) => {
       try {
         const scrapeJob = await prisma.scrape_jobs.create({
           data: {
+            id: randomUUID(),
             competitor_id: competitor.id,
             collections: collections || competitor.collections,
             status: 'running',
-            started_at: new Date()
+            started_at: new Date(),
+            updated_at: new Date()
           }
         });
 
@@ -1072,10 +1084,12 @@ router.post('/scrape-all', async (req, res) => {
       try {
         const scrapeJob = await prisma.scrape_jobs.create({
           data: {
+            id: randomUUID(),
             competitor_id: competitor.id,
             collections: collections || competitor.collections,
             status: 'running',
-            started_at: new Date()
+            started_at: new Date(),
+            updated_at: new Date()
           }
         });
 

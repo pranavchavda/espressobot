@@ -43,7 +43,11 @@ router.post('/monitored-brands', async (req, res) => {
     }
     
     const brand = await prisma.monitored_brands.create({
-      data: { brand_name, is_active }
+      data: { 
+        brand_name, 
+        is_active,
+        updated_at: new Date()
+      }
     });
     
     res.status(201).json(brand);
@@ -136,7 +140,11 @@ router.post('/monitored-collections', async (req, res) => {
     }
     
     const collection = await prisma.monitored_collections.create({
-      data: { collection_name, is_active }
+      data: { 
+        collection_name, 
+        is_active,
+        updated_at: new Date()
+      }
     });
     
     res.status(201).json(collection);

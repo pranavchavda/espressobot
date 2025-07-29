@@ -116,7 +116,11 @@ router.post('/sync-idc-products', async (req, res) => {
         
         if (!monitoredBrand) {
           monitoredBrand = await prisma.monitored_brands.create({
-            data: { brand_name: brandName, is_active: true }
+            data: { 
+              brand_name: brandName, 
+              is_active: true,
+              updated_at: new Date()
+            }
           });
         }
 
@@ -175,7 +179,8 @@ router.post('/sync-idc-products', async (req, res) => {
                   available: firstVariant?.availableForSale || false,
                   inventory_quantity: firstVariant?.inventoryQuantity || 0,
                   brand_id: monitoredBrand.id,
-                  last_synced_at: new Date()
+                  last_synced_at: new Date(),
+                  updated_at: new Date()
                 };
 
                 // Generate embedding for the product

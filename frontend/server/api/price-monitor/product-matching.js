@@ -304,7 +304,7 @@ router.post('/auto-match', async (req, res) => {
     console.log(`🏪 Loaded ${competitorProducts.length} competitor products`);
 
     // 🚀 PERFORMANCE OPTIMIZATION: Process IDC products in parallel batches
-    const BATCH_SIZE = 50; // Process 50 IDC products simultaneously
+    const BATCH_SIZE = 5; // Process 5 IDC products simultaneously (reduced to prevent connection exhaustion)
     const batches = [];
     
     for (let i = 0; i < idcProducts.length; i += BATCH_SIZE) {
@@ -358,7 +358,8 @@ router.post('/auto-match', async (req, res) => {
             price_similarity: bestMatch.similarity.price_similarity,
             confidence_level: bestMatch.similarity.confidence_level,
             is_manual_match: false,  // Mark as automated match
-            created_at: new Date()
+            created_at: new Date(),
+            updated_at: new Date()
           };
 
           if (!dry_run) {
@@ -455,7 +456,8 @@ router.post('/manual-match', async (req, res) => {
       price_similarity: similarity.price_similarity,
       confidence_level: confidence_override || similarity.confidence_level,
       is_manual_match: true,
-      created_at: new Date()
+      created_at: new Date(),
+      updated_at: new Date()
     };
 
     const match = await prisma.product_matches.upsert({
