@@ -106,11 +106,11 @@ router.get('/:id', async (req, res) => {
       where: { id },
       include: {
         competitor_products: {
-          take: 10,
+          // No limit - show all competitor products
           orderBy: { scraped_at: 'desc' }
         },
         scrape_jobs: {
-          take: 5,
+          // No limit - show all scrape jobs
           orderBy: { created_at: 'desc' }
         },
         _count: {

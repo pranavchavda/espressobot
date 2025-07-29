@@ -192,7 +192,7 @@ router.get('/stats', async (req, res) => {
           notIn: ['resolved', 'dismissed'] 
         } 
       },
-      take: 10,
+      // No limit - show all recent violations
       orderBy: { created_at: 'desc' },
       include: {
         product_match: {

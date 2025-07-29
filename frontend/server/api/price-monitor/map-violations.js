@@ -93,8 +93,8 @@ router.post('/scan-violations', async (req, res) => {
             status: { 
               notIn: ['resolved', 'dismissed'] 
             } 
-          },
-          take: 1
+          }
+          // No limit - get all unresolved alerts for this match
         }
       }
     });
@@ -331,8 +331,8 @@ router.get('/violations/:violationId', async (req, res) => {
               include: {
                 competitor: true,
                 price_history: {
-                  orderBy: { recorded_at: 'desc' },
-                  take: 10
+                  orderBy: { recorded_at: 'desc' }
+                  // No limit - show complete price history
                 }
               }
             }
@@ -494,8 +494,8 @@ router.get('/trends', async (req, res) => {
             }
           },
           price_change: true
-        },
-        take: 100
+        }
+        // No limit - analyze all violations for accurate competitor trends
       })
     ]);
 

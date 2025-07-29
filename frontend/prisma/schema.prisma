@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
 }
 
@@ -8,23 +8,98 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model agent_runs {
+  id            Int           @id @default(autoincrement())
+  conv_id       Int
+  tasks         String
+  created_at    DateTime      @default(now())
+  conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
+}
+
 model alembic_version {
   version_num String @id
 }
 
+model competitor_products {
+  id               String            @id
+  external_id      String
+  competitor_id    String
+  title            String
+  vendor           String?
+  product_type     String?
+  handle           String?
+  sku              String?
+  price            Decimal?          @db.Decimal(10, 2)
+  compare_at_price Decimal?          @db.Decimal(10, 2)
+  available        Boolean           @default(true)
+  image_url        String?
+  product_url      String?
+  description      String?
+  features         String?
+  embedding        String?
+  scraped_at       DateTime          @default(now())
+  created_at       DateTime          @default(now())
+  updated_at       DateTime
+  competitors      competitors       @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
+  price_history    price_history[]
+  product_matches  product_matches[]
+
+  @@unique([external_id, competitor_id])
+  @@index([competitor_id])
+  @@index([price])
+  @@index([scraped_at])
+  @@index([vendor])
+}
+
+model competitors {
+  id                  String                @id
+  name                String
+  domain              String                @unique
+  collections         String[]
+  is_active           Boolean               @default(true)
+  scrape_schedule     String?
+  rate_limit_ms       Int                   @default(2000)
+  last_scraped_at     DateTime?
+  total_products      Int                   @default(0)
+  created_at          DateTime              @default(now())
+  updated_at          DateTime
+  exclude_patterns    String[]              @default([])
+  scraping_strategy   String                @default("collections")
+  search_terms        String[]              @default([])
+  url_patterns        String[]              @default([])
+  competitor_products competitor_products[]
+  scrape_jobs         scrape_jobs[]
+
+  @@index([is_active])
+  @@index([last_scraped_at])
+}
+
+model conversation_summaries {
+  id              Int           @id @default(autoincrement())
+  conv_id         Int
+  summary         String
+  start_msg_index Int
+  end_msg_index   Int
+  chunk_number    Int
+  created_at      DateTime      @default(now())
+  conversations   conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
+
+  @@index([conv_id, chunk_number])
+}
+
 model conversations {
-  id           Int          @id @default(autoincrement())
-  user_id      Int
-  title        String
-  topic_title  String?      // Concise topic title
-  topic_details String?     // Detailed topic description
-  created_at   DateTime?
-  updated_at   DateTime?
-  filename     String       @unique
-  agent_runs   agent_runs[]
-  users        users        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  messages     messages[]
-  summaries    conversation_summaries[]
+  id                     Int                      @id @default(autoincrement())
+  user_id                Int
+  title                  String
+  topic_title            String?
+  topic_details          String?
+  created_at             DateTime?
+  updated_at             DateTime?
+  filename               String                   @unique
+  agent_runs             agent_runs[]
+  conversation_summaries conversation_summaries[]
+  users                  users                    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  messages               messages[]
 }
 
 model embedding_cache {
@@ -38,17 +113,179 @@ model embedding_cache {
   user_memory_embeddings user_memory_embeddings[]
 }
 
+model idc_products {
+  id                 String            @id
+  shopify_id         String            @unique
+  title              String
+  vendor             String
+  product_type       String?
+  handle             String?
+  sku                String?
+  price              Decimal?          @db.Decimal(10, 2)
+  compare_at_price   Decimal?          @db.Decimal(10, 2)
+  available          Boolean           @default(true)
+  image_url          String?
+  description        String?
+  features           String?
+  embedding          String?
+  last_synced_at     DateTime          @default(now())
+  created_at         DateTime          @default(now())
+  updated_at         DateTime
+  brand_id           String
+  inventory_quantity Int?
+  monitored_brands   monitored_brands  @relation(fields: [brand_id], references: [id])
+  product_matches    product_matches[]
+
+  @@index([available])
+  @@index([last_synced_at])
+  @@index([product_type])
+  @@index([vendor])
+}
+
+model memories {
+  id         String   @id
+  user_id    String
+  content    String
+  embedding  Bytes?
+  metadata   String?
+  created_at DateTime @default(now())
+  updated_at DateTime
+
+  @@index([created_at])
+  @@index([user_id])
+}
+
 model messages {
   id               Int           @id @default(autoincrement())
   conv_id          Int
   role             String?
   content          String
-  original_content String?       // Original content before edit
+  original_content String?
   tool_call_id     String?
   tool_name        String?
   created_at       DateTime?
-  edited_at        DateTime?     // Timestamp when message was edited
+  edited_at        DateTime?
   conversations    conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model monitored_brands {
+  id           String         @id
+  brand_name   String         @unique
+  is_active    Boolean        @default(true)
+  created_at   DateTime       @default(now())
+  updated_at   DateTime
+  idc_products idc_products[]
+
+  @@index([is_active])
+}
+
+model monitored_collections {
+  id              String   @id
+  collection_name String   @unique
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime
+
+  @@index([is_active])
+}
+
+model price_alerts {
+  id               String          @id
+  product_match_id String
+  alert_type       String
+  title            String
+  message          String
+  severity         String          @default("medium")
+  old_price        Decimal?        @db.Decimal(10, 2)
+  new_price        Decimal?        @db.Decimal(10, 2)
+  price_change     Decimal?        @db.Decimal(10, 2)
+  status           String          @default("unread")
+  is_read          Boolean         @default(false)
+  created_at       DateTime        @default(now())
+  updated_at       DateTime
+  product_matches  product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
+
+  @@index([alert_type])
+  @@index([created_at])
+  @@index([severity])
+  @@index([status])
+}
+
+model price_history {
+  id                    String              @id
+  competitor_product_id String
+  price                 Decimal             @db.Decimal(10, 2)
+  compare_at_price      Decimal?            @db.Decimal(10, 2)
+  available             Boolean             @default(true)
+  recorded_at           DateTime            @default(now())
+  competitor_products   competitor_products @relation(fields: [competitor_product_id], references: [id], onDelete: Cascade)
+
+  @@index([competitor_product_id, recorded_at])
+}
+
+model product_matches {
+  id                       String              @id
+  idc_product_id           String
+  competitor_product_id    String
+  overall_score            Float
+  brand_similarity         Float?
+  title_similarity         Float?
+  embedding_similarity     Float?
+  price_similarity         Float?
+  price_difference         Decimal?            @db.Decimal(10, 2)
+  price_difference_percent Float?
+  is_map_violation         Boolean             @default(false)
+  violation_amount         Decimal?            @db.Decimal(10, 2)
+  violation_percentage     Float?
+  first_violation_date     DateTime?
+  last_checked_at          DateTime            @default(now())
+  is_manual_match          Boolean             @default(false)
+  is_rejected              Boolean             @default(false)
+  confidence_level         String              @default("low")
+  created_at               DateTime            @default(now())
+  updated_at               DateTime
+  price_alerts             price_alerts[]
+  competitor_products      competitor_products @relation(fields: [competitor_product_id], references: [id], onDelete: Cascade)
+  idc_products             idc_products        @relation(fields: [idc_product_id], references: [id], onDelete: Cascade)
+  violation_history        violation_history[]
+
+  @@unique([idc_product_id, competitor_product_id])
+  @@index([confidence_level])
+  @@index([is_map_violation])
+  @@index([last_checked_at])
+  @@index([overall_score])
+}
+
+model scrape_jobs {
+  id               String      @id
+  competitor_id    String
+  status           String      @default("pending")
+  collections      String[]
+  products_found   Int?
+  products_updated Int?
+  products_created Int?
+  errors           String?
+  started_at       DateTime?
+  completed_at     DateTime?
+  duration_seconds Int?
+  created_at       DateTime    @default(now())
+  competitors      competitors @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
+
+  @@index([competitor_id])
+  @@index([created_at])
+  @@index([status])
+}
+
+model tool_result_cache {
+  id            String   @id
+  tool_name     String
+  input_hash    String   @unique
+  result        String
+  created_at    DateTime @default(now())
+  last_accessed DateTime @default(now())
+
+  @@index([created_at])
+  @@index([tool_name])
 }
 
 model user_memories {
@@ -86,325 +323,33 @@ model users {
   created_at             DateTime?
   google_id              String?                  @unique(map: "idx_users_google_id")
   profile_picture        String?
-  google_access_token    String?                  // Google OAuth access token
-  google_refresh_token   String?                  // Google OAuth refresh token  
-  google_token_expiry    DateTime?                // Token expiration time
-  ga4_property_id        String?                  @default("325181275") // Google Analytics 4 property ID
-  ga4_enabled            Boolean                  @default(true)  // GA4 integration enabled
+  google_access_token    String?
+  google_refresh_token   String?
+  google_token_expiry    DateTime?
+  ga4_property_id        String?                  @default("325181275")
+  ga4_enabled            Boolean                  @default(true)
   conversations          conversations[]
   user_memories          user_memories[]
   user_memory_embeddings user_memory_embeddings[]
 }
 
-model agent_runs {
-  id            Int           @id @default(autoincrement())
-  conv_id       Int
-  tasks         String
-  created_at    DateTime      @default(now())
-  conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
-}
-
-model conversation_summaries {
-  id              Int           @id @default(autoincrement())
-  conv_id         Int
-  summary         String        // The summarized content
-  start_msg_index Int           // Starting message index for this summary
-  end_msg_index   Int           // Ending message index for this summary
-  chunk_number    Int           // Which chunk this is (1st, 2nd, etc.)
-  created_at      DateTime      @default(now())
-  conversations   conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
-  
-  @@index([conv_id, chunk_number])
-}
-
-// Memory System Tables (migrated from separate SQLite DB)
-model memories {
-  id         String   @id
-  user_id    String
-  content    String
-  embedding  Bytes?   // Vector embeddings for semantic search
-  metadata   String?  // JSON metadata
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-  
-  @@index([user_id])
-  @@index([created_at])
-}
-
-model tool_result_cache {
-  id             String   @id @default(cuid())
-  tool_name      String
-  input_hash     String   @unique
-  result         String   // JSON serialized result
-  created_at     DateTime @default(now())
-  last_accessed  DateTime @default(now())
-  
-  @@index([tool_name])
-  @@index([created_at])
-}
-
-// Price Monitoring System Tables
-
-model competitors {
-  id                String    @id @default(cuid())
-  name              String    // "Home Coffee Solutions", "Kitchen Barista", etc.
-  domain            String    @unique // "homecoffeesolutions.com"
-  collections       String[]  // Array of collection paths to scrape
-  scraping_strategy String    @default("collections") // "collections", "url_patterns", "search_terms"
-  url_patterns      String[]  @default([]) // URL patterns for non-collection sites
-  search_terms      String[]  @default([]) // Search terms for brand/product matching
-  exclude_patterns  String[]  @default([]) // Patterns to exclude (sale items, etc.)
-  is_active         Boolean   @default(true)
-  scrape_schedule   String?   // Cron expression for automated scraping
-  rate_limit_ms     Int       @default(2000) // Milliseconds between requests
-  last_scraped_at   DateTime?
-  total_products    Int       @default(0)
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
-  
-  // Relations
-  competitor_products competitor_products[]
-  scrape_jobs         scrape_jobs[]
-  
-  @@index([is_active])
-  @@index([last_scraped_at])
-}
-
-model monitored_brands {
-  id         String   @id @default(cuid())
-  brand_name String   @unique // "ECM", "Profitec", "Eureka"
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-  
-  // Relations
-  idc_products idc_products[]
-  
-  @@index([is_active])
-}
-
-model monitored_collections {
-  id              String   @id @default(cuid())
-  collection_name String   @unique // "espresso-machines", "grinders"
-  is_active       Boolean  @default(true)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  
-  @@index([is_active])
-}
-
-model idc_products {
-  id                String          @id @default(cuid())
-  shopify_id        String          @unique // Shopify product ID
-  title             String
-  vendor            String
-  product_type      String?
-  handle            String?
-  sku               String?
-  price             Decimal?        @db.Decimal(10, 2)
-  compare_at_price  Decimal?        @db.Decimal(10, 2)
-  available         Boolean         @default(true)
-  inventory_quantity Int?           // Stock level from Shopify
-  image_url         String?
-  description       String?
-  features          String?         // JSON string of extracted features
-  embedding         String?         // JSON array of embedding vector
-  last_synced_at    DateTime        @default(now())
-  created_at        DateTime        @default(now())
-  updated_at        DateTime        @updatedAt
-  
-  // Foreign keys
-  brand_id          String
-  monitored_brand   monitored_brands @relation(fields: [brand_id], references: [id])
-  
-  // Relations
-  product_matches   product_matches[] @relation("IdcProduct")
-  
-  @@index([vendor])
-  @@index([product_type])
-  @@index([available])
-  @@index([last_synced_at])
-}
-
-model competitor_products {
-  id                String       @id @default(cuid())
-  external_id       String       // Original product ID from competitor site
-  competitor_id     String
-  title             String
-  vendor            String?
-  product_type      String?
-  handle            String?
-  sku               String?
-  price             Decimal?     @db.Decimal(10, 2)
-  compare_at_price  Decimal?     @db.Decimal(10, 2)
-  available         Boolean      @default(true)
-  image_url         String?
-  product_url       String?      // Direct link to competitor product page
-  description       String?
-  features          String?      // JSON string of extracted features
-  embedding         String?      // JSON array of embedding vector
-  scraped_at        DateTime     @default(now())
-  created_at        DateTime     @default(now())
-  updated_at        DateTime     @updatedAt
-  
-  // Foreign keys
-  competitor        competitors  @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
-  
-  // Relations
-  product_matches   product_matches[] @relation("CompetitorProduct")
-  price_history     price_history[]
-  
-  @@unique([external_id, competitor_id])
-  @@index([competitor_id])
-  @@index([vendor])
-  @@index([price])
-  @@index([scraped_at])
-}
-
-model product_matches {
-  id                      String              @id @default(cuid())
-  idc_product_id          String
-  competitor_product_id   String
-  
-  // Similarity scores (0-1 scale)
-  overall_score           Float               // Overall confidence score
-  brand_similarity        Float?              // Brand/vendor match score
-  title_similarity        Float?              // Title similarity score
-  embedding_similarity    Float?              // Semantic embedding similarity
-  price_similarity        Float?              // Price proximity score
-  
-  // Price analysis
-  price_difference        Decimal?            @db.Decimal(10, 2) // iDC price - competitor price
-  price_difference_percent Float?             // Percentage difference
-  
-  // MAP violation tracking
-  is_map_violation        Boolean             @default(false) // Competitor price < iDC price
-  violation_amount        Decimal?            @db.Decimal(10, 2) // Amount below iDC price
-  violation_percentage    Float?              // Percentage below iDC price
-  first_violation_date    DateTime?
-  last_checked_at         DateTime            @default(now())
-  
-  // Match status
-  is_manual_match         Boolean             @default(false) // Admin confirmed match
-  is_rejected             Boolean             @default(false) // Admin rejected match
-  confidence_level        String              @default("low") // "low", "medium", "high"
-  
-  created_at              DateTime            @default(now())
-  updated_at              DateTime            @updatedAt
-  
-  // Foreign keys and relations
-  idc_product             idc_products        @relation("IdcProduct", fields: [idc_product_id], references: [id], onDelete: Cascade)
-  competitor_product      competitor_products @relation("CompetitorProduct", fields: [competitor_product_id], references: [id], onDelete: Cascade)
-  
-  // Relations
-  price_alerts            price_alerts[]
-  violation_history       violation_history[]
-  
-  @@unique([idc_product_id, competitor_product_id])
-  @@index([overall_score])
-  @@index([is_map_violation])
-  @@index([confidence_level])
-  @@index([last_checked_at])
-}
-
-model price_alerts {
-  id                String          @id @default(cuid())
-  product_match_id  String
-  alert_type        String          // "new_violation", "price_drop", "price_increase", "violation_resolved"
-  title             String
-  message           String
-  severity          String          @default("medium") // "low", "medium", "high", "critical"
-  
-  // Price change data
-  old_price         Decimal?        @db.Decimal(10, 2)
-  new_price         Decimal?        @db.Decimal(10, 2)
-  price_change      Decimal?        @db.Decimal(10, 2)
-  
-  // Status
-  status            String          @default("unread") // "unread", "read", "dismissed", "resolved"
-  is_read           Boolean         @default(false)
-  
-  created_at        DateTime        @default(now())
-  updated_at        DateTime        @updatedAt
-  
-  // Foreign keys
-  product_match     product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
-  
-  @@index([alert_type])
-  @@index([severity])
-  @@index([status])
-  @@index([created_at])
-}
-
-model scrape_jobs {
-  id                String       @id @default(cuid())
-  competitor_id     String
-  status            String       @default("pending") // "pending", "running", "completed", "failed"
-  
-  // Job configuration
-  collections       String[]     // Collections to scrape in this job
-  
-  // Results
-  products_found    Int?
-  products_updated  Int?
-  products_created  Int?
-  errors            String?      // JSON array of error messages
-  
-  // Timing
-  started_at        DateTime?
-  completed_at      DateTime?
-  duration_seconds  Int?
-  
-  created_at        DateTime     @default(now())
-  
-  // Foreign keys
-  competitor        competitors  @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
-  
-  @@index([competitor_id])
-  @@index([status])
-  @@index([created_at])
-}
-
-model price_history {
-  id                    String              @id @default(cuid())
-  competitor_product_id String
-  price                 Decimal             @db.Decimal(10, 2)
-  compare_at_price      Decimal?            @db.Decimal(10, 2)
-  available             Boolean             @default(true)
-  recorded_at           DateTime            @default(now())
-  
-  // Foreign keys
-  competitor_product    competitor_products @relation(fields: [competitor_product_id], references: [id], onDelete: Cascade)
-  
-  @@index([competitor_product_id, recorded_at])
-}
-
 model violation_history {
-  id                String          @id @default(cuid())
+  id                String          @id
   product_match_id  String
-  
-  // Violation details
-  violation_type    String          // "new_violation", "price_change", "resolved"
+  violation_type    String
   competitor_price  Decimal         @db.Decimal(10, 2)
   idc_price         Decimal         @db.Decimal(10, 2)
   violation_amount  Decimal         @db.Decimal(10, 2)
   violation_percent Float
-  
-  // Context
   previous_price    Decimal?        @db.Decimal(10, 2)
   price_change      Decimal?        @db.Decimal(10, 2)
-  
-  // Evidence
-  screenshot_url    String?         // URL to screenshot evidence
-  competitor_url    String?         // Link to competitor product page
-  notes            String?         // Additional notes
-  
-  detected_at      DateTime        @default(now())
-  
-  // Foreign keys
-  product_match    product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
-  
+  screenshot_url    String?
+  competitor_url    String?
+  notes             String?
+  detected_at       DateTime        @default(now())
+  product_matches   product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
+
+  @@index([detected_at])
   @@index([product_match_id])
   @@index([violation_type])
-  @@index([detected_at])
 }

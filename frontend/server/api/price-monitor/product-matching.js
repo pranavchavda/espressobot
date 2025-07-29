@@ -261,8 +261,7 @@ router.post('/auto-match', async (req, res) => {
     const { 
       brands, 
       min_confidence = 'medium',
-      dry_run = false,
-      limit = 100 
+      dry_run = false
     } = req.body;
 
     console.log('🔍 Starting automatic product matching...');
@@ -291,94 +290,114 @@ router.post('/auto-match', async (req, res) => {
     // Get iDC products to match
     const whereClause = brands ? { vendor: { in: brands } } : {};
     const idcProducts = await prisma.idc_products.findMany({
-      where: whereClause,
-      take: parseInt(limit)
+      where: whereClause
+      // No limit - process all IDC products for complete matching
     });
 
     console.log(`📦 Processing ${idcProducts.length} iDC products`);
 
-    for (const idcProduct of idcProducts) {
-      // Get all competitor products for embedding comparison
-      const competitorProducts = await prisma.competitor_products.findMany({
-        take: 100 // Increased limit since we're only using embeddings
-      });
+    // 🚀 PERFORMANCE OPTIMIZATION: Fetch competitor products once
+    console.log('🔄 Loading all competitor products for batch processing...');
+    const competitorProducts = await prisma.competitor_products.findMany({
+      // No limit - include all competitor products for matching
+    });
+    console.log(`🏪 Loaded ${competitorProducts.length} competitor products`);
 
-      let bestMatch = null;
-      let bestScore = 0;
+    // 🚀 PERFORMANCE OPTIMIZATION: Process IDC products in parallel batches
+    const BATCH_SIZE = 50; // Process 50 IDC products simultaneously
+    const batches = [];
+    
+    for (let i = 0; i < idcProducts.length; i += BATCH_SIZE) {
+      batches.push(idcProducts.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`⚡ Processing ${idcProducts.length} IDC products in ${batches.length} parallel batches of ${BATCH_SIZE}`);
+    
+    // Process each batch in parallel
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} products)`);
+      
+      // Process all products in this batch simultaneously
+      await Promise.all(batch.map(async (idcProduct, productIndex) => {
+        let bestMatch = null;
+        let bestScore = 0;
 
-      for (const competitorProduct of competitorProducts) {
-        const similarity = matcher.calculateSimilarity(idcProduct, competitorProduct);
-        
-        // Debug logging for first few products
-        if (results.total_processed < 5) {
-          console.log(`🔍 Debug: "${idcProduct.title}" vs "${competitorProduct.title}" = ${(similarity.overall_score * 100).toFixed(1)}% (${similarity.confidence_level})`);
+        // Compare against all competitor products
+        for (const competitorProduct of competitorProducts) {
+          const similarity = matcher.calculateSimilarity(idcProduct, competitorProduct);
+          
+          // Debug logging for first few products
+          if (results.total_processed < 5) {
+            console.log(`🔍 Debug: "${idcProduct.title}" vs "${competitorProduct.title}" = ${(similarity.overall_score * 100).toFixed(1)}% (${similarity.confidence_level})`);
+          }
+          
+          if (similarity.overall_score > bestScore && 
+              similarity.confidence_level !== 'very_low') {
+            bestMatch = {
+              competitor_product: competitorProduct,
+              similarity: similarity
+            };
+            bestScore = similarity.overall_score;
+          }
         }
-        
-        if (similarity.overall_score > bestScore && 
-            similarity.confidence_level !== 'very_low') {
-          bestMatch = {
-            competitor_product: competitorProduct,
-            similarity: similarity
+
+        if (bestMatch && meetsMinConfidence(bestMatch.similarity.confidence_level, min_confidence)) {
+          results.matches_found++;
+          results[bestMatch.similarity.confidence_level + '_confidence']++;
+
+          console.log(`✅ Creating match: "${idcProduct.title}" → "${bestMatch.competitor_product.title}" (${(bestMatch.similarity.overall_score * 100).toFixed(1)}%)`);
+
+          const matchData = {
+            idc_product_id: idcProduct.id,
+            competitor_product_id: bestMatch.competitor_product.id,
+            overall_score: bestMatch.similarity.overall_score,
+            embedding_similarity: bestMatch.similarity.embedding_similarity,
+            title_similarity: bestMatch.similarity.title_similarity,
+            brand_similarity: bestMatch.similarity.brand_similarity,
+            price_similarity: bestMatch.similarity.price_similarity,
+            confidence_level: bestMatch.similarity.confidence_level,
+            is_manual_match: false,  // Mark as automated match
+            created_at: new Date()
           };
-          bestScore = similarity.overall_score;
-        }
-      }
 
-      if (bestMatch && meetsMinConfidence(bestMatch.similarity.confidence_level, min_confidence)) {
-        results.matches_found++;
-        results[bestMatch.similarity.confidence_level + '_confidence']++;
-
-        console.log(`✅ Creating match: "${idcProduct.title}" → "${bestMatch.competitor_product.title}" (${(bestMatch.similarity.overall_score * 100).toFixed(1)}%)`);
-
-        const matchData = {
-          idc_product_id: idcProduct.id,
-          competitor_product_id: bestMatch.competitor_product.id,
-          overall_score: bestMatch.similarity.overall_score,
-          embedding_similarity: bestMatch.similarity.embedding_similarity,
-          title_similarity: bestMatch.similarity.title_similarity,
-          brand_similarity: bestMatch.similarity.brand_similarity,
-          price_similarity: bestMatch.similarity.price_similarity,
-          confidence_level: bestMatch.similarity.confidence_level,
-          is_manual_match: false,  // Mark as automated match
-          created_at: new Date()
-        };
-
-        if (!dry_run) {
-          // Save the match to database
-          await prisma.product_matches.upsert({
-            where: {
-              idc_product_id_competitor_product_id: {
-                idc_product_id: idcProduct.id,
-                competitor_product_id: bestMatch.competitor_product.id
+          if (!dry_run) {
+            // Save the match to database
+            await prisma.product_matches.upsert({
+              where: {
+                idc_product_id_competitor_product_id: {
+                  idc_product_id: idcProduct.id,
+                  competitor_product_id: bestMatch.competitor_product.id
+                }
+              },
+              create: matchData,
+              update: {
+                ...matchData,
+                updated_at: new Date()
               }
+            });
+          }
+
+          results.matches.push({
+            idc_product: {
+              title: idcProduct.title,
+              vendor: idcProduct.vendor,
+              sku: idcProduct.sku,
+              price: idcProduct.price
             },
-            create: matchData,
-            update: {
-              ...matchData,
-              updated_at: new Date()
-            }
+            competitor_product: {
+              title: bestMatch.competitor_product.title,
+              vendor: bestMatch.competitor_product.vendor,
+              sku: bestMatch.competitor_product.sku,
+              price: bestMatch.competitor_product.price,
+              competitor: bestMatch.competitor_product.competitor_id
+            },
+            similarity: bestMatch.similarity
           });
         }
 
-        results.matches.push({
-          idc_product: {
-            title: idcProduct.title,
-            vendor: idcProduct.vendor,
-            sku: idcProduct.sku,
-            price: idcProduct.price
-          },
-          competitor_product: {
-            title: bestMatch.competitor_product.title,
-            vendor: bestMatch.competitor_product.vendor,
-            sku: bestMatch.competitor_product.sku,
-            price: bestMatch.competitor_product.price,
-            competitor: bestMatch.competitor_product.competitor_id
-          },
-          similarity: bestMatch.similarity
-        });
-      }
-
-      results.total_processed++;
+        results.total_processed++;
+      }));
     }
 
     console.log(`✅ Matching completed: ${results.matches_found} matches found from ${results.total_processed} products`);
@@ -508,8 +527,8 @@ router.get('/matches', async (req, res) => {
               status: { 
                 notIn: ['resolved', 'dismissed'] 
               } 
-            },
-            take: 1
+            }
+            // No limit - get all unresolved alerts for this match
           }
         },
         orderBy: [

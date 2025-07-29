@@ -266,8 +266,8 @@ router.get('/sync-status', async (req, res) => {
         include: {
           idc_products: {
             select: { last_synced_at: true },
-            orderBy: { last_synced_at: 'desc' },
-            take: 1
+            orderBy: { last_synced_at: 'desc' }
+            // No limit - get all products sync times for accurate brand status
           }
         }
       }),
