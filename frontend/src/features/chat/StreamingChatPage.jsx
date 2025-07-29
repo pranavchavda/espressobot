@@ -48,6 +48,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const inputRef = useRef(null);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const hasProcessedInitialMessage = useRef(false);
 
   // Fetch messages for selected conversation
   useEffect(() => {
@@ -59,6 +60,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       setHasShownTasks(false);
       setTaskMarkdown(null);
       setActiveConv(null);
+      hasProcessedInitialMessage.current = false; // Reset flag for new conversations
       return;
     }
     // Clear task markdown when switching conversations
@@ -73,6 +75,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     });
     // Update activeConv when convId changes
     setActiveConv(convId);
+    hasProcessedInitialMessage.current = false; // Reset flag for new conversations
     setLoading(true);
     const token = localStorage.getItem('authToken');
     fetch(`/api/conversations/${convId}`, {
@@ -1474,21 +1477,29 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
   // Handle initial message from HomePage
   useEffect(() => {
-    if (location.state?.initialMessage && !messages.length && !loading) {
+    const initialMessage = location.state?.initialMessage;
+    const isNewConversation = location.state?.newConversation;
+    
+    if (initialMessage && !messages.length && !loading && !hasProcessedInitialMessage.current) {
+      hasProcessedInitialMessage.current = true;
+      
       // If this is a new conversation request, clear the selected chat
-      if (location.state.newConversation && onNewConversation) {
+      if (isNewConversation && onNewConversation) {
         onNewConversation();
       }
       
-      setInput(location.state.initialMessage);
+      setInput(initialMessage);
       // Auto-send the message after a short delay
-      setTimeout(() => {
-        handleSend(location.state.initialMessage);
+      const timeoutId = setTimeout(() => {
+        handleSend(initialMessage);
       }, 500);
+      
       // Clear the location state to prevent re-sending
       window.history.replaceState({}, document.title, window.location.pathname);
+      
+      return () => clearTimeout(timeoutId); // Cleanup timeout
     }
-  }, [location.state, messages.length, loading, onNewConversation]);
+  }, [messages.length, loading]); // Reduced dependencies
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
