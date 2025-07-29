@@ -267,6 +267,17 @@ router.post('/auto-match', async (req, res) => {
 
     console.log('🔍 Starting automatic product matching...');
     
+    // Clear old automated matches (preserve manual matches)
+    if (!dry_run) {
+      console.log('🧹 Clearing old automated matches...');
+      const deletedMatches = await prisma.product_matches.deleteMany({
+        where: { 
+          is_manual_match: false  
+        }
+      });
+      console.log(`🗑️  Deleted ${deletedMatches.count} old automated matches`);
+    }
+    
     const matcher = new ProductMatcher();
     const results = {
       total_processed: 0,
@@ -328,6 +339,7 @@ router.post('/auto-match', async (req, res) => {
           brand_similarity: bestMatch.similarity.brand_similarity,
           price_similarity: bestMatch.similarity.price_similarity,
           confidence_level: bestMatch.similarity.confidence_level,
+          is_manual_match: false,  // Mark as automated match
           created_at: new Date()
         };
 
@@ -501,6 +513,7 @@ router.get('/matches', async (req, res) => {
           }
         },
         orderBy: [
+          { is_manual_match: 'desc' },  // Pin manual matches to top
           { confidence_level: 'desc' },
           { overall_score: 'desc' }
         ]

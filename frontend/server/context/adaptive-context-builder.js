@@ -126,7 +126,7 @@ export async function buildAdaptiveContext(options) {
           }
         }
         context.fetchedContext = criticalContext;
-        context.truncated = true;
+        context.truncated = false;
       }
     }
     

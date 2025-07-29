@@ -238,21 +238,21 @@ export default function MonitorSettingsPage() {
         </div>
 
         {monitoredBrands.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {monitoredBrands.map((brand) => (
               <div 
                 key={brand.id}
-                className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg"
+                className="flex flex-col p-4 border border-gray-200 dark:border-gray-600 rounded-lg min-h-[120px]"
               >
-                <div className="flex items-center">
+                <div className="flex items-center mb-3">
                   <input
                     type="checkbox"
                     checked={brand.is_active}
                     onChange={() => toggleBrand(brand.id, brand.is_active)}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
-                  <div className="ml-3">
-                    <label className="text-sm font-medium text-gray-900 dark:text-white">
+                  <div className="ml-3 flex-1">
+                    <label className="text-sm font-medium text-gray-900 dark:text-white block">
                       {brand.brand_name}
                     </label>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -260,7 +260,7 @@ export default function MonitorSettingsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center justify-between mt-auto">
                   <Badge color={brand.is_active ? 'green' : 'gray'}>
                     {brand.is_active ? 'Active' : 'Inactive'}
                   </Badge>
@@ -269,6 +269,7 @@ export default function MonitorSettingsPage() {
                     color="red"
                     outline
                     onClick={() => deleteBrand(brand.id, brand.brand_name)}
+                    className="ml-2"
                   >
                     Delete
                   </Button>

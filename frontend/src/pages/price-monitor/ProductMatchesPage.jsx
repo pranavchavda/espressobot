@@ -10,9 +10,14 @@ export default function ProductMatchesPage() {
   const [showManualMatch, setShowManualMatch] = useState(false);
   const [idcProducts, setIdcProducts] = useState([]);
   const [competitorProducts, setCompetitorProducts] = useState([]);
+  const [competitors, setCompetitors] = useState([]);
   const [selectedIdc, setSelectedIdc] = useState('');
   const [selectedCompetitor, setSelectedCompetitor] = useState('');
+  const [selectedCompetitorFilter, setSelectedCompetitorFilter] = useState('');
+  const [idcSearchTerm, setIdcSearchTerm] = useState('');
+  const [competitorSearchTerm, setCompetitorSearchTerm] = useState('');
   const [matchingLoading, setMatchingLoading] = useState(false);
+  const [previewSimilarity, setPreviewSimilarity] = useState(null);
   const { toast } = useToast();
 
   const fetchMatches = async () => {
@@ -21,6 +26,7 @@ export default function ProductMatchesPage() {
       const response = await fetch('/api/price-monitor/product-matching/matches');
       if (response.ok) {
         const data = await response.json();
+        // API now handles sorting with manual matches pinned to top
         setMatches(data.matches || []);
       } else {
         toast.error('Failed to load product matches');
@@ -35,16 +41,20 @@ export default function ProductMatchesPage() {
 
   const fetchProductsForMatching = async () => {
     try {
-      const [idcResponse, compResponse] = await Promise.all([
+      const [idcResponse, compResponse, competitorsResponse] = await Promise.all([
         fetch('/api/price-monitor/shopify-sync/idc-products?limit=200'),
-        fetch('/api/price-monitor/competitors/products?limit=200')
+        fetch('/api/price-monitor/competitors/products?limit=500'),
+        fetch('/api/price-monitor/competitors')
       ]);
       
-      if (idcResponse.ok && compResponse.ok) {
+      if (idcResponse.ok && compResponse.ok && competitorsResponse.ok) {
         const idcData = await idcResponse.json();
         const compData = await compResponse.json();
+        const competitorsData = await competitorsResponse.json();
+        
         setIdcProducts(idcData.products || []);
         setCompetitorProducts(compData.products || []);
+        setCompetitors(competitorsData.competitors || []);
       }
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -104,6 +114,27 @@ export default function ProductMatchesPage() {
     }
   };
 
+  // Filter and search functions
+  const filteredIdcProducts = idcProducts.filter(product =>
+    product.title?.toLowerCase().includes(idcSearchTerm.toLowerCase()) ||
+    product.vendor?.toLowerCase().includes(idcSearchTerm.toLowerCase()) ||
+    (product.sku && product.sku.toLowerCase().includes(idcSearchTerm.toLowerCase()))
+  );
+
+  const filteredCompetitorProducts = competitorProducts.filter(product => {
+    const matchesSearch = product.title?.toLowerCase().includes(competitorSearchTerm.toLowerCase()) ||
+      (product.vendor && product.vendor.toLowerCase().includes(competitorSearchTerm.toLowerCase())) ||
+      (product.sku && product.sku.toLowerCase().includes(competitorSearchTerm.toLowerCase()));
+    
+    const matchesCompetitor = !selectedCompetitorFilter || product.competitor_id === selectedCompetitorFilter;
+    
+    return matchesSearch && matchesCompetitor;
+  });
+
+  const getSelectedIdcProduct = () => idcProducts.find(p => p.id === selectedIdc);
+  const getSelectedCompetitorProduct = () => competitorProducts.find(p => p.id === selectedCompetitor);
+  const getCompetitorName = (competitorId) => competitors.find(c => c.id === competitorId)?.name || 'Unknown';
+
   useEffect(() => {
     fetchMatches();
   }, []);
@@ -137,182 +168,277 @@ export default function ProductMatchesPage() {
         </div>
       </div>
 
-      {/* Manual Match Modal */}
+      {/* Enhanced Manual Match Modal */}
       {showManualMatch && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold mb-4">Create Manual Match</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">IDC Product</label>
-                <select 
-                  value={selectedIdc} 
-                  onChange={(e) => setSelectedIdc(e.target.value)}
-                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-6xl max-h-[95vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Create Manual Product Match</h3>
+                <button
+                  onClick={() => {
+                    setShowManualMatch(false);
+                    setSelectedIdc('');
+                    setSelectedCompetitor('');
+                    setIdcSearchTerm('');
+                    setCompetitorSearchTerm('');
+                    setSelectedCompetitorFilter('');
+                    setPreviewSimilarity(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
-                  <option value="">Select IDC Product</option>
-                  {idcProducts.map(product => (
-                    <option key={product.id} value={product.id}>
-                      {product.title} - ${product.price}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-2">Competitor Product</label>
-                <select 
-                  value={selectedCompetitor} 
-                  onChange={(e) => setSelectedCompetitor(e.target.value)}
-                  className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="">Select Competitor Product</option>
-                  {competitorProducts.map(product => (
-                    <option key={product.id} value={product.id}>
-                      {product.title} - ${product.price} ({product.competitor?.name})
-                    </option>
-                  ))}
-                </select>
+                  ✕
+                </button>
               </div>
             </div>
-            
-            <div className="flex justify-end gap-2">
-              <Button 
-                onClick={() => setShowManualMatch(false)}
-                className="bg-gray-500 hover:bg-gray-600 text-white"
-              >
-                Cancel
-              </Button>
-              <Button 
-                onClick={createManualMatch}
-                disabled={matchingLoading}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {matchingLoading ? 'Creating...' : 'Create Match'}
-              </Button>
+
+            {/* Content */}
+            <div className="flex-1 overflow-hidden flex">
+              {/* Left Panel - IDC Products */}
+              <div className="w-1/3 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="font-medium mb-2">IDC Products</h4>
+                  <input
+                    type="text"
+                    placeholder="Search IDC products..."
+                    value={idcSearchTerm}
+                    onChange={(e) => setIdcSearchTerm(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto p-2">
+                  {filteredIdcProducts.slice(0, 50).map((product) => (
+                    <div
+                      key={product.id}
+                      onClick={() => setSelectedIdc(product.id)}
+                      className={`p-3 mb-2 rounded-lg cursor-pointer border transition-colors ${
+                        selectedIdc === product.id
+                          ? 'bg-blue-50 border-blue-300 dark:bg-blue-900/20 dark:border-blue-600'
+                          : 'bg-gray-50 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      <div className="font-medium text-sm truncate">{product.title}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {product.vendor} • ${product.price} • {product.sku}
+                      </div>
+                    </div>
+                  ))}
+                  {filteredIdcProducts.length > 50 && (
+                    <div className="text-center text-sm text-gray-500 p-2">
+                      Showing first 50 results. Use search to narrow down.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Middle Panel - Preview */}
+              <div className="w-1/3 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="font-medium">Match Preview</h4>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                  {selectedIdc && selectedCompetitor ? (
+                    <div className="space-y-4">
+                      {/* IDC Product Preview */}
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+                        <div className="text-sm font-medium text-blue-800 dark:text-blue-300 mb-1">IDC Product</div>
+                        <div className="font-medium">{getSelectedIdcProduct()?.title}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                          {getSelectedIdcProduct()?.vendor} • ${getSelectedIdcProduct()?.price}
+                        </div>
+                      </div>
+
+                      {/* VS Indicator */}
+                      <div className="text-center text-gray-400">↕ VS ↕</div>
+
+                      {/* Competitor Product Preview */}
+                      <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg">
+                        <div className="text-sm font-medium text-orange-800 dark:text-orange-300 mb-1">
+                          Competitor Product ({getSelectedCompetitorProduct()?.competitor?.name || 'Unknown'})
+                        </div>
+                        <div className="font-medium">{getSelectedCompetitorProduct()?.title}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                          {getSelectedCompetitorProduct()?.vendor} • ${getSelectedCompetitorProduct()?.price}
+                        </div>
+                      </div>
+
+                      {/* Create Match Button */}
+                      <div className="pt-4">
+                        <Button
+                          onClick={createManualMatch}
+                          disabled={matchingLoading}
+                          className="w-full bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          {matchingLoading ? 'Creating Match...' : 'Create Manual Match'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                      Select products from both sides to preview the match
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Panel - Competitor Products */}
+              <div className="w-1/3 flex flex-col">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="font-medium mb-2">Competitor Products</h4>
+                  
+                  {/* Competitor Filter */}
+                  <select
+                    value={selectedCompetitorFilter}
+                    onChange={(e) => setSelectedCompetitorFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">All Competitors</option>
+                    {competitors.map((competitor) => (
+                      <option key={competitor.id} value={competitor.id}>
+                        {competitor.name} ({competitor.domain})
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Search */}
+                  <input
+                    type="text"
+                    placeholder="Search competitor products..."
+                    value={competitorSearchTerm}
+                    onChange={(e) => setCompetitorSearchTerm(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto p-2">
+                  {filteredCompetitorProducts.slice(0, 50).map((product) => (
+                    <div
+                      key={product.id}
+                      onClick={() => setSelectedCompetitor(product.id)}
+                      className={`p-3 mb-2 rounded-lg cursor-pointer border transition-colors ${
+                        selectedCompetitor === product.id
+                          ? 'bg-orange-50 border-orange-300 dark:bg-orange-900/20 dark:border-orange-600'
+                          : 'bg-gray-50 border-gray-200 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      <div className="font-medium text-sm truncate">{product.title}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <div>{product.competitor?.name || 'Unknown'}</div>
+                        <div>{product.vendor} • ${product.price} • {product.sku}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredCompetitorProducts.length > 50 && (
+                    <div className="text-center text-sm text-gray-500 p-2">
+                      Showing first 50 results. Use search to narrow down.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {matches.length > 0 ? (
+      {/* Existing matches table - need to continue from here... */}
+      {loading ? (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="ml-4 text-gray-500 dark:text-gray-400">Loading matches...</div>
+        </div>
+      ) : matches.length > 0 ? (
         <div className="bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-          {/* Mobile Card View */}
-          <div className="block lg:hidden">
-            {matches.map((match) => (
-              <div key={match.id} className="border-b border-gray-200 dark:border-gray-700 p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="font-medium text-gray-900 dark:text-white text-sm">
-                    {match.idc_product?.title}
-                  </div>
-                  <Badge color={
-                    match.confidence_level === 'high' ? 'green' : 
-                    match.confidence_level === 'medium' ? 'yellow' : 'gray'
-                  }>
-                    {Math.round(match.overall_score * 100)}%
-                  </Badge>
-                </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                  → {match.competitor_product?.title}
-                </div>
-                <div className="flex justify-between items-center">
-                  <div className="text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">Price: </span>
-                    <span className="font-medium">${match.idc_product?.price}</span>
-                    <span className="mx-2">vs</span>
-                    <span className="font-medium">${match.competitor_product?.price}</span>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    onClick={() => deleteMatch(match.id)}
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop Table View */}
-          <div className="hidden lg:block">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    IDC Product
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Competitor Product
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Match Score
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Prices
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {matches.map((match) => (
-                  <tr key={match.id}>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">
-                      <div className="max-w-xs truncate">
-                        {match.idc_product?.title}
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-700">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  IDC Product
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Competitor Product
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Confidence
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Type
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+              {matches.map((match) => (
+                <tr key={match.id}>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {match.idc_product?.title || 'Unknown Product'}
+                    </div>
+                    <div className="text-gray-500 dark:text-gray-400 text-xs">
+                      {match.idc_product?.vendor} • ${match.idc_product?.price} • {match.idc_product?.sku}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {match.competitor_product?.title || 'Unknown Product'}
+                    </div>
+                    <div className="text-gray-500 dark:text-gray-400 text-xs">
+                      <div className="font-medium text-orange-600">
+                        {match.competitor_product?.competitor?.name || 'Unknown'}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {match.idc_product?.vendor}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      <div className="max-w-xs truncate">
-                        {match.competitor_product?.title}
-                      </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {match.competitor_product?.competitor?.name}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>{match.competitor_product?.vendor} • ${match.competitor_product?.price}</div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
                       <Badge color={
-                        match.confidence_level === 'high' ? 'green' : 
-                        match.confidence_level === 'medium' ? 'yellow' : 'gray'
+                        match.is_manual_match ? 'green' :
+                        match.confidence_level === 'high' ? 'green' :
+                        match.confidence_level === 'medium' ? 'yellow' :
+                        match.confidence_level === 'low' ? 'orange' : 'red'
                       }>
-                        {Math.round(match.overall_score * 100)}%
+                        {match.is_manual_match ? 'manual (100.0%)' : `${match.confidence_level} (${(match.overall_score * 100).toFixed(1)}%)`}
                       </Badge>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <div>${match.idc_product?.price}</div>
-                      <div className="text-xs text-gray-500">vs ${match.competitor_product?.price}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <Button 
-                        size="sm" 
-                        onClick={() => deleteMatch(match.id)}
-                        className="bg-red-600 hover:bg-red-700 text-white"
-                      >
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {match.is_manual_match && (
+                        <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">📌</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <Badge color={match.is_manual_match ? 'blue' : 'gray'}>
+                      {match.is_manual_match ? 'Manual' : 'Auto'}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <Button
+                      onClick={() => deleteMatch(match.id)}
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center">
           <div className="text-gray-500 dark:text-gray-400">
             <h3 className="text-lg font-medium mb-2">No product matches found</h3>
-            <p className="mb-4">Product matches will appear here once competitor data is scraped and processed.</p>
+            <p className="mb-4">
+              Create manual matches or run automatic matching to see results here.
+            </p>
             <Button 
-              onClick={() => console.log('Run product matching')}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => {
+                setShowManualMatch(true);
+                fetchProductsForMatching();
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white"
             >
-              Run Product Matching
+              Create Manual Match
             </Button>
           </div>
         </div>

@@ -32,6 +32,7 @@ export default function PriceMonitorDashboard() {
     }
   };
 
+
   const syncShopifyProducts = async () => {
     try {
       setSyncLoading(true);

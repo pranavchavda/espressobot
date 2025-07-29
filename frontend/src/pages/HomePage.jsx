@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { SearchIcon, SparklesIcon, MessageCircleIcon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import logo from '../../static/EspressoBotLogo.png';
+import { LineChartIcon } from 'lucide-react';
+import { WandSparklesIcon } from 'lucide-react';
 
 const HomePage = () => {
   const [query, setQuery] = useState('');
@@ -16,16 +18,14 @@ const HomePage = () => {
   };
 
   const quickPrompts = [
-    "Generate product descriptions for my Shopify store",
-    "Analyze competitor pricing strategies",
-    "Create MAP violation enforcement letter",
-    "Help me optimize product listings for SEO",
-    "Draft customer service response templates",
-    "Compare product specifications"
+    "Check if I have any recent important emails",
+    "Add to my google tasks: Redesign parts site",
+    "Show me total sales for yeterday",
+    "Use Perplexity to generate product descriptions",
+    
   ];
 
   const handleQuickPrompt = (prompt) => {
-    setQuery(prompt);
     navigate('/chat', { state: { initialMessage: prompt, newConversation: true } });
   };
 
@@ -45,33 +45,25 @@ const HomePage = () => {
               EspressoBot
             </h1>
             <p className="text-lg text-gray-600 dark:text-gray-400">
-              Your AI assistant for Shopify store management
+              iDrinkCoffee.com's AI Agency
             </p>
           </div>
-
+ 
           {/* Search Interface */}
           <form onSubmit={handleSearch} className="mb-8">
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <SearchIcon className="h-5 w-5 text-gray-400" />
+                <WandSparklesIcon className="h-5 w-5 text-gray-400" />
               </div>
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask anything..."
+                placeholder="Assign EspressoBot a Task"
                 className="w-full pl-12 pr-16 py-4 text-lg border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm hover:shadow-md transition-shadow"
               />
               <div className="absolute inset-y-0 right-0 pr-4 flex items-center space-x-2">
-                <button
-                  type="button"
-                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                  title="Voice input"
-                >
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                  </svg>
-                </button>
+
                 {query.trim() && (
                   <button
                     type="submit"
@@ -83,11 +75,26 @@ const HomePage = () => {
               </div>
             </div>
           </form>
+          <p            className="text-sm text-gray-700 dark:text-gray-400 mb-4 font-mono">
+              <span className="font-bold">Note:</span> EspressoBot is a system of multiple AI agents, and tasks often take multiple steps - and thus several minutes to complete. 
+              Click the arrow icon on the right to see what's happening in the background.
+          </p>
+          <div className="mb-4">
+            <p
+            className="text-sm text-gray-500 dark:text-gray-400 mb-4"
+            >Looking for the Price Monitor?</p>
+            <div className="flex items-center justify-center">
+              <Link to="/price-monitor" className="flex items-center gap-x-2.5">
+                <LineChartIcon className="h-5 w-5 text-blue-500 dark:text-blue-400 hover:text-blue-600 transition-colors" />
+                <span className="text-blue-500 dark:text-blue-400">Price Monitor</span>
+              </Link>
+            </div>
+          </div>
 
           {/* Quick Prompts */}
           <div className="space-y-3">
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Try these popular queries:
+              Sample prompts:
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {quickPrompts.map((prompt, index) => (
@@ -126,15 +133,9 @@ const HomePage = () => {
               >
                 Analytics
               </button>
-              <button 
-                onClick={() => navigate('/tasks')}
-                className="hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-              >
-                Tasks
-              </button>
             </div>
             <div className="text-sm text-gray-500 dark:text-gray-400">
-              Powered by AI • Built for Shopify
+              Powered by AI • Built for IDC
             </div>
           </div>
         </div>

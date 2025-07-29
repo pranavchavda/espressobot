@@ -274,7 +274,7 @@ export async function buildFullContext(options, coreContext = null) {
       // Add recent messages (still truncate if very long)
       const truncatedRecent = compressedContext.recentMessages.map(turn => {
         if (turn.content && turn.content.length > 1500) {
-          return { ...turn, content: turn.content.substring(0, 1500) + '...' };
+          return { ...turn, content: turn.content.substring(0, 5000) + '...' };
         }
         return turn;
       });

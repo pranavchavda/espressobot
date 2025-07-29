@@ -53,6 +53,50 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get all competitor products (for manual matching) - MUST come before /:id route
+router.get('/products', async (req, res) => {
+  try {
+    const { limit = 500, search, competitor_id } = req.query;
+    
+    const where = {};
+    
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { vendor: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+    
+    if (competitor_id) {
+      where.competitor_id = competitor_id;
+    }
+    
+    const products = await prisma.competitor_products.findMany({
+      where,
+      include: {
+        competitor: {
+          select: {
+            id: true,
+            name: true,
+            domain: true
+          }
+        }
+      },
+      take: parseInt(limit),
+      orderBy: { scraped_at: 'desc' }
+    });
+    
+    res.json({
+      products,
+      total: products.length
+    });
+  } catch (error) {
+    console.error('Error fetching competitor products:', error);
+    res.status(500).json({ error: 'Failed to fetch competitor products' });
+  }
+});
+
 // Get a single competitor by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -101,6 +145,10 @@ router.post('/', async (req, res) => {
       name, 
       domain, 
       collections = [], 
+      scraping_strategy = 'collections',
+      url_patterns = [],
+      search_terms = [],
+      exclude_patterns = [],
       is_active = true, 
       scrape_schedule,
       rate_limit_ms = 2000 
@@ -130,6 +178,10 @@ router.post('/', async (req, res) => {
         name,
         domain,
         collections,
+        scraping_strategy,
+        url_patterns,
+        search_terms,
+        exclude_patterns,
         is_active,
         scrape_schedule,
         rate_limit_ms
@@ -152,6 +204,10 @@ router.put('/:id', async (req, res) => {
       name, 
       domain, 
       collections, 
+      scraping_strategy,
+      url_patterns,
+      search_terms,
+      exclude_patterns,
       is_active, 
       scrape_schedule,
       rate_limit_ms 
@@ -185,6 +241,10 @@ router.put('/:id', async (req, res) => {
         name,
         domain,
         collections,
+        scraping_strategy,
+        url_patterns,
+        search_terms,
+        exclude_patterns,
         is_active,
         scrape_schedule,
         rate_limit_ms

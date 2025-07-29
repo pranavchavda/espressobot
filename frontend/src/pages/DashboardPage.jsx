@@ -183,6 +183,19 @@ const DashboardPage = () => {
               variant="outline"
               size="sm"
               onClick={() => {
+                const today = new Date();
+                const todayStr = today.toISOString().split('T')[0];
+                setStartDate(todayStr);
+                setEndDate(todayStr);
+                fetchDashboardData(todayStr, todayStr);
+              }}
+            >
+              Today
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
                 const yesterdayStr = yesterday.toISOString().split('T')[0];

@@ -2038,8 +2038,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
     
     // Add conversation topic if present
     if (orchestratorContext.conversationTopic) {
-      const topicContent = '\n\n' + orchestratorContext.conversationTopic.substring(0, 2000) + 
-        (orchestratorContext.conversationTopic.length > 2000 ? '\n[Topic truncated for size]' : '');
+      const topicContent = '\n\n' + orchestratorContext.conversationTopic.substring(0, 5000) + 
+        (orchestratorContext.conversationTopic.length > 5000 ? '\n[Topic truncated for size]' : '');
       
       if (checkContextSize('conversation topic', topicContent)) {
         contextualMessage += topicContent;
@@ -2058,8 +2058,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
       // For core context, just list the fragments with size limits
       if (!orchestratorContext.fullSlice) {
         for (const fragment of relevantFragments) {
-          const fragmentText = `\n\n### ${fragment.category || 'General'} (Priority: ${fragment.priority || 'medium'}):\n${fragment.content.substring(0, 1000)}` + 
-            (fragment.content.length > 1000 ? '\n[Fragment truncated for size]' : '');
+          const fragmentText = `\n\n### ${fragment.category || 'General'} (Priority: ${fragment.priority || 'medium'}):\n${fragment.content.substring(0, 5000)}` + 
+            (fragment.content.length > 5000 ? '\n[Fragment truncated for size]' : '');
           
           if (currentSize + fragmentsContent.length + fragmentText.length > MAX_CONTEXT_SIZE) {
             fragmentsContent += '\n\n[Additional prompt fragments truncated to prevent context explosion]';
@@ -2089,8 +2089,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
           
           const categoryContent = `\n\n### ${category.toUpperCase()}:` + 
             fragments.slice(0, 3).map(fragment => { // Limit fragments per category
-              let line = `\n[${fragment.priority || 'medium'}] ${fragment.content.substring(0, 800)}`;
-              if (fragment.content.length > 800) line += '[...]';
+              let line = `\n[${fragment.priority || 'medium'}] ${fragment.content.substring(0, 5000)}`;
+              if (fragment.content.length > 5000) line += '[...]';
               if (fragment.tags?.length > 0) {
                 line += ` (tags: ${fragment.tags.slice(0, 3).join(', ')})`;
               }

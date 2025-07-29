@@ -13,12 +13,10 @@ import PromptLibraryManager from './features/prompt-library/PromptLibraryManager
 import DashboardPage from './pages/DashboardPage';
 import HomePage from './pages/HomePage';
 import PriceMonitorLayout from './pages/price-monitor/PriceMonitorLayout';
-import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, FileTextIcon, TrendingDownIcon } from 'lucide-react';
-import logo from '../static/EspressoBotLogo.png';
+import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, LineChartIcon, FileTextIcon } from 'lucide-react';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
-import { Heading } from "@common/heading";
 import { MemoryManagementModal } from './components/memory/MemoryManagementModal';
 import TopNavDropdown from './components/common/TopNavDropdown';
 import LogDrawer from './components/LogDrawer';
@@ -28,6 +26,7 @@ import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
 
 function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [loading, setLoading] = useState(true); // For conversations loading
@@ -37,6 +36,14 @@ function App() {
   const [showLogDrawer, setShowLogDrawer] = useState(false);
   const [showScratchpadDialog, setShowScratchpadDialog] = useState(false);
   
+  // Ensure selectedChat is null when at root path
+  useEffect(() => {
+    if (location.pathname === '/') {
+      console.log('At root path, clearing selectedChat');
+      setSelectedChat(null);
+    }
+  }, [location.pathname]);
+
   // Keyboard shortcut for log drawer (Ctrl/Cmd + Shift + L)
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -213,49 +220,47 @@ function App() {
         <Route element={
         <SidebarLayout
           className=""
-          navbar={
-            <div className="flex justify-between items-center w-full py-2">
-              <div className="flex items-center">
-              <NavLink to="/">
-                <img 
-                  src={logo}
-                  alt="EspressoBot Logo" 
-                  className="h-8 ml-2 mr-2"
-                />
-                </NavLink>
-              </div>
-              <div className="flex items-center space-x-4">
+          // navbar={
+          //   <div className="flex justify-between items-center w-full py-2">
+          //     <div className="flex items-center">
+          //     <NavLink to="/">
+          //       <img 
+          //         src={logo}
+          //         alt="EspressoBot Logo" 
+          //         className="h-8 ml-2 mr-2"
+          //       />
+          //       </NavLink>
+          //     </div>
+          //     <div className="flex items-center space-x-4">
                 
-              </div>
-            </div>
-          }
+          //     </div>
+          //   </div>
+          // }
           sidebar={
             <div className="flex flex-col h-[93vh] sm:h-full">
 
               <nav className="flex-1 overflow-y-auto">
               <Button 
-                    className="w-full cursor-pointer my-10 "
+                    className="w-full cursor-pointer mb-2"
                     color="steel-blue"
                     outline
                     onClick={() => {
                       setSelectedChat(null);
-                      navigate('/chat');
+                      navigate('/');
                     }}
                   >
                     <MessageSquarePlusIcon className="h-4 w-4" /> New Chat
                   </Button>
-              
-              <Button 
-                    className="w-full cursor-pointer mb-4"
-                    color="zinc"
+               
+               <Button 
+                    className="w-full cursor-pointer mb-6"
+                    color="steel-blue"
                     outline
                     onClick={() => setShowScratchpadDialog(true)}
                   >
                     <FileTextIcon className="h-4 w-4" /> Scratchpad
                   </Button>
-              <Divider
-              soft = "true"
-              />
+
               {loading ? (
                   <div className="flex flex-col items-center justify-center py-2">
                     <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
@@ -263,7 +268,7 @@ function App() {
                 ) : (
                   <>
 
-                  <ul className="flex flex-col max-h-[50vh] overflow-y-auto h-[50vh]">
+                  <ul className="flex flex-col max-h-[70vh] overflow-y-auto h-[70vh]">
                     {conversations.map((chat) => (
                       <li key={chat.id} className="group relative pr-4">                        
                       
@@ -314,9 +319,16 @@ function App() {
     <Divider
               soft = "true"
               />
+              
+              <Link to="/price-monitor" className="group flex w-full items-center gap-x-2.5 rounded-lg p-2.5 data-[focus]:bg-zinc-100 dark:data-[focus]:bg-zinc-800">
+                <LineChartIcon className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
+                <span className="text-zinc-700 dark:text-zinc-300">Price Monitor</span>
+              </Link>
+              <Divider
+              soft = "true"
+              
+              /></nav>
               <TopNavDropdown user={user} onLogout={handleLogout} />  
-              </nav>
-          
 
             </div>
           }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@common/button';
 import { Badge } from '@common/badge';
 import { Heading } from '@common/heading';
+import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@common/table';
 import { useToast } from '@common/toast';
 
 export default function PriceAlertsPage() {
@@ -9,6 +10,8 @@ export default function PriceAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('active');
   const [summary, setSummary] = useState(null);
+  const [minSimilarity, setMinSimilarity] = useState(0); // 0-100 range
+  const [sortBy, setSortBy] = useState('similarity'); // 'similarity' or 'severity'
   const { toast } = useToast();
 
   const fetchViolations = async () => {
@@ -52,6 +55,41 @@ export default function PriceAlertsPage() {
     }
   };
 
+  // Filter and sort violations
+  const processedViolations = violations
+    .filter(violation => {
+      // Filter by minimum similarity
+      const matchScore = violation.product_match?.is_manual_match ? 1.0 : (violation.product_match?.overall_score || 0);
+      const similarityPercent = matchScore * 100;
+      return similarityPercent >= minSimilarity;
+    })
+    .sort((a, b) => {
+      // Pin manual matches to the top
+      const isManualA = a.product_match?.is_manual_match || false;
+      const isManualB = b.product_match?.is_manual_match || false;
+      
+      if (isManualA && !isManualB) return -1;
+      if (!isManualA && isManualB) return 1;
+      
+      if (sortBy === 'similarity') {
+        // Sort by similarity score (highest first)
+        const scoreA = isManualA ? 1.0 : (a.product_match?.overall_score || 0);
+        const scoreB = isManualB ? 1.0 : (b.product_match?.overall_score || 0);
+        return scoreB - scoreA;
+      } else {
+        // Sort by severity (severe > moderate > minor)
+        const severityOrder = { severe: 3, moderate: 2, minor: 1 };
+        const severityA = severityOrder[a.severity] || 0;
+        const severityB = severityOrder[b.severity] || 0;
+        return severityB - severityA;
+      }
+    });
+
+  // Calculate filtered revenue impact
+  const filteredRevenueImpact = processedViolations.reduce((total, violation) => {
+    return total + Math.abs(parseFloat(violation.price_change || 0));
+  }, 0);
+
   useEffect(() => {
     fetchViolations();
   }, [filter]);
@@ -67,22 +105,53 @@ export default function PriceAlertsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-8 gap-4">
         <div>
           <Heading level="1">Price Alerts</Heading>
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             Monitor and manage price change alerts and MAP violations
           </p>
         </div>
-        <div className="flex space-x-3">
+        
+        {/* Controls */}
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+          {/* Status Filter */}
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white text-sm"
           >
             <option value="active">Active Violations</option>
             <option value="resolved">Resolved Violations</option>
           </select>
+
+          {/* Sort By */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+          >
+            <option value="similarity">Sort by Similarity</option>
+            <option value="severity">Sort by Severity</option>
+          </select>
+
+          {/* Similarity Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">Min Similarity:</span>
+            <select
+              value={minSimilarity}
+              onChange={(e) => setMinSimilarity(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value={0}>All (0%+)</option>
+              <option value={50}>50%+</option>
+              <option value={60}>60%+</option>
+              <option value={70}>70%+</option>
+              <option value={80}>80%+</option>
+              <option value={90}>90%+</option>
+            </select>
+          </div>
+
           <Button 
             onClick={fetchViolations}
             disabled={loading}
@@ -95,108 +164,121 @@ export default function PriceAlertsPage() {
 
       {/* Summary Statistics */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">{summary.total_active}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Active Violations</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-white">{processedViolations.length}</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400">Shown ({violations.length} total)</div>
           </div>
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="text-2xl font-bold text-red-600">{summary.by_severity?.severe?.count || 0}</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {processedViolations.length > 0 ? 
+                ((processedViolations.reduce((sum, v) => sum + (v.product_match?.is_manual_match ? 1.0 : (v.product_match?.overall_score || 0)), 0) / processedViolations.length) * 100).toFixed(1) + '%' 
+                : '0%'
+              }
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400">Avg Similarity</div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className="text-2xl font-bold text-red-600">{processedViolations.filter(v => v.severity === 'severe').length}</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Severe</div>
           </div>
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="text-2xl font-bold text-orange-600">{summary.by_severity?.moderate?.count || 0}</div>
+            <div className="text-2xl font-bold text-orange-600">{processedViolations.filter(v => v.severity === 'moderate').length}</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Moderate</div>
           </div>
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="text-2xl font-bold text-yellow-600">{summary.by_severity?.minor?.count || 0}</div>
+            <div className="text-2xl font-bold text-yellow-600">{processedViolations.filter(v => v.severity === 'minor').length}</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Minor</div>
           </div>
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="text-2xl font-bold text-green-600">${summary.total_impact?.toFixed(2) || '0.00'}</div>
+            <div className="text-2xl font-bold text-green-600">${filteredRevenueImpact.toFixed(2)}</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Revenue Impact</div>
           </div>
         </div>
       )}
 
-      {violations.length > 0 ? (
-        <div className="bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Product
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Competitor
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Severity
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Price Violation
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Detected
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {violations.map((violation) => (
-                <tr key={violation.id}>
-                  <td className="px-6 py-4 text-sm">
-                    <div className="font-medium text-gray-900 dark:text-white">
-                      {violation.product_match?.idc_product?.title || 'Unknown Product'}
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400 text-xs">
-                      {violation.product_match?.idc_product?.vendor} • SKU: {violation.product_match?.idc_product?.sku}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <div className="font-medium text-gray-900 dark:text-white">
-                      {violation.product_match?.competitor_product?.title || 'Unknown Product'}
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400 text-xs">
-                      {violation.product_match?.competitor_product?.competitor?.name || 'Unknown'} • ${parseFloat(violation.product_match?.competitor_product?.price || 0).toFixed(2)}
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400 text-xs">
-                      {violation.product_match?.competitor_product?.competitor?.domain}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+      {processedViolations.length > 0 ? (
+        <div className="overflow-x-auto">
+          <Table striped>
+          <TableHead>
+            <TableRow>
+              <TableHeader>Product</TableHeader>
+              <TableHeader>Competitor</TableHeader>
+              <TableHeader>Similarity</TableHeader>
+              <TableHeader>Severity</TableHeader>
+              <TableHeader>Price Violation</TableHeader>
+              <TableHeader>Detected</TableHeader>
+              <TableHeader>Actions</TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {processedViolations.map((violation) => (
+              <TableRow key={violation.id}>
+                <TableCell>
+                  <div className="font-medium">
+                    {violation.product_match?.idc_product?.title || 'Unknown Product'}
+                  </div>
+                  <div className="text-zinc-500 text-xs">
+                    {violation.product_match?.idc_product?.vendor} • SKU: {violation.product_match?.idc_product?.sku}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="font-medium">
+                    {violation.product_match?.competitor_product?.title || 'Unknown Product'}
+                  </div>
+                  <div className="text-zinc-500 text-xs">
+                    {violation.product_match?.competitor_product?.competitor?.name || 'Unknown'} • ${parseFloat(violation.product_match?.competitor_product?.price || 0).toFixed(2)}
+                  </div>
+                  <div className="text-zinc-500 text-xs">
+                    {violation.product_match?.competitor_product?.competitor?.domain}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
                     <Badge color={
-                      violation.severity === 'severe' ? 'red' :
-                      violation.severity === 'moderate' ? 'orange' :
-                      violation.severity === 'minor' ? 'yellow' : 'gray'
+                      violation.product_match?.is_manual_match ? 'green' :
+                      (violation.product_match?.overall_score || 0) >= 0.8 ? 'green' :
+                      (violation.product_match?.overall_score || 0) >= 0.7 ? 'blue' :
+                      (violation.product_match?.overall_score || 0) >= 0.6 ? 'yellow' : 'red'
                     }>
-                      {violation.severity}
+                      {violation.product_match?.is_manual_match ? '100.0%' : ((violation.product_match?.overall_score || 0) * 100).toFixed(1) + '%'}
                     </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div>
-                      <span className="text-gray-500 dark:text-gray-400">MAP: ${parseFloat(violation.old_price || 0).toFixed(2)}</span>
-                      {' → '}
-                      <span className="text-red-600 font-medium">
-                        ${parseFloat(violation.new_price || 0).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-red-600">
-                      -{((parseFloat(violation.old_price || 0) - parseFloat(violation.new_price || 0)) / parseFloat(violation.old_price || 1) * 100).toFixed(1)}% (${parseFloat(violation.price_change || 0).toFixed(2)})
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {violation.created_at ? new Date(violation.created_at).toLocaleString() : 'Unknown'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    {/* Actions removed for now */}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    {violation.product_match?.is_manual_match && (
+                      <span className="text-xs text-blue-600 font-medium">📌 Manual</span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge color={
+                    violation.severity === 'severe' ? 'red' :
+                    violation.severity === 'moderate' ? 'orange' :
+                    violation.severity === 'minor' ? 'yellow' : 'gray'
+                  }>
+                    {violation.severity}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div>
+                    <span className="text-zinc-500">MAP: ${parseFloat(violation.old_price || 0).toFixed(2)}</span>
+                    {' → '}
+                    <span className="text-red-600 font-medium">
+                      ${parseFloat(violation.new_price || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-red-600">
+                    -{((parseFloat(violation.old_price || 0) - parseFloat(violation.new_price || 0)) / parseFloat(violation.old_price || 1) * 100).toFixed(1)}% (${parseFloat(violation.price_change || 0).toFixed(2)})
+                  </div>
+                </TableCell>
+                <TableCell className="text-zinc-500">
+                  {violation.created_at ? new Date(violation.created_at).toLocaleString() : 'Unknown'}
+                </TableCell>
+                <TableCell>
+                  {/* Actions removed for now */}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+          </Table>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center">

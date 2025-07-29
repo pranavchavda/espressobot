@@ -7,7 +7,7 @@ const router = express.Router();
 class MAPViolationDetector {
   constructor() {
     this.violationThresholds = {
-      minor: 0.05,      // 5% below MAP
+      minor: 0.01,      // 1% below MAP
       moderate: 0.10,   // 10% below MAP  
       severe: 0.20      // 20% below MAP
     };

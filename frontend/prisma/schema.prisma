@@ -150,6 +150,10 @@ model competitors {
   name              String    // "Home Coffee Solutions", "Kitchen Barista", etc.
   domain            String    @unique // "homecoffeesolutions.com"
   collections       String[]  // Array of collection paths to scrape
+  scraping_strategy String    @default("collections") // "collections", "url_patterns", "search_terms"
+  url_patterns      String[]  @default([]) // URL patterns for non-collection sites
+  search_terms      String[]  @default([]) // Search terms for brand/product matching
+  exclude_patterns  String[]  @default([]) // Patterns to exclude (sale items, etc.)
   is_active         Boolean   @default(true)
   scrape_schedule   String?   // Cron expression for automated scraping
   rate_limit_ms     Int       @default(2000) // Milliseconds between requests

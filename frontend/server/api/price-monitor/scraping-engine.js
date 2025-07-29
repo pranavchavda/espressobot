@@ -39,58 +39,108 @@ class CompetitorScraper {
     return new Promise(resolve => setTimeout(resolve, this.rateLimitMs));
   }
 
-  // Scrape a single collection - enhanced to handle different site types
+  // Scrape a single collection - enhanced to handle different site types with pagination
   async scrapeCollection(collection) {
     return await this.withRetry(async () => {
-      // Try Shopify JSON API first (most common for coffee retailers)
-      let url = `${this.baseUrl}/collections/${collection}/products.json`;
-      console.log(`🔍 Scraping: ${url}`);
+      let allProducts = [];
+      let page = 1;
+      let hasMoreProducts = true;
+      let detectedPageSize = null; // Track what page size the competitor actually returns
+      
+      while (hasMoreProducts) {
+        // Try Shopify JSON API first (most common for coffee retailers)
+        // Use limit=250 (Shopify max) and page parameter for pagination
+        let url = `${this.baseUrl}/collections/${collection}/products.json?limit=250&page=${page}`;
+        console.log(`🔍 [${this.competitor.name}] Scraping page ${page}: ${url}`);
 
-      let response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': 'application/json',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'DNT': '1',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-        },
-        timeout: 30000,
-      });
-
-      // If Shopify JSON fails, try alternative approaches
-      if (!response.ok) {
-        console.log(`Shopify JSON failed (${response.status}), trying alternative methods...`);
-        
-        // Try collection page scraping
-        url = `${this.baseUrl}/collections/${collection}`;
-        response = await fetch(url, {
+        let response = await fetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept': 'application/json',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
           },
           timeout: 30000,
         });
 
+        // If Shopify JSON fails, try alternative approaches (only on first page)
+        if (!response.ok && page === 1) {
+          console.log(`Shopify JSON failed (${response.status}), trying alternative methods...`);
+          
+          // Try collection page scraping
+          url = `${this.baseUrl}/collections/${collection}`;
+          response = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+            timeout: 30000,
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText} for ${url}`);
+          }
+
+          // Parse HTML for product data (basic implementation)
+          const html = await response.text();
+          return this.parseHTMLForProducts(html, collection);
+        }
+
         if (!response.ok) {
+          // If we're on page > 1 and get an error, we've probably reached the end
+          if (page > 1) {
+            console.log(`📄 Reached end of pagination at page ${page} (${response.status})`);
+            break;
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText} for ${url}`);
         }
 
-        // Parse HTML for product data (basic implementation)
-        const html = await response.text();
-        return this.parseHTMLForProducts(html, collection);
+        const data = await response.json();
+        
+        if (!data.products || !Array.isArray(data.products)) {
+          throw new Error('Invalid response format - no products array');
+        }
+
+        console.log(`✅ [${this.competitor.name}] Found ${data.products.length} products on page ${page} of collection ${collection}`);
+        
+        // Detect the actual page size this competitor uses
+        if (page === 1 && data.products.length > 0) {
+          detectedPageSize = data.products.length;
+          if (detectedPageSize < 250) {
+            console.log(`🔍 [${this.competitor.name}] Detected page size: ${detectedPageSize} (ignoring our limit=250 parameter)`);
+          }
+        }
+        
+        // Add products from this page
+        allProducts.push(...data.products);
+        
+        // Check if we have more products to fetch
+        // Use detected page size or fall back to 250
+        const expectedPageSize = detectedPageSize || 250;
+        if (data.products.length < expectedPageSize) {
+          // If we got fewer than expected products, we've reached the end
+          console.log(`📄 [${this.competitor.name}] End of pagination detected: got ${data.products.length} < ${expectedPageSize} products on page ${page}`);
+          hasMoreProducts = false;
+        } else {
+          // Move to next page and add rate limiting
+          console.log(`➡️  [${this.competitor.name}] Moving to page ${page + 1} (got full page of ${data.products.length} products)`);
+          page++;
+          await this.wait(); // Rate limiting between pages
+        }
+        
+        // Safety check to prevent infinite loops
+        if (page > 50) {
+          console.log(`⚠️  Safety break: Stopped pagination at page ${page} for collection ${collection}`);
+          break;
+        }
       }
 
-      const data = await response.json();
-      
-      if (!data.products || !Array.isArray(data.products)) {
-        throw new Error('Invalid response format - no products array');
-      }
-
-      console.log(`✅ Found ${data.products.length} products in collection ${collection}`);
-      return data.products;
+      console.log(`🎉 [${this.competitor.name}] Total products found in collection ${collection}: ${allProducts.length} (across ${page} pages)`);
+      return allProducts;
     }, `Scraping collection ${collection}`);
   }
 
@@ -276,17 +326,15 @@ class CompetitorScraper {
     }
   }
 
-  // Main scraping method
+  // Main scraping method - supports flexible strategies
   async scrape(collections = null) {
-    const collectionsToScrape = collections || this.competitor.collections;
-    
-    if (!collectionsToScrape || collectionsToScrape.length === 0) {
-      throw new Error('No collections specified for scraping');
-    }
+    const strategy = this.competitor.scraping_strategy || 'collections';
+    console.log(`🎯 Using scraping strategy: ${strategy} for ${this.competitor.name}`);
 
     const results = {
       competitor: this.competitor.name,
-      collections_scraped: 0,
+      strategy: strategy,
+      sources_scraped: 0,
       total_products: 0,
       created: 0,
       updated: 0,
@@ -294,21 +342,70 @@ class CompetitorScraper {
       error_details: []
     };
 
+    try {
+      let allProducts = [];
+
+      switch (strategy) {
+        case 'collections':
+          allProducts = await this.scrapeByCollections(collections);
+          break;
+        
+        case 'url_patterns':
+          allProducts = await this.scrapeByUrlPatterns();
+          break;
+        
+        case 'search_terms':
+          allProducts = await this.scrapeBySearchTerms();
+          break;
+        
+        default:
+          throw new Error(`Unknown scraping strategy: ${strategy}`);
+      }
+
+      // Filter out excluded products
+      const filteredProducts = this.filterExcludedProducts(allProducts);
+      console.log(`🔍 Found ${allProducts.length} products, ${filteredProducts.length} after exclusions`);
+
+      // Process all products
+      if (filteredProducts.length > 0) {
+        const processingResults = await this.processProducts(filteredProducts, strategy);
+        results.total_products = filteredProducts.length;
+        results.created = processingResults.created;
+        results.updated = processingResults.updated;
+        results.errors = processingResults.errors;
+        results.error_details = processingResults.errorDetails;
+      }
+
+      results.sources_scraped = 1; // One strategy executed
+      console.log(`✅ Strategy ${strategy}: ${results.total_products} products, ${results.created} created, ${results.updated} updated, ${results.errors} errors`);
+
+    } catch (error) {
+      console.error(`❌ Failed to scrape using strategy ${strategy}:`, error);
+      results.errors++;
+      results.error_details.push({
+        strategy,
+        error: error.message
+      });
+    }
+
+    return results;
+  }
+
+  // Scrape using collections strategy
+  async scrapeByCollections(collections = null) {
+    const collectionsToScrape = collections || this.competitor.collections;
+    
+    if (!collectionsToScrape || collectionsToScrape.length === 0) {
+      throw new Error('No collections specified for collections strategy');
+    }
+
+    let allProducts = [];
+    
     for (const collection of collectionsToScrape) {
       try {
-        console.log(`📦 Scraping collection: ${collection} for ${this.competitor.name}`);
-        
+        console.log(`📦 Scraping collection: ${collection}`);
         const products = await this.scrapeCollection(collection);
-        const collectionResults = await this.processProducts(products, collection);
-        
-        results.collections_scraped++;
-        results.total_products += products.length;
-        results.created += collectionResults.created;
-        results.updated += collectionResults.updated;
-        results.errors += collectionResults.errors;
-        results.error_details.push(...collectionResults.errorDetails);
-
-        console.log(`✅ Collection ${collection}: ${products.length} products, ${collectionResults.created} created, ${collectionResults.updated} updated, ${collectionResults.errors} errors`);
+        allProducts.push(...products);
         
         // Rate limiting between collections
         if (collectionsToScrape.indexOf(collection) < collectionsToScrape.length - 1) {
@@ -316,15 +413,334 @@ class CompetitorScraper {
         }
       } catch (error) {
         console.error(`❌ Failed to scrape collection ${collection}:`, error);
-        results.errors++;
-        results.error_details.push({
-          collection,
-          error: error.message
-        });
+        throw error;
       }
     }
 
-    return results;
+    return allProducts;
+  }
+
+  // Scrape using URL patterns strategy
+  async scrapeByUrlPatterns() {
+    const patterns = this.competitor.url_patterns || [];
+    
+    if (patterns.length === 0) {
+      throw new Error('No URL patterns specified for url_patterns strategy');
+    }
+
+    let allProducts = [];
+    
+    for (const pattern of patterns) {
+      try {
+        console.log(`🔍 Scraping URL pattern: ${pattern}`);
+        
+        // Try different approaches based on pattern type
+        if (pattern.includes('/collections/')) {
+          // Handle collection-style patterns
+          const collectionName = this.extractCollectionFromPattern(pattern);
+          if (collectionName) {
+            console.log(`📦 Extracted collection: ${collectionName}`);
+            const products = await this.scrapeCollection(collectionName);
+            allProducts.push(...products);
+          }
+        } else if (pattern.includes('/products/')) {
+          // Handle product-style patterns - try to find a collection equivalent
+          const collectionName = this.extractCollectionFromPattern(pattern);
+          if (collectionName) {
+            console.log(`📦 Trying collection equivalent: ${collectionName}`);
+            try {
+              const products = await this.scrapeCollection(collectionName);
+              allProducts.push(...products);
+            } catch (error) {
+              // If collection doesn't exist, try common brand collections
+              console.log(`⚠️  Collection ${collectionName} not found, trying brand-based collections`);
+              const brandCollections = await this.tryBrandCollections(collectionName);
+              allProducts.push(...brandCollections);
+            }
+          }
+        } else {
+          console.log(`⚠️  Unsupported pattern format: ${pattern}`);
+        }
+        
+        await this.wait();
+      } catch (error) {
+        console.error(`❌ Failed to scrape pattern ${pattern}:`, error);
+        // Continue with other patterns instead of throwing
+      }
+    }
+
+    return allProducts;
+  }
+
+  // Try common brand-based collection names
+  async tryBrandCollections(brandName) {
+    const commonCollectionVariations = [
+      brandName.toLowerCase(),
+      brandName.toLowerCase().replace('-', ''),
+      brandName.toLowerCase() + '-espresso',
+      brandName.toLowerCase() + '-machines',
+      brandName.toLowerCase() + '-grinders'
+    ];
+
+    let allProducts = [];
+    
+    for (const variation of commonCollectionVariations) {
+      try {
+        console.log(`🔍 Trying collection variation: ${variation}`);
+        const products = await this.scrapeCollection(variation);
+        if (products.length > 0) {
+          console.log(`✅ Found ${products.length} products in collection: ${variation}`);
+          allProducts.push(...products);
+          break; // Stop on first successful collection
+        }
+      } catch (error) {
+        // Continue trying other variations
+        console.log(`⚠️  Collection ${variation} not found`);
+      }
+    }
+
+    return allProducts;
+  }
+
+  // Scrape using search terms strategy  
+  async scrapeBySearchTerms() {
+    const searchTerms = this.competitor.search_terms || [];
+    
+    if (searchTerms.length === 0) {
+      throw new Error('No search terms specified for search_terms strategy');
+    }
+
+    let allProducts = [];
+    
+    for (const term of searchTerms) {
+      try {
+        console.log(`🔍 Searching for: ${term}`);
+        const products = await this.searchProducts(term);
+        allProducts.push(...products);
+        
+        await this.wait();
+      } catch (error) {
+        console.error(`❌ Failed to search for ${term}:`, error);
+        // Continue with other terms instead of throwing
+      }
+    }
+
+    // Remove duplicates based on product ID
+    return this.removeDuplicateProducts(allProducts);
+  }
+
+  // Extract collection name from URL pattern (simplified)
+  extractCollectionFromPattern(pattern) {
+    // Handle patterns like '/products/ecm-*' -> 'ecm'
+    // This is a simplified implementation
+    const match = pattern.match(/\/(?:collections|products)\/([^-*]+)/);
+    return match ? match[1] : null;
+  }
+
+  // Search for products by term (comprehensive implementation)
+  async searchProducts(term) {
+    console.log(`🔍 Searching for products matching: ${term}`);
+    
+    let allProducts = [];
+    
+    // Strategy 1: Try Shopify search API (if available)
+    try {
+      const searchProducts = await this.searchViaShopifyAPI(term);
+      if (searchProducts.length > 0) {
+        console.log(`✅ Found ${searchProducts.length} products via Shopify search API for: ${term}`);
+        allProducts.push(...searchProducts);
+        return allProducts; // Return immediately if search API works
+      }
+    } catch (error) {
+      console.log(`⚠️  Shopify search API failed for ${term}:`, error.message);
+    }
+
+    // Strategy 2: Try search term as collection name variations
+    const potentialCollections = [
+      term.toLowerCase(),
+      term.toLowerCase().replace(/\s+/g, '-'),
+      term.toLowerCase().replace(/\s+/g, ''),
+      term.toLowerCase().split(' ')[0], // First word only
+      // Brand-specific variations
+      term.toLowerCase() + '-espresso',
+      term.toLowerCase() + '-machines', 
+      term.toLowerCase() + '-grinders',
+      term.toLowerCase() + '-coffee'
+    ];
+
+    for (const collectionName of potentialCollections) {
+      try {
+        console.log(`🔍 Trying search term as collection: ${collectionName}`);
+        const products = await this.scrapeCollection(collectionName);
+        if (products.length > 0) {
+          console.log(`✅ Found ${products.length} products for search term "${term}" via collection "${collectionName}"`);
+          allProducts.push(...products);
+          break; // Stop on first successful match
+        }
+      } catch (error) {
+        // Continue trying other variations
+      }
+    }
+
+    // Strategy 3: Crawl all products and filter by search term (expensive fallback)
+    if (allProducts.length === 0) {
+      try {
+        console.log(`🔍 Attempting full product crawl and filter for: ${term}`);
+        const crawledProducts = await this.crawlAndFilterProducts(term);
+        allProducts.push(...crawledProducts);
+      } catch (error) {
+        console.log(`⚠️  Product crawling failed for ${term}:`, error.message);
+      }
+    }
+
+    if (allProducts.length === 0) {
+      console.log(`⚠️  No products found for search term: ${term}`);
+    }
+
+    return allProducts;
+  }
+
+  // Search via Shopify search API (if available)
+  async searchViaShopifyAPI(term) {
+    const searchUrl = `${this.baseUrl}/search.json?q=${encodeURIComponent(term)}&type=product`;
+    
+    return await this.withRetry(async () => {
+      console.log(`🔍 Shopify API search: ${searchUrl}`);
+      
+      const response = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; PriceMonitor/1.0)',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Search API returned ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.results && Array.isArray(data.results)) {
+        return data.results;
+      } else if (data.products && Array.isArray(data.products)) {
+        return data.products;
+      } else {
+        throw new Error('No search results found in response');
+      }
+    }, `Shopify search for "${term}"`);
+  }
+
+  // Crawl products from common paths and filter by search term
+  async crawlAndFilterProducts(term) {
+    console.log(`🕷️  Crawling products and filtering by: ${term}`);
+    
+    // Common product listing paths to try
+    const commonPaths = [
+      'products',      // /products.json
+      'all',           // /collections/all/products.json  
+      'all-products',  // /collections/all-products/products.json
+      'catalog',       // /collections/catalog/products.json
+      'shop'           // /collections/shop/products.json
+    ];
+
+    let allProducts = [];
+    const termLower = term.toLowerCase();
+    
+    for (const path of commonPaths) {
+      try {
+        console.log(`🔍 Crawling path: ${path}`);
+        let products = [];
+        
+        if (path === 'products') {
+          // Try direct products endpoint with pagination
+          let page = 1;
+          let hasMoreProducts = true;
+          
+          while (hasMoreProducts && page <= 10) { // Limit to 10 pages for direct products
+            const url = `${this.baseUrl}/products.json?limit=250&page=${page}`;
+            const response = await fetch(url);
+            if (response.ok) {
+              const data = await response.json();
+              const pageProducts = data.products || [];
+              products.push(...pageProducts);
+              
+              if (pageProducts.length < 250) {
+                hasMoreProducts = false;
+              } else {
+                page++;
+                await this.wait(); // Rate limiting
+              }
+            } else {
+              break;
+            }
+          }
+          console.log(`📦 Found ${products.length} products via direct products endpoint (${page} pages)`);
+        } else {
+          // Try collection-based endpoint
+          products = await this.scrapeCollection(path);
+        }
+
+        // Filter products by search term
+        const matchingProducts = products.filter(product => {
+          const title = (product.title || '').toLowerCase();
+          const vendor = (product.vendor || '').toLowerCase();
+          const type = (product.product_type || '').toLowerCase();
+          const tags = (product.tags || []).join(' ').toLowerCase();
+          
+          return title.includes(termLower) || 
+                 vendor.includes(termLower) || 
+                 type.includes(termLower) ||
+                 tags.includes(termLower);
+        });
+
+        if (matchingProducts.length > 0) {
+          console.log(`✅ Found ${matchingProducts.length} matching products in ${path}`);
+          allProducts.push(...matchingProducts);
+          break; // Stop on first successful path
+        }
+
+        await this.wait(); // Rate limiting
+      } catch (error) {
+        console.log(`⚠️  Failed to crawl ${path}:`, error.message);
+        continue;
+      }
+    }
+
+    return allProducts;
+  }
+
+  // Filter out excluded products
+  filterExcludedProducts(products) {
+    const excludePatterns = this.competitor.exclude_patterns || [];
+    
+    if (excludePatterns.length === 0) {
+      return products;
+    }
+
+    return products.filter(product => {
+      const productUrl = `/products/${product.handle}`;
+      const productTitle = product.title?.toLowerCase() || '';
+      
+      // Check if product matches any exclude pattern
+      const shouldExclude = excludePatterns.some(pattern => {
+        const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
+        return regex.test(productUrl) || regex.test(productTitle);
+      });
+
+      return !shouldExclude;
+    });
+  }
+
+  // Remove duplicate products based on ID
+  removeDuplicateProducts(products) {
+    const seen = new Set();
+    return products.filter(product => {
+      if (seen.has(product.id)) {
+        return false;
+      }
+      seen.add(product.id);
+      return true;
+    });
   }
 }
 

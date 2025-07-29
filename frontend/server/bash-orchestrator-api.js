@@ -135,8 +135,8 @@ router.post('/run', authenticateToken, async (req, res) => {
       if (compressedContext.recentMessages.length > 0) {
         const recentHistory = compressedContext.recentMessages.map(msg => {
           // Still truncate individual messages if they're very long
-          const content = msg.content.length > 2000 ? 
-            msg.content.substring(0, 2000) + '\n[Message truncated for size]' : 
+          const content = msg.content.length > 5000 ? 
+            msg.content.substring(0, 5000) + '\n[Message truncated for size]' : 
             msg.content;
           return `${msg.role === 'user' ? 'User' : 'Assistant'}: ${content}`;
         }).join('\n\n');
