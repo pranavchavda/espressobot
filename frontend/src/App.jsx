@@ -11,8 +11,10 @@ import ProfilePage from './pages/ProfilePage';
 import TasksPage from './pages/TasksPage';
 import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
 import DashboardPage from './pages/DashboardPage';
-import { Routes, Route, Link, Outlet, NavLink, Navigate } from "react-router-dom";
-import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, FileTextIcon } from 'lucide-react';
+import HomePage from './pages/HomePage';
+import PriceMonitorLayout from './pages/price-monitor/PriceMonitorLayout';
+import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate } from "react-router-dom";
+import { Loader2Icon, MessageSquarePlusIcon, XIcon, ShoppingBagIcon, BarChart3Icon, LineChartIcon, GlobeIcon, LinkIcon, FileTextIcon, TrendingDownIcon } from 'lucide-react';
 import logo from '../static/EspressoBotLogo.png';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
@@ -25,6 +27,7 @@ import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
 function App() {
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [loading, setLoading] = useState(true); // For conversations loading
@@ -58,7 +61,9 @@ function App() {
         // Store token and remove from URL
         console.log('Token received from OAuth:', token.substring(0, 20) + '...');
         localStorage.setItem('authToken', token);
-        window.history.replaceState({}, document.title, window.location.pathname);
+        // Navigate to homepage after OAuth login
+        navigate('/');
+        return; // Exit early to avoid duplicate auth check
       }
       
       // Check if user is authenticated
@@ -75,7 +80,8 @@ function App() {
             const userData = await res.json();
             console.log('Auth check successful:', userData);
             setUser(userData);
-            fetchConversations(storedToken);
+            // Don't auto-select last chat on login - let user start from homepage
+            fetchConversations(storedToken, false);
           } else {
             // Invalid token, remove it
             console.error('Auth check failed:', res.status, res.statusText);
@@ -95,7 +101,7 @@ function App() {
   }, []);
 
   // Fetch conversations list with auth token
-  const fetchConversations = async (token = localStorage.getItem('authToken')) => {
+  const fetchConversations = async (token = localStorage.getItem('authToken'), selectLastChat = true) => {
     setLoading(true);
     try {
       const res = await fetch(`/api/conversations?t=${Date.now()}`, {
@@ -109,12 +115,12 @@ function App() {
       setTimeout(() => {
         setConversations(data || []);
       }, 0);
-      // Keep current selection if still present; otherwise default to the most recent conversation (if any)
+      // Keep current selection if still present; otherwise optionally default to the most recent conversation
       setSelectedChat((prevSelected) => {
         if (data && data.find((c) => c.id === prevSelected)) {
           return prevSelected;
         }
-        return data && data.length > 0 ? data[0].id : null;
+        return selectLastChat && data && data.length > 0 ? data[0].id : null;
       });
     } catch (e) {
       console.error("Failed to fetch conversations:", e);
@@ -231,7 +237,10 @@ function App() {
                     className="w-full cursor-pointer my-10 "
                     color="steel-blue"
                     outline
-                    onClick={() => setSelectedChat(null)}
+                    onClick={() => {
+                      setSelectedChat(null);
+                      navigate('/chat');
+                    }}
                   >
                     <MessageSquarePlusIcon className="h-4 w-4" /> New Chat
                   </Button>
@@ -271,7 +280,7 @@ function App() {
                           <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
                         </Button>
                         <Link 
-                          to="/"
+                          to="/chat"
                           className={`block w-full text-left px-2 py-2 shadow-sm rounded-lg transition-colors ${
                             selectedChat === chat.id 
                               ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" 
@@ -317,8 +326,9 @@ function App() {
           </div>
                 </SidebarLayout>
       }>
+        <Route path="/" element={<HomePage />} />
         <Route
-          path="/"
+          path="/chat"
           element={
             <>
               <StreamingChatPage
@@ -327,6 +337,7 @@ function App() {
                   // Instead of updating state, refetch to ensure consistency
                   fetchConversations();
                 }}
+                onNewConversation={() => setSelectedChat(null)}
               />
               <PWAInstallPrompt />
             </>
@@ -336,6 +347,7 @@ function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/price-monitor/*" element={<PriceMonitorLayout />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />
         <Route path="/admin/memory" element={

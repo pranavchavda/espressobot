@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
@@ -11,7 +12,8 @@ import logo from "../../../static/EspressoBotLogo.png";
 import { ApprovalRequest } from "@components/chat/ApprovalRequest";
 
 
-function StreamingChatPage({ convId, onTopicUpdate }) {
+function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
+  const location = useLocation();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -114,6 +116,7 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
       })
       .finally(() => setLoading(false));
   }, [convId]);
+
 
   //console.log("FRONTEND RENDER: useAgent:", useAgent, "currentPlan:", currentPlan, "currentTasks:", currentTasks, "streamingMessage:", streamingMessage); // DEBUG
 
@@ -1468,6 +1471,24 @@ function StreamingChatPage({ convId, onTopicUpdate }) {
   const handleSuggestionClick = (suggestionText) => {
     handleSend(suggestionText);
   };
+
+  // Handle initial message from HomePage
+  useEffect(() => {
+    if (location.state?.initialMessage && !messages.length && !loading) {
+      // If this is a new conversation request, clear the selected chat
+      if (location.state.newConversation && onNewConversation) {
+        onNewConversation();
+      }
+      
+      setInput(location.state.initialMessage);
+      // Auto-send the message after a short delay
+      setTimeout(() => {
+        handleSend(location.state.initialMessage);
+      }, 500);
+      // Clear the location state to prevent re-sending
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [location.state, messages.length, loading, onNewConversation]);
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
