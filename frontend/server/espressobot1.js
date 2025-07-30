@@ -54,7 +54,8 @@ import {
   createSmartMCPExecuteTool,
   createGoogleWorkspaceAgentTool,
   createGA4AnalyticsAgentTool,
-  createShopifyOrdersAgentTool
+  createShopifyOrdersAgentTool,
+  createGraphQLAgentTool
 } from './tools/direct-mcp-agent-tools.js';
 import { createInjectContextTool, createManageInjectionTool } from './tools/inject-context-tool.js';
 import { messageInjector } from './utils/agent-message-injector.js';
@@ -1606,6 +1607,7 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
     createUtilityAgentTool(),
     createShopifyOrdersAgentTool(),
     createGA4AnalyticsAgentTool(),
+    createGraphQLAgentTool(),
     createSmartMCPExecuteTool(),
     
     // Task reading and updating tools

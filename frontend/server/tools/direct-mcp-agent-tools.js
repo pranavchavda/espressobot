@@ -21,16 +21,17 @@ import { executeExternalMCPTask } from '../agents/external-mcp-agent.js';
 import { executeGoogleWorkspaceTask } from '../agents/google-workspace-agent.js';
 import { executeGA4Task } from '../agents/ga4-analytics-agent.js';
 import { executeOrdersTask } from '../agents/shopify-orders-agent.js';
+import { executeGraphQLTaskWithHandoffs } from '../agents/graphql-documentation-handoff.js';
 
 /**
- * Products Agent - Basic product operations and GraphQL
+ * Products Agent - Basic product operations only
  */
 export function createProductsAgentTool() {
   return tool({
     name: 'products_agent',
-    description: 'Product operations: get_product, search_products, create_product, update_status, update_variant_weight, graphql_query, graphql_mutation',
+    description: 'Basic product operations: get_product, search_products, create_product, update_status, update_variant_weight. For GraphQL operations, use graphql_agent.',
     parameters: z.object({
-      task: z.string().describe('The product operation to perform')
+      task: z.string().describe('The basic product operation to perform')
     }),
     execute: async ({ task }) => {
       console.log(`[Products Agent] Executing: ${task.substring(0, 100)}...`);
@@ -389,6 +390,40 @@ export function createExternalMCPAgentTool() {
 }
 
 /**
+ * GraphQL Agent - Safe GraphQL operations with documentation research
+ */
+export function createGraphQLAgentTool() {
+  return tool({
+    name: 'graphql_agent',
+    description: 'Safe GraphQL operations with bidirectional handoffs to Documentation Agent: graphql_query, graphql_mutation. Features collaborative research workflow and strict safety protocols.',
+    parameters: z.object({
+      task: z.string().describe('The GraphQL operation to perform - will collaborate with Documentation Agent for research')
+    }),
+    execute: async ({ task }) => {
+      console.log(`[GraphQL Agent] Executing with handoffs: ${task.substring(0, 100)}...`);
+      
+      try {
+        const result = await executeGraphQLTaskWithHandoffs(
+          task, 
+          global.currentConversationId,
+          {}
+        );
+        
+        if (result && result.success === false) {
+          return `Error: ${result.error || 'GraphQL operation failed'}`;
+        }
+        
+        return result.result || result || 'GraphQL task with handoffs completed successfully';
+        
+      } catch (error) {
+        console.error('[GraphQL Agent] Task with handoffs failed:', error);
+        return `GraphQL Agent with handoffs failed: ${error.message}`;
+      }
+    }
+  });
+}
+
+/**
  * Smart routing based on task analysis
  */
 export function createSmartMCPExecuteTool() {
@@ -443,6 +478,11 @@ export function createSmartMCPExecuteTool() {
         if (taskLower.includes('variant') || taskLower.includes('combo') || taskLower.includes('open box') || taskLower.includes('create full')) {
           console.log('[Smart MCP Execute] Routing to Product Management Agent');
           return await executeProductManagementTask(task, global.currentConversationId, {});
+        }
+        
+        if (taskLower.includes('graphql') || taskLower.includes('query {') || taskLower.includes('mutation {') || taskLower.includes('collection')) {
+          console.log('[Smart MCP Execute] Routing to GraphQL Agent with handoffs');
+          return await executeGraphQLTaskWithHandoffs(task, global.currentConversationId, {});
         }
         
         if (taskLower.includes('documentation') || taskLower.includes('schema') || taskLower.includes('api')) {

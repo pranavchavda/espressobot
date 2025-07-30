@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-MCP Products Server - Specialized server for product operations and GraphQL
-Includes: get_product, search_products, create_product, update_status, graphql_query, graphql_mutation
-Reduces token usage by ~75% compared to loading all 28 tools
+MCP Products Server - Specialized server for basic product operations
+Includes: get_product, search_products, create_product, update_status, update_variant_weight
+GraphQL operations moved to dedicated GraphQL server for safety
 """
 
 import asyncio
@@ -26,9 +26,9 @@ from mcp_tools.products.update_variant_weight import UpdateVariantWeightTool
 # Scratchpad functionality
 from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
 
-# Import GraphQL tools for collections and advanced operations
-from mcp_tools.graphql.query import GraphQLQueryTool
-from mcp_tools.graphql.mutation import GraphQLMutationTool
+# GraphQL tools moved to dedicated GraphQL agent for safety
+# from mcp_tools.graphql.query import GraphQLQueryTool
+# from mcp_tools.graphql.mutation import GraphQLMutationTool
 
 
 class ProductsMCPServer(EnhancedMCPServer):
@@ -49,9 +49,9 @@ class ProductsMCPServer(EnhancedMCPServer):
         self.add_tool(UpdateStatusTool())
         self.add_tool(UpdateVariantWeightTool())
         
-        # Add GraphQL tools for collections and advanced operations
-        self.add_tool(GraphQLQueryTool())
-        self.add_tool(GraphQLMutationTool())
+        # GraphQL tools moved to dedicated GraphQL agent for safety
+        # self.add_tool(GraphQLQueryTool())
+        # self.add_tool(GraphQLMutationTool())
         
         
         # Add scratchpad tools

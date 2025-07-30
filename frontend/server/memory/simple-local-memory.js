@@ -248,7 +248,8 @@ async function addMemory(content, userId, metadata = null, options = {}) {
         user_id: userId,
         content,
         embedding,
-        metadata: metadata ? JSON.stringify(metadata) : null
+        metadata: metadata ? JSON.stringify(metadata) : null,
+        updated_at: new Date()
       }
     });
 

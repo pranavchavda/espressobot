@@ -1,16 +1,108 @@
 /**
  * Documentation MCP Agent - Specialized for Shopify API documentation and schema introspection
+ * Enhanced with Perplexity research and web search capabilities
  */
 
-import { Agent } from '@openai/agents';
+import { Agent, tool, webSearchTool } from '@openai/agents';
 import { MCPServerStdio } from '@openai/agents-core';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 import { initializeTracing } from '../config/tracing-config.js';
+import { z } from 'zod';
+import { execSync } from 'child_process';
 
 // Initialize tracing configuration for this agent
 initializeTracing('Documentation MCP Agent');
 
 let shopifyDevMCP = null;
+
+// Cache for integrations MCP server connection
+let integrationsMCP = null;
+
+/**
+ * Get or create connection to Integrations MCP server for Perplexity access
+ */
+async function getIntegrationsMCP() {
+  if (!integrationsMCP) {
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    
+    integrationsMCP = new MCPServerStdio({
+      name: 'Integrations Server',
+      command: 'python3',
+      args: [path.join(__dirname, '../../python-tools/mcp-integrations-server.py')],
+      env: {
+        ...process.env,
+        PYTHONPATH: path.join(__dirname, '../../python-tools')
+      }
+    });
+    
+    console.log('[Documentation Agent] Connecting to Integrations Server for Perplexity...');
+    await integrationsMCP.connect();
+    
+    const tools = await integrationsMCP.listTools();
+    console.log(`[Documentation Agent] Connected to Integrations Server! ${tools.length} tools available:`, 
+      tools.map(t => t.name).join(', '));
+  }
+  
+  return integrationsMCP;
+}
+
+/**
+ * Create Perplexity research tool for documentation agent
+ */
+function createPerplexityTool() {
+  return tool({
+    name: 'perplexity_research',
+    description: 'Research products, competitors, and industry information using Perplexity AI. Perfect for finding real-time information, technical specs, API updates, and best practices.',
+    parameters: z.object({
+      query: z.string().describe('Research query - be specific about what information you need'),
+      model: z.enum(['sonar', 'sonar-pro']).default('sonar').describe('Perplexity model: sonar (fast) or sonar-pro (detailed)')
+    }),
+    execute: async ({ query, model }) => {
+      try {
+        console.log(`[Documentation Agent] Researching with Perplexity: ${query.substring(0, 100)}...`);
+        
+        // Get the integrations MCP server and call perplexity_research
+        const mcpServer = await getIntegrationsMCP();
+        const result = await mcpServer.callTool('perplexity_research', { query, model });
+        
+        return result.content?.[0]?.text || result;
+        
+      } catch (error) {
+        console.error('[Documentation Agent] Perplexity research failed:', error.message);
+        return `Perplexity research failed: ${error.message}`;
+      }
+    }
+  });
+}
+
+/**
+ * Create web search tool wrapper for documentation agent
+ */
+function createWebSearchTool() {
+  return tool({
+    name: 'web_search',
+    description: 'Search the web for current information, documentation updates, API changes, and community discussions. Use for finding the latest information not in official docs.',
+    parameters: z.object({
+      query: z.string().describe('Web search query - be specific about what you\'re looking for')
+    }),
+    execute: async ({ query }) => {
+      try {
+        console.log(`[Documentation Agent] Web searching: ${query.substring(0, 100)}...`);
+        
+        const searchTool = webSearchTool();
+        const result = await searchTool.execute({ query });
+        
+        return result;
+        
+      } catch (error) {
+        console.error('[Documentation Agent] Web search failed:', error.message);
+        return `Web search failed: ${error.message}`;
+      }
+    }
+  });
+}
 
 /**
  * Get or create the Shopify Dev MCP server connection
@@ -42,25 +134,42 @@ export async function createDocumentationMCPAgent(task = '', conversationId = nu
   const mcpServer = await getShopifyDevMCP();
   
   // Build specialized instructions for documentation tasks
-  let instructions = `You are a Documentation Agent specialized in Shopify API documentation and GraphQL schema introspection.
+  let instructions = `You are a Documentation Agent specialized in Shopify API documentation, schema introspection, and real-time research.
 
-You have access to the following documentation tools:
+You have access to the following tools:
+
+**Official Documentation Tools:**
 - introspect_admin_schema: Search and explore the Shopify Admin API GraphQL schema
 - search_dev_docs: Search Shopify developer documentation for guides and examples
 - fetch_docs_by_path: Retrieve specific documentation pages by path
 - get_started: Get overview information about Shopify APIs
 
-Your role is to:
+**Research & Discovery Tools:**
+- perplexity_research: Research real-time information using Perplexity AI (best for technical specs, API updates, best practices)
+- web_search: Search the web for current information, community discussions, and recent changes
+
+Your enhanced role is to:
 1. Help developers understand Shopify APIs and best practices
 2. Find the correct GraphQL types, queries, and mutations
 3. Provide code examples and implementation guidance
-4. Explain API concepts and limitations
+4. Research real-time information about API changes, community solutions, and best practices
+5. Discover technical specifications and industry standards
+6. Find current pricing, features, and competitor information when relevant
+7. Explain API concepts and limitations with up-to-date context
+
+**Tool Selection Strategy:**
+- Use official documentation tools first for established APIs and concepts
+- Use Perplexity for technical research, API updates, and best practices
+- Use web search for community discussions, troubleshooting, and recent changes
+- Combine multiple sources for comprehensive answers
 
 When answering questions:
 - Be precise and reference specific documentation
 - Provide relevant code examples when available
+- Include real-time context when helpful
 - Explain both the "what" and the "why"
 - Mention any important caveats or limitations
+- Cross-reference official docs with current community knowledge
 
 ## AUTONOMOUS EXECUTION MODE
 - Execute documentation queries immediately without asking for confirmation
@@ -90,11 +199,16 @@ When answering questions:
     taskDescription: task
   });
 
-  // Create the agent
+  // Create the enhanced tools
+  const perplexityTool = createPerplexityTool();
+  const webSearchTool = createWebSearchTool();
+
+  // Create the agent with MCP server and additional tools
   const agent = new Agent({
     name: 'Documentation MCP Agent',
     instructions: finalInstructions,
     mcpServers: [mcpServer],
+    tools: [perplexityTool, webSearchTool],
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
     toolUseBehavior: 'run_llm_again'
   });
@@ -244,12 +358,18 @@ export async function getAPIOverview(api) {
 }
 
 /**
- * Close the Shopify Dev MCP server connection
+ * Close the MCP server connections
  */
 export async function closeDocumentationMCP() {
   if (shopifyDevMCP) {
     console.log('[Documentation MCP Agent] Closing Shopify Dev MCP server...');
     await shopifyDevMCP.close();
     shopifyDevMCP = null;
+  }
+  
+  if (integrationsMCP) {
+    console.log('[Documentation MCP Agent] Closing Integrations MCP server...');
+    await integrationsMCP.close();
+    integrationsMCP = null;
   }
 }
