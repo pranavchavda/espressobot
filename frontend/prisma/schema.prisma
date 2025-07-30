@@ -359,3 +359,71 @@ model violation_history {
   @@index([product_match_id])
   @@index([violation_type])
 }
+
+model tasks {
+  id               Int                @id @default(autoincrement())
+  title            String
+  description      String?
+  status           String             @default("pending")
+  priority         Int                @default(3)
+  category         String?
+  tags             String?
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt @default(now())
+  due_date         DateTime?
+  completed_at     DateTime?
+  conversation_id  String?
+  agent_id         String?
+  parent_task_id   Int?
+  metadata         String?
+  
+  // Self-referential relationship for parent tasks
+  parent_task      tasks?             @relation("TaskHierarchy", fields: [parent_task_id], references: [id], onDelete: NoAction)
+  child_tasks      tasks[]            @relation("TaskHierarchy")
+  
+  // Task dependencies
+  dependencies     task_dependencies[] @relation("TaskDependencies")
+  dependents       task_dependencies[] @relation("DependentTasks")
+  
+  // Relationship to conversations
+  conversations    task_conversations? @relation(fields: [conversation_id], references: [id])
+
+  @@index([status])
+  @@index([priority])
+  @@index([category])
+  @@index([conversation_id])
+  @@index([agent_id])
+  @@index([parent_task_id])
+}
+
+model task_conversations {
+  id          String   @id @default(cuid())
+  title       String?
+  description String?
+  agent_id    String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt @default(now())
+  status      String   @default("active")
+  metadata    String?
+  
+  // Relationship to tasks
+  tasks       tasks[]
+
+  @@index([agent_id])
+  @@index([status])
+}
+
+model task_dependencies {
+  id                 Int      @id @default(autoincrement())
+  task_id            Int
+  depends_on_task_id Int
+  dependency_type    String   @default("blocks")
+  created_at         DateTime @default(now())
+  
+  // Relationships
+  task               tasks    @relation("TaskDependencies", fields: [task_id], references: [id], onDelete: Cascade)
+  depends_on_task    tasks    @relation("DependentTasks", fields: [depends_on_task_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id])
+  @@index([depends_on_task_id])
+}
