@@ -60,13 +60,22 @@ function App() {
   // Check authentication on mount
   useEffect(() => {
     const checkAuth = async () => {
+      console.log('[App] checkAuth() called, current URL:', window.location.href);
+      
       // Check for token in URL (from OAuth callback)
       const urlParams = new URLSearchParams(window.location.search);
       const token = urlParams.get('token');
       
+      console.log('[App] Checking for OAuth token in URL:', {
+        fullUrl: window.location.href,
+        search: window.location.search,
+        hasToken: !!token,
+        tokenPreview: token ? token.substring(0, 20) + '...' : 'none'
+      });
+      
       if (token) {
         // Store token and remove from URL
-        console.log('Token received from OAuth:', token.substring(0, 20) + '...');
+        console.log('[App] Token received from OAuth, storing in localStorage');
         localStorage.setItem('authToken', token);
         // Navigate to homepage after OAuth login
         navigate('/');
@@ -75,29 +84,38 @@ function App() {
       
       // Check if user is authenticated
       const storedToken = localStorage.getItem('authToken');
+      console.log('[App] Auth check - stored token:', storedToken ? 'present' : 'missing');
+      
       if (storedToken) {
         try {
+          console.log('[App] Making /api/auth/me request with token');
           const res = await fetch('/api/auth/me', {
             headers: {
               'Authorization': `Bearer ${storedToken}`
             }
           });
           
+          console.log('[App] /api/auth/me response:', res.status, res.statusText);
+          
           if (res.ok) {
             const userData = await res.json();
-            console.log('Auth check successful:', userData);
+            console.log('[App] Auth check successful, user data:', userData);
             setUser(userData);
             // Don't auto-select last chat on login - let user start from homepage
             fetchConversations(storedToken, false);
           } else {
             // Invalid token, remove it
-            console.error('Auth check failed:', res.status, res.statusText);
+            console.error('[App] Auth check failed - invalid token:', res.status, res.statusText);
+            const errorText = await res.text().catch(() => 'Unable to read error');
+            console.error('[App] Error response body:', errorText);
             localStorage.removeItem('authToken');
           }
         } catch (error) {
-          console.error('Auth check failed:', error);
+          console.error('[App] Auth check network error:', error);
           localStorage.removeItem('authToken');
         }
+      } else {
+        console.log('[App] No stored token found, user not authenticated');
       }
       
       console.log('Auth check complete, user:', user);

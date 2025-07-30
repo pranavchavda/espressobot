@@ -83,16 +83,74 @@ async function setupRoutes() {
 
 // Initialize routes and start server
 setupRoutes().then(() => {
-  // Serve static files from dist
-  app.use(express.static(path.join(__dirname, 'dist')));
+  // Add aggressive cache-busting middleware for all responses
+  app.use((req, res, next) => {
+    // Check if it's a hard refresh (Ctrl+Shift+R or Ctrl+F5)
+    const isHardRefresh = req.headers['cache-control'] === 'no-cache' || 
+                         req.headers['pragma'] === 'no-cache';
+    
+    // Always set aggressive cache-busting headers for HTML files and API endpoints
+    if (req.path.endsWith('.html') || req.path.startsWith('/api/') || req.path === '/') {
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate, private, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Last-Modified': new Date().toUTCString(),
+        'ETag': `"${Date.now()}-${Math.random()}"`, // Dynamic ETag
+        'Vary': 'Cache-Control, Pragma'
+      });
+    }
+    // For hard refresh requests, bust cache on all assets
+    else if (isHardRefresh) {
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Last-Modified': new Date().toUTCString(),
+        'ETag': `"${Date.now()}-${Math.random()}"`
+      });
+    }
+    // For static assets, short cache with revalidation
+    else {
+      res.set({
+        'Cache-Control': 'public, max-age=300, must-revalidate', // 5 minutes
+        'Last-Modified': new Date().toUTCString(),
+        'ETag': `"${Date.now()}-${Math.random()}"`
+      });
+    }
+    
+    next();
+  });
 
-  // Fallback to index.html for SPA routing
+  // Serve static files from dist with cache control
+  app.use(express.static(path.join(__dirname, 'dist'), {
+    maxAge: 0, // No caching
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, path) => {
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+    }
+  }));
+
+  // Fallback to index.html for SPA routing with cache busting
   app.get('*', (req, res) => {
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate, private, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Last-Modified': new Date().toUTCString(),
+      'ETag': `"${Date.now()}-${Math.random()}"`
+    });
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
   });
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Production server running on port ${port}`);
+    console.log(`🔧 Cache-busting enabled for aggressive browser cache prevention`);
   });
 }).catch((error) => {
   console.error('❌ Failed to start server:', error);

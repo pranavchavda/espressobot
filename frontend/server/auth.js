@@ -129,8 +129,17 @@ router.get('/google/callback', (req, res, next) => {
 
   // Check if this callback has already been processed
   if (req.session.oauthProcessed) {
-    console.log('OAuth callback already processed, redirecting to home');
-    return res.redirect('/');
+    console.log('OAuth callback already processed, checking for stored token');
+    // If we have a stored token from the previous processing, redirect with it
+    if (req.session.oauthToken) {
+      console.log('Found stored token, redirecting with token');
+      const token = req.session.oauthToken;
+      delete req.session.oauthToken; // Clean up
+      return res.redirect(`/?token=${token}`);
+    } else {
+      console.log('No stored token found, redirecting to home');
+      return res.redirect('/');
+    }
   }
 
   // Validate state parameter
@@ -164,6 +173,9 @@ router.get('/google/callback', (req, res, next) => {
       // Generate JWT token
       const token = generateToken(user);
       console.log('OAuth success, redirecting with token for user:', user.email);
+      
+      // Store token in session for duplicate callback handling
+      req.session.oauthToken = token;
       
       // Clear OAuth state
       delete req.session.oauthState;

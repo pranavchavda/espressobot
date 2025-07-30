@@ -19,6 +19,21 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('fetch', event => {
+  // Skip caching for chrome-extension, moz-extension, and other unsupported schemes
+  const url = new URL(event.request.url);
+  const unsupportedSchemes = ['chrome-extension', 'moz-extension', 'safari-extension', 'ms-browser-extension'];
+  
+  if (unsupportedSchemes.includes(url.protocol.replace(':', ''))) {
+    console.log('[ServiceWorker] Skipping unsupported URL scheme:', url.protocol, url.href);
+    return; // Let the browser handle it normally
+  }
+
+  // Also skip non-HTTP schemes and same-origin only requests
+  if (!['http', 'https'].includes(url.protocol.replace(':', '')) || 
+      (url.origin !== self.location.origin && !event.request.url.startsWith(self.location.origin))) {
+    return; // Let the browser handle it normally
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then(response => {
@@ -33,17 +48,29 @@ self.addEventListener('fetch', event => {
               return response;
             }
 
+            // Additional check - don't cache if response URL has unsupported scheme
+            const responseUrl = new URL(response.url);
+            if (unsupportedSchemes.includes(responseUrl.protocol.replace(':', ''))) {
+              return response;
+            }
+
             // Clone the response
             const responseToCache = response.clone();
 
             caches.open(CACHE_NAME)
               .then(cache => {
                 cache.put(event.request, responseToCache);
+              })
+              .catch(error => {
+                console.warn('[ServiceWorker] Failed to cache response:', error, event.request.url);
               });
 
             return response;
           }
-        );
+        ).catch(error => {
+          console.warn('[ServiceWorker] Fetch failed:', error, event.request.url);
+          throw error;
+        });
       })
   );
 });

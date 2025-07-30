@@ -5,6 +5,7 @@ import App from './App';
 import './index.css';
 import { registerServiceWorker } from './registerServiceWorker'
 import { ToastProvider } from './components/common/toast';
+import cacheBuster from './utils/cache-buster';
 
 // Register service worker for PWA support
 registerServiceWorker()

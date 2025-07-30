@@ -79,7 +79,7 @@ router.post('/scan-violations', async (req, res) => {
       whereClause.idc_product = { vendor: { in: brands } };
     }
 
-    const productMatches = await prisma.product_match.findMany({
+    const productMatches = await prisma.product_matches.findMany({
       where: whereClause,
       include: {
         idc_products: true,

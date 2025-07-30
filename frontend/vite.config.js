@@ -200,6 +200,39 @@ export default defineConfig({
         const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
         apiApp.use('/api/price-monitor', priceMonitorRoutes);
         
+        // Add aggressive cache-busting middleware before API routes
+        server.middlewares.use((req, res, next) => {
+          // Check if it's a hard refresh (Ctrl+Shift+R or Ctrl+F5)
+          const isHardRefresh = req.headers['cache-control'] === 'no-cache' || 
+                               req.headers['pragma'] === 'no-cache';
+          
+          // Always set aggressive cache-busting headers for HTML files and API endpoints
+          if (req.url.endsWith('.html') || req.url.startsWith('/api/') || req.url === '/') {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private, max-age=0');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.setHeader('Last-Modified', new Date().toUTCString());
+            res.setHeader('ETag', `"${Date.now()}-${Math.random()}"`); // Dynamic ETag
+            res.setHeader('Vary', 'Cache-Control, Pragma');
+          }
+          // For hard refresh requests, bust cache on all assets
+          else if (isHardRefresh) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.setHeader('Last-Modified', new Date().toUTCString());
+            res.setHeader('ETag', `"${Date.now()}-${Math.random()}"`);
+          }
+          // For static assets in development, short cache with revalidation
+          else {
+            res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate'); // No cache in dev
+            res.setHeader('Last-Modified', new Date().toUTCString());
+            res.setHeader('ETag', `"${Date.now()}-${Math.random()}"`);
+          }
+          
+          next();
+        });
+        
         server.middlewares.use(apiApp);
       },
     },
