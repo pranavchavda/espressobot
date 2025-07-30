@@ -26,7 +26,7 @@ export function analyzeTaskComplexity(contextualMessage, orchestratorContext) {
   }
   
   // Check for agent-specific work
-  const agentKeywords = ['create tool', 'modify tool', 'swe agent', 'parallel', 'workflow'];
+  const agentKeywords = ['create tool', 'modify tool', 'swe agent', 'parallel', 'workflow', 'map violation', 'price alert', 'competitor pricing', 'price monitor'];
   if (agentKeywords.some(kw => messageLower.includes(kw))) {
     analysis.needsAgentDetails = true;
     analysis.complexityScore += 2;
@@ -255,6 +255,7 @@ You now have DIRECT access to specialized MCP agents for optimal performance:
 **Analytics & Insights:**
 - **ga4_analytics_agent**: Google Analytics 4 data - revenue tracking, visitor analytics, traffic sources, Google Ads metrics (spend, ROAS, campaigns), product performance, real-time data
 - **shopify_orders_agent**: Shopify order analytics - daily sales summaries, revenue reports, order breakdowns, period comparisons (WoW, MoM), product performance, handles 100-200+ daily orders efficiently
+- **price_monitor_agent**: Price monitoring and MAP compliance - access price alerts, trigger sync/scraping/matching operations, generate MAP violation alerts, competitive intelligence workflows
 
 **Other Agents:**
 - **documentation_agent**: API documentation, GraphQL schema queries

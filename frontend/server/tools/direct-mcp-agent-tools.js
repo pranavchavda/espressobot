@@ -22,6 +22,7 @@ import { executeGoogleWorkspaceTask } from '../agents/google-workspace-agent.js'
 import { executeGA4Task } from '../agents/ga4-analytics-agent.js';
 import { executeOrdersTask } from '../agents/shopify-orders-agent.js';
 import { executeGraphQLTaskWithHandoffs } from '../agents/graphql-documentation-handoff.js';
+import { executePriceMonitorTask } from '../agents/price-monitor-agent.js';
 
 /**
  * Products Agent - Basic product operations only
@@ -611,7 +612,8 @@ export function createAllDirectMCPAgentTools() {
     createUtilityAgentTool(),
     createSmartMCPExecuteTool(),
     createShopifyOrdersAgentTool(),
-    createGA4AnalyticsAgentTool()
+    createGA4AnalyticsAgentTool(),
+    createPriceMonitorAgentTool()
   ];
 }
 
@@ -645,6 +647,39 @@ export function createShopifyOrdersAgentTool() {
         
       } catch (error) {
         console.error(`[Shopify Orders Agent] Failed:`, error);
+        return `Error: ${error.message}`;
+      }
+    }
+  });
+}
+
+/**
+ * Price Monitor Agent - Price monitoring and MAP compliance operations
+ */
+export function createPriceMonitorAgentTool() {
+  return tool({
+    name: 'price_monitor_agent',
+    description: 'Price monitoring and MAP compliance operations: access alerts data, trigger sync from Shopify, scrape competitor pricing, match products between stores, generate MAP violation alerts, check operation status. Handles complete price monitoring workflows.',
+    parameters: z.object({
+      task: z.string().describe('The price monitoring operation or workflow to execute')
+    }),
+    execute: async ({ task }) => {
+      console.log(`[Price Monitor Agent] Executing: ${task.substring(0, 100)}...`);
+      
+      try {
+        const result = await executePriceMonitorTask(
+          task,
+          { userId: global.currentUserId }
+        );
+        
+        if (result && result.success === false) {
+          return `Error: ${result.error || 'Operation failed'}`;
+        }
+        
+        return result.output || result || 'Task completed successfully';
+        
+      } catch (error) {
+        console.error(`[Price Monitor Agent] Failed:`, error);
         return `Error: ${error.message}`;
       }
     }

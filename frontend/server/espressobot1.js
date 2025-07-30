@@ -55,7 +55,8 @@ import {
   createGoogleWorkspaceAgentTool,
   createGA4AnalyticsAgentTool,
   createShopifyOrdersAgentTool,
-  createGraphQLAgentTool
+  createGraphQLAgentTool,
+  createPriceMonitorAgentTool
 } from './tools/direct-mcp-agent-tools.js';
 import { createInjectContextTool, createManageInjectionTool } from './tools/inject-context-tool.js';
 import { messageInjector } from './utils/agent-message-injector.js';
@@ -947,13 +948,14 @@ async function buildOrchestratorTools() {
   const googleWorkspaceAgent = createGoogleWorkspaceAgentTool();
   const ga4AnalyticsAgent = createGA4AnalyticsAgentTool();
   const shopifyOrdersAgent = createShopifyOrdersAgentTool();
+  const priceMonitorAgent = createPriceMonitorAgentTool();
   
   // Validate all tools before returning
   const tools = { 
     productsAgent, pricingAgent, inventoryAgent, salesAgent, 
     featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
     utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-    googleWorkspaceAgent, ga4AnalyticsAgent, shopifyOrdersAgent
+    googleWorkspaceAgent, ga4AnalyticsAgent, shopifyOrdersAgent, priceMonitorAgent
   };
   
   for (const [name, tool] of Object.entries(tools)) {
@@ -1608,6 +1610,7 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
     createShopifyOrdersAgentTool(),
     createGA4AnalyticsAgentTool(),
     createGraphQLAgentTool(),
+    createPriceMonitorAgentTool(),
     createSmartMCPExecuteTool(),
     
     // Task reading and updating tools

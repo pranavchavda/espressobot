@@ -77,6 +77,11 @@ export async function initializeMCPTools() {
         name: 'orders', 
         file: 'mcp-orders-server.py',
         description: 'Order analytics (daily sales, revenue reports, order data)'
+      },
+      { 
+        name: 'price-monitor', 
+        file: 'mcp-price-monitor-server.py',
+        description: 'Price monitoring (alerts data, sync, scraping, matching operations)'
       }
     ];
     

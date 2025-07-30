@@ -6,6 +6,7 @@ import shopifySyncRouter from './shopify-sync.js';
 import scrapingEngineRouter from './scraping-engine.js';
 import productMatchingRouter from './product-matching.js';
 import mapViolationsRouter from './map-violations.js';
+import alertsRouter from './alerts.js';
 
 const router = express.Router();
 
@@ -17,6 +18,7 @@ router.use('/shopify-sync', shopifySyncRouter);
 router.use('/scraping', scrapingEngineRouter);
 router.use('/product-matching', productMatchingRouter);
 router.use('/map-violations', mapViolationsRouter);
+router.use('/alerts', alertsRouter);
 
 // Health check endpoint
 router.get('/health', (req, res) => {
