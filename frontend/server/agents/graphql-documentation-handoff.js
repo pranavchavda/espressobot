@@ -39,6 +39,10 @@ let graphqlServerInstance = null;
 let shopifyDevMCP = null;
 let integrationsMCP = null;
 
+// Cache for agent pairs and their conversation contexts
+const agentPairCache = new Map();
+const conversationStateCache = new Map();
+
 /**
  * Get or create GraphQL MCP server
  */
@@ -223,11 +227,14 @@ When the GraphQL Agent hands off to you:
    - Safety considerations and best practices
    - Cost implications and rate limits
 
-3. **Hand back to GraphQL Agent** with:
-   - Complete research summary
-   - Approved GraphQL operation (if safe)
-   - Safety recommendations
-   - Execution approval/denial
+3. **ALWAYS hand back to GraphQL Agent** using return_to_graphql_agent with:
+   - research_complete: true (if research successful)
+   - operation_approved: true/false (based on safety analysis)
+   - documentation_summary: Complete research findings
+   - safety_notes: Important warnings or considerations
+   - execution_context: What the GraphQL Agent should do next
+
+**CRITICAL**: After completing your research, you MUST use the return_to_graphql_agent handoff to send your findings back. Do not just provide information - actively hand back control.
 
 ## Your Enhanced Research Capabilities:
 - **Official Documentation**: Authoritative Shopify API docs
@@ -256,53 +263,64 @@ You are a GraphQL specialist agent with deep expertise in Shopify Admin API Grap
 
 Your task: ${task}
 
-## CRITICAL SAFETY PROTOCOL - HANDOFF WORKFLOW
+## 🚨 CRITICAL: SINGLE-CONVERSATION COMPLETION PROTOCOL 🚨
 
-🚨 **NEVER execute graphql_query or graphql_mutation without this handoff workflow:**
+**YOU MUST COMPLETE THE ENTIRE WORKFLOW IN THIS ONE CONVERSATION. DO NOT RETURN CONTROL TO THE ORCHESTRATOR UNTIL THE GRAPHQL OPERATION IS FULLY EXECUTED AND RESULTS ARE READY.**
 
-1. **ALWAYS** hand off to Documentation Agent first for comprehensive research
-2. **WAIT** for Documentation Agent to return with complete findings  
-3. **VALIDATE** the research using validate_operation_safety
-4. **EXECUTE** only if both research and validation approve the operation
+### MANDATORY 4-STEP PROCESS (ALL IN ONE CONVERSATION):
 
-## Your Handoff Workflow:
+**STEP 1: Research Phase**
+- Use **research_with_documentation_agent** handoff
+- Wait for Documentation Agent to return with findings
+- Process their research thoroughly
 
-### Step 1: Documentation Research Handoff (REQUIRED)
-Use **research_with_documentation_agent** to hand off for schema research:
-- Provide specific research requirements
-- Include operation type (query/mutation) and target objects  
-- Let Documentation Agent research comprehensively
-- Wait for complete findings and approval
+**STEP 2: Safety Validation**  
+- Use **validate_operation_safety** with documentation findings
+- Ensure all safety checks pass before proceeding
 
-### Step 2: Safety Validation (REQUIRED)  
-Use **validate_operation_safety** with documentation findings:
-- Validate research completeness
-- Check operation structure and safety
-- Ensure error handling for mutations
-- BLOCK if validation fails
+**STEP 3: GraphQL Execution**
+- Execute **graphql_query** or **graphql_mutation** 
+- Handle any errors or userErrors properly
 
-### Step 3: GraphQL Execution (Only after handoff + validation)
-- **graphql_query**: Execute read-only operations
-- **graphql_mutation**: Execute data modifications
-- Always check userErrors in mutation responses
+**STEP 4: Results Summary**
+- Provide complete results to the user
+- Include actual data, not just "operation completed"
 
-## GraphQL Expertise Areas:
-- Shopify Admin API schema navigation
-- Product, Collection, Order, Customer operations  
-- Metafield and metaobject management
-- Bulk operations and background jobs
-- Cost optimization and rate limiting
-- Error handling and validation
+## 🛑 STOPPING CONDITIONS:
+You may ONLY stop and return to orchestrator when:
+1. ✅ GraphQL operation has been successfully executed AND results provided
+2. ❌ Operation blocked by safety validation with detailed explanation
+3. ❌ Critical error prevents execution with full error details
 
-## Safety Rules:
-1. **Research First**: Always hand off to Documentation Agent
-2. **Validate Always**: Use safety validation after research
-3. **Start Small**: Test with single items before bulk operations
-4. **Handle Errors**: Always check userErrors in responses
-5. **Monitor Costs**: Be aware of GraphQL cost implications
-6. **Document Operations**: Log all mutations for audit trail
+## ❌ DO NOT STOP FOR:
+- "I need to research first" - DO the research via handoff
+- "Documentation research complete" - CONTINUE to validation  
+- "Safety validation passed" - CONTINUE to execution
+- "Operation sent to server" - CONTINUE to show actual results
 
-Your partnership with the Documentation Agent ensures safe, well-researched GraphQL operations.
+## WORKFLOW ENFORCEMENT:
+After EACH step, immediately proceed to the next step. Do not wait for external prompts. The Documentation Agent will hand back to you - when they do, immediately proceed with validation and execution.
+
+## Your Tools:
+1. **research_with_documentation_agent**: Hand off for schema research
+2. **validate_operation_safety**: Validate after research complete
+3. **graphql_query/graphql_mutation**: Execute the actual GraphQL operation
+
+## Expected Output Format:
+After completing all steps, provide:
+\`\`\`
+GRAPHQL OPERATION RESULTS:
+[Actual GraphQL response data]
+
+OPERATION SUMMARY:
+- Query/Mutation: [what was executed]
+- Target Objects: [what was affected] 
+- Research Findings: [key documentation insights]
+- Safety Status: [validation results]
+- Execution Status: [success/failure with details]
+\`\`\`
+
+Remember: You have full capability to complete the entire workflow. Do not return incomplete results to the orchestrator.
 `, {
     agentRole: 'GraphQL specialist',
     conversationId,
@@ -362,49 +380,102 @@ Your partnership with the Documentation Agent ensures safe, well-researched Grap
 }
 
 /**
- * Execute a GraphQL task with handoff workflow
+ * Get or create persistent GraphQL agent pair for conversation
+ */
+async function getOrCreateGraphQLPair(conversationId, task) {
+  // Use conversation ID as cache key to maintain state across calls
+  const cacheKey = conversationId || 'default';
+  
+  if (agentPairCache.has(cacheKey)) {
+    console.log(`[GraphQL-Doc Handoff] Reusing existing agent pair for conversation: ${cacheKey}`);
+    const cached = agentPairCache.get(cacheKey);
+    
+    // Update the GraphQL agent's instructions with the new task
+    const { RECOMMENDED_PROMPT_PREFIX } = await import('@openai/agents-core/extensions');
+    const { buildAgentInstructions } = await import('../utils/agent-context-builder.js');
+    
+    const updatedInstructions = await buildAgentInstructions(`${RECOMMENDED_PROMPT_PREFIX}
+
+You are a GraphQL specialist agent with deep expertise in Shopify Admin API GraphQL operations.
+
+Your current task: ${task}
+
+## 🚨 CRITICAL: SINGLE-CONVERSATION COMPLETION PROTOCOL 🚨
+
+**YOU MUST COMPLETE THE ENTIRE WORKFLOW IN THIS ONE CONVERSATION. DO NOT RETURN CONTROL TO THE ORCHESTRATOR UNTIL THE GRAPHQL OPERATION IS FULLY EXECUTED AND RESULTS ARE READY.**
+
+### MANDATORY 4-STEP PROCESS (ALL IN ONE CONVERSATION):
+
+**STEP 1: Research Phase**
+- Use **research_with_documentation_agent** handoff
+- Wait for Documentation Agent to return with findings
+- Process their research thoroughly
+
+**STEP 2: Safety Validation**  
+- Use **validate_operation_safety** with documentation findings
+- Ensure all safety checks pass before proceeding
+
+**STEP 3: GraphQL Execution**
+- Execute **graphql_query** or **graphql_mutation** 
+- Handle any errors or userErrors properly
+
+**STEP 4: Results Summary**
+- Provide complete results to the user
+- Include actual data, not just "operation completed"
+
+## 🛑 STOPPING CONDITIONS:
+You may ONLY stop and return to orchestrator when:
+1. ✅ GraphQL operation has been successfully executed AND results provided
+2. ❌ Operation blocked by safety validation with detailed explanation
+3. ❌ Critical error prevents execution with full error details
+
+## ❌ DO NOT STOP FOR:
+- "I need to research first" - DO the research via handoff
+- "Documentation research complete" - CONTINUE to validation  
+- "Safety validation passed" - CONTINUE to execution
+- "Operation sent to server" - CONTINUE to show actual results
+
+## WORKFLOW ENFORCEMENT:
+After EACH step, immediately proceed to the next step. Do not wait for external prompts. The Documentation Agent will hand back to you - when they do, immediately proceed with validation and execution.
+
+Remember: You have full capability to complete the entire workflow. Do not return incomplete results to the orchestrator.
+`, {
+      agentRole: 'GraphQL specialist',
+      conversationId,
+      taskDescription: task
+    });
+    
+    // Update the agent's instructions for the new task
+    cached.graphqlAgent.instructions = updatedInstructions;
+    
+    return cached;
+  }
+  
+  console.log(`[GraphQL-Doc Handoff] Creating new agent pair for conversation: ${cacheKey}`);
+  const agentPair = await createGraphQLDocumentationPair(task, conversationId, {});
+  
+  agentPairCache.set(cacheKey, agentPair);
+  return agentPair;
+}
+
+/**
+ * Execute a GraphQL task with handoff workflow - enforces single-conversation completion
  */
 export async function executeGraphQLTaskWithHandoffs(task, conversationId, richContext = {}) {
   try {
-    console.log('[GraphQL-Doc Handoff] Creating agent pair for task:', task.substring(0, 100) + '...');
+    console.log('[GraphQL-Doc Handoff] Executing task:', task.substring(0, 100) + '...');
+    console.log('[GraphQL-Doc Handoff] Using ENFORCED single-conversation completion protocol');
     
-    const { graphqlAgent } = await createGraphQLDocumentationPair(task, conversationId, richContext);
+    // Get or create agent pair (will update instructions with current task)
+    const { graphqlAgent } = await getOrCreateGraphQLPair(conversationId, task);
     
-    // Execute with the GraphQL agent (it will handoff as needed)
+    // Execute with stronger completion enforcement
     const { run } = await import('@openai/agents');
-    const result = await run(graphqlAgent, task, { maxTurns: 20 });
+    const result = await run(graphqlAgent, task, { 
+      maxTurns: 25 // Increased turns to allow for full workflow completion
+    });
     
-    console.log('[GraphQL-Doc Handoff] Task completed successfully');
-    
-    // Extract meaningful output
-    let finalOutput = '';
-    
-    if (result.finalOutput) {
-      finalOutput = result.finalOutput;
-    } 
-    else if (result.state && result.state._generatedItems) {
-      const messages = result.state._generatedItems
-        .filter(item => item.type === 'message_output_item')
-        .map(item => item.rawItem?.content?.[0]?.text || '')
-        .filter(text => text);
-      
-      if (messages.length > 0) {
-        finalOutput = messages[messages.length - 1];
-      }
-    }
-    
-    // Log token usage if available
-    if (result.state?.context?.usage) {
-      const usage = result.state.context.usage;
-      console.log(`[GraphQL-Doc Handoff] Token usage - Input: ${usage.inputTokens}, Output: ${usage.outputTokens}, Total: ${usage.totalTokens}`);
-    }
-    
-    return {
-      success: true,
-      result: finalOutput || 'GraphQL task with handoffs completed successfully',
-      agent: 'graphql-documentation-handoff',
-      tokenUsage: result.state?.context?.usage || null
-    };
+    return extractFinalOutput(result, conversationId);
     
   } catch (error) {
     console.error('[GraphQL-Doc Handoff] Task failed:', error);
@@ -419,9 +490,65 @@ export async function executeGraphQLTaskWithHandoffs(task, conversationId, richC
 }
 
 /**
+ * Extract meaningful output from agent result
+ */
+function extractFinalOutput(result, conversationId) {
+  console.log('[GraphQL-Doc Handoff] Task completed successfully');
+  
+  // Extract meaningful output
+  let finalOutput = '';
+  
+  if (result.finalOutput) {
+    finalOutput = result.finalOutput;
+  } 
+  else if (result.state && result.state._generatedItems) {
+    const messages = result.state._generatedItems
+      .filter(item => item.type === 'message_output_item')
+      .map(item => item.rawItem?.content?.[0]?.text || '')
+      .filter(text => text);
+    
+    if (messages.length > 0) {
+      finalOutput = messages[messages.length - 1];
+    }
+  }
+  
+  // Log token usage if available
+  if (result.state?.context?.usage) {
+    const usage = result.state.context.usage;
+    console.log(`[GraphQL-Doc Handoff] Token usage - Input: ${usage.inputTokens}, Output: ${usage.outputTokens}, Total: ${usage.totalTokens}`);
+  }
+  
+  return {
+    success: true,
+    result: finalOutput || 'GraphQL task with handoffs completed successfully',
+    agent: 'graphql-documentation-handoff',
+    conversationId: conversationId,
+    tokenUsage: result.state?.context?.usage || null
+  };
+}
+
+/**
+ * Clear agent pair cache for fresh conversations
+ */
+export function clearGraphQLAgentCache(conversationId = null) {
+  if (conversationId) {
+    console.log(`[GraphQL-Doc Handoff] Clearing cache for conversation: ${conversationId}`);
+    agentPairCache.delete(conversationId);
+    conversationStateCache.delete(conversationId);
+  } else {
+    console.log('[GraphQL-Doc Handoff] Clearing all agent pair cache');
+    agentPairCache.clear();
+    conversationStateCache.clear();
+  }
+}
+
+/**
  * Close all MCP server connections
  */
 export async function closeGraphQLDocumentationMCP() {
+  // Clear agent cache first
+  clearGraphQLAgentCache();
+  
   if (graphqlServerInstance) {
     console.log('[GraphQL-Doc Handoff] Closing GraphQL MCP server...');
     await graphqlServerInstance.close();
