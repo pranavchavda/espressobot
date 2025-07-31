@@ -1889,7 +1889,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
         {/* Input Form */}
         <form
-          className="flex max-w-3xl w-full mx-auto gap-2 px-4 items-center"
+          className="flex max-w-5xl w-full mx-auto gap-2 items-center"
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
@@ -1930,6 +1930,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
           <Textarea
             ref={inputRef}
             value={input}
+            rows={3}
             autoCorrect="off"
             autoComplete="new-password"
             spellCheck={true}
@@ -1944,7 +1945,6 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                 ? "Agent is processing... Type to queue a message"
                 : "Type a message..."
             }
-            rows={3}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

@@ -258,26 +258,36 @@ function App() {
             <div className="flex flex-col h-[93vh] sm:h-full">
 
               <nav className="flex-1 overflow-y-auto">
-              <Button 
-                    className="w-full cursor-pointer mb-2"
-                    color="steel-blue"
-                    outline
-                    onClick={() => {
-                      setSelectedChat(null);
-                      navigate('/');
-                    }}
-                  >
-                    <MessageSquarePlusIcon className="h-4 w-4" /> New Chat
-                  </Button>
-               
-               <Button 
-                    className="w-full cursor-pointer mb-6"
-                    color="steel-blue"
-                    outline
-                    onClick={() => setShowScratchpadDialog(true)}
-                  >
-                    <FileTextIcon className="h-4 w-4" /> Scratchpad
-                  </Button>
+                <div className="flex space-x-2 my-6">
+                <TopNavDropdown user={user} onLogout={handleLogout} 
+                className="w-full cursor-pointer mb-2"
+                />  
+                </div>
+
+              <div className="flex space-x-2 mb-6">
+                <Button 
+                  className="flex-1 cursor-pointer"
+                  color="steel-blue"
+                  outline
+                  onClick={() => {
+                    setSelectedChat(null);
+                    navigate('/');
+                  }}
+                  title="New chat"
+                >
+                  <MessageSquarePlusIcon className="h-4 w-4" />
+                </Button>
+                
+                <Button 
+                  className="flex-1 cursor-pointer"
+                  color="steel-blue"
+                  outline
+                  onClick={() => setShowScratchpadDialog(true)}
+                  title="Scratchpad"
+                >
+                  <FileTextIcon className="h-4 w-4" />
+                </Button>
+              </div>
 
               {loading ? (
                   <div className="flex flex-col items-center justify-center py-2">
@@ -334,7 +344,7 @@ function App() {
                   </ul>
                   </>
                 )}
-    <Divider
+              <Divider
               soft = "true"
               />
               
@@ -345,8 +355,9 @@ function App() {
               <Divider
               soft = "true"
               
-              /></nav>
-              <TopNavDropdown user={user} onLogout={handleLogout} />  
+              />
+              
+            </nav>
 
             </div>
           }
