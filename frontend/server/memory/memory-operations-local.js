@@ -217,7 +217,7 @@ class MemoryOperations {
    * @param {number} limit - Maximum number of results
    * @returns {Promise<Array>} Array of matching fragments
    */
-  async searchSystemPromptFragments(query, limit = 10) {
+  async searchSystemPromptFragments(query, limit = 5) {
     try {
       const fragments = await this.memory.search(query, 'system_prompts', limit);
       

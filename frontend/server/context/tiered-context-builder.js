@@ -194,7 +194,7 @@ export async function buildFullContext(options, coreContext = null) {
   // Get extended memories (up to 10, with size limits)
   if (includeAllMemories && userId) {
     try {
-      const memories = await memoryOperations.search(task, `user_${userId}`, 10);
+      const memories = await memoryOperations.search(task, `user_${userId}`, 5);
       fullContext.relevantMemories = memories.map(m => ({
         content: m.memory.length > 1000 ? m.memory.substring(0, 1000) + '...' : m.memory,
         score: m.score,
