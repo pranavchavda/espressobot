@@ -61,6 +61,9 @@ function formatScratchpadContent(scratchpad) {
   return formatted;
 }
 
+// Export helper functions for orchestrator use
+export { loadScratchpad, formatScratchpadContent };
+
 export const scratchpadTool = tool({
   name: 'scratchpad',
   description: 'Persistent scratchpad visible to all agents. Use for temporary notes, task coordination, and shared context that should persist across conversations.',

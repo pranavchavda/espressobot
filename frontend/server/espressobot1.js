@@ -2028,6 +2028,25 @@ export async function runDynamicOrchestrator(message, options = {}) {
       }
     }
     
+    // Auto-inject scratchpad content
+    try {
+      const { loadScratchpad, formatScratchpadContent } = await import('./tools/scratchpad-tool.js');
+      const scratchpad = await loadScratchpad();
+      
+      if (scratchpad.content || scratchpad.entries?.length > 0) {
+        const scratchpadContent = '\n\n## Current Scratchpad:\n' + formatScratchpadContent(scratchpad);
+        
+        if (checkContextSize('scratchpad', scratchpadContent)) {
+          contextualMessage += scratchpadContent;
+          console.log('[Orchestrator] Added scratchpad content to context');
+        } else {
+          console.log('[Orchestrator] Scratchpad content too large, skipped');
+        }
+      }
+    } catch (error) {
+      console.log('[Orchestrator] Could not load scratchpad:', error.message);
+    }
+    
     // Add relevant memories if any (limit to top 3 to prevent size explosion)
     // Note: Early context filtering already applied relevance scores
     const relevantMemories = orchestratorContext.relevantMemories || [];
