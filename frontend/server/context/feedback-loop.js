@@ -172,7 +172,7 @@ Determine which context was useful, what was unused, and what was missing.`;
     try {
       // Store efficiency pattern
       await memoryOperations.add(
-        `Context efficiency: ${operation.task.substring(0, 50)} - ${Math.round(analysis.efficiency * 100)}%`,
+        `Context efficiency: ${operation.task} - ${Math.round(analysis.efficiency * 100)}%`,
         'system_feedback',
         {
           type: 'context_efficiency',
@@ -189,7 +189,7 @@ Determine which context was useful, what was unused, and what was missing.`;
       // Store recommendations
       if (analysis.recommendations.length > 0) {
         await memoryOperations.add(
-          `Context recommendations for: ${operation.task.substring(0, 50)}`,
+          `Context recommendations for: ${operation.task}`,
           'system_feedback',
           {
             type: 'context_recommendations',
