@@ -1,6 +1,8 @@
-import { Agent, run, tool, webSearchTool, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered } from '@openai/agents';
+import { Agent, run, tool, webSearchTool, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered, Runner } from '@openai/agents';
 import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
+import { AnthropicProvider } from './models/anthropic-provider.js';
+import { createModelProvider as createAISDKModelProvider } from './models/anthropic-ai-sdk-provider.js';
 import { initializeTracing } from './config/tracing-config.js';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 // MEMORY SYSTEM DISABLED - Causing infinite loops
@@ -1425,6 +1427,11 @@ IMPORTANT: If the output contains actual data (SKUs, prices, inventory counts, e
  * Create orchestrator agent with dynamic prompt based on context
  */
 async function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null, injectContextTool = null, manageInjectionTool = null) {
+  // Get the model provider configuration
+  const modelProvider = createModelProvider();
+  const modelName = modelProvider ? 
+    (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514') : 
+    'gpt-4.1';  // Back to gpt-4.1 until o3 organization verification is complete
   // Check if we have pre-filtered context (indicating early context synthesis)
   const hasPreFilteredContext = orchestratorContext?.relevantMemories?.some(m => m.synthesized) || 
                                 orchestratorContext?.promptFragments?.some(f => f.category === 'synthesized');
@@ -1459,9 +1466,9 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
     }
   }
   
-  return new Agent({
+  const agentConfig = {
     name: 'EspressoBot1',
-    model: 'gpt-4.1',  // Back to gpt-4.1 until o3 organization verification is complete
+    model: modelName,
     instructions: instructions,
  
     
@@ -1755,7 +1762,20 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
     ...(injectContextTool ? [injectContextTool] : []),
     ...(manageInjectionTool ? [manageInjectionTool] : [])
   ]
-});
+  };
+
+  // When using custom model provider with Runner, set model on Agent too
+  // Both Agent model and Runner modelProvider are needed
+  if (modelProvider) {
+    console.log(`[Orchestrator] Creating agent with custom model provider: ${modelName}`);
+    return new Agent({
+      ...agentConfig,
+      model: modelProvider.getModel(modelName)
+    });
+  } else {
+    console.log(`[Orchestrator] Creating agent with default OpenAI model: ${modelName}`);
+    return new Agent(agentConfig);
+  }
 }
 
 // Store MCP tools globally after initialization
@@ -1773,6 +1793,31 @@ async function initializeOrchestratorTools() {
     builtInSearchToolCache = result.builtInSearchTool;
   }
   return { spawnMCPAgent: spawnMCPAgentCache, builtInSearchTool: builtInSearchToolCache };
+}
+
+/**
+ * Create model provider based on environment variables
+ */
+function createModelProvider() {
+  const modelProvider = process.env.MODEL_PROVIDER || 'openai';
+  const useAISDK = process.env.USE_AI_SDK === 'true';
+  
+  if (modelProvider === 'anthropic') {
+    if (useAISDK) {
+      console.log('[Orchestrator] Using AI SDK-based Anthropic model provider');
+      return createAISDKModelProvider();
+    } else {
+      console.log('[Orchestrator] Using direct Anthropic model provider');
+      return new AnthropicProvider({
+        modelName: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+        apiKey: process.env.ANTHROPIC_API_KEY
+      });
+    }
+  }
+  
+  // Default to OpenAI
+  console.log('[Orchestrator] Using OpenAI model provider');
+  return null; // OpenAI Agents SDK default
 }
 
 /**
@@ -2355,11 +2400,24 @@ export async function runDynamicOrchestrator(message, options = {}) {
         }
         console.log('*** Vision response captured:', fullResponse ? fullResponse.substring(0, 100) + '...' : 'No response');
       } else {
-        // Implement token-level streaming
-        result = await run(orchestrator, messageToSend, { 
-          ...runOptions, 
-          stream: true 
-        });
+        // Use Runner with custom model provider if available
+        const modelProvider = createModelProvider();
+        if (modelProvider) {
+          console.log('[Orchestrator] Using Runner with custom model provider...');
+          const runner = new Runner({ 
+            modelProvider: modelProvider 
+          });
+          result = await runner.run(orchestrator, messageToSend, { 
+            ...runOptions, 
+            stream: true 
+          });
+        } else {
+          // Implement token-level streaming
+          result = await run(orchestrator, messageToSend, { 
+            ...runOptions, 
+            stream: true 
+          });
+        }
         
         // Get the text stream for token-level streaming
         const textStream = result.toTextStream();

@@ -95,7 +95,7 @@ async function createEmbedding(text) {
 async function searchMemories(query, userId, options = {}) {
   const {
     limit = 10,
-    threshold = 0.6, // Reasonable threshold for semantic matches (was too high at 0.7)
+    threshold = 0.1, // Lowered to 0.1 for testing - should see more semantic matches
     strategy = 'hybrid', // 'exact', 'fuzzy', 'semantic', 'hybrid'
     useNano = false
   } = options;
