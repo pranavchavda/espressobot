@@ -36,6 +36,11 @@ You have access to the following Google Workspace tools (using the user's existi
   - Date queries: "newer_than:7d" (past week), "after:2025/7/1", "before:2025/7/20"
   - Returns: Array of messages with id, subject, from, date, snippet
 
+- **gmail_get_message**: Get full email content by message ID
+  - Parameters: messageId (string) - Use the ID from gmail_search results
+  - Returns: Complete email with full body content, headers, and metadata
+  - Use this to get the full text of emails after searching
+
 - **gmail_send**: Send an email
   - Parameters: to (string), subject (string), body (string), cc (optional), bcc (optional)
   - Body can be plain text or HTML
@@ -100,6 +105,7 @@ Note: All tools use the user's authenticated Google account. No additional authe
 ## Best Practices:
 - Always verify authentication before operations
 - Use appropriate filters when searching to avoid overwhelming results
+- **Email workflow**: First use gmail_search to find emails, then use gmail_get_message with the messageId to get full content
 - Be mindful of API quotas and rate limits
 - Maintain professional communication standards
 - Respect privacy and confidentiality of business data

@@ -144,6 +144,75 @@ export function createGmailTools() {
           threadId: result.data.threadId
         };
       }
+    }),
+    
+    tool({
+      name: 'gmail_get_message',
+      description: 'Get full email content by message ID',
+      parameters: z.object({
+        messageId: z.string().describe('Gmail message ID to fetch')
+      }),
+      execute: async ({ messageId }) => {
+        const userId = global.currentUserId;
+        const auth = await getAuthClient(userId);
+        const gmail = google.gmail({ version: 'v1', auth });
+        
+        const message = await gmail.users.messages.get({
+          userId: 'me',
+          id: messageId,
+          format: 'full'
+        });
+        
+        const headers = message.data.payload.headers;
+        const subject = headers.find(h => h.name === 'Subject')?.value;
+        const from = headers.find(h => h.name === 'From')?.value;
+        const to = headers.find(h => h.name === 'To')?.value;
+        const date = headers.find(h => h.name === 'Date')?.value;
+        
+        // Extract email body (handle both plain text and HTML)
+        let body = '';
+        let htmlBody = '';
+        
+        function extractBodyFromParts(parts) {
+          if (!parts) return;
+          
+          for (const part of parts) {
+            if (part.parts) {
+              // Multipart message - recurse
+              extractBodyFromParts(part.parts);
+            } else if (part.body?.data) {
+              const content = Buffer.from(part.body.data, 'base64').toString('utf-8');
+              
+              if (part.mimeType === 'text/plain') {
+                body = content;
+              } else if (part.mimeType === 'text/html') {
+                htmlBody = content;
+              }
+            }
+          }
+        }
+        
+        // Handle different message structures
+        if (message.data.payload.parts) {
+          extractBodyFromParts(message.data.payload.parts);
+        } else if (message.data.payload.body?.data) {
+          // Simple message with body directly in payload
+          body = Buffer.from(message.data.payload.body.data, 'base64').toString('utf-8');
+        }
+        
+        return {
+          id: messageId,
+          subject,
+          from,
+          to,
+          date,
+          body: body || htmlBody, // Prefer plain text, fallback to HTML
+          htmlBody: htmlBody || null,
+          snippet: message.data.snippet,
+          threadId: message.data.threadId,
+          labels: message.data.labelIds
+        };
+      }
     })
   ];
 }

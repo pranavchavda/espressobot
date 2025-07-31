@@ -163,7 +163,11 @@ async function buildAgentContext(options) {
   if (context.adaptiveContext !== undefined || context.fetchedContext !== undefined) {
     // Adaptive context structure
     console.log(`[ORCHESTRATOR] Built ADAPTIVE context slice (${Math.round(contextSize / 1024)}KB)`);
-    console.log(`  - Token count: ${context.tokenCount || 0}`);
+    // Sanity check token count - if over 100k, it's likely a calculation error
+    const displayTokenCount = (context.tokenCount || 0) > 100000 ? 
+      `${Math.round((context.tokenCount || 0) / 1000)}K (ERROR: likely calculation issue)` : 
+      Math.round(context.tokenCount || 0);
+    console.log(`  - Token count: ${displayTokenCount}`);
     console.log(`  - Extracted data: ${context.extractedData ? 'Yes' : 'No'}`);
     console.log(`  - Fetched context keys: ${Object.keys(context.fetchedContext || {}).length}`);
     console.log(`  - Has learned patterns: ${context.learnedPatterns ? 'Yes' : 'No'}`);

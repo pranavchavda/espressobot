@@ -25,7 +25,12 @@ class MemoryOperations {
         source: 'espressobot'
       });
       
-      console.log(`Memory added locally for user ${userId}:`, result);
+      // Log memory without embedding to keep console clean
+      const logResult = { ...result };
+      if (logResult.embedding) {
+        logResult.embedding = `[${Array.isArray(logResult.embedding) ? logResult.embedding.length : 'unknown'} dimensions]`;
+      }
+      console.log(`Memory added locally for user ${userId}:`, logResult);
       return result;
     } catch (error) {
       console.error('Error adding memory:', error);

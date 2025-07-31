@@ -119,13 +119,15 @@ export async function buildAdaptiveContext(options) {
       } else {
         // Only add critical context if over limit
         const criticalContext = {};
+        let criticalTokens = 0;
         for (const [key, value] of Object.entries(filteredContext)) {
           if (value.priority === 'critical') {
             criticalContext[key] = value;
-            context.tokenCount += value.tokenCount;
+            criticalTokens += value.tokenCount;
           }
         }
         context.fetchedContext = criticalContext;
+        context.tokenCount += criticalTokens;
         context.truncated = false;
       }
     }
