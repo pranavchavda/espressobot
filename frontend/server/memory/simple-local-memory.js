@@ -95,7 +95,7 @@ async function createEmbedding(text) {
 async function searchMemories(query, userId, options = {}) {
   const {
     limit = 10,
-    threshold = 0.7, // Increased threshold for higher quality semantic matches
+    threshold = 0.6, // Reasonable threshold for semantic matches (was too high at 0.7)
     strategy = 'hybrid', // 'exact', 'fuzzy', 'semantic', 'hybrid'
     useNano = false
   } = options;
@@ -142,8 +142,10 @@ async function searchMemories(query, userId, options = {}) {
         orderBy: { created_at: 'desc' }
       });
 
-      // Calculate similarities - only high-quality matches (>0.7)
-      const semanticResults = memoriesWithEmbeddings
+      console.log(`[Memory] Found ${memoriesWithEmbeddings.length} memories with embeddings for ${userId}`);
+
+      // Calculate similarities with debug logging
+      const allSimilarities = memoriesWithEmbeddings
         .map(memory => {
           const embedding = bufferToFloatArray(memory.embedding);
           if (!embedding || !Array.isArray(embedding)) {
@@ -157,9 +159,18 @@ async function searchMemories(query, userId, options = {}) {
             strategy: 'semantic'
           };
         })
-        .filter(result => result && result.similarity >= threshold) // High-quality threshold (0.7)
+        .filter(result => result !== null)
+        .sort((a, b) => b.similarity - a.similarity);
+
+      // Debug: Log top similarities to understand distribution
+      if (allSimilarities.length > 0) {
+        const topSimilarities = allSimilarities.slice(0, 3).map(r => r.similarity.toFixed(3));
+        console.log(`[Memory] Top semantic similarities: [${topSimilarities.join(', ')}] (threshold: ${threshold})`);
+      }
+
+      const semanticResults = allSimilarities
+        .filter(result => result.similarity >= threshold)
         .filter(memory => !results.some(r => r.id === memory.id))
-        .sort((a, b) => b.similarity - a.similarity)
         .slice(0, remaining);
 
       results = [...results, ...semanticResults];
