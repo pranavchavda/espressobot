@@ -233,6 +233,10 @@ class EnhancedMCPServer:
                 logger.info("Client initialized")
                 return None  # Notifications don't need responses
                 
+            elif method == "notifications/cancelled":
+                # Client cancelled a request, just acknowledge silently
+                return None  # Notifications don't need responses
+                
             else:
                 raise ValueError(f"Unknown method: {method}")
                 

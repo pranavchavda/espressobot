@@ -206,6 +206,9 @@ class CompetitorScraper {
       try {
         await this.processProduct(product, collectionName);
         
+        // Ensure Prisma is connected
+        await prisma.$connect();
+        
         // Check if product already exists
         const existing = await prisma.competitor_products.findUnique({
           where: {
@@ -278,6 +281,9 @@ class CompetitorScraper {
     // Add embedding to product data
     productData.embedding = embedding;
 
+    // Ensure Prisma is connected before database operations
+    await prisma.$connect();
+    
     // Upsert the product
     await prisma.competitor_products.upsert({
       where: {
@@ -299,6 +305,9 @@ class CompetitorScraper {
 
     // Store price history if price changed
     if (lowestPrice) {
+      // Ensure Prisma is connected
+      await prisma.$connect();
+      
       // First find the competitor product to get its ID
       const competitorProduct = await prisma.competitor_products.findUnique({
         where: {
