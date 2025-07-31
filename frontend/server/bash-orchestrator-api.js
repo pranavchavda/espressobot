@@ -388,6 +388,9 @@ router.post('/run', authenticateToken, async (req, res) => {
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   } finally {
+    // Clear memory cache to prevent leaks
+    memoryOperations.clearCache();
+    
     // Clean up globals and abort controller
     global.currentSseEmitter = null;
     global.currentConversationId = null;

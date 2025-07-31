@@ -8,6 +8,9 @@ import { simpleLocalMemory as localMemory } from './simple-local-memory.js';
 class MemoryOperations {
   constructor() {
     this.memory = localMemory;
+    // Simple request-scoped cache to avoid duplicate searches
+    this.searchCache = new Map();
+    this.cacheTimeout = 30000; // 30 seconds
   }
 
   /**
@@ -46,8 +49,31 @@ class MemoryOperations {
    * @returns {Promise<Array>} Array of matching memories
    */
   async search(query, userId, limit = 10) {
+    // Create cache key
+    const cacheKey = `${query}:${userId}:${limit}`;
+    const now = Date.now();
+    
+    // Check cache first
+    const cached = this.searchCache.get(cacheKey);
+    if (cached && (now - cached.timestamp) < this.cacheTimeout) {
+      console.log(`[Memory Cache] Found cached results for user ${userId} (${cached.results.length} items)`);
+      return cached.results;
+    }
+    
     try {
       const memories = await this.memory.search(query, userId, limit);
+      
+      // Cache the results
+      this.searchCache.set(cacheKey, {
+        results: memories,
+        timestamp: now
+      });
+      
+      // Clean old cache entries (simple cleanup)
+      if (this.searchCache.size > 100) {
+        const oldKeys = Array.from(this.searchCache.keys()).slice(0, 20);
+        oldKeys.forEach(key => this.searchCache.delete(key));
+      }
       
       console.log(`Found ${memories.length} local memories for user ${userId}`);
       return memories;
@@ -120,6 +146,17 @@ class MemoryOperations {
     } catch (error) {
       console.error('Error deleting all memories:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Clear the search cache (called at end of conversation)
+   */
+  clearCache() {
+    const size = this.searchCache.size;
+    this.searchCache.clear();
+    if (size > 0) {
+      console.log(`[Memory Cache] Cleared ${size} cached entries`);
     }
   }
 
