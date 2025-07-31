@@ -308,17 +308,20 @@ router.post('/run', authenticateToken, async (req, res) => {
     });
     
     // Send the final response as agent_message event (like multi-agent orchestrator)
+    // Always send agent_message to prevent frontend hanging
+    const finalResponse = textResponse || 'I apologize, but I encountered an issue processing your request. Please try again.';
+    
+    console.log('=== SENDING AGENT_MESSAGE EVENT ===');
+    console.log('Content:', finalResponse.substring(0, 100) + '...');
+    sendEvent('agent_message', {
+      agent: 'EspressoBot1',
+      content: finalResponse,
+      timestamp: new Date().toISOString()
+    });
+    console.log('=== AGENT_MESSAGE EVENT SENT ===');
+    
+    // Store conversation in memory for future retrieval (non-blocking) - only if we have real response
     if (textResponse) {
-      console.log('=== SENDING AGENT_MESSAGE EVENT ===');
-      console.log('Content:', textResponse.substring(0, 100) + '...');
-      sendEvent('agent_message', {
-        agent: 'EspressoBot1',
-        content: textResponse,
-        timestamp: new Date().toISOString()
-      });
-      console.log('=== AGENT_MESSAGE EVENT SENT ===');
-      
-      // Store conversation in memory for future retrieval (non-blocking)
       // Use setImmediate to ensure response is sent first
       setImmediate(async () => {
         try {
@@ -367,13 +370,13 @@ router.post('/run', authenticateToken, async (req, res) => {
         }
       });
     } else {
-      console.log('=== WARNING: No textResponse to send ===');
+      console.log('=== WARNING: No textResponse - sending fallback message ===');
     }
     
     // Send completion
     console.log('[ORCHESTRATOR] Sending done event');
     sendEvent('done', {
-      finalResponse: textResponse || 'No response generated',
+      finalResponse: finalResponse,
       conversationId
     });
     console.log('[ORCHESTRATOR] Done event sent');
