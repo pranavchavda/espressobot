@@ -1,78 +1,23 @@
 /**
  * Google Workspace Agent - Specialized agent for Gmail, Calendar, Drive, and Tasks operations
+ * Uses direct Google API integration with stored OAuth tokens
  */
 
 import { Agent } from '@openai/agents';
 import { buildAgentInstructions } from '../utils/agent-context-builder.js';
 import { initializeTracing } from '../config/tracing-config.js';
-import MCPServerManager from '../tools/mcp-server-manager.js';
 
 // Initialize tracing configuration for this agent
 initializeTracing('Google Workspace Agent');
-
-let serverManager = null;
-let googleWorkspaceServer = null;
-
-/**
- * Initialize Google Workspace MCP server
- */
-async function initializeGoogleWorkspaceServer() {
-  if (googleWorkspaceServer) {
-    return googleWorkspaceServer;
-  }
-
-  if (!serverManager) {
-    console.log('[Google Workspace Agent] Initializing MCP Server Manager...');
-    serverManager = new MCPServerManager();
-    await serverManager.initializeServers();
-  }
-
-  // Get the Google Workspace server
-  googleWorkspaceServer = serverManager.getServer('google-workspace');
-  
-  if (!googleWorkspaceServer) {
-    console.log('[Google Workspace Agent] Google Workspace MCP server not found or disabled');
-    return null;
-  }
-
-  console.log('[Google Workspace Agent] Connected to Google Workspace MCP server');
-  
-  // List available tools
-  try {
-    const tools = await googleWorkspaceServer.listTools();
-    console.log(`[Google Workspace Agent] Available tools: ${tools.map(t => t.name).join(', ')}`);
-  } catch (error) {
-    console.log('[Google Workspace Agent] Could not list tools:', error.message);
-  }
-
-  return googleWorkspaceServer;
-}
 
 /**
  * Create a Google Workspace-specialized agent
  */
 async function createAgent(task, conversationId, richContext = {}) {
-  // Check integration mode
-  const mode = process.env.GOOGLE_WORKSPACE_MODE || 'mcp';
-  
-  let tools = [];
-  let mcpServers = [];
-  
-  if (mode === 'direct') {
-    // Use direct Google API integration with stored tokens
-    const { createGoogleWorkspaceTools } = await import('../tools/google-workspace-direct-tools.js');
-    tools = createGoogleWorkspaceTools();
-    console.log('[Google Workspace Agent] Using direct API integration (single sign-in)');
-  } else {
-    // Initialize MCP server
-    const mcpServer = await initializeGoogleWorkspaceServer();
-    
-    if (!mcpServer) {
-      throw new Error('Google Workspace MCP server not available');
-    }
-    mcpServers = [mcpServer];
-    console.log('[Google Workspace Agent] Using MCP server integration');
-  }
+  // Use direct Google API integration with stored OAuth tokens
+  const { createGoogleWorkspaceTools } = await import('../tools/google-workspace-direct-tools.js');
+  const tools = createGoogleWorkspaceTools();
+  console.log('[Google Workspace Agent] Using direct API integration with stored OAuth tokens');
 
   // Build system prompt with Google Workspace expertise
   const today = new Date().toISOString().split('T')[0];
@@ -82,7 +27,7 @@ Today's date: ${today}
 
 Your task: ${task}
 
-${mode === 'direct' ? `You have access to the following Google Workspace tools (using the user's existing authentication):
+You have access to the following Google Workspace tools (using the user's existing authentication):
 
 ## Gmail Tools:
 - **gmail_search**: Search emails with Gmail's query syntax
@@ -136,35 +81,7 @@ ${mode === 'direct' ? `You have access to the following Google Workspace tools (
   - Parameters: taskId (required), taskListId (default "@default")
   - Returns: Updated task with completed status
 
-Note: All tools use the user's authenticated Google account. No additional authentication is required.`
-: `You have access to the Google Workspace MCP server which provides tools for:`}
-
-## Gmail
-- Search emails with advanced filters
-- Send emails with attachments
-- Create and manage drafts
-- Manage labels and filters
-- Handle email threads
-
-## Google Calendar
-- List and manage calendars
-- Create, update, and delete events
-- Handle recurring events
-- Check availability and schedule meetings
-- Manage event attendees and notifications
-
-## Google Drive
-- Search and list files/folders
-- Upload and download files
-- Create documents, spreadsheets, and presentations
-- Manage file permissions and sharing
-- Support for Microsoft Office formats
-
-## Google Tasks
-- Create and manage task lists
-- Add, update, and complete tasks
-- Set due dates and reminders
-- Organize tasks hierarchically
+Note: All tools use the user's authenticated Google account. No additional authentication is required.
 
 ## Your Expertise:
 - Email automation and management
@@ -226,11 +143,11 @@ IMPORTANT:
     taskDescription: task
   });
 
-  // Create agent with appropriate tools/servers
+  // Create agent with tools
   const agent = new Agent({
     name: 'Google Workspace Agent',
     instructions,
-    ...(mode === 'direct' ? { tools } : { mcpServers }),
+    tools,
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
     toolUseBehavior: 'run_llm_again'
   });
@@ -336,14 +253,8 @@ export async function executeGoogleWorkspaceTask(task, conversationId, richConte
 }
 
 /**
- * Check if Google Workspace server is available
+ * Check if Google Workspace is available (always true for direct integration)
  */
 export async function isGoogleWorkspaceAvailable() {
-  try {
-    const server = await initializeGoogleWorkspaceServer();
-    return server !== null;
-  } catch (error) {
-    console.error('[Google Workspace Agent] Availability check failed:', error);
-    return false;
-  }
+  return true;
 }

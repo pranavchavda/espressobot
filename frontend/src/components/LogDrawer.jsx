@@ -226,7 +226,13 @@ const LogDrawer = ({ isOpen, onToggle, token }) => {
               <span className="log-message">{log.message}</span>
               {log.metadata && Object.keys(log.metadata).length > 0 && (
                 <span className="log-metadata">
-                  {JSON.stringify(log.metadata)}
+                  {JSON.stringify(log.metadata, (key, value) => {
+                    // Hide embedding arrays to reduce console noise
+                    if (key === 'embedding' && Array.isArray(value)) {
+                      return `[embedding vector: ${value.length} dimensions]`;
+                    }
+                    return value;
+                  })}
                 </span>
               )}
             </div>
