@@ -8,11 +8,11 @@
 import { google } from 'googleapis';
 import { tool } from '@openai/agents';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
+import { db, withRetry } from '../config/database.js';
 
-const prisma = new PrismaClient();
+const prisma = db;
 
 /**
  * Get OAuth2 client with user's stored tokens

@@ -1,11 +1,9 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { PrismaClient } from '@prisma/client';
+import { db } from './database.js';
 
 console.log('[Auth] DATABASE_URL:', process.env.DATABASE_URL ? 'Set' : 'Not set');
-const prisma = new PrismaClient({
-  log: ['error', 'warn']
-});
+const prisma = db;
 
 // Google OAuth configuration
 const configureGoogleStrategy = () => {

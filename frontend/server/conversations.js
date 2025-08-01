@@ -2,7 +2,9 @@ import { config } from 'dotenv';
 config();
 
 import { Router } from 'express';
-import prisma from './lib/prisma.js';
+import { db } from './config/database.js';
+
+const prisma = db;
 import { authenticateToken } from './auth.js';
 import fs from 'fs/promises';
 import path from 'path';

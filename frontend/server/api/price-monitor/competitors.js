@@ -1,6 +1,8 @@
 import express from 'express';
-import prisma from '../../lib/prisma.js';
+import { db } from '../../config/database.js';
 import { randomUUID } from 'crypto';
+
+const prisma = db;
 
 const router = express.Router();
 
@@ -76,7 +78,7 @@ router.get('/products', async (req, res) => {
     const products = await prisma.competitor_products.findMany({
       where,
       include: {
-        competitor: {
+        competitors: {
           select: {
             id: true,
             name: true,

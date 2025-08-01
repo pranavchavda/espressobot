@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { authenticateToken } from './auth.js';
-import { PrismaClient } from '@prisma/client';
+import { db } from './config/database.js';
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma = db;
 
 // Get user profile
 router.get('/', authenticateToken, async (req, res) => {

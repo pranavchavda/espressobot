@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import prisma from './lib/prisma.js';
+import { db } from './config/database.js';
+
+const prisma = db;
 import { runDynamicOrchestrator } from './espressobot1.js';
 import { authenticateToken } from './auth.js';
 import { createTaskPlan, updateTaskStatus, getCurrentTasks } from './agents/task-planning-agent.js';

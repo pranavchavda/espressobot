@@ -1,5 +1,7 @@
 import express from 'express';
-import prisma from '../../lib/prisma.js';
+import { db, withRetry, ensureConnection } from '../../config/database.js';
+
+const prisma = db;
 import embeddingsService from '../../services/embeddings-service.js';
 import { randomUUID } from 'crypto';
 
@@ -206,17 +208,16 @@ class CompetitorScraper {
       try {
         await this.processProduct(product, collectionName);
         
-        // Ensure Prisma is connected
-        await prisma.$connect();
-        
         // Check if product already exists
-        const existing = await prisma.competitor_products.findUnique({
-          where: {
-            external_id_competitor_id: {
-              external_id: product.id.toString(),
-              competitor_id: this.competitor.id
+        const existing = await withRetry(async (client) => {
+          return await client.competitor_products.findUnique({
+            where: {
+              external_id_competitor_id: {
+                external_id: product.id.toString(),
+                competitor_id: this.competitor.id
+              }
             }
-          }
+          });
         });
 
         if (existing) {
@@ -281,11 +282,9 @@ class CompetitorScraper {
     // Add embedding to product data
     productData.embedding = embedding;
 
-    // Ensure Prisma is connected before database operations
-    await prisma.$connect();
-    
-    // Upsert the product
-    await prisma.competitor_products.upsert({
+    // Upsert the product with retry logic
+    await withRetry(async (client) => {
+      return await client.competitor_products.upsert({
       where: {
         external_id_competitor_id: {
           external_id: productData.external_id,
@@ -301,15 +300,14 @@ class CompetitorScraper {
         ...productData,
         updated_at: new Date()
       }
+      });
     });
 
     // Store price history if price changed
     if (lowestPrice) {
-      // Ensure Prisma is connected
-      await prisma.$connect();
-      
-      // First find the competitor product to get its ID
-      const competitorProduct = await prisma.competitor_products.findUnique({
+      await withRetry(async (client) => {
+        // First find the competitor product to get its ID
+        const competitorProduct = await client.competitor_products.findUnique({
         where: {
           external_id_competitor_id: {
             external_id: productData.external_id,
@@ -319,16 +317,16 @@ class CompetitorScraper {
         select: { id: true }
       });
 
-      const lastPrice = competitorProduct ? await prisma.price_history.findFirst({
-        where: {
-          competitor_product_id: competitorProduct.id
-        },
-        orderBy: { recorded_at: 'desc' }
-      }) : null;
+        const lastPrice = competitorProduct ? await client.price_history.findFirst({
+          where: {
+            competitor_product_id: competitorProduct.id
+          },
+          orderBy: { recorded_at: 'desc' }
+        }) : null;
 
-      // Only store if price is different from last recorded price
-      if (!lastPrice || Math.abs(lastPrice.price - lowestPrice) > 0.01) {
-        await prisma.price_history.create({
+        // Only store if price is different from last recorded price
+        if (!lastPrice || Math.abs(lastPrice.price - lowestPrice) > 0.01) {
+          await client.price_history.create({
           data: {
             id: randomUUID(),
             competitor_product_id: competitorProduct.id,
@@ -338,8 +336,9 @@ class CompetitorScraper {
             recorded_at: new Date(),
             updated_at: new Date()
           }
-        });
-      }
+          });
+        }
+      });
     }
   }
 

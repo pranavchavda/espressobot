@@ -19,6 +19,7 @@ import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
 import { MemoryManagementModal } from './components/memory/MemoryManagementModal';
 import TopNavDropdown from './components/common/TopNavDropdown';
+import TopBar from './components/common/TopBar';
 import LogDrawer from './components/LogDrawer';
 import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
 
@@ -35,6 +36,8 @@ function App() {
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [showLogDrawer, setShowLogDrawer] = useState(false);
   const [showScratchpadDialog, setShowScratchpadDialog] = useState(false);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  const [convSearch, setConvSearch] = useState('');
   
   // Ensure selectedChat is null when at root path
   useEffect(() => {
@@ -208,36 +211,72 @@ function App() {
   };
 
 
-  // Show loading screen while checking auth
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900">
-        <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
-      </div>
-    );
-  }
+  // Guarded content rendered via variables to avoid early returns that change hook order
+  const LoadingScreen = (
+    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900">
+      <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
+    </div>
+  );
 
-  // Show login page if not authenticated
-  if (!user) {
-    return (
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    );
-  }
+  const Unauthenticated = (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  );
 
-  // Show restricted page if user is not whitelisted
-  if (!user.is_whitelisted) {
-    return <RestrictedPage user={user} onLogout={handleLogout} />;
-  }
+  const Restricted = (
+    <RestrictedPage user={user} onLogout={handleLogout} />
+  );
+
+  // For now show all conversations; search input removed per request
+  const filteredConversations = conversations;
+
+  const toggleTheme = () => {
+    const root = document.documentElement;
+    const next = !root.classList.contains('dark');
+    root.classList.toggle('dark', next);
+    setIsDark(next);
+    // Persist preference
+    try { localStorage.setItem('theme', next ? 'dark' : 'light'); } catch {}
+  };
+
+  useEffect(() => {
+    const pref = localStorage.getItem('theme');
+    if (pref === 'dark') {
+      document.documentElement.classList.add('dark');
+      setIsDark(true);
+    } else if (pref === 'light') {
+      document.documentElement.classList.remove('dark');
+      setIsDark(false);
+    }
+  }, []);
+
+  // Decide which view to show without breaking hooks order
+  const shouldShowLoading = authLoading;
+  const shouldShowUnauthed = !authLoading && !user;
+  const shouldShowRestricted = !authLoading && user && !user.is_whitelisted;
 
   return (
     <>
+      {shouldShowLoading ? LoadingScreen : shouldShowUnauthed ? Unauthenticated : shouldShowRestricted ? Restricted : (
+        <>
       <Routes>
         <Route element={
         <SidebarLayout
           className=""
+          navbar={
+            <TopBar
+              title={location.pathname === '/chat' ? 'Chat' : undefined}
+              user={user}
+              onLogout={handleLogout}
+              onToggleLogs={() => setShowLogDrawer(prev => !prev)}
+              // Search and theme toggle temporarily disabled per request
+              onGlobalSearch={undefined}
+              onToggleTheme={undefined}
+              isDark={isDark}
+            />
+          }
           // navbar={
           //   <div className="flex justify-between items-center w-full py-2">
           //     <div className="flex items-center">
@@ -258,11 +297,13 @@ function App() {
             <div className="flex flex-col h-[93vh] sm:h-full">
 
               <nav className="flex-1 overflow-y-auto">
-                <div className="flex space-x-2 my-6">
+                <div className="flex space-x-2 my-4">
                 <TopNavDropdown user={user} onLogout={handleLogout} 
-                className="w-full cursor-pointer mb-2"
-                />  
-                </div>
+                  className="w-full cursor-pointer mb-2"
+                />
+              </div>
+
+              {/* Conversation search removed per request */}
 
               <div className="flex space-x-2 mb-6">
                 <Button 
@@ -297,7 +338,7 @@ function App() {
                   <>
 
                   <ul className="flex flex-col max-h-[70vh] overflow-y-auto h-[70vh]">
-                    {conversations.map((chat) => (
+                    {filteredConversations.map((chat) => (
                       <li key={chat.id} className="group relative pr-4">                        
                       
                       <Button
@@ -314,32 +355,41 @@ function App() {
                         </Button>
                         <Link 
                           to="/chat"
-                          className={`block w-full text-left px-2 py-2 shadow-sm rounded-lg transition-colors ${
+                          className={`block w-full text-left px-3 py-2 shadow-sm rounded-lg transition-colors border ${
                             selectedChat === chat.id 
-                              ? "bg-zinc-200 dark:bg-zinc-800 font-semibold" 
-                              : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                              ? "bg-zinc-200 dark:bg-zinc-800 font-semibold border-zinc-300 dark:border-zinc-700"
+                              : "hover:bg-zinc-100 dark:hover:bg-zinc-800 border-transparent"
                           }`}
                           onClick={() => setSelectedChat(chat.id)}
                         >
-                          <div className="truncate">
-                            {chat.topic_title ? (
-                              <span>{chat.topic_title}</span>
-                            ) : (
-                              <span style={{opacity: 0.7}}>{chat.title}</span>
-                            )}
-                          </div>
-                          <div className="text-xs text-zinc-500 truncate">
-                            {chat.created_at
-                              ? new Date(chat.created_at).toLocaleString()
-                              : ""}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate">
+                                {chat.topic_title ? (
+                                  <span>{chat.topic_title}</span>
+                                ) : (
+                                  <span style={{opacity: 0.8}}>{chat.title}</span>
+                                )}
+                              </div>
+                              {chat.last_message_preview && (
+                                <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                                  {chat.last_message_preview}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-zinc-500 whitespace-nowrap ml-2">
+                              {chat.created_at
+                                ? new Date(chat.created_at).toLocaleString()
+                                : ""}
+                            </div>
                           </div>
                         </Link>
 
                       </li>
                     ))}
 
-                    {conversations.length === 0 && !loading && (
-                      <li className="text-zinc-400 px-4 py-2">No conversations</li>
+                    {filteredConversations.length === 0 && !loading && (
+                      <li className="text-zinc-400 px-4 py-2">No conversations match your search</li>
                     )}
                   </ul>
                   </>
@@ -400,6 +450,8 @@ function App() {
         } />
       </Route>
     </Routes>
+        </>
+      )}
     
     {/* Memory Management Modal */}
     <MemoryManagementModal 

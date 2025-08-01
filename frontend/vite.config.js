@@ -86,6 +86,22 @@ export default defineConfig({
         console.log('GOOGLE_CLIENT_ID available:', !!process.env.GOOGLE_CLIENT_ID);
         console.log('GOOGLE_CLIENT_SECRET available:', !!process.env.GOOGLE_CLIENT_SECRET);
         
+        // Initialize database connection
+        try {
+          const { testConnection, startConnectionHealthMonitor } = await import('./server/config/database.js');
+          console.log('🔗 Testing database connection...');
+          const dbOk = await testConnection(1); // Single retry
+          if (dbOk) {
+            console.log('✅ Database connection verified');
+            // Start connection health monitoring
+            startConnectionHealthMonitor();
+          } else {
+            console.warn('⚠️ Database connection failed, but continuing...');
+          }
+        } catch (error) {
+          console.error('❌ Database initialization error:', error.message);
+        }
+        
         if (!process.env.SKIP_MEMORY_SERVER) {
           const { spawn } = await import('child_process');
           console.log('Starting local memory server for agent context...');

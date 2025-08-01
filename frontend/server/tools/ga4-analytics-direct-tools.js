@@ -6,75 +6,113 @@
 import { z } from 'zod';
 import { tool } from '@openai/agents';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
-import { PrismaClient } from '@prisma/client';
 import { google } from 'googleapis';
+import { db, withRetry } from '../config/database.js';
 
-const prisma = new PrismaClient();
+const prisma = db;
 
 /**
- * Get OAuth2 client for Google APIs
+ * Get OAuth2 client for Google APIs with improved token refresh
  */
 async function getAuthClient(userId) {
-  const user = await prisma.users.findUnique({
-    where: { id: userId },
-    select: { 
-      google_access_token: true, 
-      google_refresh_token: true,
-      ga4_property_id: true,
-      ga4_enabled: true
-    }
-  });
-
-  if (!user?.google_access_token) {
-    throw new Error('User not authenticated with Google');
-  }
-
-  if (!user.ga4_enabled) {
-    throw new Error('GA4 integration not enabled for this user');
-  }
-
-  if (!user.ga4_property_id) {
-    throw new Error('GA4 property ID not configured. Please set your GA4 property ID in settings.');
-  }
-
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-
-  oauth2Client.setCredentials({
-    access_token: user.google_access_token,
-    refresh_token: user.google_refresh_token
-  });
-
-  // Handle token refresh if needed
-  oauth2Client.on('tokens', async (tokens) => {
-    await prisma.users.update({
+  return await withRetry(async (client) => {
+    const user = await client.users.findUnique({
       where: { id: userId },
-      data: {
-        google_access_token: tokens.access_token,
-        google_token_expiry: new Date(Date.now() + (tokens.expiry_date || 3600000))
+      select: { 
+        google_access_token: true, 
+        google_refresh_token: true,
+        google_token_expiry: true,
+        ga4_property_id: true,
+        ga4_enabled: true
       }
     });
-  });
 
-  // Check if user has analytics scope
-  try {
-    const tokenInfo = await oauth2Client.getTokenInfo(user.google_access_token);
-    const scopes = tokenInfo.scopes || [];
+    if (!user?.google_access_token) {
+      throw new Error('User not authenticated with Google');
+    }
+
+    if (!user.ga4_enabled) {
+      throw new Error('GA4 integration not enabled for this user');
+    }
+
+    if (!user.ga4_property_id) {
+      throw new Error('GA4 property ID not configured. Please set your GA4 property ID in settings.');
+    }
+
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+
+    oauth2Client.setCredentials({
+      access_token: user.google_access_token,
+      refresh_token: user.google_refresh_token
+    });
+
+    // Check if token is expired or about to expire (within 5 minutes)
+    const tokenExpiry = user.google_token_expiry;
+    const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
     
-    if (!scopes.includes('https://www.googleapis.com/auth/analytics.readonly')) {
-      throw new Error('Google Analytics permission not granted. Please log out and log in again to authorize analytics access.');
+    if (!tokenExpiry || tokenExpiry < fiveMinutesFromNow) {
+      console.log('[GA4] Token expired or expiring soon, refreshing...');
+      try {
+        const { credentials } = await oauth2Client.refreshAccessToken();
+        
+        // Update tokens in database
+        await client.users.update({
+          where: { id: userId },
+          data: {
+            google_access_token: credentials.access_token,
+            google_token_expiry: credentials.expiry_date ? 
+              new Date(credentials.expiry_date) : 
+              new Date(Date.now() + 3600 * 1000) // Default 1 hour
+          }
+        });
+        
+        console.log('[GA4] Token refreshed successfully');
+      } catch (refreshError) {
+        console.error('[GA4] Token refresh failed:', refreshError.message);
+        throw new Error('Google authentication expired. Please log out and log in again.');
+      }
     }
-  } catch (error) {
-    if (error.message?.includes('Google Analytics permission')) {
-      throw error;
-    }
-    // Token might be expired, let OAuth client handle refresh
-    console.log('Token validation failed, will attempt refresh:', error.message);
-  }
 
-  return { oauth2Client, propertyId: user.ga4_property_id };
+    // Handle automatic token refresh for future requests
+    oauth2Client.on('tokens', async (tokens) => {
+      try {
+        await client.users.update({
+          where: { id: userId },
+          data: {
+            google_access_token: tokens.access_token,
+            google_token_expiry: tokens.expiry_date ? 
+              new Date(tokens.expiry_date) : 
+              new Date(Date.now() + 3600 * 1000)
+          }
+        });
+        console.log('[GA4] Auto-refreshed token saved');
+      } catch (error) {
+        console.error('[GA4] Failed to save refreshed token:', error.message);
+      }
+    });
+
+    // Verify analytics scope (with better error handling)
+    try {
+      const tokenInfo = await oauth2Client.getTokenInfo(user.google_access_token);
+      const scopes = tokenInfo.scopes || [];
+      
+      if (!scopes.includes('https://www.googleapis.com/auth/analytics.readonly')) {
+        throw new Error('Google Analytics permission not granted. Please log out and log in again to authorize analytics access.');
+      }
+    } catch (error) {
+      if (error.message?.includes('Google Analytics permission') || 
+          error.message?.includes('invalid_token')) {
+        throw error;
+      }
+      // Log but don't fail on scope check errors - token might still work
+      console.warn('[GA4] Token scope verification failed, proceeding anyway:', error.message);
+    }
+
+    return { oauth2Client, propertyId: user.ga4_property_id };
+  });
 }
 
 /**

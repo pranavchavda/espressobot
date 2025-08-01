@@ -43,8 +43,9 @@ export default function PriceMonitorLayout() {
 
   return (
     <StackedLayout
+      className="min-h-[80vh]"
       navbar={
-        <Navbar>
+        <Navbar className="sticky top-0 z-10 supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-zinc-900/70 backdrop-blur border-b border-zinc-200 dark:border-zinc-800">
           <NavbarSection>
             <div className="flex items-center gap-3">
               <PresentationChartLineIcon className="h-6 w-6 text-indigo-600" />
@@ -52,22 +53,23 @@ export default function PriceMonitorLayout() {
             </div>
           </NavbarSection>
           <NavbarSpacer />
-          <NavbarSection>
+          <NavbarSection className="flex flex-wrap gap-1">
             {navigation.map((item) => (
               <NavbarItem
                 key={item.name}
                 href={item.href}
                 current={isActive(item)}
+                className="min-w-[40px]"
               >
                 <item.icon />
-                <NavbarLabel className="hidden sm:block">{item.name}</NavbarLabel>
+                <NavbarLabel className="hidden md:block">{item.name}</NavbarLabel>
               </NavbarItem>
             ))}
           </NavbarSection>
         </Navbar>
       }
       sidebar={
-        <Sidebar>
+        <Sidebar className="max-lg:hidden lg:sticky lg:top-[56px] lg:h-[calc(100vh-56px)]">
           <SidebarHeader>
             <div className="flex items-center gap-3">
               <PresentationChartLineIcon className="h-6 w-6 text-indigo-600" />
@@ -91,14 +93,18 @@ export default function PriceMonitorLayout() {
         </Sidebar>
       }
     >
-      <Routes>
-        <Route path="/" element={<PriceMonitorDashboard />} />
-        <Route path="/competitors" element={<CompetitorsPage />} />
-        <Route path="/matches" element={<ProductMatchesPage />} />
-        <Route path="/alerts" element={<PriceAlertsPage />} />
-        <Route path="/settings" element={<MonitorSettingsPage />} />
-        <Route path="/help" element={<PriceMonitorHelp />} />
-      </Routes>
+      <div className="p-3 sm:p-4 lg:p-6 mx-auto w-full max-w-7xl">
+        <div className="grid grid-cols-1 gap-4">
+          <Routes>
+            <Route path="/" element={<PriceMonitorDashboard />} />
+            <Route path="/competitors" element={<CompetitorsPage />} />
+            <Route path="/matches" element={<ProductMatchesPage />} />
+            <Route path="/alerts" element={<PriceAlertsPage />} />
+            <Route path="/settings" element={<MonitorSettingsPage />} />
+            <Route path="/help" element={<PriceMonitorHelp />} />
+          </Routes>
+        </div>
+      </div>
     </StackedLayout>
   );
 }

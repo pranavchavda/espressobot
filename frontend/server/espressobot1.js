@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { setDefaultOpenAIKey } from '@openai/agents-openai';
 import { AnthropicProvider } from './models/anthropic-provider.js';
 import { createModelProvider as createAISDKModelProvider } from './models/anthropic-ai-sdk-provider.js';
+import { OpenRouterProvider, AGENT_MODEL_MAP } from './models/openrouter-provider.js';
 import { initializeTracing } from './config/tracing-config.js';
 import { createBashAgent, bashTool, executeBashCommand } from './tools/bash-tool.js';
 // MEMORY SYSTEM DISABLED - Causing infinite loops
@@ -1429,9 +1430,21 @@ IMPORTANT: If the output contains actual data (SKUs, prices, inventory counts, e
 async function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null, injectContextTool = null, manageInjectionTool = null) {
   // Get the model provider configuration
   const modelProvider = createModelProvider();
-  const modelName = modelProvider ? 
-    (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514') : 
-    'gpt-4.1';  // Back to gpt-4.1 until o3 organization verification is complete
+  let modelName;
+  
+  if (modelProvider) {
+    // Determine model name based on provider type
+    const providerType = process.env.MODEL_PROVIDER || 'openai';
+    if (providerType === 'anthropic') {
+      modelName = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+    } else if (providerType === 'openrouter') {
+      modelName = process.env.OPENROUTER_MODEL || 'openai/gpt-4o';
+    } else {
+      modelName = 'claude-sonnet-4-20250514'; // fallback
+    }
+  } else {
+    modelName = 'gpt-4.1';  // Back to gpt-4.1 until o3 organization verification is complete
+  }
   // Check if we have pre-filtered context (indicating early context synthesis)
   const hasPreFilteredContext = orchestratorContext?.relevantMemories?.some(m => m.synthesized) || 
                                 orchestratorContext?.promptFragments?.some(f => f.category === 'synthesized');
@@ -1815,6 +1828,14 @@ function createModelProvider() {
     }
   }
   
+  if (modelProvider === 'openrouter') {
+    console.log('[Orchestrator] Using OpenRouter model provider');
+    return new OpenRouterProvider({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      defaultModel: process.env.OPENROUTER_MODEL || 'openai/gpt-4o'
+    });
+  }
+  
   // Default to OpenAI
   console.log('[Orchestrator] Using OpenAI model provider');
   return null; // OpenAI Agents SDK default
@@ -1886,7 +1907,8 @@ export async function runDynamicOrchestrator(message, options = {}) {
   let userProfile = null;
   if (userId) {
     try {
-      const prisma = (await import('./lib/prisma.js')).default;
+      const { db } = await import('./config/database.js');
+      const prisma = db;
       userProfile = await prisma.users.findUnique({
         where: { id: userId },
         select: {

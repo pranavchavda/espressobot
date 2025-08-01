@@ -4,12 +4,12 @@
  * Migrated from SQLite to PostgreSQL/Prisma
  */
 
-import { PrismaClient } from '@prisma/client';
 import { OpenAI } from 'openai';
 import { createOpenAIWithRetry } from '../utils/openai-with-retry.js';
+import { db, withRetry } from '../config/database.js';
 
 // Initialize Prisma client for PostgreSQL
-const prisma = new PrismaClient();
+const prisma = db;
 
 // Initialize OpenAI
 const openai = createOpenAIWithRetry();

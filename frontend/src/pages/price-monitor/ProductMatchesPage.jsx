@@ -351,7 +351,7 @@ export default function ProductMatchesPage() {
                     >
                       <div className="font-medium text-sm truncate">{product.title}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        <div>{product.competitor?.name || 'Unknown'}</div>
+                        <div>{product.competitors?.name || 'Unknown'}</div>
                         <div>{product.vendor} • ${product.price} • {product.sku}</div>
                       </div>
                     </div>

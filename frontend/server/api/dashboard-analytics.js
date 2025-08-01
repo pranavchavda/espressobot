@@ -7,10 +7,10 @@ import { Router } from 'express';
 import { authenticateToken } from '../auth.js';
 import { callMCPTool } from '../tools/mcp-client.js';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
-import { PrismaClient } from '@prisma/client';
 import { google } from 'googleapis';
+import { db } from '../config/database.js';
 
-const prisma = new PrismaClient();
+const prisma = db;
 
 const router = Router();
 

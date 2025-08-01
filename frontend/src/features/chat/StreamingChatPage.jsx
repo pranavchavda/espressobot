@@ -1475,6 +1475,28 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     handleSend(suggestionText);
   };
 
+  // Copy-to-clipboard helper for code blocks (used by MarkdownRenderer via window hook)
+  useEffect(() => {
+    const copyHandler = async (e) => {
+      const target = e.target;
+      if (!(target && target.matches && (target.matches('.eb-copy') || target.closest('.eb-copy')))) return;
+      const pre = target.closest('pre');
+      if (!pre) return;
+      const code = pre.querySelector('code');
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code.innerText);
+        // Provide quick visual feedback
+        target.setAttribute('data-copied', 'true');
+        setTimeout(() => target.removeAttribute('data-copied'), 1200);
+      } catch (err) {
+        console.error('Copy failed', err);
+      }
+    };
+    document.addEventListener('click', copyHandler);
+    return () => document.removeEventListener('click', copyHandler);
+  }, []);
+
   // Handle initial message from HomePage
   useEffect(() => {
     const initialMessage = location.state?.initialMessage;
@@ -1946,6 +1968,15 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                 : "Type a message..."
             }
             onKeyDown={(e) => {
+              // Cmd/Ctrl + Enter to send
+              const isMac = navigator.platform.toUpperCase().includes('MAC');
+              const cmdEnter = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'Enter';
+              if (cmdEnter) {
+                e.preventDefault();
+                handleSend();
+                return;
+              }
+              // Enter sends, Shift+Enter inserts newline
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSend();

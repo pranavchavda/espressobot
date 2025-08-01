@@ -1,5 +1,7 @@
 import express from 'express';
-import prisma from '../../lib/prisma.js';
+import { db, withRetry } from '../../config/database.js';
+
+const prisma = db;
 import embeddingsService from '../../services/embeddings-service.js';
 
 const router = express.Router();
@@ -289,17 +291,21 @@ router.post('/auto-match', async (req, res) => {
 
     // Get iDC products to match
     const whereClause = brands ? { vendor: { in: brands } } : {};
-    const idcProducts = await prisma.idc_products.findMany({
-      where: whereClause
-      // No limit - process all IDC products for complete matching
+    const idcProducts = await withRetry(async (client) => {
+      return await client.idc_products.findMany({
+        where: whereClause
+        // No limit - process all IDC products for complete matching
+      });
     });
 
     console.log(`📦 Processing ${idcProducts.length} iDC products`);
 
     // 🚀 PERFORMANCE OPTIMIZATION: Fetch competitor products once
     console.log('🔄 Loading all competitor products for batch processing...');
-    const competitorProducts = await prisma.competitor_products.findMany({
-      // No limit - include all competitor products for matching
+    const competitorProducts = await withRetry(async (client) => {
+      return await client.competitor_products.findMany({
+        // No limit - include all competitor products for matching
+      });
     });
     console.log(`🏪 Loaded ${competitorProducts.length} competitor products`);
 
@@ -431,10 +437,10 @@ router.post('/manual-match', async (req, res) => {
       });
     }
 
-    // Get products
+    // Get products with retry logic
     const [idcProduct, competitorProduct] = await Promise.all([
-      prisma.idc_products.findUnique({ where: { id: idc_product_id } }),
-      prisma.competitor_products.findUnique({ where: { id: competitor_product_id } })
+      withRetry(async (client) => client.idc_products.findUnique({ where: { id: idc_product_id } })),
+      withRetry(async (client) => client.competitor_products.findUnique({ where: { id: competitor_product_id } }))
     ]);
 
     if (!idcProduct || !competitorProduct) {
@@ -460,18 +466,20 @@ router.post('/manual-match', async (req, res) => {
       updated_at: new Date()
     };
 
-    const match = await prisma.product_matches.upsert({
-      where: {
-        idc_product_id_competitor_product_id: {
-          idc_product_id,
-          competitor_product_id
+    const match = await withRetry(async (client) => {
+      return await client.product_matches.upsert({
+        where: {
+          idc_product_id_competitor_product_id: {
+            idc_product_id,
+            competitor_product_id
+          }
+        },
+        create: matchData,
+        update: {
+          ...matchData,
+          updated_at: new Date()
         }
-      },
-      create: matchData,
-      update: {
-        ...matchData,
-        updated_at: new Date()
-      }
+      });
     });
 
     res.json({
@@ -565,16 +573,20 @@ router.delete('/matches/:matchId', async (req, res) => {
   try {
     const { matchId } = req.params;
 
-    const match = await prisma.product_matches.findUnique({
-      where: { id: matchId }
+    const match = await withRetry(async (client) => {
+      return await client.product_matches.findUnique({
+        where: { id: matchId }
+      });
     });
 
     if (!match) {
       return res.status(404).json({ error: 'Product match not found' });
     }
 
-    await prisma.product_matches.delete({
-      where: { id: matchId }
+    await withRetry(async (client) => {
+      return await client.product_matches.delete({
+        where: { id: matchId }
+      });
     });
 
     res.json({ message: 'Product match deleted successfully' });

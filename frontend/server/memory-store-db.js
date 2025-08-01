@@ -1,4 +1,6 @@
-import prisma from './lib/prisma.js';
+import { db } from './config/database.js';
+
+const prisma = db;
 import { v4 as uuidv4 } from 'uuid';
 
 class DatabaseMemoryStore {

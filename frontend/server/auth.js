@@ -197,7 +197,8 @@ router.get('/me', authenticateToken, async (req, res) => {
   if (req.user) {
     // Fetch fresh user data to get is_whitelisted status
     try {
-      const prisma = (await import('./lib/prisma.js')).default;
+      const { db } = await import('./config/database.js');
+      const prisma = db;
       const user = await prisma.users.findUnique({
         where: { id: req.user.id }
       });

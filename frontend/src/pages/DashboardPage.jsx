@@ -120,8 +120,8 @@ const DashboardPage = () => {
   }, []);
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl bg-zinc-50 min-h-screen">
-      <div className="flex justify-between items-center mb-8">
+    <div className="mx-auto p-4 sm:p-6 lg:p-8 max-w-7xl bg-zinc-50 min-h-screen">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
         <div>
           <Heading level={1} className="flex items-center gap-3">
             <BarChart3Icon className="h-8 w-8 text-blue-600" />
@@ -156,13 +156,13 @@ const DashboardPage = () => {
 
       {/* Date Picker */}
       <div className="mb-6 bg-white rounded-lg border border-zinc-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <div className="flex items-center gap-2">
               <CalendarIcon className="h-5 w-5 text-zinc-500" />
               <Text className="font-medium text-zinc-700">Date Range:</Text>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <input
                 type="date"
                 value={startDate}
@@ -178,7 +178,7 @@ const DashboardPage = () => {
               />
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -264,9 +264,9 @@ const DashboardPage = () => {
 
       {/* Dashboard Content */}
       {dashboardData && !loading && (
-        <div className="space-y-8">
+        <div className="space-y-6 lg:space-y-8">
           {/* Quick Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
             <div className="bg-white rounded-lg border border-zinc-200 p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -349,7 +349,7 @@ const DashboardPage = () => {
           </div>
 
           {/* Performance Sections */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
             {/* Shopify Performance */}
             <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-green-50 to-green-100 px-6 py-4 border-b border-zinc-200">
@@ -359,7 +359,7 @@ const DashboardPage = () => {
                 </Heading>
               </div>
               <div className="p-6">
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                   <div>
                     <Text className="text-sm font-medium text-zinc-600">Revenue</Text>
                     <Text className="text-xl font-bold text-zinc-900">${dashboardData?.shopify?.revenue || '0'}</Text>
@@ -411,7 +411,7 @@ const DashboardPage = () => {
                 </Heading>
               </div>
               <div className="p-6">
-                <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                   <div>
                     <Text className="text-sm font-medium text-zinc-600">Active Users</Text>
                     <Text className="text-xl font-bold text-zinc-900">{dashboardData?.ga4?.users || '0'}</Text>
