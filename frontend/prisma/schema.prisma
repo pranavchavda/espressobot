@@ -433,3 +433,14 @@ model violation_history {
   @@index([product_match_id])
   @@index([violation_type])
 }
+
+model job_execution_log {
+  id          String   @id @default(uuid())
+  job_type    String   // shopify_sync, competitor_scrape, violation_scan, etc.
+  status      String   // completed, failed, running
+  details     Json?    // Additional job-specific details
+  executed_at DateTime @default(now())
+  created_at  DateTime @default(now())
+  
+  @@index([job_type, executed_at])
+}

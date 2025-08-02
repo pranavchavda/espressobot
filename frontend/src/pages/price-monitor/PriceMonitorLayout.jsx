@@ -11,7 +11,8 @@ import {
   ExclamationTriangleIcon,
   Cog6ToothIcon,
   PresentationChartLineIcon,
-  QuestionMarkCircleIcon
+  QuestionMarkCircleIcon,
+  ClockIcon
 } from '@heroicons/react/20/solid';
 
 // Import pages (will create these next)
@@ -19,6 +20,7 @@ import PriceMonitorDashboard from './PriceMonitorDashboard';
 import CompetitorsPage from './CompetitorsPage';
 import ProductMatchesPage from './ProductMatchesPage';
 import PriceAlertsPage from './PriceAlertsPage';
+import ViolationHistoryPage from './ViolationHistoryPage';
 import MonitorSettingsPage from './MonitorSettingsPage';
 import PriceMonitorHelp from './PriceMonitorHelp';
 
@@ -27,6 +29,7 @@ const navigation = [
   { name: 'Competitors', href: '/price-monitor/competitors', icon: BuildingStorefrontIcon },
   { name: 'Product Matches', href: '/price-monitor/matches', icon: Square2StackIcon },
   { name: 'Price Alerts', href: '/price-monitor/alerts', icon: ExclamationTriangleIcon },
+  { name: 'Violation History', href: '/price-monitor/history', icon: ClockIcon },
   { name: 'Settings', href: '/price-monitor/settings', icon: Cog6ToothIcon },
   { name: 'Help', href: '/price-monitor/help', icon: QuestionMarkCircleIcon },
 ];
@@ -100,6 +103,7 @@ export default function PriceMonitorLayout() {
             <Route path="/competitors" element={<CompetitorsPage />} />
             <Route path="/matches" element={<ProductMatchesPage />} />
             <Route path="/alerts" element={<PriceAlertsPage />} />
+            <Route path="/history" element={<ViolationHistoryPage />} />
             <Route path="/settings" element={<MonitorSettingsPage />} />
             <Route path="/help" element={<PriceMonitorHelp />} />
           </Routes>

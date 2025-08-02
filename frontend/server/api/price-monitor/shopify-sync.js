@@ -83,8 +83,21 @@ async function shopifyGraphQL(query, variables = {}) {
   return data.data;
 }
 
+// DEPRECATED - DO NOT USE! This endpoint deletes all manual matches!
+// Use /shopify-sync-safe/sync-idc-products-safe instead
 // Sync iDC products for monitored brands
 router.post('/sync-idc-products', async (req, res) => {
+  console.warn('⚠️  WARNING: Using deprecated sync endpoint that deletes manual matches!');
+  console.warn('⚠️  Please use /api/price-monitor/shopify-sync-safe/sync-idc-products-safe instead');
+  
+  // Return error to force migration to safe endpoint
+  return res.status(410).json({
+    error: 'This endpoint is deprecated and unsafe - it deletes manual matches!',
+    message: 'Please use /api/price-monitor/shopify-sync-safe/sync-idc-products-safe instead',
+    deprecated: true
+  });
+  
+  /* Original unsafe code - DO NOT UNCOMMENT
   try {
     const { brands, force = false } = req.body;
     
@@ -256,6 +269,7 @@ router.post('/sync-idc-products', async (req, res) => {
     console.error('Error syncing iDC products:', error);
     res.status(500).json({ error: 'Failed to sync iDC products' });
   }
+  */
 });
 
 // Get sync status
@@ -373,7 +387,7 @@ router.post('/sync-brand/:brandName', async (req, res) => {
     const { brandName } = req.params;
     
     // Trigger sync for single brand
-    const syncResponse = await fetch(`${req.protocol}://${req.get('host')}/api/price-monitor/shopify-sync/sync-idc-products`, {
+    const syncResponse = await fetch(`${req.protocol}://${req.get('host')}/api/price-monitor/shopify-sync-safe/sync-idc-products-safe`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -431,7 +445,7 @@ router.post('/auto-sync', async (req, res) => {
     console.log(`📦 Found ${brandNames.length} brands needing sync: ${brandNames.join(', ')}`);
 
     // Trigger sync for brands that need it
-    const syncResponse = await fetch(`${req.protocol}://${req.get('host')}/api/price-monitor/shopify-sync/sync-idc-products`, {
+    const syncResponse = await fetch(`${req.protocol}://${req.get('host')}/api/price-monitor/shopify-sync-safe/sync-idc-products-safe`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

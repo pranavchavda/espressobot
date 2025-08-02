@@ -488,7 +488,7 @@ export default function MonitorSettingsPage() {
                 return;
               }
 
-              const response = await fetch('/api/price-monitor/shopify-sync/sync-idc-products', {
+              const response = await fetch('/api/price-monitor/shopify-sync-safe/sync-idc-products-safe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ brands: activeBrands, force: true })
@@ -496,7 +496,7 @@ export default function MonitorSettingsPage() {
 
               if (response.ok) {
                 const result = await response.json();
-                toast.success(`Synced ${result.total_synced} products from ${activeBrands.length} brands`);
+                toast.success(`Synced products: ${result.total_products_created} created, ${result.total_products_updated} updated, ${result.manual_matches_preserved} manual matches preserved`);
               } else {
                 toast.error('Failed to sync products');
               }

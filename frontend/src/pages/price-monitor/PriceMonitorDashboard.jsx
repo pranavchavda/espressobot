@@ -12,6 +12,7 @@ export default function PriceMonitorDashboard() {
   const [scrapingLoading, setScrapingLoading] = useState(false);
   const [violationScanLoading, setViolationScanLoading] = useState(false);
   const [matchingThreshold, setMatchingThreshold] = useState('medium'); // New state for threshold
+  const [lastRuns, setLastRuns] = useState({});
   const { toast } = useToast();
 
   const fetchDashboardData = async () => {
@@ -32,11 +33,58 @@ export default function PriceMonitorDashboard() {
     }
   };
 
+  const fetchLastRuns = async () => {
+    try {
+      const response = await fetch('/api/price-monitor/job-status/last-runs');
+      if (response.ok) {
+        const data = await response.json();
+        setLastRuns(data);
+      }
+    } catch (error) {
+      console.error('Error fetching last runs:', error);
+    }
+  };
+
+  const formatLastRun = (lastRun) => {
+    if (!lastRun) return 'Never';
+    
+    const date = new Date(lastRun.executed_at);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 60) {
+      return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
+
+  const recordJobExecution = async (jobType) => {
+    try {
+      await fetch('/api/price-monitor/job-status/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_type: jobType, status: 'completed' })
+      });
+      // Refresh last runs
+      fetchLastRuns();
+    } catch (error) {
+      console.error('Error recording job execution:', error);
+    }
+  };
+
 
   const syncShopifyProducts = async () => {
     try {
       setSyncLoading(true);
-      const response = await fetch('/api/price-monitor/shopify-sync/sync-idc-products', {
+      const response = await fetch('/api/price-monitor/shopify-sync-safe/sync-idc-products-safe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force: true })
@@ -44,7 +92,8 @@ export default function PriceMonitorDashboard() {
 
       if (response.ok) {
         const result = await response.json();
-        toast.success(`Synced ${result.total_synced} products successfully`);
+        toast.success(`Safe sync complete: ${result.total_products_created} created, ${result.total_products_updated} updated`);
+        await recordJobExecution('shopify_sync');
         fetchDashboardData(); // Refresh dashboard
       } else {
         toast.error('Failed to sync Shopify products');
@@ -113,6 +162,7 @@ export default function PriceMonitorDashboard() {
       if (response.ok) {
         const result = await response.json();
         toast.success(`Started scraping job for ${activeCompetitor.name}`);
+        await recordJobExecution('competitor_scrape');
         fetchDashboardData(); // Refresh dashboard
       } else {
         toast.error('Failed to start competitor scraping');
@@ -141,6 +191,7 @@ export default function PriceMonitorDashboard() {
         const result = await response.json();
         const violationsMsg = result.violations_found === 1 ? 'violation' : 'violations';
         toast.success(`Found ${result.violations_found} MAP ${violationsMsg} from ${result.total_matches_scanned} matches`);
+        await recordJobExecution('violation_scan');
         fetchDashboardData(); // Refresh dashboard
       } else {
         toast.error('Failed to scan for violations');
@@ -155,6 +206,7 @@ export default function PriceMonitorDashboard() {
 
   useEffect(() => {
     fetchDashboardData();
+    fetchLastRuns();
   }, []);
 
   if (loading) {
@@ -177,6 +229,11 @@ export default function PriceMonitorDashboard() {
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             Monitor competitor pricing compliance and MAP violations
           </p>
+          {lastRuns.cron_job && (
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
+              🕐 Automated sync last run: {formatLastRun(lastRuns.cron_job)}
+            </p>
+          )}
         </div>
         <Button 
           onClick={fetchDashboardData} 
@@ -223,6 +280,11 @@ export default function PriceMonitorDashboard() {
           <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
             Import products from your Shopify store and generate embeddings for semantic matching.
           </p>
+          {lastRuns.shopify_sync && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              Last run: {formatLastRun(lastRuns.shopify_sync)}
+            </p>
+          )}
           <Button 
             onClick={syncShopifyProducts} 
             disabled={syncLoading}
@@ -275,6 +337,11 @@ export default function PriceMonitorDashboard() {
           <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
             Scrape competitor websites to collect product data and pricing information.
           </p>
+          {lastRuns.competitor_scrape && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              Last run: {formatLastRun(lastRuns.competitor_scrape)}
+            </p>
+          )}
           <Button 
             onClick={runCompetitorScraping} 
             disabled={scrapingLoading}
@@ -289,6 +356,11 @@ export default function PriceMonitorDashboard() {
           <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
             Scan existing product matches for MAP pricing violations and generate alerts.
           </p>
+          {lastRuns.violation_scan && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+              Last run: {formatLastRun(lastRuns.violation_scan)}
+            </p>
+          )}
           <Button 
             onClick={scanForViolations} 
             disabled={violationScanLoading}
