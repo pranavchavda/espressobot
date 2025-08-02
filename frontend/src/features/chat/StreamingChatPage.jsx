@@ -42,6 +42,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingContent, setEditingContent] = useState("");
   const [isEditSaving, setIsEditSaving] = useState(false);
+  const [textareaRows, setTextareaRows] = useState(2);
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
   const readerRef = useRef(null);
@@ -268,6 +269,20 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         readerRef.current.cancel();
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 640) { // sm breakpoint
+        setTextareaRows(5);
+      } else {
+        setTextareaRows(2);
+      }
+    };
+
+    handleResize(); // Set initial value
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // When a streaming agent message completes, append it to messages and clear the stream buffer
@@ -1525,9 +1540,8 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
-
       {/* Chat messages area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-4 max-w-3xl w-full mx-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-6 py-3 sm:py-4 max-w-3xl w-full mx-auto">
         <div className="flex flex-col gap-3">
           {loading ? (
             <div className="flex justify-center items-center h-32">
@@ -1573,11 +1587,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                         )}
                       </div>
 
-                      <div
-                        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
+                    <div
+                      className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm border ${
                           msg.role === "user"
-                            ? "bg-gray-200 text-black dark:bg-gray-700 dark:text-white rounded-tr-none"
-                            : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+                            ? "bg-white/90 dark:bg-zinc-700/80 text-zinc-900 dark:text-zinc-50 border-zinc-200 dark:border-zinc-700 rounded-tr-none"
+                            : "bg-zinc-50/90 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700 rounded-tl-none"
                         }`}
                       >
                         <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
@@ -1659,9 +1673,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                           )}
                         </div>
                         <div
-                          className={`text-xs mt-2 flex items-center justify-between ${
+                          className={`text-[11px] mt-2 flex items-center justify-between ${
                             msg.role === "user"
-                              ? "text-gray-400 dark:text-gray-500"
+                              ? "text-gray-500 dark:text-gray-400"
                               : "text-zinc-500 dark:text-zinc-400"
                           }`}
                         >
@@ -1675,8 +1689,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                             {editingMessageId !== msg.id && !streamingMessage && (
                               <button
                                 onClick={() => handleEditMessage(msg.id, msg.content)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1 hover:bg-gray-100 dark:hover:bg-zinc-700 rounded border border-transparent hover:border-zinc-200 dark:hover:border-zinc-600"
                                 title="Edit message"
+                                aria-label="Edit message"
                               >
                                 <Edit2 className="h-3 w-3" />
                               </button>
@@ -1715,63 +1730,25 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   </div>
 
                   <div 
-                    className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-none"
+                    className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm border bg-zinc-50/90 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 rounded-tl-none border-zinc-200 dark:border-zinc-700"
                     data-state={streamingMessage.isComplete ? "complete" : "streaming"}
                   >
                     <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
-                    {/* Display Plan Steps if in Agent Mode and plan exists */}
-                    {useBasicAgent && currentPlan && currentPlan.length > 0 && (
-                      <div className="mb-2 p-2 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/30">
-                        <h4 className="font-semibold text-xs mb-1 text-blue-700 dark:text-blue-300">Execution Plan:</h4>
-                        <ol className="list-decimal list-inside text-xs text-blue-600 dark:text-blue-400 space-y-0.5">
-                          {currentPlan.map((step, index) => {
-                          // Determine if this step is completed, errored, or in progress
-                          const isCompleted = currentTasks.some(
-                            task => task.id === step.id && task.status === 'completed'
-                          );
-                          const isErrored = currentTasks.some(
-                            task => task.id === step.id && task.status === 'error'
-                          );
-                          const isInProgress = currentTasks.some(
-                            task => task.id === step.id && task.status === 'in_progress'
-                          );
-
-                          let stepStyle = {};
-                          let statusIndicator = "";
-
-                          if (isCompleted) {
-                            stepStyle = { textDecoration: 'line-through', color: 'rgb(107 114 128)' }; // gray-500
-                            statusIndicator = "✅";
-                          } else if (isErrored) {
-                            stepStyle = { color: 'rgb(239 68 68)' }; // red-500
-                            statusIndicator = "❌";
-                          } else if (isInProgress) {
-                            // No specific style for in-progress, just the indicator
-                            statusIndicator = "⏳";
-                          } else {
-                            // Default, not yet started or status unknown
-                            statusIndicator = "▫️"; // or some other placeholder
-                          }
-
-                          return (
-                            <li key={index} style={stepStyle} className="mb-0.5">
-                              <span className="mr-1">{statusIndicator}</span>
-                              <span><strong>{step.toolName}:</strong> {step.content}</span>
-                            </li>
-                          );
-                        })}
-                        </ol>
-                      </div>
-                    )}
-
                       <MarkdownRenderer isAgent={true}>
                         {streamingMessage.content || ""}
                       </MarkdownRenderer>
                       {streamingMessage.isStreaming && !streamingMessage.isError && (
-                        <span className="inline-block ml-1 w-2 h-4 bg-current animate-pulse" />
+                        <span className="inline-flex items-center text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          <span className="inline-flex">
+                            <span className="animate-pulse">•</span>
+                            <span className="animate-pulse ml-0.5 delay-150">•</span>
+                            <span className="animate-pulse ml-0.5 delay-300">•</span>
+                          </span>
+                        </span>
                       )}
                     </div>
-                    <div className="text-xs mt-2 flex items-center justify-end gap-2 text-zinc-500 dark:text-zinc-400">
+                    <div className="text-[11px] mt-2 flex items-center justify-end gap-2 text-zinc-500 dark:text-zinc-400">
                       {streamingMessage.isStreaming && !streamingMessage.isError && (
                         <span className="flex items-center">
                           <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -1794,7 +1771,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       </div>
 
       {/* Input area + Suggestions, fixed at the bottom */}
-      <div className="sticky bottom-0 w-full bg-zinc-50 dark:bg-zinc-900 py-3 border-t border-zinc-200 dark:border-zinc-700 z-10">
+      <div className="sticky bottom-0 w-full bg-gradient-to-t from-zinc-50/95 to-zinc-50/90 dark:from-zinc-900/95 dark:to-zinc-900/90 py-3 border-t border-zinc-200 dark:border-zinc-700 z-10 backdrop-blur">
         {/* Suggestions Area */}
         {((taskMarkdown && taskMarkdown.markdown && 
                 String(taskMarkdown.conversation_id) === String(activeConv || convId)) || 
@@ -1813,15 +1790,15 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         {suggestions && suggestions.length > 0 && !isSending && (
           <div className="max-w-3xl w-full mx-auto px-4 mb-2 flex flex-wrap gap-2 justify-center sm:justify-start">
             {suggestions.map((suggestion, index) => (
-              <Button
-                outline
+              <button
                 key={index}
-                size="sm"
-                className="py-1 px-2.5 h-auto dark:bg-zinc-700 dark:hover:bg-zinc-600 border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 text-zinc-100 dark:text-zinc-200 rounded-lg text-xs cursor-alias"
+                type="button"
+                className="px-2.5 py-1 text-xs rounded-full border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                 onClick={() => handleSuggestionClick(suggestion)}
+                aria-label={`Send suggestion: ${suggestion}`}
               >
                 {suggestion}
-              </Button>
+              </button>
             ))}
           </div>
         )}
@@ -1911,95 +1888,75 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
         {/* Input Form */}
         <form
-          className="flex max-w-5xl w-full mx-auto gap-2 items-center"
+          className="flex max-w-3xl w-full mx-auto gap-2 items-center"
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
           }}
         >
-          <Button
-        type="button"
-        plain
-        onClick={imageAttachment || showImageUrlInput ? toggleImageUrlInput : handleImageUploadClick}
-        className="h-9 w-9 rounded-full"
-        title={imageAttachment ? "Add from URL instead" : "Add image"}
-      >
-        <ImageIcon />
-      </Button>
-      <Button
-        type="button"
-        plain
-        onClick={handleFileUploadClick}
-        className="h-9 w-9 rounded-full"
-        title="Add file (PDF, CSV, Excel, Text)"
-      >
-        <FileIcon />
-      </Button>
-      <input
-              type="file"
-              ref={imageInputRef}
-              accept="image/*"
-              onChange={(e) => handleImageAttachment(e.target.files[0])}
-              className="hidden"
+          <div className="flex flex-col gap-2 p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/70 shadow-sm w-full">
+            <Textarea
+              ref={inputRef}
+              value={input}
+              rows={textareaRows}
+              autoCorrect="off"
+              autoComplete="new-password"
+              spellCheck={true}
+              onChange={(e) => {
+                setInput(e.target.value);
+                if (e.target.value.trim() !== "" && suggestions.length > 0) {
+                  setSuggestions([]);
+                }
+              }}
+              placeholder={
+                streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
+                  ? "Agent is processing... Type to queue a message"
+                  : "Type a message..."
+              }
+              onKeyDown={(e) => {
+                // Cmd/Ctrl + Enter to send
+                const isMac = navigator.platform.toUpperCase().includes('MAC');
+                const cmdEnter = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'Enter';
+                if (cmdEnter) {
+                  e.preventDefault();
+                  handleSend();
+                  return;
+                }
+                // Enter sends, Shift+Enter inserts newline
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              className="w-full resize-none bg-transparent border-none focus:ring-0 p-2"
             />
-      <input
-              type="file"
-              ref={fileInputRef}
-              accept=".pdf,.csv,.xlsx,.xls,.txt,.md,.markdown,.log"
-              onChange={(e) => handleFileAttachment(e.target.files[0])}
-              className="hidden"
-            />
-          <Textarea
-            ref={inputRef}
-            value={input}
-            rows={3}
-            autoCorrect="off"
-            autoComplete="new-password"
-            spellCheck={true}
-            onChange={(e) => {
-              setInput(e.target.value);
-              if (e.target.value.trim() !== "" && suggestions.length > 0) {
-                setSuggestions([]);
-              }
-            }}
-            placeholder={
-              streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
-                ? "Agent is processing... Type to queue a message"
-                : "Type a message..."
-            }
-            onKeyDown={(e) => {
-              // Cmd/Ctrl + Enter to send
-              const isMac = navigator.platform.toUpperCase().includes('MAC');
-              const cmdEnter = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'Enter';
-              if (cmdEnter) {
-                e.preventDefault();
-                handleSend();
-                return;
-              }
-              // Enter sends, Shift+Enter inserts newline
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          <div className="flex flex-col gap-2">
-
-
-            {isSending ? (
-              <Button
-                type="button"
-                onClick={handleInterrupt}
-                className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto bg-red-500 hover:bg-red-600 text-white"
-              >
-                <Square className="h-4 w-4" />
-                <span className="ml-2">Stop</span>
-              </Button>
-            ) : (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  plain
+                  onClick={imageAttachment || showImageUrlInput ? toggleImageUrlInput : handleImageUploadClick}
+                  className="h-9 w-9 rounded-full"
+                  title={imageAttachment ? "Add from URL instead" : "Add image"}
+                  aria-label={imageAttachment ? "Use URL instead" : "Attach image"}
+                >
+                  <ImageIcon />
+                </Button>
+                <Button
+                  type="button"
+                  plain
+                  onClick={handleFileUploadClick}
+                  className="h-9 w-9 rounded-full"
+                  title="Add file (PDF, CSV, Excel, Text)"
+                  aria-label="Attach file"
+                >
+                  <FileIcon />
+                </Button>
+              </div>
               <Button
                 type="submit"
-                className="h-[44px] px-3.5 py-2 min-w-[44px] sm:min-w-[80px] flex items-center justify-center self-center my-auto"
-                disabled={!input.trim() && !imageAttachment && !fileAttachment}
+                className="h-9 px-3.5 py-2 flex items-center justify-center self-center my-auto"
+                disabled={(!input.trim() && !imageAttachment && !fileAttachment) || isSending}
               >
                 <Send className="h-5 w-5" />
                 <span className="ml-2 hidden sm:inline">
@@ -2008,7 +1965,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     : "Send"}
                 </span>
               </Button>
-            )}
+            </div>
           </div>
         </form>
       </div>

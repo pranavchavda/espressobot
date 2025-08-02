@@ -241,7 +241,7 @@ export async function enhanceContext(existingContext, additionalQueries) {
       // Search in memories
       const results = await memoryOperations.search(
         query,
-        existingContext.userId,
+        existingContext.userId || 'user_1',
         3
       );
       

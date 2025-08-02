@@ -68,3 +68,9 @@ server/data/
 TODO-*.mdscripts/sqlite-export.json
 *.env.backup
 scripts/*-export.json
+
+# Database backups
+backups/
+*.sql
+*.sql.gz
+*.dump

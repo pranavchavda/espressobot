@@ -8,21 +8,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model agent_configs {
+  id            Int       @id @default(autoincrement())
+  agent_name    String    @unique @db.VarChar(255)
+  agent_type    String    @db.VarChar(100)
+  model_slug    String    @default("openrouter/horizon-alpha") @db.VarChar(255)
+  system_prompt String?
+  description   String?
+  is_active     Boolean?  @default(true)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([is_active], map: "idx_agent_configs_active")
+  @@index([agent_name], map: "idx_agent_configs_name")
+  @@index([agent_type], map: "idx_agent_configs_type")
+}
+
 model agent_runs {
   id            Int           @id @default(autoincrement())
   conv_id       Int
   tasks         String
   created_at    DateTime      @default(now())
-  updated_at    DateTime      @updatedAt @default(now())
+  updated_at    DateTime      @default(now())
   conversations conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
 }
 
 model alembic_version {
-  version_num String @id @default(cuid())
+  version_num String @id
 }
 
 model competitor_products {
-  id               String            @id @default(cuid())
+  id               String            @id
   external_id      String
   competitor_id    String
   title            String
@@ -40,7 +56,7 @@ model competitor_products {
   embedding        String?
   scraped_at       DateTime          @default(now())
   created_at       DateTime          @default(now())
-  updated_at       DateTime          @updatedAt @default(now())
+  updated_at       DateTime          @default(now())
   competitors      competitors       @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
   price_history    price_history[]
   product_matches  product_matches[]
@@ -53,7 +69,7 @@ model competitor_products {
 }
 
 model competitors {
-  id                  String                @id @default(cuid())
+  id                  String                @id
   name                String
   domain              String                @unique
   collections         String[]
@@ -83,7 +99,7 @@ model conversation_summaries {
   end_msg_index   Int
   chunk_number    Int
   created_at      DateTime      @default(now())
-  updated_at      DateTime      @updatedAt @default(now())
+  updated_at      DateTime      @default(now())
   conversations   conversations @relation(fields: [conv_id], references: [id], onDelete: NoAction)
 
   @@index([conv_id, chunk_number])
@@ -116,7 +132,7 @@ model embedding_cache {
 }
 
 model idc_products {
-  id                 String            @id @default(cuid())
+  id                 String            @id
   shopify_id         String            @unique
   title              String
   vendor             String
@@ -145,7 +161,7 @@ model idc_products {
 }
 
 model memories {
-  id         String   @id @default(cuid())
+  id         String   @id
   user_id    String
   content    String
   embedding  Bytes?
@@ -171,7 +187,7 @@ model messages {
 }
 
 model monitored_brands {
-  id           String         @id @default(cuid())
+  id           String         @id
   brand_name   String         @unique
   is_active    Boolean        @default(true)
   created_at   DateTime       @default(now())
@@ -182,7 +198,7 @@ model monitored_brands {
 }
 
 model monitored_collections {
-  id              String   @id @default(cuid())
+  id              String   @id
   collection_name String   @unique
   is_active       Boolean  @default(true)
   created_at      DateTime @default(now())
@@ -192,7 +208,7 @@ model monitored_collections {
 }
 
 model price_alerts {
-  id               String          @id @default(cuid())
+  id               String          @id
   product_match_id String
   alert_type       String
   title            String
@@ -204,7 +220,7 @@ model price_alerts {
   status           String          @default("unread")
   is_read          Boolean         @default(false)
   created_at       DateTime        @default(now())
-  updated_at       DateTime          @updatedAt @default(now())
+  updated_at       DateTime        @default(now())
   product_matches  product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
 
   @@index([alert_type])
@@ -214,20 +230,20 @@ model price_alerts {
 }
 
 model price_history {
-  id                    String              @id @default(cuid())
+  id                    String              @id
   competitor_product_id String
   price                 Decimal             @db.Decimal(10, 2)
   compare_at_price      Decimal?            @db.Decimal(10, 2)
   available             Boolean             @default(true)
   recorded_at           DateTime            @default(now())
-  updated_at            DateTime            @updatedAt @default(now())
+  updated_at            DateTime            @default(now())
   competitor_products   competitor_products @relation(fields: [competitor_product_id], references: [id], onDelete: Cascade)
 
   @@index([competitor_product_id, recorded_at])
 }
 
 model product_matches {
-  id                       String              @id @default(cuid())
+  id                       String              @id
   idc_product_id           String
   competitor_product_id    String
   overall_score            Float
@@ -260,7 +276,7 @@ model product_matches {
 }
 
 model scrape_jobs {
-  id               String      @id @default(cuid())
+  id               String      @id
   competitor_id    String
   status           String      @default("pending")
   collections      String[]
@@ -272,7 +288,7 @@ model scrape_jobs {
   completed_at     DateTime?
   duration_seconds Int?
   created_at       DateTime    @default(now())
-  updated_at       DateTime    @updatedAt @default(now())
+  updated_at       DateTime    @default(now())
   competitors      competitors @relation(fields: [competitor_id], references: [id], onDelete: Cascade)
 
   @@index([competitor_id])
@@ -280,14 +296,72 @@ model scrape_jobs {
   @@index([status])
 }
 
+model task_conversations {
+  id          String   @id
+  title       String?
+  description String?
+  agent_id    String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+  status      String   @default("active")
+  metadata    String?
+  tasks       tasks[]
+
+  @@index([agent_id])
+  @@index([status])
+}
+
+model task_dependencies {
+  id                                                Int      @id @default(autoincrement())
+  task_id                                           Int
+  depends_on_task_id                                Int
+  dependency_type                                   String   @default("blocks")
+  created_at                                        DateTime @default(now())
+  tasks_task_dependencies_depends_on_task_idTotasks tasks    @relation("task_dependencies_depends_on_task_idTotasks", fields: [depends_on_task_id], references: [id], onDelete: Cascade)
+  tasks_task_dependencies_task_idTotasks            tasks    @relation("task_dependencies_task_idTotasks", fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([depends_on_task_id])
+  @@index([task_id])
+}
+
+model tasks {
+  id                                                            Int                 @id @default(autoincrement())
+  title                                                         String
+  description                                                   String?
+  status                                                        String              @default("pending")
+  priority                                                      Int                 @default(3)
+  category                                                      String?
+  tags                                                          String?
+  created_at                                                    DateTime            @default(now())
+  updated_at                                                    DateTime            @default(now())
+  due_date                                                      DateTime?
+  completed_at                                                  DateTime?
+  conversation_id                                               String?
+  agent_id                                                      String?
+  parent_task_id                                                Int?
+  metadata                                                      String?
+  task_dependencies_task_dependencies_depends_on_task_idTotasks task_dependencies[] @relation("task_dependencies_depends_on_task_idTotasks")
+  task_dependencies_task_dependencies_task_idTotasks            task_dependencies[] @relation("task_dependencies_task_idTotasks")
+  task_conversations                                            task_conversations? @relation(fields: [conversation_id], references: [id])
+  tasks                                                         tasks?              @relation("tasksTotasks", fields: [parent_task_id], references: [id], onDelete: NoAction)
+  other_tasks                                                   tasks[]             @relation("tasksTotasks")
+
+  @@index([agent_id])
+  @@index([category])
+  @@index([conversation_id])
+  @@index([parent_task_id])
+  @@index([priority])
+  @@index([status])
+}
+
 model tool_result_cache {
-  id            String   @id @default(cuid())
+  id            String   @id
   tool_name     String
   input_hash    String   @unique
   result        String
   created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt @default(now())
   last_accessed DateTime @default(now())
+  updated_at    DateTime @default(now())
 
   @@index([created_at])
   @@index([tool_name])
@@ -339,7 +413,7 @@ model users {
 }
 
 model violation_history {
-  id                String          @id @default(cuid())
+  id                String          @id
   product_match_id  String
   violation_type    String
   competitor_price  Decimal         @db.Decimal(10, 2)
@@ -352,78 +426,10 @@ model violation_history {
   competitor_url    String?
   notes             String?
   detected_at       DateTime        @default(now())
-  updated_at        DateTime        @updatedAt @default(now())
+  updated_at        DateTime        @default(now())
   product_matches   product_matches @relation(fields: [product_match_id], references: [id], onDelete: Cascade)
 
   @@index([detected_at])
   @@index([product_match_id])
   @@index([violation_type])
-}
-
-model tasks {
-  id               Int                @id @default(autoincrement())
-  title            String
-  description      String?
-  status           String             @default("pending")
-  priority         Int                @default(3)
-  category         String?
-  tags             String?
-  created_at       DateTime           @default(now())
-  updated_at       DateTime           @updatedAt @default(now())
-  due_date         DateTime?
-  completed_at     DateTime?
-  conversation_id  String?
-  agent_id         String?
-  parent_task_id   Int?
-  metadata         String?
-  
-  // Self-referential relationship for parent tasks
-  parent_task      tasks?             @relation("TaskHierarchy", fields: [parent_task_id], references: [id], onDelete: NoAction)
-  child_tasks      tasks[]            @relation("TaskHierarchy")
-  
-  // Task dependencies
-  dependencies     task_dependencies[] @relation("TaskDependencies")
-  dependents       task_dependencies[] @relation("DependentTasks")
-  
-  // Relationship to conversations
-  conversations    task_conversations? @relation(fields: [conversation_id], references: [id])
-
-  @@index([status])
-  @@index([priority])
-  @@index([category])
-  @@index([conversation_id])
-  @@index([agent_id])
-  @@index([parent_task_id])
-}
-
-model task_conversations {
-  id          String   @id @default(cuid())
-  title       String?
-  description String?
-  agent_id    String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt @default(now())
-  status      String   @default("active")
-  metadata    String?
-  
-  // Relationship to tasks
-  tasks       tasks[]
-
-  @@index([agent_id])
-  @@index([status])
-}
-
-model task_dependencies {
-  id                 Int      @id @default(autoincrement())
-  task_id            Int
-  depends_on_task_id Int
-  dependency_type    String   @default("blocks")
-  created_at         DateTime @default(now())
-  
-  // Relationships
-  task               tasks    @relation("TaskDependencies", fields: [task_id], references: [id], onDelete: Cascade)
-  depends_on_task    tasks    @relation("DependentTasks", fields: [depends_on_task_id], references: [id], onDelete: Cascade)
-
-  @@index([task_id])
-  @@index([depends_on_task_id])
 }

@@ -120,6 +120,7 @@ router.post('/scan-violations', async (req, res) => {
         const impact = detector.calculateFinancialImpact(mapPrice, competitorPrice);
         
         const violationData = {
+          id: `${match.id}_map_${Date.now()}`, // Composite ID: match_id + type + timestamp
           product_match_id: match.id,
           alert_type: 'map_violation',
           title: `MAP Violation: ${competitor_products.title}`,
@@ -131,6 +132,9 @@ router.post('/scan-violations', async (req, res) => {
           status: 'unread',
           updated_at: new Date()
         };
+
+        // Debug logging
+        console.log('[MAP Violation] Creating alert with data:', JSON.stringify(violationData, null, 2));
 
         // Create alert if requested and not in dry run
         if (create_alerts && !dry_run) {

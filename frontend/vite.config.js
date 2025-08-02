@@ -216,6 +216,10 @@ export default defineConfig({
         const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
         apiApp.use('/api/price-monitor', priceMonitorRoutes);
         
+        // Agent management routes
+        const agentManagementRoutes = (await import('./server/api/agent-management.js')).default;
+        apiApp.use('/api/agent-management', agentManagementRoutes);
+        
         // Add aggressive cache-busting middleware before API routes
         server.middlewares.use((req, res, next) => {
           // Check if it's a hard refresh (Ctrl+Shift+R or Ctrl+F5)

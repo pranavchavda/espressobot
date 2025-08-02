@@ -5,6 +5,7 @@ import settingsRouter from './settings.js';
 import shopifySyncRouter from './shopify-sync.js';
 import scrapingEngineRouter from './scraping-engine.js';
 import productMatchingRouter from './product-matching.js';
+import intelligentMatchingRouter from './intelligent-matching.js';
 import mapViolationsRouter from './map-violations.js';
 import alertsRouter from './alerts.js';
 
@@ -17,6 +18,7 @@ router.use('/settings', settingsRouter);
 router.use('/shopify-sync', shopifySyncRouter);
 router.use('/scraping', scrapingEngineRouter);
 router.use('/product-matching', productMatchingRouter);
+router.use('/intelligent-matching', intelligentMatchingRouter);
 router.use('/map-violations', mapViolationsRouter);
 router.use('/alerts', alertsRouter);
 

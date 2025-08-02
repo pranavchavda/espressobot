@@ -13,6 +13,7 @@ import PromptLibraryManager from './features/prompt-library/PromptLibraryManager
 import DashboardPage from './pages/DashboardPage';
 import HomePage from './pages/HomePage';
 import PriceMonitorLayout from './pages/price-monitor/PriceMonitorLayout';
+import AgentManagementPage from './pages/AgentManagementPage';
 import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { Loader2Icon, MessageSquarePlusIcon, XIcon, LineChartIcon, FileTextIcon } from 'lucide-react';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
@@ -22,6 +23,7 @@ import TopNavDropdown from './components/common/TopNavDropdown';
 import TopBar from './components/common/TopBar';
 import LogDrawer from './components/LogDrawer';
 import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
+import SidebarNav from './components/common/SidebarNav';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
 
@@ -38,6 +40,9 @@ function App() {
   const [showScratchpadDialog, setShowScratchpadDialog] = useState(false);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [convSearch, setConvSearch] = useState('');
+  // Sidebar UI state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   
   // Ensure selectedChat is null when at root path
   useEffect(() => {
@@ -271,7 +276,8 @@ function App() {
               user={user}
               onLogout={handleLogout}
               onToggleLogs={() => setShowLogDrawer(prev => !prev)}
-              // Search and theme toggle temporarily disabled per request
+              // Add a hamburger action on small screens by reusing onToggleLogs slot if TopBar supports extra controls.
+              // If TopBar exposes a prop like onToggleSidebar, wire it; otherwise sidebar remains always visible on desktop.
               onGlobalSearch={undefined}
               onToggleTheme={undefined}
               isDark={isDark}
@@ -294,122 +300,28 @@ function App() {
           //   </div>
           // }
           sidebar={
-            <div className="flex flex-col h-[93vh] sm:h-full">
-
-              <nav className="flex-1 overflow-y-auto">
-                <div className="flex space-x-2 my-4">
-                <TopNavDropdown user={user} onLogout={handleLogout} 
-                  className="w-full cursor-pointer mb-2"
-                />
-              </div>
-
-              {/* Conversation search removed per request */}
-
-              <div className="flex space-x-2 mb-6">
-                <Button 
-                  className="flex-1 cursor-pointer"
-                  color="steel-blue"
-                  outline
-                  onClick={() => {
-                    setSelectedChat(null);
-                    navigate('/');
-                  }}
-                  title="New chat"
-                >
-                  <MessageSquarePlusIcon className="h-4 w-4" />
-                </Button>
-                
-                <Button 
-                  className="flex-1 cursor-pointer"
-                  color="steel-blue"
-                  outline
-                  onClick={() => setShowScratchpadDialog(true)}
-                  title="Scratchpad"
-                >
-                  <FileTextIcon className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {loading ? (
-                  <div className="flex flex-col items-center justify-center py-2">
-                    <Loader2Icon className="animate-spin h-16 w-16 text-zinc-400" />
-                  </div>
-                ) : (
-                  <>
-
-                  <ul className="flex flex-col max-h-[70vh] overflow-y-auto h-[70vh]">
-                    {filteredConversations.map((chat) => (
-                      <li key={chat.id} className="group relative pr-4">                        
-                      
-                      <Button
-                          outline
-                          className="absolute top-1/2 right-1 transform -translate-y-1/2 p-1 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-xs"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDeleteConversation(chat.id);
-                          }}
-                          aria-label="Delete conversation"
-                        >
-                          <XIcon className="h-4 w-4 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200" />
-                        </Button>
-                        <Link 
-                          to="/chat"
-                          className={`block w-full text-left px-3 py-2 shadow-sm rounded-lg transition-colors border ${
-                            selectedChat === chat.id 
-                              ? "bg-zinc-200 dark:bg-zinc-800 font-semibold border-zinc-300 dark:border-zinc-700"
-                              : "hover:bg-zinc-100 dark:hover:bg-zinc-800 border-transparent"
-                          }`}
-                          onClick={() => setSelectedChat(chat.id)}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate">
-                                {chat.topic_title ? (
-                                  <span>{chat.topic_title}</span>
-                                ) : (
-                                  <span style={{opacity: 0.8}}>{chat.title}</span>
-                                )}
-                              </div>
-                              {chat.last_message_preview && (
-                                <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-                                  {chat.last_message_preview}
-                                </div>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-zinc-500 whitespace-nowrap ml-2">
-                              {chat.created_at
-                                ? new Date(chat.created_at).toLocaleString()
-                                : ""}
-                            </div>
-                          </div>
-                        </Link>
-
-                      </li>
-                    ))}
-
-                    {filteredConversations.length === 0 && !loading && (
-                      <li className="text-zinc-400 px-4 py-2">No conversations match your search</li>
-                    )}
-                  </ul>
-                  </>
-                )}
-              <Divider
-              soft = "true"
-              />
-              
-              <Link to="/price-monitor" className="group flex w-full items-center gap-x-2.5 rounded-lg p-2.5 data-[focus]:bg-zinc-100 dark:data-[focus]:bg-zinc-800">
-                <LineChartIcon className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
-                <span className="text-zinc-700 dark:text-zinc-300">Price Monitor</span>
-              </Link>
-              <Divider
-              soft = "true"
-              
-              />
-              
-            </nav>
-
-            </div>
+            <SidebarNav
+              user={user}
+              onLogout={handleLogout}
+              conversations={filteredConversations}
+              selectedChat={selectedChat}
+              loading={loading}
+              onSelectConversation={(id) => {
+                setSelectedChat(id);
+                navigate("/chat");
+              }}
+              onDeleteConversation={handleDeleteConversation}
+              onNewChat={() => {
+                setSelectedChat(null);
+                navigate("/");
+              }}
+              onOpenScratchpad={() => setShowScratchpadDialog(true)}
+              isDark={isDark}
+              onToggleTheme={toggleTheme}
+              collapsible={true}
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={() => setSidebarCollapsed(prev => !prev)}
+            />
           }
         >
           <div className="flex flex-col h-[86vh]">
@@ -448,6 +360,7 @@ function App() {
             </Button>
           </div>
         } />
+        <Route path="/agent-management" element={<AgentManagementPage />} />
       </Route>
     </Routes>
         </>

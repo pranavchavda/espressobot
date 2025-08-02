@@ -23,6 +23,8 @@ import { executeGA4Task } from '../agents/ga4-analytics-agent.js';
 import { executeOrdersTask } from '../agents/shopify-orders-agent.js';
 import { executeGraphQLTaskWithHandoffs } from '../agents/graphql-documentation-handoff.js';
 import { executePriceMonitorTask } from '../agents/price-monitor-agent.js';
+import { intelligentMatchingTool } from './intelligent-matching-tool.js';
+import { intelligentMatchingSubAgentTool } from './intelligent-matching-subagent-tool.js';
 
 /**
  * Products Agent - Basic product operations only
@@ -613,7 +615,9 @@ export function createAllDirectMCPAgentTools() {
     createSmartMCPExecuteTool(),
     createShopifyOrdersAgentTool(),
     createGA4AnalyticsAgentTool(),
-    createPriceMonitorAgentTool()
+    createPriceMonitorAgentTool(),
+    intelligentMatchingTool,  // Direct export, not a factory function
+    intelligentMatchingSubAgentTool  // Claude sub-agent version
   ];
 }
 
@@ -685,3 +689,6 @@ export function createPriceMonitorAgentTool() {
     }
   });
 }
+
+// Export the intelligent matching tools directly
+export { intelligentMatchingTool, intelligentMatchingSubAgentTool };

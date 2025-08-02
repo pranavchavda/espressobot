@@ -355,6 +355,7 @@ router.post('/auto-match', async (req, res) => {
           console.log(`✅ Creating match: "${idcProduct.title}" → "${bestMatch.competitor_product.title}" (${(bestMatch.similarity.overall_score * 100).toFixed(1)}%)`);
 
           const matchData = {
+            id: `${idcProduct.id}_${bestMatch.competitor_product.id}`, // Composite ID
             idc_product_id: idcProduct.id,
             competitor_product_id: bestMatch.competitor_product.id,
             overall_score: bestMatch.similarity.overall_score,
@@ -426,6 +427,72 @@ function meetsMinConfidence(level, minLevel) {
   return levels[level] >= levels[minLevel];
 }
 
+// Create perfect manual match with override options
+router.post('/perfect-match', async (req, res) => {
+  try {
+    const { idc_product_id, competitor_product_id } = req.body;
+
+    if (!idc_product_id || !competitor_product_id) {
+      return res.status(400).json({ 
+        error: 'Both idc_product_id and competitor_product_id are required' 
+      });
+    }
+
+    // Get products
+    const [idcProduct, competitorProduct] = await Promise.all([
+      withRetry(async (client) => client.idc_products.findUnique({ where: { id: idc_product_id } })),
+      withRetry(async (client) => client.competitor_products.findUnique({ where: { id: competitor_product_id } }))
+    ]);
+
+    if (!idcProduct || !competitorProduct) {
+      return res.status(404).json({ error: 'One or both products not found' });
+    }
+
+    // Create perfect match with 100% scores
+    const matchData = {
+      id: `${idc_product_id}_${competitor_product_id}`,
+      idc_product_id,
+      competitor_product_id,
+      overall_score: 1.0, // Perfect match
+      embedding_similarity: 1.0,
+      title_similarity: 1.0,
+      brand_similarity: 1.0,
+      price_similarity: 1.0,
+      confidence_level: 'high',
+      is_manual_match: true,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    const match = await withRetry(async (client) => {
+      return await client.product_matches.upsert({
+        where: {
+          idc_product_id_competitor_product_id: {
+            idc_product_id,
+            competitor_product_id
+          }
+        },
+        create: matchData,
+        update: {
+          ...matchData,
+          updated_at: new Date()
+        }
+      });
+    });
+
+    res.json({
+      message: 'Perfect manual match created successfully',
+      match,
+      idc_product: idcProduct,
+      competitor_product: competitorProduct
+    });
+
+  } catch (error) {
+    console.error('Error creating perfect manual match:', error);
+    res.status(500).json({ error: 'Failed to create perfect manual match' });
+  }
+});
+
 // Manual product matching
 router.post('/manual-match', async (req, res) => {
   try {
@@ -453,6 +520,7 @@ router.post('/manual-match', async (req, res) => {
 
     // Create manual match
     const matchData = {
+      id: `${idc_product_id}_${competitor_product_id}`, // Composite ID
       idc_product_id,
       competitor_product_id,
       overall_score: similarity.overall_score,
@@ -600,12 +668,29 @@ router.delete('/matches/:matchId', async (req, res) => {
 // Clear all product matches
 router.post('/clear-all-matches', async (req, res) => {
   try {
-    const result = await prisma.product_matches.deleteMany({});
-    console.log(`🗑️  Cleared ${result.count} existing product matches`);
+    const { include_manual = false } = req.body;
+    
+    // By default, only clear automated matches
+    const whereClause = include_manual ? {} : { is_manual_match: false };
+    
+    // First, count manual matches that will be preserved
+    const manualMatchCount = include_manual ? 0 : await prisma.product_matches.count({
+      where: { is_manual_match: true }
+    });
+    
+    const result = await prisma.product_matches.deleteMany({
+      where: whereClause
+    });
+    
+    console.log(`🗑️  Cleared ${result.count} ${include_manual ? 'all' : 'automated'} product matches`);
+    if (manualMatchCount > 0) {
+      console.log(`✅ Preserved ${manualMatchCount} manual matches`);
+    }
     
     res.json({ 
-      message: `Cleared ${result.count} existing product matches`,
-      cleared_count: result.count
+      message: `Cleared ${result.count} ${include_manual ? 'all' : 'automated'} product matches`,
+      cleared_count: result.count,
+      preserved_manual_matches: manualMatchCount
     });
 
   } catch (error) {

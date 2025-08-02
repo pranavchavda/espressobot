@@ -165,7 +165,7 @@ class EmbeddingsService {
       const text = this.generateProductText(product);
       
       if (!text.trim()) {
-        console.warn('Empty text for embedding generation:', product.id);
+        console.warn('Empty text for embedding generation:', product.id || product.shopify_id || 'unknown');
         return null;
       }
 
@@ -196,7 +196,7 @@ class EmbeddingsService {
           const embedding = await this.generateEmbedding(product);
           return { product, embedding, success: true };
         } catch (error) {
-          console.error(`Failed to generate embedding for product ${product.id}:`, error);
+          console.error(`Failed to generate embedding for product ${product.id || product.shopify_id || 'unknown'}:`, error);
           return { product, embedding: null, success: false, error: error.message };
         }
       });

@@ -59,7 +59,9 @@ import {
   createGA4AnalyticsAgentTool,
   createShopifyOrdersAgentTool,
   createGraphQLAgentTool,
-  createPriceMonitorAgentTool
+  createPriceMonitorAgentTool,
+  intelligentMatchingTool,
+  intelligentMatchingSubAgentTool
 } from './tools/direct-mcp-agent-tools.js';
 import { createInjectContextTool, createManageInjectionTool } from './tools/inject-context-tool.js';
 import { messageInjector } from './utils/agent-message-injector.js';
@@ -962,7 +964,8 @@ async function buildOrchestratorTools() {
     productsAgent, pricingAgent, inventoryAgent, salesAgent, 
     featuresAgent, mediaAgent, integrationsAgent, productManagementAgent,
     utilityAgent, documentationAgent, externalMCPAgent, smartMCPExecute,
-    googleWorkspaceAgent, ga4AnalyticsAgent, shopifyOrdersAgent, priceMonitorAgent
+    googleWorkspaceAgent, ga4AnalyticsAgent, shopifyOrdersAgent, priceMonitorAgent,
+    intelligentMatchingTool, intelligentMatchingSubAgentTool
   };
   
   for (const [name, tool] of Object.entries(tools)) {
@@ -1016,42 +1019,72 @@ const bulkOperationState = {
  * LLM-powered input chokidar to detect bulk operations intelligently
  */
 const bulkOperationInputChokidar = new Agent({
-  name: 'Bulk Operation Chokidar',
+  name: 'Multi-Step Task Detector',
   model: 'o4-mini',
-  instructions: `You are an intelligent chokidar (guard) agent... Your specific role is to detect bulk operations vs simple, finite tasks.
+  instructions: `You are an intelligent task complexity detector. Your role is to identify tasks that require AUTONOMOUS MULTI-STEP EXECUTION vs simple single-action tasks.
 
-A 'bulk operation' involves an UNSPECIFIED or LARGE number of items, often requiring autonomous work.
-A 'simple task' involves a SPECIFIC and SMALL number of items (typically 5 or fewer).
+**KEY INSIGHT:** Tasks requiring the orchestrator to perform multiple sequential steps WITHOUT user intervention should be classified as bulk operations to prevent "announce and stop" behavior.
 
 ---
-**CRITICAL RULES FOR DECISION MAKING:**
+**CLASSIFICATION CRITERIA:**
 
-1.  **Count the Items:** If the user lists a specific, countable number of items (e.g., "fix these 3 SKUs", "create collections for Lemo and Mixer"), and the count is 5 or less, it is **NOT** a bulk operation.
-2.  **Identify Open-Ended Commands:** If the command refers to an open-ended category (e.g., "fix **all** broken SKUs", "update pricing for **every** product in the 'Sale' collection", "process the attached list"), it **IS** a bulk operation.
-3.  **Prioritize Specificity:** A specific list of items overrides general language. "Update these products: A, B, C" is **NOT** a bulk task, even though "products" is plural.
+1. **BULK OPERATION (Multi-Step Autonomous Work):**
+   - Tasks requiring sequential tool usage (download → process → analyze → report)
+   - Multi-step workflows even with specific items
+   - Tasks where orchestrator would naturally say "I'll do this now..." then execute multiple steps
+   - File operations requiring processing (download, analyze, convert, etc.)
+   - Tasks requiring spawning agents or external tools
+   - Continuation commands ("continue", "proceed", "keep going")
+
+2. **STANDARD OPERATION (Single-Step Tasks):**
+   - Direct information requests ("What's the weather?", "Show me the product")
+   - Simple queries that return immediate data
+   - Tasks requiring only one tool call
+   - Questions that don't require sequential processing
+
+---
+**CRITICAL: COMPLEXITY ASSESSMENT**
+
+Analyze the WORKFLOW COMPLEXITY, not just item count:
+- "Download 3 SVGs and analyze fonts" = BULK (multi-step: download → analyze → report)
+- "Show me 3 products" = STANDARD (single-step: query → return)
+- "Create collection for Lemo" = STANDARD (single-step: create)
+- "Create collection for Lemo and add 50 products" = BULK (multi-step: create → search → add)
 
 ---
 **EXAMPLES:**
 
-* **USER INPUT:** "Can you fix the price for SKU ABC-123?"
-    **YOUR OUTPUT:** { "isBulkOperation": false, "reasoning": "This is a request for a single, specific item." }
+* **USER INPUT:** "Can you download the svg and check fonts via bash agent?"
+    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "Multi-step workflow: download file → spawn bash agent → analyze fonts → report results. High likelihood of orchestrator announcing steps then stopping." }
+
+* **USER INPUT:** "Show me the price for SKU ABC-123"
+    **YOUR OUTPUT:** { "isBulkOperation": false, "reasoning": "Single-step query requiring one tool call to return data." }
 
 * **USER INPUT:** "Update the status for all products in the 'Sale' collection."
-    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "The command refers to an open-ended category ('all products')." }
+    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "Multi-step operation: search collection → iterate products → update each status. Requires autonomous execution." }
 
-* **USER INPUT:** "Create collections for 'Lemo' and 'Mixer'."
-    **YOUR OUTPUT:** { "isBulkOperation": false, "reasoning": "This is a request for two specific, named items, which is a small, finite number." }
+* **USER INPUT:** "Write a Python function to calculate Fibonacci"
+    **YOUR OUTPUT:** { "isBulkOperation": false, "reasoning": "Single-step code generation task requiring one response." }
 
-* **USER INPUT:** "Continue with the task."
-    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "Continuation commands imply an ongoing, multi-step bulk process." }
+* **USER INPUT:** "Download the report, analyze the data, and create a summary"
+    **YOUR OUTPUT:** { "isBulkOperation": true, "reasoning": "Clear multi-step workflow requiring sequential tool execution without user intervention." }
+
 ---
 
-Analyze the user's input based on these rules and examples to determine if it's a bulk operation.`,
+**DETECTION PATTERNS FOR "ANNOUNCE AND STOP":**
+Look for tasks that would naturally lead to responses like:
+- "I'll do this now: 1) First I'll... 2) Then I'll... 3) Finally I'll..."
+- Tasks requiring external tools, file processing, or agent spawning
+- Anything that can't be completed in a single tool call
+
+Analyze the user's input for workflow complexity and autonomous execution requirements.`,
   outputType: z.object({
     isBulkOperation: z.boolean(),
     expectedItems: z.number().default(0).describe('Estimated number of items to process (0 if unclear)'),
     reasoning: z.string(),
-    operationType: z.string().nullable().default(null).describe('Type of operation: create, update, fix, etc.')
+    operationType: z.string().nullable().default(null).describe('Type of operation: create, update, fix, etc.'),
+    complexityLevel: z.enum(['single-step', 'multi-step', 'complex-workflow']).describe('Task complexity level'),
+    announceAndStopLikelihood: z.enum(['low', 'medium', 'high']).describe('Likelihood of orchestrator announcing steps then stopping')
   }),
 });
 
@@ -1066,9 +1099,10 @@ const bulkOperationInputGuardrail = {
       const analysis = result.finalOutput;
       
       console.log(`[Chokidar] Analysis: ${analysis.isBulkOperation ? 'BULK' : 'STANDARD'} - ${analysis.reasoning}`);
+      console.log(`[Chokidar] Complexity: ${analysis.complexityLevel || 'unknown'}, Announce-Stop Risk: ${analysis.announceAndStopLikelihood || 'unknown'}`);
       
       if (analysis.isBulkOperation) {
-        console.log('[Chokidar] 🎯 BULK OPERATION DETECTED BY INTELLIGENT CHOKIDAR');
+        console.log('[Chokidar] 🎯 MULTI-STEP TASK DETECTED - ENABLING BULK MODE TO PREVENT ANNOUNCE-AND-STOP');
         
         // Set up bulk operation tracking
         bulkOperationState.isActive = true;
@@ -1137,13 +1171,13 @@ const bulkOperationInputGuardrail = {
         }
         
         return {
-          outputInfo: `Bulk operation detected: ${analysis.reasoning}. Expected items: ${bulkOperationState.expectedItems}`,
+          outputInfo: `Multi-step task detected (${analysis.complexityLevel}): ${analysis.reasoning}. Announce-stop risk: ${analysis.announceAndStopLikelihood}`,
           tripwireTriggered: false // Don't block input - just track the bulk operation
         };
       }
       
       return {
-        outputInfo: `Standard operation: ${analysis.reasoning}`,
+        outputInfo: `Single-step task (${analysis.complexityLevel}): ${analysis.reasoning}. Announce-stop risk: ${analysis.announceAndStopLikelihood}`,
         tripwireTriggered: false
       };
       
@@ -1428,23 +1462,29 @@ IMPORTANT: If the output contains actual data (SKUs, prices, inventory counts, e
  * Create orchestrator agent with dynamic prompt based on context
  */
 async function createOrchestratorAgent(contextualMessage, orchestratorContext, mcpTools, builtInSearchTool, guardrailApprovalTool, userProfile = null, injectContextTool = null, manageInjectionTool = null) {
-  // Get the model provider configuration
-  const modelProvider = createModelProvider();
+  // First get the model name from database or environment
   let modelName;
   
-  if (modelProvider) {
-    // Determine model name based on provider type
-    const providerType = process.env.MODEL_PROVIDER || 'openai';
-    if (providerType === 'anthropic') {
-      modelName = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
-    } else if (providerType === 'openrouter') {
-      modelName = process.env.OPENROUTER_MODEL || 'openai/gpt-4o';
+  // Try to get model from database config (like other agents)
+  try {
+    const { getAgentModel } = await import('./utils/agent-config-loader.js');
+    const dbModel = await getAgentModel('EspressoBot1');
+    if (dbModel) {
+      modelName = dbModel;
+      console.log(`[Orchestrator] Using database model for EspressoBot1: ${modelName}`);
     } else {
-      modelName = 'claude-sonnet-4-20250514'; // fallback
+      throw new Error('No database model found, using environment fallback');
     }
-  } else {
-    modelName = 'gpt-4.1';  // Back to gpt-4.1 until o3 organization verification is complete
+  } catch (error) {
+    console.log(`[Orchestrator] Database model lookup failed, using fallback: ${error.message}`);
+    
+    // Use fallback model based on agent type
+    modelName = process.env.FALLBACK_ORCHESTRATOR_MODEL || 'gpt-4.1';
+    console.log(`[Orchestrator] Using fallback model: ${modelName}`);
   }
+  
+  // Create the model provider based on environment configuration
+  const modelProvider = createModelProvider();
   // Check if we have pre-filtered context (indicating early context synthesis)
   const hasPreFilteredContext = orchestratorContext?.relevantMemories?.some(m => m.synthesized) || 
                                 orchestratorContext?.promptFragments?.some(f => f.category === 'synthesized');
@@ -1479,6 +1519,13 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
     }
   }
   
+  // Log prompt and model information
+  console.log('\n========= ORCHESTRATOR AGENT CONFIGURATION =========');
+  console.log(`[Orchestrator] Model: ${modelName}`);
+  console.log(`[Orchestrator] Instructions length: ${instructions.length} characters`);
+  console.log(`[Orchestrator] Instructions preview: ${instructions.substring(0, 200)}...`);
+  console.log('====================================================\n');
+
   const agentConfig = {
     name: 'EspressoBot1',
     model: modelName,
@@ -1773,7 +1820,10 @@ async function createOrchestratorAgent(contextualMessage, orchestratorContext, m
 
     // Add injection tools if provided
     ...(injectContextTool ? [injectContextTool] : []),
-    ...(manageInjectionTool ? [manageInjectionTool] : [])
+    ...(manageInjectionTool ? [manageInjectionTool] : []),
+    
+    // Add MCP tools
+    ...mcpToolsArray
   ]
   };
 
@@ -1809,20 +1859,23 @@ async function initializeOrchestratorTools() {
 }
 
 /**
- * Create model provider based on environment variables
+ * Create model provider based on environment configuration
+ * @param {string} modelOverride - Optional model to use instead of default
  */
-function createModelProvider() {
+function createModelProvider(modelOverride = null) {
   const modelProvider = process.env.MODEL_PROVIDER || 'openai';
   const useAISDK = process.env.USE_AI_SDK === 'true';
+  
+  console.log(`[Orchestrator] Using ${modelProvider} provider from environment configuration`);
   
   if (modelProvider === 'anthropic') {
     if (useAISDK) {
       console.log('[Orchestrator] Using AI SDK-based Anthropic model provider');
-      return createAISDKModelProvider();
+      return createAISDKModelProvider(modelOverride);
     } else {
       console.log('[Orchestrator] Using direct Anthropic model provider');
       return new AnthropicProvider({
-        modelName: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+        modelName: modelOverride || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
         apiKey: process.env.ANTHROPIC_API_KEY
       });
     }
@@ -1832,12 +1885,16 @@ function createModelProvider() {
     console.log('[Orchestrator] Using OpenRouter model provider');
     return new OpenRouterProvider({
       apiKey: process.env.OPENROUTER_API_KEY,
-      defaultModel: process.env.OPENROUTER_MODEL || 'openai/gpt-4o'
+      defaultModel: modelOverride || process.env.OPENROUTER_MODEL || 'openai/gpt-4o'
     });
   }
   
   // Default to OpenAI
   console.log('[Orchestrator] Using OpenAI model provider');
+  if (modelOverride) {
+    // Set the OpenAI model via environment variable temporarily
+    process.env.OPENAI_MODEL = modelOverride;
+  }
   return null; // OpenAI Agents SDK default
 }
 
@@ -1846,6 +1903,14 @@ function createModelProvider() {
  */
 export async function runDynamicOrchestrator(message, options = {}) {
   const { conversationId, userId, sseEmitter, taskUpdater, abortSignal, contextOverride = null } = options;
+  
+  // Ensure database connection is established before any memory operations
+  try {
+    const { ensureConnection } = await import('./config/database.js');
+    await ensureConnection();
+  } catch (dbError) {
+    console.warn('[Orchestrator] Database connection check failed:', dbError.message);
+  }
   
   // Declare operationId at function scope so it's available in catch blocks
   let operationId;
@@ -2422,7 +2487,7 @@ export async function runDynamicOrchestrator(message, options = {}) {
         }
         console.log('*** Vision response captured:', fullResponse ? fullResponse.substring(0, 100) + '...' : 'No response');
       } else {
-        // Use Runner with custom model provider if available
+        // Use Runner with custom model provider if available  
         const modelProvider = createModelProvider();
         if (modelProvider) {
           console.log('[Orchestrator] Using Runner with custom model provider...');
@@ -2891,3 +2956,6 @@ CONTINUE NOW with the next item using the appropriate specialized agent. Ensure 
     bulkOperationState.retryCount = 0;
   }
 }
+
+// Export createModelProvider for use in other modules
+export { createModelProvider };

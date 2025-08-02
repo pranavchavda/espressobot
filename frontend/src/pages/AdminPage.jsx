@@ -2,12 +2,19 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@common/button';
 import { Heading } from '@common/heading';
-import { Database, FileText, Brain, Settings, ChevronLeft } from 'lucide-react';
+import { Database, FileText, Brain, Settings, ChevronLeft, Bot } from 'lucide-react';
 
 export default function AdminPage() {
   const navigate = useNavigate();
 
   const adminFeatures = [
+    {
+      title: 'Agent Management',
+      description: 'Configure agent models and system prompts',
+      icon: Bot,
+      path: '/agent-management',
+      color: 'text-indigo-600'
+    },
     {
       title: 'Memory Management',
       description: 'View, search, and manage user memories',

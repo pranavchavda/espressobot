@@ -5,7 +5,7 @@ import { ChevronDownIcon, InformationCircleIcon, Cog8ToothIcon, ArrowLeftStartOn
 import md5 from 'js-md5';
 import { Avatar } from './avatar';
 
-function TopNavDropdown({ user, onLogout }) {
+function TopNavDropdown({ user, onLogout, collapsed }) {
   if (!user) {
     return null;
   }
@@ -86,8 +86,8 @@ function TopNavDropdown({ user, onLogout }) {
     <Menu as="div" className="relative">
       <MenuButton className="flex items-center gap-x-4 p-1.5 text-sm/6 font-semibold text-zinc-950 dark:text-white focus:outline-none data-[active]:bg-zinc-100 dark:data-[active]:bg-zinc-800 data-[hover]:bg-zinc-100 dark:data-[hover]:bg-zinc-800 data-[open]:bg-zinc-100 dark:data-[open]:bg-zinc-800 rounded-lg">
         <Avatar src={gravatarUrl} alt={user.name} initials={user.name?.[0]} className="h-8 w-8" />
-        <span className="hidden lg:block">{user.name}</span>
-        <ChevronDownIcon className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
+        {!collapsed && <span className="hidden lg:block">{user.name}</span>}
+        {!collapsed && <ChevronDownIcon className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />}
       </MenuButton>
       <Transition
         enter="transition ease-out duration-100"

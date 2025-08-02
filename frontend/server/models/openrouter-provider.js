@@ -248,7 +248,7 @@ export class OpenRouterProvider {
       baseURL: config.baseURL || 'https://openrouter.ai/api/v1',
       appName: config.appName || 'EspressoBot',
       siteUrl: config.siteUrl || 'https://idrinkcoffee.com',
-      defaultModel: config.defaultModel || 'openai/gpt-4o',
+      defaultModel: config.defaultModel || 'openrouter/horizon-alpha',
       ...config
     };
 
@@ -279,28 +279,35 @@ export class OpenRouterProvider {
 }
 
 /**
- * Predefined model configurations for different agent types
+ * Predefined model configurations for different agent types (2025 Latest Models)
  */
 export const AGENT_MODEL_MAP = {
-  // Analytical and reasoning tasks
-  'Pricing Agent': 'cohere/command-r-plus',
-  'Inventory Agent': 'cohere/command-r-plus',
-  'Sales Agent': 'anthropic/claude-3.5-sonnet',
+  // Orchestrator - Stealth model (possibly GPT-5 or OpenAI FOSS)
+  'Orchestrator': 'openrouter/horizon-alpha',
   
-  // Code and technical tasks
-  'SWE Agent': 'anthropic/claude-3.5-sonnet',
-  'Documentation Agent': 'anthropic/claude-3.5-sonnet',
+  // Analytical and reasoning tasks
+  'Pricing Agent': 'openai/o3',              // Best reasoning model
+  'Inventory Agent': 'z-ai/glm-4.5-air:free', // SOTA agentic model
+  'Sales Agent': 'anthropic/claude-sonnet-4', // Latest Claude
+  
+  // Code and technical tasks  
+  'SWE Agent': 'qwen/qwen3-coder:free',      // Specialized coding model
+  'Documentation Agent': 'anthropic/claude-sonnet-4',
   
   // Creative and content tasks
-  'Product Management Agent': 'anthropic/claude-3.5-sonnet',
-  'Features Agent': 'openai/gpt-4o',
+  'Product Management Agent': 'anthropic/claude-sonnet-4',
+  'Features Agent': 'openai/gpt-4.1',       // Latest OpenAI
   
-  // Fast processing tasks (can be overridden with Groq later)
-  'Utility Agent': 'openai/gpt-4o-mini',
-  'Memory Operations': 'openai/gpt-4o-mini',
+  // Fast processing tasks
+  'Utility Agent': 'openai/gpt-4.1-mini',   // Fast OpenAI
+  'Memory Operations': 'openai/gpt-4.1-nano', // Fastest OpenAI
+  
+  // Agentic tasks
+  'Google Workspace Agent': 'z-ai/glm-4.5-air:free', // SOTA agentic
+  'GA4 Analytics Agent': 'z-ai/glm-4.5-air:free',
   
   // Default fallback
-  'default': 'openai/gpt-4o'
+  'default': 'openrouter/horizon-alpha'
 };
 
 /**
@@ -317,7 +324,7 @@ export function createModelProvider() {
     
     return new OpenRouterProvider({
       apiKey: process.env.OPENROUTER_API_KEY,
-      defaultModel: process.env.OPENROUTER_MODEL || 'openai/gpt-4o'
+      defaultModel: process.env.OPENROUTER_MODEL || 'openrouter/horizon-alpha'
     });
   }
   

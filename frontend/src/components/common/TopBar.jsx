@@ -42,10 +42,10 @@ export default function TopBar({
 
         {user ? (
           <div className="ml-1 inline-flex items-center gap-2 pl-2">
-            <span className="text-xs text-zinc-600 dark:text-zinc-300 truncate max-w-[120px]" title={user.email || user.name}>
+            <span className="text-xs text-zinc-600 dark:text-zinc-300 truncate max-w-[120px] sm:hidden" title={user.email || user.name}>
               {user.name || user.email || "User"}
             </span>
-            <Button outline size="sm" className="h-8" onClick={onLogout}>
+            <Button outline size="sm" className="h-8 sm:hidden" onClick={onLogout}>
               Logout
             </Button>
           </div>

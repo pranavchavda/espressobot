@@ -7,6 +7,7 @@ import json
 import requests
 from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse
+from dns_resolver import get_dns_resolver_session
 
 
 class ShopifyClient:
@@ -28,7 +29,15 @@ class ShopifyClient:
             self.shop_url = f'https://{self.shop_url}'
         
         self.graphql_url = f"{self.shop_url}/admin/api/2025-07/graphql.json"
-        self.session = requests.Session()
+        
+        # Use custom DNS resolver if specified
+        custom_dns = os.environ.get('CUSTOM_DNS_SERVERS')
+        if custom_dns:
+            dns_servers = custom_dns.split(',')
+            self.session = get_dns_resolver_session(dns_servers=dns_servers)
+        else:
+            self.session = requests.Session()
+        
         self.session.headers.update({
             'X-Shopify-Access-Token': self.access_token,
             'Content-Type': 'application/json'

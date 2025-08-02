@@ -1,6 +1,59 @@
 # Claude Development Log
 
-## 🎯 **LATEST: Anthropic Integration Breakthrough** (July 31, 2025)
+## 🚨 **CRITICAL ISSUE IDENTIFIED** (August 1, 2025)
+
+**STATUS**: Orchestrator broken after OpenRouter integration - tools not executing
+
+### 📋 **Tomorrow's Recovery Plan**
+1. **Revert to working commit** (f3e9935) while preserving OpenRouter provider code
+2. **Cherry-pick working orchestrator configuration** from previous commit
+3. **Test tool execution** to ensure full functionality restored
+4. **Investigate OpenRouter integration issues** separately once system is stable
+
+### 🔍 **Root Cause Analysis**
+**Problem**: After OpenRouter integration (commit 9339d7f), orchestrator exhibits "announce and stop" behavior:
+- ❌ Models announce what they will do but don't execute tools
+- ❌ Tool calls appear as text tokens (`<invoke name="tool">`) instead of actual function calls
+- ❌ All results are hallucinated instead of real API responses
+- ❌ No tool execution logs in traces
+
+**False Lead**: Initially thought missing `...mcpToolsArray` line was the issue. Added it back but tools still don't execute.
+
+**Real Issue**: OpenRouter integration broke the tool execution pipeline in OpenAI Agents SDK. Models can see tools should be used (from instructions) but can't actually call them.
+
+### 🎯 **Key Evidence**
+- **Working**: Commit f3e9935 had proper tool execution with real API results
+- **Broken**: Commit 9339d7f (OpenRouter integration) - tools appear as text output only
+- **Same behavior across all models**: Claude Sonnet, GPT-4.1, etc. all exhibit same issue
+- **Database separately broken**: PostgreSQL connection pool exhaustion (14+ processes) - resolved by restarting PostgreSQL
+
+### 🔧 **Technical Details**
+**What works**:
+- ✅ OpenRouter provider integration (300+ models available)
+- ✅ Agent management UI with model switching
+- ✅ Database schema fixes (agent_configs table)
+- ✅ Memory deduplication threshold (0.7)
+
+**What's broken**:
+- ❌ Tool execution pipeline (core orchestrator functionality)
+- ❌ MCP server communication 
+- ❌ Real API responses vs hallucinated results
+
+### 📁 **Files to Focus On**
+- `/server/espressobot1.js` - Main orchestrator (compare with f3e9935)
+- `/server/models/openrouter-provider.js` - OpenRouter integration
+- `/server/tools/direct-mcp-agent-tools.js` - MCP tool definitions
+- Tool execution logs in OpenAI Agents SDK integration
+
+### 🎯 **Success Criteria**
+- Orchestrator actually calls tools (with execution logs)
+- Real API responses instead of hallucinated data
+- Preserve OpenRouter provider for future use
+- All MCP agents (shopify_orders_agent, etc.) work properly
+
+---
+
+## 🎯 **PREVIOUS: Anthropic Integration Breakthrough** (July 31, 2025)
 
 **MAJOR ACHIEVEMENT**: Successfully integrated Anthropic Claude models with OpenAI Agents SDK!
 
@@ -478,6 +531,6 @@ Successfully split the monolithic Python MCP server into specialized servers:
 
 ---
 
-*Last Updated: July 21, 2025*
+*Last Updated: August 1, 2025*
 ```
 IMPORTANT: This repo is indexed on DeepWiki and the DeepWiki MCP can be invoked to gather context about the code instead of having to search through and read the code directly. https://deepwiki.com/pranavchavda/espressobot

@@ -168,6 +168,7 @@ router.post('/sync-idc-products', async (req, res) => {
                 }
                 
                 const productData = {
+                  id: product.id, // Use shopify_id as the primary key id
                   shopify_id: product.id,
                   title: product.title,
                   vendor: product.vendor,

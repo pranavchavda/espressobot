@@ -48,20 +48,49 @@ function cosineSimilarity(a, b) {
 function bufferToFloatArray(buffer) {
   if (!buffer) return null;
   
-  // Handle different buffer formats
-  if (Buffer.isBuffer(buffer)) {
-    // Convert bytes back to JSON string then parse
-    const jsonStr = buffer.toString('utf8');
-    try {
-      return JSON.parse(jsonStr);
-    } catch {
-      // If not JSON, try to interpret as raw float data
-      const floats = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
-      return Array.from(floats);
-    }
+  // Handle already parsed arrays
+  if (Array.isArray(buffer)) {
+    return buffer;
   }
   
-  return buffer;
+  let dataStr = '';
+  
+  // Handle different buffer formats
+  if (Buffer.isBuffer(buffer)) {
+    dataStr = buffer.toString('utf8');
+  } else if (buffer instanceof Uint8Array) {
+    dataStr = Buffer.from(buffer).toString('utf8');
+  } else if (buffer && typeof buffer === 'object' && buffer.constructor === Object && buffer.type === 'Buffer') {
+    dataStr = Buffer.from(buffer.data || buffer).toString('utf8');
+  } else if (typeof buffer === 'string') {
+    dataStr = buffer;
+  } else {
+    console.warn('[Memory] Unknown buffer format:', typeof buffer, buffer.constructor?.name);
+    return null;
+  }
+  
+  try {
+    // First try to parse as JSON array (new format)
+    if (dataStr.trim().startsWith('[')) {
+      return JSON.parse(dataStr);
+    }
+    
+    // Handle comma-separated values format (current format in database)
+    if (dataStr.includes(',')) {
+      const numbers = dataStr.split(',').map(s => parseFloat(s.trim()));
+      // Validate that all values are valid numbers
+      if (numbers.every(n => !isNaN(n) && isFinite(n))) {
+        return numbers;
+      }
+    }
+    
+    // If all else fails, try to parse as JSON anyway
+    return JSON.parse(dataStr);
+    
+  } catch (error) {
+    console.warn('[Memory] Failed to parse embedding data:', error.message, 'First 100 chars:', dataStr.substring(0, 100));
+    return null;
+  }
 }
 
 // Helper function to convert embedding array to Buffer
@@ -95,7 +124,7 @@ async function createEmbedding(text) {
 async function searchMemories(query, userId, options = {}) {
   const {
     limit = 10,
-    threshold = 0.1, // Lowered to 0.1 for testing - should see more semantic matches
+    threshold = 0.7, // Semantic similarity threshold for deduplication
     strategy = 'hybrid', // 'exact', 'fuzzy', 'semantic', 'hybrid'
     useNano = false
   } = options;
@@ -105,18 +134,26 @@ async function searchMemories(query, userId, options = {}) {
   let results = [];
 
   try {
+    // Quick database connectivity check
+    const client = await import('../config/database.js').then(m => m.getPrismaClient());
+    if (!client) {
+      console.warn('[Memory] Database client unavailable, returning empty results');
+      return [];
+    }
     // Step 1: Exact text search (highest priority)
     if (strategy === 'exact' || strategy === 'hybrid') {
-      const exactResults = await prisma.memories.findMany({
-        where: {
-          user_id: userId,
-          content: {
-            contains: query,
-            mode: 'insensitive'
-          }
-        },
-        orderBy: { created_at: 'desc' },
-        take: limit
+      const exactResults = await withRetry(async (client) => {
+        return await client.memories.findMany({
+          where: {
+            user_id: userId,
+            content: {
+              contains: query,
+              mode: 'insensitive'
+            }
+          },
+          orderBy: { created_at: 'desc' },
+          take: limit
+        });
       });
 
       results = exactResults.map(memory => ({
@@ -134,25 +171,32 @@ async function searchMemories(query, userId, options = {}) {
       const remaining = limit - results.length;
 
       // Get all memories with embeddings for this user
-      const memoriesWithEmbeddings = await prisma.memories.findMany({
-        where: {
-          user_id: userId,
-          embedding: { not: null }
-        },
-        orderBy: { created_at: 'desc' }
+      const memoriesWithEmbeddings = await withRetry(async (client) => {
+        return await client.memories.findMany({
+          where: {
+            user_id: userId,
+            embedding: { not: null }
+          },
+          orderBy: { created_at: 'desc' }
+        });
       });
 
       console.log(`[Memory] Found ${memoriesWithEmbeddings.length} memories with embeddings for ${userId}`);
 
       // Calculate similarities with debug logging
       const allSimilarities = memoriesWithEmbeddings
-        .map(memory => {
+        .map((memory, index) => {
           const embedding = bufferToFloatArray(memory.embedding);
           if (!embedding || !Array.isArray(embedding)) {
+            console.log(`[Memory] Skipping memory ${index}: invalid embedding (${typeof embedding})`);
             return null;
           }
 
           const similarity = cosineSimilarity(queryEmbedding, embedding);
+          if (index < 3) {
+            console.log(`[Memory] Memory ${index} similarity: ${similarity.toFixed(4)} (query dims: ${queryEmbedding.length}, memory dims: ${embedding.length})`);
+          }
+          
           return {
             ...memory,
             similarity,
@@ -185,18 +229,20 @@ async function searchMemories(query, userId, options = {}) {
       let fuzzyResults = [];
       if (words.length > 0) {
         // Search for memories containing any of the words
-        fuzzyResults = await prisma.memories.findMany({
-          where: {
-            user_id: userId,
-            OR: words.map(word => ({
-              content: {
-                contains: word,
-                mode: 'insensitive'
-              }
-            }))
-          },
-          orderBy: { created_at: 'desc' },
-          take: remaining
+        fuzzyResults = await withRetry(async (client) => {
+          return await client.memories.findMany({
+            where: {
+              user_id: userId,
+              OR: words.map(word => ({
+                content: {
+                  contains: word,
+                  mode: 'insensitive'
+                }
+              }))
+            },
+            orderBy: { created_at: 'desc' },
+            take: remaining
+          });
         });
       }
 
@@ -222,6 +268,15 @@ async function searchMemories(query, userId, options = {}) {
 
   } catch (error) {
     console.error('[Memory] Error searching memories:', error);
+    
+    // If it's a database connection error, return empty results instead of throwing
+    if (error.message.includes('Engine is not yet connected') || 
+        error.message.includes('Connection') ||
+        error.message.includes('Closed')) {
+      console.warn('[Memory] Database connection failed, returning empty results for graceful degradation');
+      return [];
+    }
+    
     throw error;
   }
 }
@@ -232,12 +287,35 @@ async function searchMemories(query, userId, options = {}) {
 async function addMemory(content, userId, metadata = null, options = {}) {
   const { 
     useNano = false,
-    skipEmbedding = false 
+    skipEmbedding = false,
+    skipDeduplication = false,
+    deduplicationThreshold = 0.7 // Use same threshold as search for consistent deduplication
   } = options;
 
   console.log(`[Memory] Adding memory for user ${userId}. Content length: ${content.length}`);
 
+  // Skip empty or very short memories
+  if (!content || content.trim().length < 10) {
+    console.log('[Memory] Skipping empty or very short memory');
+    return null;
+  }
+
   try {
+    // Check for duplicates before adding (unless skipped)
+    if (!skipDeduplication) {
+      const similarMemories = await searchMemories(content, userId, {
+        limit: 5,
+        threshold: deduplicationThreshold,
+        strategy: 'semantic'
+      });
+
+      if (similarMemories.length > 0) {
+        console.log(`[Memory] Found ${similarMemories.length} similar memories with threshold ${deduplicationThreshold}, skipping duplicate`);
+        console.log(`[Memory] Most similar: "${similarMemories[0].content.substring(0, 100)}..." (similarity: ${similarMemories[0].similarity?.toFixed(3)})`);
+        return similarMemories[0]; // Return existing memory instead
+      }
+    }
+
     // Generate unique ID
     const id = `mem_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -253,15 +331,17 @@ async function addMemory(content, userId, metadata = null, options = {}) {
     }
 
     // Store memory
-    const memory = await prisma.memories.create({
-      data: {
-        id,
-        user_id: userId,
-        content,
-        embedding,
-        metadata: metadata ? JSON.stringify(metadata) : null,
-        updated_at: new Date()
-      }
+    const memory = await withRetry(async (client) => {
+      return await client.memories.create({
+        data: {
+          id,
+          user_id: userId,
+          content,
+          embedding,
+          metadata: metadata ? JSON.stringify(metadata) : null,
+          updated_at: new Date()
+        }
+      });
     });
 
     console.log(`[Memory] Successfully added memory ${id}`);
@@ -269,6 +349,15 @@ async function addMemory(content, userId, metadata = null, options = {}) {
 
   } catch (error) {
     console.error('[Memory] Error adding memory:', error);
+    
+    // If it's a database connection error, return null instead of throwing
+    if (error.message.includes('Engine is not yet connected') || 
+        error.message.includes('Connection') ||
+        error.message.includes('Closed')) {
+      console.warn('[Memory] Database connection failed, memory not stored (graceful degradation)');
+      return null;
+    }
+    
     throw error;
   }
 }
@@ -292,14 +381,16 @@ async function updateMemory(memoryId, content, metadata = null, options = {}) {
     }
 
     // Update memory
-    const memory = await prisma.memories.update({
-      where: { id: memoryId },
-      data: {
-        content,
-        embedding,
-        metadata: metadata ? JSON.stringify(metadata) : null,
-        updated_at: new Date()
-      }
+    const memory = await withRetry(async (client) => {
+      return await client.memories.update({
+        where: { id: memoryId },
+        data: {
+          content,
+          embedding,
+          metadata: metadata ? JSON.stringify(metadata) : null,
+          updated_at: new Date()
+        }
+      });
     });
 
     console.log(`[Memory] Successfully updated memory ${memoryId}`);
@@ -318,8 +409,10 @@ async function deleteMemory(memoryId) {
   console.log(`[Memory] Deleting memory ${memoryId}`);
 
   try {
-    await prisma.memories.delete({
-      where: { id: memoryId }
+    await withRetry(async (client) => {
+      return await client.memories.delete({
+        where: { id: memoryId }
+      });
     });
 
     console.log(`[Memory] Successfully deleted memory ${memoryId}`);
@@ -338,8 +431,10 @@ async function deleteUserMemories(userId) {
   console.log(`[Memory] Deleting all memories for user ${userId}`);
 
   try {
-    const result = await prisma.memories.deleteMany({
-      where: { user_id: userId }
+    const result = await withRetry(async (client) => {
+      return await client.memories.deleteMany({
+        where: { user_id: userId }
+      });
     });
 
     console.log(`[Memory] Successfully deleted ${result.count} memories for user ${userId}`);
@@ -358,11 +453,13 @@ async function getUserMemories(userId, options = {}) {
   const { limit = 100, offset = 0 } = options;
 
   try {
-    const memories = await prisma.memories.findMany({
-      where: { user_id: userId },
-      orderBy: { created_at: 'desc' },
-      take: limit,
-      skip: offset
+    const memories = await withRetry(async (client) => {
+      return await client.memories.findMany({
+        where: { user_id: userId },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+        skip: offset
+      });
     });
 
     return memories;
@@ -378,13 +475,17 @@ async function getUserMemories(userId, options = {}) {
  */
 async function getMemoryStats() {
   try {
-    const totalCount = await prisma.memories.count();
+    const totalCount = await withRetry(async (client) => {
+      return await client.memories.count();
+    });
     
-    const userStats = await prisma.memories.groupBy({
-      by: ['user_id'],
-      _count: {
-        user_id: true
-      }
+    const userStats = await withRetry(async (client) => {
+      return await client.memories.groupBy({
+        by: ['user_id'],
+        _count: {
+          user_id: true
+        }
+      });
     });
 
     return {

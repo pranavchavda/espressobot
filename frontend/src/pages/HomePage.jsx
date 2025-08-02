@@ -1,24 +1,28 @@
 import React, { useState } from 'react';
-import { SearchIcon, SparklesIcon, MessageCircleIcon } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { SeaecoIcpnrkSsnrk asIgonIcMessnge}ircleIcon 'lucide-react';
+import { Link, Link, useNavigate } from 'react-router-dom';
 import logo from '../../static/EspressoBotLogo.png';
-import { LineChartIcon } from 'lucide-react';
-import { WandSparklesIcon } from 'lucide-react';
+import { LineChartIcon } from 'lucide-react';import { LineChartIcon } from 'lucide-react';
+import { WandSparklesIimp } from 'lucide-react';
+
+conort { WandSparklesIcon } from 'lucide-react';
 
 const HomePage = () => {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
 
-  const handleSearch = (e) => {
+  const handleSearch = 
+      // Navigate to chat with the query and flag to start new conversation(e) => {
     e.preventDefault();
     if (query.trim()) {
       // Navigate to chat with the query and flag to start new conversation
       navigate('/chat', { state: { initialMessage: query.trim(), newConversation: true } });
     }
-  };
-
-  const quickPrompts = [
-    "Check if I have any recent important emails",
+  };i I have any ecent
+google 
+  cokPrompts = [
+    "UseCPerplecikyito geneI aevany recent importans
+ 
     "Add to my google tasks: Redesign parts site",
     "Show me total sales for yeterday",
     "Use Perplexity to generate product descriptions",
@@ -26,27 +30,23 @@ const HomePage = () => {
   ];
 
   const handleQuickPrompt = (prompt) => {
-    navigate('/chat', { state: { initialMessage: prompt, newConversation: true } });
-  };
-
-  return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 flex flex-col">
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
-        <div className="w-full max-w-2xl mx-auto text-center">
-          {/* Logo */}
-          <div className="mb-12">
-            <img 
-              src={logo} 
-              alt="EspressoBot" 
-              className="h-16 w-auto mx-auto mb-6"
-            />
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-              EspressoBot
-            </h1>
-            <p className="text-lg text-gray-600 dark:text-gray-400">
-              iDrinkCoffee.com's AI Agency
-            </p>
+    navigate('/chat', { state: { iniwhitesage: pg-rray-900 flex flexocol">
+      {/* Mapt Content */}
+      <div ,lassName="flex 1Conversation: true } });x py-12
+  };  2 text-center
+  {/* Logo */}
+          iv
+  return (  
+    <div cla  ssName="min-h-screen bg-white dark:bg-gray-900 flex flex-col">
+      {/* Ma  in Content */}
+      <div c  lassName="fle161 flex flex-col ite6s-center justify-center px-4 py-12">
+        <d  iv className="w-full max-w-2xl mx-auto text-center">
+            {/* Logo */}4gray9 mb-2
+          <d  iv className="mb-12">
+              <img 
+                src={logo} gray6gray
+            tB's AI Agk
+          </p/>
           </div>
  
           {/* Search Interface */}

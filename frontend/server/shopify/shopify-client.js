@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { createCustomDNSAgents, getDNSServers } from '../utils/dns-resolver.js';
 
 /**
  * Native JavaScript Shopify Admin API GraphQL Client
@@ -25,6 +26,18 @@ export class ShopifyClient {
       'X-Shopify-Access-Token': this.accessToken,
       'Content-Type': 'application/json'
     };
+    
+    // Set up custom DNS agents if configured
+    if (process.env.CUSTOM_DNS_SERVERS) {
+      const dnsServers = getDNSServers();
+      const { httpAgent, httpsAgent } = createCustomDNSAgents(dnsServers);
+      this.fetchOptions = {
+        agent: (parsedURL) => parsedURL.protocol === 'http:' ? httpAgent : httpsAgent
+      };
+      console.log(`Using custom DNS servers: ${dnsServers.join(', ')}`);
+    } else {
+      this.fetchOptions = {};
+    }
   }
 
   /**
@@ -44,7 +57,8 @@ export class ShopifyClient {
       const response = await fetch(this.graphqlUrl, {
         method: 'POST',
         headers: this.headers,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        ...this.fetchOptions
       });
       
       if (!response.ok) {
