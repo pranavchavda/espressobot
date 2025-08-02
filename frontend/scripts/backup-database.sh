@@ -1,11 +1,23 @@
 #!/bin/bash
 
-# Database connection details from .env
-DB_HOST="node.idrinkcoffee.info"
-DB_PORT="5432"
-DB_NAME="espressobot_production"
-DB_USER="espressobot"
-DB_PASS="csEZWEzFk55D"
+# Load environment variables
+if [ -f .env ]; then
+    export $(grep -E '^DATABASE_URL=' .env | xargs)
+fi
+
+# Parse DATABASE_URL
+if [ -z "$DATABASE_URL" ]; then
+    echo "❌ DATABASE_URL not found in .env file"
+    exit 1
+fi
+
+# Extract connection details from DATABASE_URL
+# Format: postgresql://user:pass@host:port/dbname
+DB_USER=$(echo $DATABASE_URL | sed -E 's/postgresql:\/\/([^:]+):.*/\1/')
+DB_PASS=$(echo $DATABASE_URL | sed -E 's/postgresql:\/\/[^:]+:([^@]+)@.*/\1/')
+DB_HOST=$(echo $DATABASE_URL | sed -E 's/postgresql:\/\/[^@]+@([^:]+):.*/\1/')
+DB_PORT=$(echo $DATABASE_URL | sed -E 's/postgresql:\/\/[^@]+@[^:]+:([^\/]+).*/\1/')
+DB_NAME=$(echo $DATABASE_URL | sed -E 's/postgresql:\/\/[^\/]+\///')
 
 # Backup configuration
 BACKUP_DIR="backups/$(date +%Y-%m-%d)"
