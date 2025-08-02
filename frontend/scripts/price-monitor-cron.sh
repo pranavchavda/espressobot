@@ -5,8 +5,8 @@
 # Safe for manual matches - uses only safe sync endpoints
 
 # Configuration
-API_BASE="http://localhost:5173/api/price-monitor"
-LOG_DIR="/home/pranav/espressobot/frontend/logs/price-monitor"
+API_BASE="https://node.idrinkcoffee.info/api/price-monitor"
+LOG_DIR="/var/www/html/ebot/logs/price-monitor"
 LOG_FILE="$LOG_DIR/cron-$(date +%Y%m%d).log"
 ERROR_LOG="$LOG_DIR/cron-errors-$(date +%Y%m%d).log"
 SLACK_WEBHOOK_URL="" # Optional: Add your Slack webhook for notifications
