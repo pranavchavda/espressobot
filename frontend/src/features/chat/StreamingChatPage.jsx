@@ -51,6 +51,18 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const fileInputRef = useRef(null);
   const hasProcessedInitialMessage = useRef(false);
 
+  useEffect(() => {
+    const initialAttachments = location.state?.imageAttachment || location.state?.fileAttachment;
+    if (initialAttachments && !hasProcessedInitialMessage.current) {
+      if (location.state.imageAttachment) {
+        setImageAttachment(location.state.imageAttachment);
+      }
+      if (location.state.fileAttachment) {
+        setFileAttachment(location.state.fileAttachment);
+      }
+    }
+  }, [location.state]);
+
   // Fetch messages for selected conversation
   useEffect(() => {
     if (!convId) {
@@ -1514,29 +1526,28 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
   // Handle initial message from HomePage
   useEffect(() => {
-    const initialMessage = location.state?.initialMessage;
-    const isNewConversation = location.state?.newConversation;
+    const { initialMessage, newConversation, imageAttachment, fileAttachment } = location.state || {};
     
-    if (initialMessage && !messages.length && !loading && !hasProcessedInitialMessage.current) {
+    if ((initialMessage || imageAttachment || fileAttachment) && !messages.length && !loading && !hasProcessedInitialMessage.current) {
       hasProcessedInitialMessage.current = true;
       
-      // If this is a new conversation request, clear the selected chat
-      if (isNewConversation && onNewConversation) {
+      if (newConversation && onNewConversation) {
         onNewConversation();
       }
       
-      setInput(initialMessage);
-      // Auto-send the message after a short delay
+      setInput(initialMessage || '');
+      if (imageAttachment) setImageAttachment(imageAttachment);
+      if (fileAttachment) setFileAttachment(fileAttachment);
+
       const timeoutId = setTimeout(() => {
-        handleSend(initialMessage);
+        handleSend(initialMessage || '');
       }, 500);
       
-      // Clear the location state to prevent re-sending
       window.history.replaceState({}, document.title, window.location.pathname);
       
-      return () => clearTimeout(timeoutId); // Cleanup timeout
+      return () => clearTimeout(timeoutId);
     }
-  }, [messages.length, loading]); // Reduced dependencies
+  }, [location.state, messages.length, loading, onNewConversation]);
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
@@ -1552,7 +1563,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               <img
                 src={logo}
                 alt="Espresso Bot Logo"
-                className="mx-auto mt-6 mb-2 h-96 w-96 object-contain drop-shadow-lg"
+                className="mx-auto mt-6 mb-2 h-48 w-48 object-contain drop-shadow-lg"
                 draggable="false"
               />
               <Text>Start a new conversation by sending a message.
@@ -1894,7 +1905,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
             handleSend();
           }}
         >
-          <div className="flex flex-col gap-2 p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/70 shadow-sm w-full">
+          <div className="flex flex-col gap-2 sm:gap-0 p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/70 shadow-sm w-full">
             <Textarea
               ref={inputRef}
               value={input}
