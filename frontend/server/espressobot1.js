@@ -1885,7 +1885,7 @@ function createModelProvider(modelOverride = null) {
     console.log('[Orchestrator] Using OpenRouter model provider');
     return new OpenRouterProvider({
       apiKey: process.env.OPENROUTER_API_KEY,
-      defaultModel: modelOverride || process.env.OPENROUTER_MODEL || 'openai/gpt-4o'
+      defaultModel: modelOverride || process.env.OPENROUTER_MODEL || 'openai/gpt-4.1'
     });
   }
   

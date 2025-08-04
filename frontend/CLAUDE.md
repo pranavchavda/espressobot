@@ -4,6 +4,26 @@
 
 **STATUS**: Orchestrator broken after OpenRouter integration - tools not executing
 
+## ✅ **ISSUE RESOLVED** (August 3, 2025)
+
+**Problem**: Custom providers weren't parsing tool calls from model output
+- OpenAI Agents SDK expects `function_call` items in the output array
+- Anthropic/OpenRouter providers were only returning text messages
+- Models output tool calls as text that needs to be parsed and converted
+
+**Solution Implemented**: 
+- Added `parseToolCalls()` method to both Anthropic and OpenRouter providers
+- Parses multiple formats:
+  - Claude's actual format: `<function_calls><invoke name="tool"><parameter name="param">value</parameter></invoke></function_calls>`
+  - Official Anthropic: `<function_calls><invoke><tool_name>...</tool_name><parameters>...</parameters></invoke></function_calls>`
+  - Simple format: `<invoke name="tool">{"param": "value"}</invoke>`
+  - OpenAI format: `Function call: {"name": "tool", "arguments": {...}}`
+- **Critical Fix**: Added `stop_sequences: ['</function_calls>']` to prevent models from hallucinating results
+- Providers now return proper `function_call` items that SDK can execute
+- Both `MODEL_PROVIDER=anthropic` and `MODEL_PROVIDER=openrouter` now work with tool execution
+
+**Test Script**: Run `node tests/test-provider-tool-calls.js` to verify tool execution
+
 ### 📋 **Tomorrow's Recovery Plan**
 1. **Revert to working commit** (f3e9935) while preserving OpenRouter provider code
 2. **Cherry-pick working orchestrator configuration** from previous commit

@@ -152,13 +152,13 @@ export default function SidebarNav({
       style={{ width: collapsed ? 88 : 304, minWidth: collapsed ? 88 : 304, maxWidth: collapsed ? 88 : 304 }}
     >
       {/* Visual rail to make the sidebar distinct and clearly wider */}
-      <div className="absolute inset-0 bg-white/95 dark:bg-zinc-900/95 border-r border-zinc-200 dark:border-zinc-800 shadow-sm" />
+      <div className="absolute inset-0 dark:bg-zinc-900/95 border-r border-zinc-200 dark:border-zinc-800 shadow-sm bg-gradient-to-b from-zinc-100 to-zinc-200" />
       {/* Content layer */}
       <div className="relative z-10 flex flex-col h-full overflow-hidden">
         <nav className="flex-1 overflow-y-auto px-3 py-2">
         <div className="flex items-center justify-between my-2">
           {/* Always show the user dropdown, even when collapsed */}
-          <TopNavDropdown user={user} onLogout={onLogout} collapsed={collapsed} className={`w-full cursor-pointer ${collapsed ? "justify-center" : ""}`} />
+          <TopNavDropdown user={user} onLogout={onLogout} collapsed={collapsed} className={`w-full cursor-pointer ${collapsed ? "justify-center " : ""}`} />
           {collapsible && (
             <button
               type="button"

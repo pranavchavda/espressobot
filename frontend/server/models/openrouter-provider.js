@@ -10,6 +10,121 @@ import OpenAI from 'openai';
  * OpenRouter Model wrapper for OpenAI Agents SDK compatibility
  */
 export class OpenRouterModel {
+  /**
+   * Parse model's text output for tool calls
+   * Supports multiple formats:
+   * 1. Official Anthropic format: <function_calls><invoke>...</invoke></function_calls>
+   * 2. Simple format: <invoke name="tool_name">{"param": "value"}</invoke>
+   * 3. OpenAI format: Function call: {"name": "tool", "arguments": {...}}
+   */
+  parseToolCalls(text) {
+    const toolCalls = [];
+    let remainingText = text;
+    
+    // First try to parse the official Anthropic format
+    const officialFormatRegex = /<function_calls>(.*?)<\/function_calls>/gs;
+    const officialMatch = officialFormatRegex.exec(text);
+    
+    if (officialMatch) {
+      const functionCallsContent = officialMatch[1];
+      const invokeRegex = /<invoke>(.*?)<\/invoke>/gs;
+      let invokeMatch;
+      
+      while ((invokeMatch = invokeRegex.exec(functionCallsContent)) !== null) {
+        const invokeContent = invokeMatch[1];
+        
+        // Extract tool name
+        const toolNameMatch = /<tool_name>(.*?)<\/tool_name>/s.exec(invokeContent);
+        if (!toolNameMatch) continue;
+        const toolName = toolNameMatch[1].trim();
+        
+        // Extract parameters
+        const parametersMatch = /<parameters>(.*?)<\/parameters>/s.exec(invokeContent);
+        const args = {};
+        
+        if (parametersMatch) {
+          const paramsContent = parametersMatch[1];
+          // Extract each parameter
+          const paramRegex = /<(\w+)>(.*?)<\/\1>/gs;
+          let paramMatch;
+          while ((paramMatch = paramRegex.exec(paramsContent)) !== null) {
+            const [, paramName, paramValue] = paramMatch;
+            // Try to parse as JSON, otherwise keep as string
+            try {
+              args[paramName] = JSON.parse(paramValue);
+            } catch {
+              args[paramName] = paramValue.trim();
+            }
+          }
+        }
+        
+        toolCalls.push({
+          type: 'function_call',
+          callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: toolName,
+          arguments: JSON.stringify(args),
+          status: 'completed'
+        });
+      }
+      
+      // Remove the function calls from the text
+      remainingText = remainingText.replace(officialMatch[0], '');
+    }
+    
+    // Check for the simpler format
+    const simpleFormatRegex = /<invoke\s+name="([^"]+)">(.*?)<\/invoke>/gs;
+    let simpleMatch;
+    
+    while ((simpleMatch = simpleFormatRegex.exec(remainingText)) !== null) {
+      const [fullMatch, toolName, argsString] = simpleMatch;
+      
+      try {
+        // Parse the arguments
+        const args = argsString.trim() ? JSON.parse(argsString) : {};
+        
+        toolCalls.push({
+          type: 'function_call',
+          callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: toolName,
+          arguments: JSON.stringify(args),
+          status: 'completed'
+        });
+        
+        // Remove the tool call from the text
+        remainingText = remainingText.replace(fullMatch, '');
+      } catch (e) {
+        console.error(`Failed to parse tool call for ${toolName}:`, e);
+      }
+    }
+    
+    // Check for OpenAI-style function calls (some models might use this)
+    const openAIFormatRegex = /Function call:\s*({[^}]+})/g;
+    let openAIMatch;
+    
+    while ((openAIMatch = openAIFormatRegex.exec(remainingText)) !== null) {
+      try {
+        const callData = JSON.parse(openAIMatch[1]);
+        if (callData.name) {
+          toolCalls.push({
+            type: 'function_call',
+            callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            name: callData.name,
+            arguments: JSON.stringify(callData.arguments || {}),
+            status: 'completed'
+          });
+          
+          remainingText = remainingText.replace(openAIMatch[0], '');
+        }
+      } catch (e) {
+        console.error('Failed to parse OpenAI-style function call:', e);
+      }
+    }
+    
+    return {
+      toolCalls,
+      text: remainingText.trim()
+    };
+  }
   constructor(config) {
     const {
       modelName,
@@ -56,10 +171,46 @@ export class OpenRouterModel {
         messages: messages,
         max_tokens: request.max_tokens || 512,
         temperature: request.temperature || 0.7,
-        stream: false
+        stream: false,
+        stop: ['</function_calls>']
       });
 
-      return this.formatResponse(response);
+      // Parse the response for tool calls
+      const responseText = response.choices?.[0]?.message?.content || '';
+      const { toolCalls, text } = this.parseToolCalls(responseText);
+      
+      // Build the output array
+      const output = [];
+      
+      // Add tool calls first if any
+      if (toolCalls.length > 0) {
+        output.push(...toolCalls);
+      }
+      
+      // Add remaining text if any
+      if (text) {
+        output.push({
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{
+            type: 'output_text',
+            text: text
+          }]
+        });
+      }
+
+      // Return the formatted response
+      const usage = response.usage || {};
+      return {
+        id: response.id || `openrouter_${Date.now()}`,
+        output: output,
+        usage: {
+          inputTokens: usage.prompt_tokens || 0,
+          outputTokens: usage.completion_tokens || 0,
+          totalTokens: usage.total_tokens || 0
+        }
+      };
 
     } catch (error) {
       console.error('OpenRouter non-streaming error:', error);
@@ -98,7 +249,8 @@ export class OpenRouterModel {
         messages: messages,
         max_tokens: request.max_tokens || 512,
         temperature: request.temperature || 0.7,
-        stream: true
+        stream: true,
+        stop: ['</function_calls>']
       });
 
       let fullContent = '';
@@ -133,23 +285,40 @@ export class OpenRouterModel {
         }
       }
 
+      // Parse the complete response for tool calls
+      const { toolCalls, text } = this.parseToolCalls(fullContent);
+      
+      // Build the output array
+      const output = [];
+      
+      // Add tool calls first if any
+      if (toolCalls.length > 0) {
+        output.push(...toolCalls);
+      }
+      
+      // Add remaining text if any
+      if (text) {
+        output.push({
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{
+            type: 'output_text',
+            text: text
+          }]
+        });
+      }
+
       // Final completion event
       if (process.env.DEBUG_OPENROUTER === 'true') {
         console.log('[OpenRouter] Yielding response_done with content length:', fullContent.length);
+        console.log('[OpenRouter] Detected tool calls:', toolCalls.length);
       }
       yield {
         type: 'response_done',
         response: {
           id: `openrouter_${Date.now()}`,
-          output: [{
-            type: 'message',
-            role: 'assistant',
-            status: 'completed',
-            content: [{
-              type: 'output_text',
-              text: fullContent
-            }]
-          }],
+          output: output,
           usage: {
             inputTokens: usage.prompt_tokens,
             outputTokens: usage.completion_tokens,
@@ -180,26 +349,61 @@ export class OpenRouterModel {
     const userMessages = messages.map(msg => {
       // Handle OpenAI Agents SDK message format
       if (msg.type === 'message') {
+        // Handle content that might be an array or object
+        let content = '';
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          // Extract text from content array
+          content = msg.content.map(item => {
+            if (typeof item === 'string') return item;
+            if (item.type === 'text' || item.type === 'output_text') return item.text || '';
+            return '';
+          }).join('');
+        } else if (msg.content && typeof msg.content === 'object') {
+          content = JSON.stringify(msg.content);
+        }
+        
         return {
           role: msg.role,
-          content: msg.content || ''
+          content: content || ''
         };
       }
       
-      // Handle tool calls if needed (for future enhancement)
-      if (msg.tool_calls || msg.function_call) {
+      // Handle tool response messages
+      if (msg.type === 'function_call_output') {
+        let resultStr = '';
+        if (typeof msg.result === 'string') {
+          resultStr = msg.result;
+        } else {
+          resultStr = JSON.stringify(msg.result);
+        }
+        
         return {
-          role: msg.role,
-          content: msg.content || 'Function call: ' + JSON.stringify(msg.tool_calls || msg.function_call)
+          role: 'user',
+          content: `Tool result for ${msg.toolName || 'unknown'}: ${resultStr}`
         };
       }
 
       // Handle standard OpenAI format
+      let content = '';
+      if (typeof msg.content === 'string') {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        content = msg.content.map(item => {
+          if (typeof item === 'string') return item;
+          if (item.type === 'text' || item.type === 'output_text') return item.text || '';
+          return '';
+        }).join('');
+      } else if (msg.content && typeof msg.content === 'object') {
+        content = JSON.stringify(msg.content);
+      }
+      
       return {
         role: msg.role,
-        content: msg.content || ''
+        content: content || ''
       };
-    }).filter(msg => msg.content && msg.content.trim());
+    }).filter(msg => msg.content && typeof msg.content === 'string' && msg.content.trim());
 
     convertedMessages.push(...userMessages);
     
@@ -214,28 +418,6 @@ export class OpenRouterModel {
     return convertedMessages;
   }
 
-  formatResponse(response) {
-    const content = response.choices?.[0]?.message?.content || '';
-    const usage = response.usage || {};
-
-    return {
-      id: response.id || `openrouter_${Date.now()}`,
-      output: [{
-        type: 'message',
-        role: 'assistant', 
-        status: 'completed',
-        content: [{
-          type: 'output_text',
-          text: content
-        }]
-      }],
-      usage: {
-        inputTokens: usage.prompt_tokens || 0,
-        outputTokens: usage.completion_tokens || 0,
-        totalTokens: usage.total_tokens || 0
-      }
-    };
-  }
 }
 
 /**

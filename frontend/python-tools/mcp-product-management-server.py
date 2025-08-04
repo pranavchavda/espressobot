@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MCP Product Management Server - Specialized server for advanced product operations
-Includes: create_full_product, update_full_product, add_variants_to_product, create_combo, create_open_box
+Includes: create_full_product, update_full_product, add_variants_to_product, create_combo, create_open_box, duplicate_listing
 Reduces token usage by ~82% compared to loading all 28 tools
 """
 
@@ -22,6 +22,7 @@ from mcp_tools.products.update_full import UpdateFullProductTool
 from mcp_tools.products.add_variants import AddVariantsTool
 from mcp_tools.products.create_combo import CreateComboTool
 from mcp_tools.products.create_open_box import CreateOpenBoxTool
+from mcp_tools.products.duplicate_listing import DuplicateListingTool
 
 # Scratchpad functionality
 from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
@@ -44,6 +45,7 @@ class ProductManagementMCPServer(EnhancedMCPServer):
         self.add_tool(AddVariantsTool())
         self.add_tool(CreateComboTool())
         self.add_tool(CreateOpenBoxTool())
+        self.add_tool(DuplicateListingTool())
         
         
         # Add scratchpad tools

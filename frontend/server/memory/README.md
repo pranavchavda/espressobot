@@ -34,7 +34,7 @@ No setup required. The system automatically falls back to the simple in-memory s
 
 ## Features
 
-- **Automatic Memory Extraction**: Uses GPT-4o-mini to extract important facts from conversations
+- **Automatic Memory Extraction**: Uses GPT-4.1-mini to extract important facts from conversations
 - **Semantic Search**: Uses OpenAI embeddings for relevance-based memory retrieval
 - **Cross-Conversation Persistence**: Memories are stored per user, accessible across all conversations
 - **Smart Updates**: Avoids duplicate memories and updates existing ones when appropriate

@@ -61,7 +61,8 @@ export const availableOperations = {
     'create_full_product',
     'update_full_product',
     'create_combo',
-    'create_open_box'
+    'create_open_box',
+    'duplicate_listing'
   ],
   
   // Utility Agent operations

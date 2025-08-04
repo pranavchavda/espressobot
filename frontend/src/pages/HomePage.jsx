@@ -59,8 +59,8 @@ const HomePage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-3xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-b from-transparent to-zinc-200 dark:bg-zinc-900 flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-4xl mx-auto">
         <header className="text-center mb-12">
           <img 
             src={logo} 

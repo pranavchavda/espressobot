@@ -7,8 +7,8 @@ import OpenAI from 'openai';
 const MODEL_FALLBACKS = {
   'gpt-4.1-mini': 'gpt-4o-mini',
   'gpt-4.1-nano': 'gpt-4o-mini',
-  'o1-mini': 'gpt-4o-mini',
-  'o1': 'gpt-4o'
+  'o4-mini': 'gpt-4o-mini',
+  'o3': 'gpt-4o'
 };
 
 /**

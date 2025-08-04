@@ -167,7 +167,7 @@ const SHOPIFY_TOOL_NAMES = [
 // --- Shopify Executor Agent ---
 export const shopifyExecutorAgent = new Agent({
   name: 'ShopifyExecutorAgentInternal',
-  model: process.env.EXECUTOR_MODEL || 'gpt-4o-mini',
+  model: process.env.EXECUTOR_MODEL || 'gpt-4.1-mini',
   instructions: `You are a Shopify operations specialist. Input: JSONRPC style call with 'name' (tool name) and 'arguments'. Use exact tool names from the MCP server. Output must be the raw JSON response.`,
   mcpServers: [shopifyMCPServer]
 });
@@ -179,7 +179,7 @@ export const ShopifyToolExecutor = shopifyExecutorAgent.asTool(
 // --- Web Search Executor Agent ---
 export const webSearchExecutorAgent = new Agent({
   name: 'WebSearchExecutorAgentInternal',
-  model: process.env.EXECUTOR_MODEL || 'gpt-4o-mini',
+  model: process.env.EXECUTOR_MODEL || 'gpt-4.1-mini',
   instructions: 'You are a web search specialist. Input { query }; return raw search results JSON.',
   tools: [ webSearchTool() ],
   tool_use_behavior: 'stop_on_first_tool'
@@ -192,7 +192,7 @@ export const WebSearchToolExecutor = webSearchExecutorAgent.asTool(
 // --- Planner Agent ---
 export const plannerAgent = new Agent({
   name: 'PlannerAgent',
-  model: process.env.PLANNER_AGENT_MODEL || 'gpt-4o-mini',
+  model: process.env.PLANNER_AGENT_MODEL || 'gpt-4.1-mini',
   instructions: `You are an expert planner.
 Available tools: ${SHOPIFY_TOOL_NAMES.join(', ')}, ${WebSearchToolExecutor.name}.
 Break user queries into tasks: { id, agent_tool_name, args, description }.

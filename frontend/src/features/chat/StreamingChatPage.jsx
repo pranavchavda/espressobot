@@ -1550,9 +1550,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   }, [location.state, messages.length, loading, onNewConversation]);
 
   return (
-    <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-zinc-50 dark:bg-zinc-900">
+    <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-gradient-to-b from-transparent to-zinc-50 dark:bg-zinc-900">
       {/* Chat messages area */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-6 py-3 sm:py-4 max-w-3xl w-full mx-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-6 py-3 sm:py-4 max-w-7xl w-full mx-auto">
         <div className="flex flex-col gap-3">
           {loading ? (
             <div className="flex justify-center items-center h-32">
@@ -1782,7 +1782,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       </div>
 
       {/* Input area + Suggestions, fixed at the bottom */}
-      <div className="sticky bottom-0 w-full bg-gradient-to-t from-zinc-50/95 to-zinc-50/90 dark:from-zinc-900/95 dark:to-zinc-900/90 py-3 border-t border-zinc-200 dark:border-zinc-700 z-10 backdrop-blur">
+      <div className="sticky bottom-0 w-full bg-gradient-to-r from-zinc-50/95 to-zinc-50/90 dark:from-zinc-900/95 dark:to-zinc-900/90 py-3 sm:py-0 border-t border-zinc-200 dark:border-zinc-700 z-0 backdrop-blur">
         {/* Suggestions Area */}
         {((taskMarkdown && taskMarkdown.markdown && 
                 String(taskMarkdown.conversation_id) === String(activeConv || convId)) || 
