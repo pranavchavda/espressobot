@@ -74,3 +74,16 @@ backups/
 *.sql
 *.sql.gz
 *.dump
+
+# Environment backups
+.env.backup-*
+
+# Database dumps
+espressobot_dump_*.sql
+
+# Migration scripts with credentials
+scripts/migrate-to-akamai.js
+scripts/test-akamai-connection.js
+scripts/test-app-with-akamai.js
+scripts/quick-db-test.js
+.env.akamai
