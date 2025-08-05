@@ -267,8 +267,7 @@ class CompetitorScraper {
       image_url: images[0]?.src || '',
       product_url: `${this.baseUrl}/products/${product.handle}`,
       description: product.body_html || '',
-      scraped_at: new Date(),
-      updated_at: new Date()
+      scraped_at: new Date()
     };
 
     // Generate embedding for the competitor product
@@ -297,8 +296,7 @@ class CompetitorScraper {
         created_at: new Date()
       },
       update: {
-        ...productData,
-        updated_at: new Date()
+        ...productData
       }
       });
     });
@@ -333,8 +331,7 @@ class CompetitorScraper {
             price: lowestPrice,
             compare_at_price: compareAtPrice,
             available: productData.available,
-            recorded_at: new Date(),
-            updated_at: new Date()
+            recorded_at: new Date()
           }
           });
         }
@@ -797,8 +794,7 @@ router.post('/start-scrape', async (req, res) => {
         competitor_id,
         collections: collections || competitor.collections,
         status: 'running',
-        started_at: new Date(),
-        updated_at: new Date()
+        started_at: new Date()
       }
     });
 
