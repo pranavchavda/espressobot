@@ -5,19 +5,20 @@ import json
 import logging
 import asyncio
 import time
-from app.orchestrator import Orchestrator
+from app.orchestrator_direct import DirectOrchestrator
 from pydantic import BaseModel
+from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_orchestrator: Optional[Orchestrator] = None
+_orchestrator: Optional[DirectOrchestrator] = None
 
-def get_orchestrator() -> Orchestrator:
+def get_orchestrator() -> DirectOrchestrator:
     """Get or create the global orchestrator instance"""
     global _orchestrator
     if _orchestrator is None:
-        _orchestrator = Orchestrator()
+        _orchestrator = DirectOrchestrator()
     return _orchestrator
 
 class ChatRequest(BaseModel):
@@ -64,14 +65,39 @@ async def chat_stream(request: ChatRequest):
             MIN_TOKEN_LENGTH = 3  # Reduced for more granular streaming
             last_agent = None  # Track agent changes
             
+            # Create message list for DirectOrchestrator
+            messages = [HumanMessage(content=request.message)]
+            
             async for chunk in orchestrator.stream(
-                message=request.message,
-                conversation_id=conversation_id,
-                user_id=request.user_id,
-                context=request.context,
+                messages=messages,
                 thread_id=thread_id
             ):
-                if chunk["type"] == "token":
+                # LangGraph returns chunks as {node_name: {state_updates}}
+                logger.info(f"Stream chunk: {chunk}")
+                
+                # Extract messages from the chunk
+                for node_name, state_updates in chunk.items():
+                    if "messages" in state_updates:
+                        # Get the last message (the new one)
+                        messages_list = state_updates["messages"]
+                        if messages_list and len(messages_list) > 0:
+                            last_msg = messages_list[-1]
+                            
+                            # Check if it's an AI message
+                            if hasattr(last_msg, 'content'):
+                                content = last_msg.content
+                                agent_name = last_msg.metadata.get("agent", node_name) if hasattr(last_msg, 'metadata') else node_name
+                                
+                                # Send the complete message
+                                yield json.dumps({
+                                    "event": "agent_message",
+                                    "agent": agent_name,
+                                    "message": content,
+                                    "tokens": [content]
+                                }) + "\n"
+                
+                # Keep original handling for backward compatibility
+                if isinstance(chunk, dict) and chunk.get("type") == "token":
                     # Handle content that might be a list or string
                     content = chunk["content"]
                     if isinstance(content, list):
