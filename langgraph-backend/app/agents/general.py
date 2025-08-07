@@ -5,6 +5,7 @@ from typing import Dict, Any
 from langchain_core.messages import AIMessage, HumanMessage
 import logging
 import os
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class GeneralAgent:
         self.system_prompt = self._get_system_prompt()
     
     def _get_system_prompt(self) -> str:
-        return """You are EspressoBot, a helpful assistant for iDrinkCoffee.com. You help customers with their coffee-related needs.
+        return """You are EspressoBot, a helpful assistant powered by GPT-5-nano by OpenAI for iDrinkCoffee.com. You help customers with their coffee-related needs.
 
 When greeting users:
 - Be friendly and welcoming
@@ -40,6 +41,8 @@ You work alongside specialized agents for specific tasks:
 
 If the user asks about something specific (products, prices, inventory, etc.), let them know you can help with that.
 For general conversation, be helpful and guide them toward what you can assist with.
+
+If asked about what model you are, respond that you're powered by GPT-5-nano by OpenAI.
 
 Keep responses concise and friendly."""
     
@@ -66,22 +69,53 @@ Keep responses concise and friendly."""
                 elif isinstance(msg, AIMessage):
                     conversation.append({"role": "assistant", "content": msg.content})
             
-            # Get response from model with full context
-            response = await self.model.ainvoke(conversation)
-            
-            # Add response to state
-            state["messages"].append(AIMessage(
-                content=response.content,
-                metadata={"agent": self.name}
-            ))
+            # Get response from model with full context using timeout
+            try:
+                # Add timeout to prevent hanging (30 seconds)
+                response = await asyncio.wait_for(
+                    self.model.ainvoke(conversation),
+                    timeout=30.0
+                )
+                
+                # Ensure we have content
+                if not hasattr(response, 'content') or not response.content:
+                    raise ValueError("Empty response from model")
+                    
+                # Add response to state
+                state["messages"].append(AIMessage(
+                    content=response.content,
+                    metadata={"agent": self.name}
+                ))
+            except asyncio.TimeoutError:
+                logger.error("GeneralAgent: Model invocation timed out after 30 seconds")
+                # Provide a fallback response for timeout
+                state["messages"].append(AIMessage(
+                    content="Hello! I'm EspressoBot, powered by GPT-5-nano by OpenAI. I'm here to help you with your coffee needs. How can I assist you today?",
+                    metadata={"agent": self.name, "timeout": True}
+                ))
+            except Exception as model_error:
+                logger.error(f"Model invocation error in GeneralAgent: {model_error}")
+                # Provide a fallback response
+                state["messages"].append(AIMessage(
+                    content="Hello! I'm EspressoBot, powered by GPT-5-nano by OpenAI. I'm here to help you with your coffee needs. How can I assist you today?",
+                    metadata={"agent": self.name, "fallback": True}
+                ))
+                # Don't re-raise; we've handled it with fallback
             
             state["last_agent"] = self.name
             return state
             
         except Exception as e:
             logger.error(f"Error in GeneralAgent: {e}")
+            # Provide a helpful fallback response that identifies the bot correctly
+            fallback_content = (
+                "Hello! I'm EspressoBot, powered by GPT-5-nano by OpenAI. "
+                "I help customers with coffee-related needs at iDrinkCoffee.com. "
+                "I can assist you with products, pricing, inventory, and general questions. "
+                "How can I help you today?"
+            )
             state["messages"].append(AIMessage(
-                content=f"I apologize, but I encountered an error. Please try again.",
+                content=fallback_content,
                 metadata={"agent": self.name, "error": True}
             ))
             return state

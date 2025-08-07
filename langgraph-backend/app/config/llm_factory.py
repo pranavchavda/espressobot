@@ -137,7 +137,9 @@ class LLMFactory:
                 model="gpt-4-turbo-preview",
                 temperature=temperature,
                 max_tokens=max_tokens,
-                api_key=self.openai_key
+                api_key=self.openai_key,
+                timeout=30,
+                max_retries=1
             )
         elif self.openrouter_key:
             return ChatOpenAI(
@@ -146,6 +148,8 @@ class LLMFactory:
                 max_tokens=max_tokens,
                 api_key=self.openrouter_key,
                 base_url="https://openrouter.ai/api/v1",
+                timeout=30,
+                max_retries=1,
                 default_headers={
                     "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
                     "X-Title": "EspressoBot"
@@ -175,7 +179,9 @@ class LLMFactory:
                     model=model_id,
                     api_key=self.openrouter_key,
                     base_url="https://openrouter.ai/api/v1",
-                    model_kwargs={"max_completion_tokens": max_tokens},
+                    max_completion_tokens=max_tokens,
+                    timeout=30,  # 30 second timeout
+                    max_retries=1,  # Reduce retries to prevent hanging
                     default_headers={
                         "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
                         "X-Title": "EspressoBot"
@@ -189,6 +195,8 @@ class LLMFactory:
                     max_tokens=max_tokens,
                     api_key=self.openrouter_key,
                     base_url="https://openrouter.ai/api/v1",
+                    timeout=30,  # 30 second timeout
+                    max_retries=1,  # Reduce retries
                     default_headers={
                         "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
                         "X-Title": "EspressoBot"
@@ -203,7 +211,9 @@ class LLMFactory:
                 return ChatOpenAI(
                     model=model_id,
                     api_key=self.openai_key,
-                    model_kwargs={"max_completion_tokens": max_tokens}
+                    max_completion_tokens=max_tokens,
+                    timeout=30,  # 30 second timeout
+                    max_retries=1  # Reduce retries to prevent hanging
                     # No temperature or max_tokens for GPT-5
                 )
             else:
@@ -211,7 +221,9 @@ class LLMFactory:
                     model=model_id,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    api_key=self.openai_key
+                    api_key=self.openai_key,
+                    timeout=30,  # 30 second timeout
+                    max_retries=1  # Reduce retries
                 )
         
         elif provider == Provider.ANTHROPIC:
