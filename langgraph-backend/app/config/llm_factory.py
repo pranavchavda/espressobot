@@ -6,8 +6,15 @@ import os
 import logging
 from typing import Optional, Dict, Any
 from enum import Enum
-from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
+
+# Conditional imports for optional providers
+try:
+    from langchain_anthropic import ChatAnthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    ChatAnthropic = None
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +76,11 @@ class LLMFactory:
         if self.openai_key:
             self.available_providers.append(Provider.OPENAI)
             logger.info("✅ OpenAI API configured")
-        if self.anthropic_key:
+        if self.anthropic_key and ANTHROPIC_AVAILABLE:
             self.available_providers.append(Provider.ANTHROPIC)
             logger.info("✅ Anthropic API configured")
+        elif self.anthropic_key and not ANTHROPIC_AVAILABLE:
+            logger.warning("⚠️ Anthropic API key provided but langchain_anthropic not installed")
     
     def create_llm(
         self,
@@ -121,14 +130,29 @@ class LLMFactory:
                 logger.warning(f"Failed to create {model_name} via {provider.value}: {e}")
                 continue
         
-        # Ultimate fallback
-        logger.warning(f"All providers failed for {model_name}, using Claude Haiku fallback")
-        return ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=self.anthropic_key
-        )
+        # Ultimate fallback - use GPT-4 if available
+        logger.warning(f"All providers failed for {model_name}, using GPT-4 fallback")
+        if self.openai_key:
+            return ChatOpenAI(
+                model="gpt-4-turbo-preview",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=self.openai_key
+            )
+        elif self.openrouter_key:
+            return ChatOpenAI(
+                model="openai/gpt-4-turbo-preview",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=self.openrouter_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
+                    "X-Title": "EspressoBot"
+                }
+            )
+        else:
+            raise Exception("No available providers for fallback")
     
     def _create_llm_for_provider(
         self,
@@ -191,6 +215,9 @@ class LLMFactory:
                 )
         
         elif provider == Provider.ANTHROPIC:
+            if not ANTHROPIC_AVAILABLE:
+                logger.error("Anthropic provider requested but langchain_anthropic not available")
+                return None
             return ChatAnthropic(
                 model=model_id,
                 temperature=temperature,

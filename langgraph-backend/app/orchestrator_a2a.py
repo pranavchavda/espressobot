@@ -9,7 +9,6 @@ from typing_extensions import Literal
 import logging
 import os
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
-from langchain_anthropic import ChatAnthropic
 import json
 import operator
 
@@ -36,10 +35,12 @@ class A2AOrchestrator:
         self._connection_pool = None  # For cleanup
         self.checkpointer = checkpointer or self._create_checkpointer()
         self.graph = None
-        self.model = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+        # Use LLM factory to get GPT-5 model for A2A orchestration
+        from app.config.llm_factory import llm_factory
+        self.model = llm_factory.create_llm(
+            model_name="gpt-5",  # Use full GPT-5 for orchestration
             temperature=0.0,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
+            max_tokens=4096
         )
         
         try:

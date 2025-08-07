@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_anthropic import ChatAnthropic
 import logging
 import os
 
@@ -14,16 +13,27 @@ class BaseAgent(ABC):
         self,
         name: str,
         description: str,
-        model: str = "claude-3-5-haiku-20241022",
+        model: str = None,  # Deprecated, will use agent-specific model from config
         temperature: float = 0.0
     ):
         self.name = name
         self.description = description
-        self.model = ChatAnthropic(
-            model=model,
-            temperature=temperature,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
-        )
+        
+        # Use LLM factory with agent-specific model configuration
+        from app.config.model_config import model_config
+        try:
+            self.model = model_config.get_langchain_llm(self.name)
+            logger.info(f"Initialized {self.name} agent with GPT-5 model via LLM factory")
+        except Exception as e:
+            logger.warning(f"Failed to create model for {self.name} via factory, falling back: {e}")
+            # Fallback to direct factory call
+            from app.config.llm_factory import llm_factory
+            self.model = llm_factory.create_llm(
+                model_name="gpt-5-mini",  # Safe default
+                temperature=temperature,
+                max_tokens=2048
+            )
+        
         self.tools: List[Any] = []
         self.system_prompt = self._get_system_prompt()
     

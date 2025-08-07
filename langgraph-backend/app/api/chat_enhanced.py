@@ -11,7 +11,6 @@ import time
 from app.orchestrator import Orchestrator
 from app.orchestrator_a2a import A2AOrchestrator
 from pydantic import BaseModel
-from langchain_anthropic import ChatAnthropic
 import os
 
 logger = logging.getLogger(__name__)
@@ -39,10 +38,12 @@ def get_complexity_analyzer():
     """Get complexity analyzer model"""
     global _complexity_analyzer
     if _complexity_analyzer is None:
-        _complexity_analyzer = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+        # Use LLM factory for complexity analysis
+        from app.config.llm_factory import llm_factory
+        _complexity_analyzer = llm_factory.create_llm(
+            model_name="gpt-5-mini",  # Mini model for complexity analysis
             temperature=0.0,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
+            max_tokens=1024
         )
     return _complexity_analyzer
 

@@ -3,7 +3,6 @@ General conversation agent for handling greetings and non-specific queries
 """
 from typing import Dict, Any
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_anthropic import ChatAnthropic
 import logging
 import os
 
@@ -15,10 +14,12 @@ class GeneralAgent:
     def __init__(self):
         self.name = "general"
         self.description = "Handles general conversation, greetings, and queries that don't fit other agents"
-        self.model = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+        # Use LLM factory to get GPT-5 model for general conversation
+        from app.config.llm_factory import llm_factory
+        self.model = llm_factory.create_llm(
+            model_name="gpt-5-nano",
             temperature=0.3,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
+            max_tokens=1024
         )
         self.system_prompt = self._get_system_prompt()
     

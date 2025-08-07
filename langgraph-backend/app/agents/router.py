@@ -1,7 +1,6 @@
 """Intelligent Router Agent for routing requests to appropriate specialist agents"""
 
 from typing import Dict, Any, List
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 import json
 import logging
@@ -16,10 +15,12 @@ class RouterAgent:
         self.name = "router"
         self.description = "Intelligently routes requests to the most appropriate specialist agent"
         self.available_agents = available_agents
-        self.model = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+        # Use LLM factory to get GPT-5-mini for routing
+        from app.config.llm_factory import llm_factory
+        self.model = llm_factory.create_llm(
+            model_name="gpt-5-mini",
             temperature=0.0,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
+            max_tokens=1024
         )
         
     def _get_routing_prompt(self) -> str:
