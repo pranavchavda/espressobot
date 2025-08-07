@@ -33,6 +33,7 @@ class A2AOrchestrator:
     
     def __init__(self, checkpointer=None):
         self.agents = {}
+        self._connection_pool = None  # For cleanup
         self.checkpointer = checkpointer or self._create_checkpointer()
         self.graph = None
         self.model = ChatAnthropic(
@@ -40,13 +41,59 @@ class A2AOrchestrator:
             temperature=0.0,
             api_key=os.getenv("ANTHROPIC_API_KEY")
         )
-        self._initialize_agents()
-        self._build_graph()
+        
+        try:
+            self._initialize_agents()
+            self._build_graph()
+            logger.info("A2A Orchestrator initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize A2A Orchestrator: {e}")
+            raise
     
     def _create_checkpointer(self):
-        """Create PostgreSQL checkpointer"""
+        """Create PostgreSQL checkpointer with proper connection handling"""
         db_uri = os.getenv("DATABASE_URL", "postgresql://espressobot:localdev123@localhost:5432/espressobot_dev")
-        return PostgresSaver.from_conn_string(db_uri)
+        try:
+            # Create a direct connection for the checkpointer
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
+            
+            # Create connection pool with conservative settings for A2A orchestrator
+            pool = ConnectionPool(
+                db_uri,
+                min_size=1,
+                max_size=5,  # Reduced pool size for A2A orchestrator
+                max_waiting=0,  # Don't wait for connections
+                max_idle=300,  # 5 minute idle timeout
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,
+                    "row_factory": dict_row
+                }
+            )
+            
+            checkpointer = PostgresSaver(pool)
+            
+            # Setup the database schema
+            try:
+                checkpointer.setup()
+                logger.info("A2A PostgreSQL checkpointer initialized with schema setup")
+            except Exception as setup_error:
+                # Schema might already exist
+                logger.debug(f"A2A checkpointer schema setup note: {setup_error}")
+            
+            # Store pool reference for cleanup
+            self._connection_pool = pool
+            
+            return checkpointer
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize PostgreSQL checkpointer for A2A: {e}")
+            # Fallback to in-memory checkpointer
+            from langgraph.checkpoint.memory import MemorySaver
+            logger.warning("A2A orchestrator falling back to in-memory checkpointer")
+            return MemorySaver()
     
     def _initialize_agents(self):
         """Initialize all specialist agents with A2A capabilities"""
@@ -109,7 +156,15 @@ class A2AOrchestrator:
         # Synthesize and end
         graph.add_edge("synthesize", END)
         
-        self.graph = graph.compile(checkpointer=self.checkpointer)
+        # Compile graph with checkpointer
+        try:
+            self.graph = graph.compile(checkpointer=self.checkpointer)
+            logger.info("A2A graph compiled successfully with PostgreSQL checkpointer")
+        except Exception as e:
+            logger.error(f"Failed to compile A2A graph with checkpointer: {e}")
+            # Try without checkpointer as fallback
+            self.graph = graph.compile()
+            logger.warning("A2A graph compiled without checkpointer (fallback mode)")
     
     async def analyze_request(self, state: A2AState) -> A2AState:
         """Analyze the request complexity and needs"""
@@ -297,6 +352,9 @@ Create a unified, well-formatted response that combines all relevant information
     
     async def run(self, message: str, thread_id: str, **kwargs) -> Dict[str, Any]:
         """Run the A2A orchestrator"""
+        if not self.graph:
+            raise RuntimeError("A2A orchestrator graph not initialized")
+        
         initial_state = {
             "messages": [HumanMessage(content=message)],
             "primary_agent": "",
@@ -312,11 +370,47 @@ Create a unified, well-formatted response that combines all relevant information
         
         config = {"configurable": {"thread_id": thread_id}}
         
-        result = await self.graph.ainvoke(initial_state, config)
-        
-        return {
-            "response": result.get("final_response", ""),
-            "execution_path": result.get("execution_path", []),
-            "agents_involved": list(result.get("agent_responses", {}).keys()),
-            "a2a_requests": result.get("agent_requests", [])
-        }
+        try:
+            logger.info(f"Starting A2A orchestration for thread: {thread_id}")
+            result = await self.graph.ainvoke(initial_state, config)
+            
+            logger.info(f"A2A orchestration completed for thread: {thread_id}")
+            return {
+                "response": result.get("final_response", ""),
+                "execution_path": result.get("execution_path", []),
+                "agents_involved": list(result.get("agent_responses", {}).keys()),
+                "a2a_requests": result.get("agent_requests", [])
+            }
+        except Exception as e:
+            logger.error(f"A2A orchestration failed for thread {thread_id}: {e}")
+            return {
+                "response": "I encountered an error while processing your request. Please try again.",
+                "execution_path": ["error"],
+                "agents_involved": [],
+                "a2a_requests": [],
+                "error": str(e)
+            }
+    
+    def close(self):
+        """Clean up resources"""
+        try:
+            if hasattr(self, '_connection_pool') and self._connection_pool:
+                self._connection_pool.close()
+                logger.info("A2A orchestrator connection pool closed")
+        except Exception as e:
+            logger.error(f"Error closing A2A orchestrator connection pool: {e}")
+    
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup"""
+        self.close()
+    
+    def __del__(self):
+        """Destructor cleanup"""
+        try:
+            self.close()
+        except:
+            pass  # Ignore cleanup errors in destructor

@@ -1,0 +1,344 @@
+{
+  "summary": {
+    "total_tests": 13,
+    "successful": 12,
+    "failed": 1,
+    "success_rate": 92.3076923076923,
+    "timestamp": "2025-08-07T16:11:00.930489"
+  },
+  "categories": {
+    "Infrastructure": {
+      "total": 3,
+      "successful": 2,
+      "failed": 1,
+      "avg_duration": 0.000713189442952474,
+      "tests": [
+        {
+          "name": "Backend Health Check",
+          "success": true,
+          "duration": 0.002139568328857422,
+          "pattern": null,
+          "agent_path": null,
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "LLM Factory Model Creation",
+          "success": false,
+          "duration": 0,
+          "pattern": null,
+          "agent_path": null,
+          "model": null,
+          "error": "No module named 'langchain_openai'"
+        },
+        {
+          "name": "Model Tiering Verification",
+          "success": true,
+          "duration": null,
+          "pattern": null,
+          "agent_path": null,
+          "model": null,
+          "error": null
+        }
+      ]
+    },
+    "Simple Routing": {
+      "total": 3,
+      "successful": 3,
+      "failed": 0,
+      "avg_duration": 10.727484544118246,
+      "tests": [
+        {
+          "name": "Simple Routing: Hello! How are you today?...",
+          "success": true,
+          "duration": 3.75199294090271,
+          "pattern": "simple",
+          "agent_path": [
+            "general"
+          ],
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "Simple Routing: What's the price of the Brevil...",
+          "success": true,
+          "duration": 19.9469895362854,
+          "pattern": "simple",
+          "agent_path": [
+            "products"
+          ],
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "Simple Routing: What's the SKU for the Ninja F...",
+          "success": true,
+          "duration": 8.483471155166626,
+          "pattern": "simple",
+          "agent_path": [
+            "products"
+          ],
+          "model": null,
+          "error": null
+        }
+      ]
+    },
+    "A2A Orchestration": {
+      "total": 4,
+      "successful": 4,
+      "failed": 0,
+      "avg_duration": 0.00455087423324585,
+      "tests": [
+        {
+          "name": "A2A Orchestration: Show me the Breville Barista E...",
+          "success": true,
+          "duration": 0.011054515838623047,
+          "pattern": "a2a",
+          "agent_path": [
+            "A2A-Orchestrator"
+          ],
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "A2A Orchestration: Compare the Breville Barista E...",
+          "success": true,
+          "duration": 0.0023691654205322266,
+          "pattern": "a2a",
+          "agent_path": [
+            "A2A-Orchestrator"
+          ],
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "A2A Orchestration: I need a coffee machine under ...",
+          "success": true,
+          "duration": 0.0023431777954101562,
+          "pattern": "a2a",
+          "agent_path": [
+            "A2A-Orchestrator"
+          ],
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "A2A Orchestration: Give me a comprehensive analys...",
+          "success": true,
+          "duration": 0.0024366378784179688,
+          "pattern": "a2a",
+          "agent_path": [
+            "A2A-Orchestrator"
+          ],
+          "model": null,
+          "error": null
+        }
+      ]
+    },
+    "Auto Analysis": {
+      "total": 2,
+      "successful": 2,
+      "failed": 0,
+      "avg_duration": 4.7907551527023315,
+      "tests": [
+        {
+          "name": "Auto Analysis: Hello! How are you today?...",
+          "success": true,
+          "duration": 5.876357316970825,
+          "pattern": "simple",
+          "agent_path": [
+            "general"
+          ],
+          "model": null,
+          "error": null
+        },
+        {
+          "name": "Auto Analysis: Show me the Breville Barista E...",
+          "success": true,
+          "duration": 3.705152988433838,
+          "pattern": "a2a",
+          "agent_path": [
+            "A2A-Orchestrator"
+          ],
+          "model": null,
+          "error": null
+        }
+      ]
+    },
+    "Error Handling": {
+      "total": 1,
+      "successful": 1,
+      "failed": 0,
+      "avg_duration": 3.134669780731201,
+      "tests": [
+        {
+          "name": "Error Handling",
+          "success": true,
+          "duration": 3.134669780731201,
+          "pattern": null,
+          "agent_path": null,
+          "model": null,
+          "error": null
+        }
+      ]
+    }
+  },
+  "analysis": {
+    "models_used": {},
+    "patterns_distribution": {
+      "simple": 4,
+      "a2a": 5
+    },
+    "avg_response_time": 4.083543343977495
+  },
+  "details": [
+    {
+      "test": "Backend Health Check",
+      "success": true,
+      "duration": 0.002139568328857422,
+      "pattern": null,
+      "agents": null,
+      "model": null,
+      "error": null,
+      "response_length": null
+    },
+    {
+      "test": "LLM Factory Model Creation",
+      "success": false,
+      "duration": 0,
+      "pattern": null,
+      "agents": null,
+      "model": null,
+      "error": "No module named 'langchain_openai'",
+      "response_length": null
+    },
+    {
+      "test": "Model Tiering Verification",
+      "success": true,
+      "duration": null,
+      "pattern": null,
+      "agents": null,
+      "model": null,
+      "error": null,
+      "response_length": null
+    },
+    {
+      "test": "Simple Routing: Hello! How are you today?...",
+      "success": true,
+      "duration": 3.75199294090271,
+      "pattern": "simple",
+      "agents": [
+        "general"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 173
+    },
+    {
+      "test": "Simple Routing: What's the price of the Brevil...",
+      "success": true,
+      "duration": 19.9469895362854,
+      "pattern": "simple",
+      "agents": [
+        "products"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 405
+    },
+    {
+      "test": "Simple Routing: What's the SKU for the Ninja F...",
+      "success": true,
+      "duration": 8.483471155166626,
+      "pattern": "simple",
+      "agents": [
+        "products"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 415
+    },
+    {
+      "test": "A2A Orchestration: Show me the Breville Barista E...",
+      "success": true,
+      "duration": 0.011054515838623047,
+      "pattern": "a2a",
+      "agents": [
+        "A2A-Orchestrator"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 0
+    },
+    {
+      "test": "A2A Orchestration: Compare the Breville Barista E...",
+      "success": true,
+      "duration": 0.0023691654205322266,
+      "pattern": "a2a",
+      "agents": [
+        "A2A-Orchestrator"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 0
+    },
+    {
+      "test": "A2A Orchestration: I need a coffee machine under ...",
+      "success": true,
+      "duration": 0.0023431777954101562,
+      "pattern": "a2a",
+      "agents": [
+        "A2A-Orchestrator"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 0
+    },
+    {
+      "test": "A2A Orchestration: Give me a comprehensive analys...",
+      "success": true,
+      "duration": 0.0024366378784179688,
+      "pattern": "a2a",
+      "agents": [
+        "A2A-Orchestrator"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 0
+    },
+    {
+      "test": "Auto Analysis: Hello! How are you today?...",
+      "success": true,
+      "duration": 5.876357316970825,
+      "pattern": "simple",
+      "agents": [
+        "general"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 173
+    },
+    {
+      "test": "Auto Analysis: Show me the Breville Barista E...",
+      "success": true,
+      "duration": 3.705152988433838,
+      "pattern": "a2a",
+      "agents": [
+        "A2A-Orchestrator"
+      ],
+      "model": null,
+      "error": null,
+      "response_length": 0
+    },
+    {
+      "test": "Error Handling",
+      "success": true,
+      "duration": 3.134669780731201,
+      "pattern": null,
+      "agents": null,
+      "model": null,
+      "error": null,
+      "response_length": null
+    }
+  ]
+}

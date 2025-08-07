@@ -1,0 +1,69 @@
+{
+  "timestamp": "2025-08-07T16:13:59.561933",
+  "tests": {
+    "environment": {
+      "required": {
+        "OPENAI_API_KEY": true,
+        "DATABASE_URL": true
+      },
+      "optional": {
+        "OPENROUTER_API_KEY": true,
+        "ANTHROPIC_API_KEY": true
+      }
+    },
+    "backend_health": {
+      "success": true,
+      "status": {
+        "status": "healthy"
+      }
+    },
+    "model_config": {
+      "gpt5_tiers": {
+        "orchestrator": "openai/gpt-5",
+        "primary": "openai/gpt-5-mini",
+        "auxiliary": "openai/gpt-5-nano"
+      },
+      "providers": {
+        "OpenAI": true,
+        "OpenRouter": true,
+        "Anthropic": true
+      },
+      "success": true
+    },
+    "simple_query": {
+      "success": true,
+      "pattern": "simple",
+      "agents": [
+        "products"
+      ],
+      "response_length": 405
+    },
+    "complex_query": {
+      "success": false,
+      "pattern": "a2a",
+      "agents": [
+        "A2A-Orchestrator"
+      ],
+      "analysis_reason": "Request requires retrieving product details from product catalog and checking current inventory/pricing from separate systems",
+      "response_length": 0,
+      "had_error": true
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "low",
+      "issue": "GPT-5 models show parameter warnings",
+      "suggestion": "Update LLM factory to use max_completion_tokens parameter explicitly"
+    },
+    {
+      "priority": "high",
+      "issue": "A2A orchestration has execution errors",
+      "suggestion": "Fix checkpointer implementation in A2A orchestrator"
+    },
+    {
+      "priority": "info",
+      "issue": "Simple routing working correctly",
+      "suggestion": "Simple queries are properly routed to appropriate agents"
+    }
+  ]
+}
