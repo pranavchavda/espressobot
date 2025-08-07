@@ -62,6 +62,77 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Delete a conversation
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const convId = req.params.id;
+  const USER_ID = req.user?.id || 1;
+  
+  if (!convId) {
+    return res.status(400).json({ error: 'Invalid conversation ID' });
+  }
+  
+  if (useLangGraph) {
+    // Proxy to LangGraph backend
+    try {
+      const response = await fetch(`${LANGGRAPH_BACKEND}/api/conversations/${convId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-ID': String(USER_ID)
+        }
+      });
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(404).json({ error: 'Conversation not found' });
+        }
+        throw new Error(`Backend responded with ${response.status}`);
+      }
+      
+      res.json({ success: true, message: 'Conversation deleted' });
+    } catch (error) {
+      console.error('[Conversations] Error deleting via LangGraph backend:', error);
+      res.status(503).json({ 
+        error: 'Backend unavailable', 
+        details: error.message
+      });
+    }
+  } else {
+    // Use local database
+    try {
+      // First check if conversation exists and belongs to user
+      const conversation = await prisma.conversations.findFirst({
+        where: { 
+          id: convId,
+          user_id: USER_ID 
+        }
+      });
+      
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      
+      // Delete all messages in the conversation first
+      await prisma.messages.deleteMany({
+        where: { conversation_id: convId }
+      });
+      
+      // Delete the conversation
+      await prisma.conversations.delete({
+        where: { id: convId }
+      });
+      
+      res.json({ success: true, message: 'Conversation deleted' });
+    } catch (error) {
+      console.error('[Conversations] Error deleting conversation:', error);
+      res.status(500).json({ 
+        error: 'Failed to delete conversation', 
+        details: error.message 
+      });
+    }
+  }
+});
+
 // Get all messages for a given conversation
 router.get('/:id', authenticateToken, async (req, res) => {
   const convId = req.params.id; // Keep as string for LangGraph thread_id
@@ -295,6 +366,45 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting conversation:', error);
     res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+// Generate title for a conversation
+router.post('/:id/generate-title', authenticateToken, async (req, res) => {
+  const convId = req.params.id;
+  const USER_ID = req.user?.id || 1;
+  
+  if (!convId) {
+    return res.status(400).json({ error: 'Invalid conversation ID' });
+  }
+  
+  if (useLangGraph) {
+    // Proxy to LangGraph backend
+    try {
+      const response = await fetch(`${LANGGRAPH_BACKEND}/api/conversations/${convId}/generate-title`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-ID': String(USER_ID)
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Backend responded with ${response.status}`);
+      }
+      
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error('[Conversations] Error generating title via LangGraph backend:', error);
+      res.status(503).json({ 
+        error: 'Failed to generate title', 
+        details: error.message
+      });
+    }
+  } else {
+    // For local database, just return a default
+    res.json({ title: "💬 New Conversation", auto_generated: false });
   }
 });
 

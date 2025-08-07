@@ -923,6 +923,26 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   if (onNewConversation && !convId) {
                     onNewConversation(actualEventPayload.conv_id);
                   }
+                  
+                  // Auto-generate title after first message
+                  if (!convId && messages.length === 1) {
+                    console.log('[DEBUG] Generating title for new conversation:', actualEventPayload.conv_id);
+                    fetch(`/api/conversations/${actualEventPayload.conv_id}/generate-title`, {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': localStorage.getItem('authToken') ? `Bearer ${localStorage.getItem('authToken')}` : '',
+                        'Content-Type': 'application/json'
+                      }
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                      if (data.title) {
+                        console.log('[DEBUG] Generated title:', data.title);
+                        // Update the conversation list will happen automatically on next fetch
+                      }
+                    })
+                    .catch(err => console.error('[DEBUG] Failed to generate title:', err));
+                  }
                 }
               }
               
