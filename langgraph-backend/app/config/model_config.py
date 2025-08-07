@@ -117,49 +117,45 @@ class ModelConfig:
         return config
     
     def get_langchain_llm(self, agent_name: str):
-        """Get a LangChain LLM instance for an agent"""
+        """Get a LangChain LLM instance for an agent using the LLM factory"""
+        from app.config.llm_factory import llm_factory, Provider
+        
         config = self.get_model_for_agent(agent_name)
         
-        if config["provider"] == ModelProvider.ANTHROPIC:
-            from langchain_anthropic import ChatAnthropic
-            return ChatAnthropic(
-                model=config["model"].split("/")[-1],  # Remove provider prefix
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"],
-                api_key=config["api_key"]
-            )
+        # Map our provider enum to factory provider
+        provider_map = {
+            ModelProvider.OPENROUTER: Provider.OPENROUTER,
+            ModelProvider.OPENAI: Provider.OPENAI,
+            ModelProvider.ANTHROPIC: Provider.ANTHROPIC
+        }
         
-        elif config["provider"] == ModelProvider.OPENROUTER:
-            from langchain_openai import ChatOpenAI
-            return ChatOpenAI(
-                model=config["model"],
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"],
-                api_key=config["api_key"],
-                base_url=config["base_url"],
-                default_headers={
-                    "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
-                    "X-Title": "EspressoBot"
-                }
-            )
+        preferred_provider = provider_map.get(config["provider"])
         
-        elif config["provider"] == ModelProvider.OPENAI:
-            from langchain_openai import ChatOpenAI
-            return ChatOpenAI(
-                model=config["model"].split("/")[-1],  # Remove provider prefix
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"],
-                api_key=config["api_key"]
-            )
+        # Extract base model name (remove provider prefix)
+        model_name = config["model"]
+        if "/" in model_name:
+            model_name = model_name.split("/", 1)[1]
         
-        else:
-            # Fallback to Anthropic Haiku
-            from langchain_anthropic import ChatAnthropic
-            return ChatAnthropic(
-                model="claude-3-5-haiku-20241022",
-                temperature=0.0,
-                api_key=self.anthropic_api_key
-            )
+        # Map to our standardized model names
+        model_map = {
+            "gpt-5": "gpt-5",
+            "gpt-5-mini": "gpt-5-mini",
+            "gpt-5-nano": "gpt-5-nano",
+            "claude-3-opus-20240229": "claude-3-opus",
+            "claude-3-5-haiku-20241022": "claude-3-5-haiku",
+            "claude-3-haiku-20240307": "claude-3-5-haiku",
+            "deepseek-chat": "deepseek-chat",
+            "qwen-2-72b-instruct": "qwen-2-72b"
+        }
+        
+        standardized_model = model_map.get(model_name, model_name)
+        
+        return llm_factory.create_llm(
+            model_name=standardized_model,
+            temperature=config["temperature"],
+            max_tokens=config["max_tokens"],
+            preferred_provider=preferred_provider
+        )
     
     def estimate_cost(self, agent_name: str, input_tokens: int, output_tokens: int) -> float:
         """Estimate cost for a model call"""
