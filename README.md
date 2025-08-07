@@ -1,6 +1,21 @@
-# EspressoBot 🤖☕
+# EspressoBot v2.0 🤖☕
 
-An AI-powered e-commerce assistant for iDrinkCoffee.com, built with OpenAI agents SDK and Model Context Protocol (MCP).
+An AI-powered e-commerce assistant for iDrinkCoffee.com, now powered by LangGraph + Native MCP integration.
+
+## 🚀 Quick Start
+
+```bash
+# Start everything with one command
+./start.sh
+
+# Check system status
+./status.sh
+
+# Stop all services
+./stop.sh
+```
+
+That's it! Open http://localhost:5173 and start chatting.
 
 ## Overview
 

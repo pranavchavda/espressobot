@@ -299,7 +299,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
   // When a streaming agent message completes, append it to messages and clear the stream buffer
   useEffect(() => {
-    if (streamingMessage?.isComplete) {
+    if (streamingMessage?.isComplete && !streamingMessage?.addedToMessages) {
       const { content, timestamp } = streamingMessage;
       if (content) {
         // Only save task markdown if it belongs to the current conversation
@@ -318,10 +318,14 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
             taskMarkdown: currentTaskMarkdown // Save current task markdown with the message
           }
         ]);
+        
+        // Mark as added to messages and clear the streaming message
+        setStreamingMessage(prev => prev ? { ...prev, addedToMessages: true } : null);
+        // Clear it after a brief delay to ensure state updates
+        setTimeout(() => setStreamingMessage(null), 100);
       }
-      setStreamingMessage(null);
     }
-  }, [streamingMessage?.isComplete, taskMarkdown, activeConv, convId]);
+  }, [streamingMessage?.isComplete, streamingMessage?.content, taskMarkdown, activeConv, convId]);
 
   // Handle image paste from clipboard
   useEffect(() => {
@@ -649,7 +653,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/agent/inject-message', {
+      const response = await fetch('/api/inject-message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -769,8 +773,10 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         setToolCallStatus("");
       }
 
+      const conversationId = convId || activeConv || undefined;
+      console.log('[DEBUG] Sending message with conv_id:', conversationId, 'convId:', convId, 'activeConv:', activeConv);
       const requestData = {
-        conv_id: convId || activeConv || undefined,
+        conv_id: conversationId,
         message: textToSend,
       };
 
@@ -862,22 +868,32 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
             try {
               let parsedData = rawJsonDataString ? JSON.parse(rawJsonDataString) : {};
               let actualEventPayload = parsedData;
-
-              // Debug: Log raw event before processing
-              console.log("FRONTEND: Raw SSE event - eventName from header:", eventName, "rawJsonDataString:", rawJsonDataString);
-
-              // If eventName wasn't set by an 'event:' line, 
-              // and we are using the agent, try to get it from the parsed data structure.
-              if (!eventName && useBasicAgent && parsedData.type) {
-                eventName = parsedData.type;
-                actualEventPayload = parsedData.data !== undefined ? parsedData.data : {}; // Use .data if it exists, otherwise empty obj
+              
+              // Debug log conversation events
+              if (eventName === 'conversation_id' || eventName === 'conv_id') {
+                console.log('[DEBUG] Got conversation event:', eventName, actualEventPayload);
               }
-              console.log("Processed SSE Event -- Name:", eventName, "Payload:", actualEventPayload);
+
+              // Debug: Log parsed event
+              console.log("FRONTEND: Parsed NDJSON event:", eventName, "Payload:", actualEventPayload);
 
               // Handle 'done' event regardless of agent mode
               if (eventName === 'done') {
                 console.log("FRONTEND: Received explicit 'done' event");
-                setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
+                // The done event should just ensure completion and preserve content for useEffect processing
+                setStreamingMessage(prev => {
+                  if (!prev) return null;
+                  // If we still have content that wasn't marked complete, complete it now
+                  if (prev.content && !prev.isComplete) {
+                    return { ...prev, isStreaming: false, isComplete: true };
+                  }
+                  // If already complete with content, preserve it for useEffect to move to messages
+                  if (prev.isComplete && prev.content && !prev.addedToMessages) {
+                    return prev; // Keep the completed message for useEffect processing
+                  }
+                  // Otherwise just clear it
+                  return null;
+                });
                 setIsSending(false);
                 shouldStop = true;
                 
@@ -899,21 +915,58 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   setActiveConv(actualEventPayload.conversationId);
                 }
               } else if (eventName === 'conversation_id') {
-                if (actualEventPayload.conv_id && activeConv !== actualEventPayload.conv_id) {
+                console.log('[DEBUG] Received conversation_id event:', actualEventPayload);
+                if (actualEventPayload.conv_id) {
+                  console.log('[DEBUG] Setting activeConv to:', actualEventPayload.conv_id);
                   setActiveConv(actualEventPayload.conv_id);
+                  // Also update onNewConversation callback if provided
+                  if (onNewConversation && !convId) {
+                    onNewConversation(actualEventPayload.conv_id);
+                  }
                 }
               }
               
               // Handle agent_message event for both basic and multi-agent modes
               if (eventName === 'agent_message') {
                 console.log("FRONTEND: Agent message", actualEventPayload);
-                setStreamingMessage(prev => ({ 
-                  role: 'assistant',
-                  content: actualEventPayload.content, 
-                  isStreaming: false, 
-                  isComplete: true,
-                  timestamp: new Date().toISOString()
-                }));
+                // During streaming, handle both full content and incremental tokens
+                if (actualEventPayload.tokens && actualEventPayload.tokens.length > 0) {
+                  // Incremental token streaming
+                  const newTokens = actualEventPayload.tokens.join('');
+                  setStreamingMessage(prev => ({ 
+                    role: 'assistant',
+                    content: (prev?.content || '') + newTokens,  // Append tokens incrementally
+                    isStreaming: true,
+                    isComplete: false,
+                    timestamp: prev?.timestamp || new Date().toISOString()
+                  }));
+                } else if (actualEventPayload.message !== undefined) {
+                  // Full message update (backward compatibility)
+                  setStreamingMessage(prev => ({ 
+                    role: 'assistant',
+                    content: actualEventPayload.message,  // Use the full message
+                    isStreaming: true,
+                    isComplete: false,
+                    timestamp: prev?.timestamp || new Date().toISOString()
+                  }));
+                }
+              }
+              
+              // Handle agent_complete event
+              if (eventName === 'agent_complete') {
+                console.log("FRONTEND: Agent complete", actualEventPayload);
+                // Just mark streaming as done, don't set complete yet
+                // The 'done' event will handle completion
+                setStreamingMessage(prev => {
+                  if (!prev) return null;
+                  return { 
+                    ...prev,
+                    content: actualEventPayload.message || prev?.content || "",
+                    isStreaming: false,  // Stop showing streaming indicator
+                    isComplete: false,   // Don't mark complete yet - wait for 'done'
+                    timestamp: prev?.timestamp || new Date().toISOString()
+                  };
+                });
               }
               
               // Handle start event for all modes
@@ -1729,8 +1782,8 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               })}
 
 
-              {/* Render streaming message if present and has content */}
-              {streamingMessage && (streamingMessage.content || streamingMessage.isStreaming) && (
+              {/* Render streaming message if present and has content - but not if already added to messages */}
+              {streamingMessage && !streamingMessage.addedToMessages && (streamingMessage.content || streamingMessage.isStreaming) && (
                 <div className="flex items-start gap-2">
                   <div className="flex-shrink-0">
                     <Avatar
@@ -1967,7 +2020,10 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               <Button
                 type="submit"
                 className="h-9 px-3.5 py-2 flex items-center justify-center self-center my-auto"
-                disabled={(!input.trim() && !imageAttachment && !fileAttachment) || isSending}
+                disabled={
+                  (!input.trim() && !imageAttachment && !fileAttachment) || 
+                  (isSending && !(streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete))
+                }
               >
                 <Send className="h-5 w-5" />
                 <span className="ml-2 hidden sm:inline">
@@ -1979,6 +2035,24 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
             </div>
           </div>
         </form>
+        
+        {/* Hidden file inputs */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          onChange={(e) => handleFileAttachment(e.target.files[0])}
+          className="hidden"
+          aria-hidden="true"
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.csv,.xlsx,.xls,.txt,.md,.json"
+          onChange={(e) => handleFileAttachment(e.target.files[0])}
+          className="hidden"
+          aria-hidden="true"
+        />
       </div>
     </div>
   );

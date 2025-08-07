@@ -97,12 +97,13 @@ export async function analyzeContextNeeds(task, extractedData = null, options = 
       console.log(`[ContextAnalyzer] Has direct memory search: ${hasDirectMemorySearch}`);
       
       if (!hasDirectMemorySearch) {
-        console.log(`[ContextAnalyzer] Adding direct semantic memory search for: "${task}"`);
+        const cleanedTask = cleanSearchQuery(task);
+        console.log(`[ContextAnalyzer] Adding direct semantic memory search for: "${cleanedTask}"`);
         filteredSuggestions.unshift({
           description: `Relevant past experiences and knowledge`,
           source: 'memory',
           priority: 'critical',
-          searchQuery: task,
+          searchQuery: cleanedTask,
           type: 'semantic_memory'
         });
       }
@@ -115,11 +116,12 @@ export async function analyzeContextNeeds(task, extractedData = null, options = 
       );
       
       if (!hasDirectRulesSearch) {
+        const cleanedTask = cleanSearchQuery(task);
         filteredSuggestions.unshift({
           description: `Relevant guidelines and documentation`,
           source: 'rules',
           priority: 'critical',
-          searchQuery: task,
+          searchQuery: cleanedTask,
           type: 'semantic_rules'
         });
         console.log(`[ContextAnalyzer] Added direct semantic search for prompt fragments`);
@@ -172,6 +174,26 @@ export async function analyzeContextNeeds(task, extractedData = null, options = 
 }
 
 /**
+ * Clean search query by removing images and other large data
+ */
+function cleanSearchQuery(query) {
+  if (!query || typeof query !== 'string') return query;
+  
+  // Remove base64 images
+  let cleaned = query.replace(/data:image\/[^;]+;base64,[^\s"']+/g, '[IMAGE]');
+  
+  // Remove image URLs that are extremely long (likely base64)
+  cleaned = cleaned.replace(/https?:\/\/[^\s"']{1000,}/g, '[LONG_URL]');
+  
+  // Truncate if still too long (max 1000 chars for search)
+  if (cleaned.length > 1000) {
+    cleaned = cleaned.substring(0, 1000) + '...';
+  }
+  
+  return cleaned;
+}
+
+/**
  * Search for and fetch suggested context
  */
 export async function fetchSuggestedContext(suggestions, userId = null) {
@@ -184,6 +206,9 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
     try {
       let results = [];
       
+      // Clean the search query to remove images and other large data
+      const cleanQuery = cleanSearchQuery(suggestion.searchQuery);
+      
       switch (suggestion.source) {
         case 'memory':
           if (userId) {
@@ -191,7 +216,7 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
             const userIdStr = String(userId);
             const memoryUserId = userIdStr.startsWith('user_') ? userIdStr : `user_${userIdStr}`;
             results = await memoryOperations.search(
-              suggestion.searchQuery,
+              cleanQuery,
               memoryUserId,
               suggestion.priority === 'critical' ? 5 : 3
             );
@@ -201,7 +226,7 @@ export async function fetchSuggestedContext(suggestions, userId = null) {
         case 'rules':
           // Search system prompt fragments
           results = await memoryOperations.searchSystemPromptFragments(
-            suggestion.searchQuery,
+            cleanQuery,
             suggestion.priority === 'critical' ? 10 : 5
           );
           break;

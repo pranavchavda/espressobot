@@ -150,8 +150,8 @@ IMPORTANT:
     name: 'Product Management Agent',
     instructions,
     mcpServers: [mcpServer],
-    model: process.env.OPENAI_MODEL || 'gpt-4o',
-    toolUseBehavior: 'run_llm_again'
+    model: process.env.OPENAI_MODEL || 'gpt-4o'
+    // Removed toolUseBehavior to prevent infinite loops
   });
 
   return agent;

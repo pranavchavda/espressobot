@@ -333,7 +333,7 @@ Remember: You have full capability to complete the entire workflow. Do not retur
     instructions: docInstructions,
     mcpServers: [shopifyDevServer, integrationsServer],
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-    toolUseBehavior: 'run_llm_again',
+    // toolUseBehavior removed to prevent loops,
     handoffs: [] // Will be populated after GraphQL agent is created
   });
 
@@ -355,7 +355,7 @@ Remember: You have full capability to complete the entire workflow. Do not retur
     handoffs: [documentationHandoff],
     tools: [createSafetyValidationTool()],
     model: process.env.OPENAI_MODEL || 'gpt-4.1',
-    toolUseBehavior: 'run_llm_again'
+    // toolUseBehavior removed to prevent loops
   });
 
   // Now create handoff from Documentation back to GraphQL

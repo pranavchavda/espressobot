@@ -13,69 +13,140 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 
+// Check if we should use LangGraph backend
+const useLangGraph = process.env.USE_LANGGRAPH === 'true';
+const LANGGRAPH_BACKEND = process.env.LANGGRAPH_BACKEND_URL || 'http://localhost:8000';
+
+if (useLangGraph) {
+  console.log(`🔗 Conversations: Using LangGraph backend at ${LANGGRAPH_BACKEND}`);
+} else {
+  console.log('🔗 Conversations: Using local database');
+}
+
 // List all conversations for the authenticated user
 router.get('/', authenticateToken, async (req, res) => {
-  // Use the authenticated user's ID, fallback to 1 for local development
-  const USER_ID = req.user?.id || 1;
-  const conversations = await prisma.conversations.findMany({
-    where: { user_id: USER_ID },
-    orderBy: { created_at: 'desc' },
-  });
-  
-  
-  res.json(conversations);
+  if (useLangGraph) {
+    // Proxy to LangGraph backend
+    try {
+      const response = await fetch(`${LANGGRAPH_BACKEND}/api/conversations`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-ID': String(req.user?.id || 1)
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Backend responded with ${response.status}`);
+      }
+      
+      const conversations = await response.json();
+      res.json(conversations);
+    } catch (error) {
+      console.error('[Conversations] Error proxying to LangGraph backend:', error);
+      res.status(503).json({ 
+        error: 'Backend unavailable', 
+        details: error.message,
+        conversations: [] // Return empty array as fallback
+      });
+    }
+  } else {
+    // Use local database
+    const USER_ID = req.user?.id || 1;
+    const conversations = await prisma.conversations.findMany({
+      where: { user_id: USER_ID },
+      orderBy: { created_at: 'desc' },
+    });
+    
+    res.json(conversations);
+  }
 });
 
 // Get all messages for a given conversation
 router.get('/:id', authenticateToken, async (req, res) => {
-  const convId = Number(req.params.id);
+  const convId = req.params.id; // Keep as string for LangGraph thread_id
   const USER_ID = req.user?.id || 1;
   
   if (!convId) {
     return res.status(400).json({ error: 'Invalid conversation ID' });
   }
   
-  // Verify the conversation belongs to the user
-  const conversation = await prisma.conversations.findFirst({
-    where: { id: convId, user_id: USER_ID }
-  });
-  
-  if (!conversation) {
-    return res.status(404).json({ error: 'Conversation not found' });
+  if (useLangGraph) {
+    // Proxy to LangGraph backend
+    try {
+      const response = await fetch(`${LANGGRAPH_BACKEND}/api/conversations/${convId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-ID': String(USER_ID)
+        }
+      });
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(404).json({ error: 'Conversation not found' });
+        }
+        throw new Error(`Backend responded with ${response.status}`);
+      }
+      
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error('[Conversations] Error proxying to LangGraph backend:', error);
+      res.status(503).json({ 
+        error: 'Backend unavailable', 
+        details: error.message,
+        messages: [],
+        tasks: [],
+        taskMarkdown: null
+      });
+    }
+  } else {
+    // Use local database
+    const convIdNum = Number(convId);
+    
+    // Verify the conversation belongs to the user
+    const conversation = await prisma.conversations.findFirst({
+      where: { id: convIdNum, user_id: USER_ID }
+    });
+    
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    
+    const messages = await prisma.messages.findMany({
+      where: { conv_id: convIdNum },
+      orderBy: { created_at: 'asc' },
+    });
+    const latestRun = await prisma.agent_runs.findFirst({
+      where: { conv_id: convIdNum },
+      orderBy: { created_at: 'desc' },
+    });
+    
+    // Load task markdown file if it exists
+    let taskMarkdown = null;
+    try {
+      const planPath = path.join(__dirname, 'plans', `TODO-${convIdNum}.md`);
+      const planContent = await fs.readFile(planPath, 'utf-8');
+      const taskCount = (planContent.match(/^\s*-\s*\[/gm) || []).length;
+      taskMarkdown = {
+        markdown: planContent,
+        filename: `TODO-${convIdNum}.md`,
+        taskCount: taskCount,
+        conversation_id: convIdNum
+      };
+    } catch (err) {
+      // No task plan file, that's okay
+    }
+    
+    res.json({ 
+      messages, 
+      tasks: latestRun ? JSON.parse(latestRun.tasks) : [],
+      taskMarkdown: taskMarkdown,
+      topic_title: conversation.topic_title,
+      topic_details: conversation.topic_details
+    });
   }
-  
-  const messages = await prisma.messages.findMany({
-    where: { conv_id: convId },
-    orderBy: { created_at: 'asc' },
-  });
-  const latestRun = await prisma.agent_runs.findFirst({
-    where: { conv_id: convId },
-    orderBy: { created_at: 'desc' },
-  });
-  
-  // Load task markdown file if it exists
-  let taskMarkdown = null;
-  try {
-    const planPath = path.join(__dirname, 'plans', `TODO-${convId}.md`);
-    const planContent = await fs.readFile(planPath, 'utf-8');
-    const taskCount = (planContent.match(/^\s*-\s*\[/gm) || []).length;
-    taskMarkdown = {
-      markdown: planContent,
-      filename: `TODO-${convId}.md`,
-      taskCount: taskCount,
-      conversation_id: convId
-    };
-  } catch (err) {
-    // No task plan file, that's okay
-  }
-  
-  res.json({ 
-    messages, 
-    tasks: latestRun ? JSON.parse(latestRun.tasks) : [],
-    taskMarkdown: taskMarkdown,
-    topic_title: conversation.topic_title,
-    topic_details: conversation.topic_details
-  });
 });
 
 // Update conversation topic

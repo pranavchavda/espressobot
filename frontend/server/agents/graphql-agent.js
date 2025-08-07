@@ -299,7 +299,7 @@ Remember: Your role is to be the safe, knowledgeable interface to GraphQL operat
     handoffs: [documentationHandoff],
     tools: [safetyTool],
     model: process.env.OPENAI_MODEL || 'gpt-4.1',
-    toolUseBehavior: 'run_llm_again'
+    // toolUseBehavior removed to prevent loops
   });
 
   return agent;

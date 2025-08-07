@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@common/button";
 import { Divider } from "@common/divider";
 import TopNavDropdown from "../common/TopNavDropdown";
-import { Loader2Icon, XIcon, MessageSquarePlusIcon, PinIcon, PinOffIcon, MenuIcon, SunIcon, MoonIcon, FileTextIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { Loader2Icon, XIcon, MessageSquarePlusIcon, PinIcon, PinOffIcon, MenuIcon, FileTextIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 
 function ConversationItem({ chat, selected, onSelect, onDelete, pinned, onTogglePin, collapsed }) {
   // When collapsed, show a compact avatar-style indicator instead of text
@@ -102,8 +102,6 @@ export default function SidebarNav({
   onDeleteConversation,
   onNewChat,
   onOpenScratchpad,
-  isDark,
-  onToggleTheme,
   collapsible = true,
   collapsed,
   onToggleCollapsed
@@ -247,20 +245,11 @@ export default function SidebarNav({
         </nav>
         {/* Footer utilities */}
         <div className={`mt-auto p-2 border-t border-zinc-200/80 dark:border-zinc-800/80 ${collapsed ? "flex flex-col items-center gap-2" : "flex items-center justify-between"} overflow-x-hidden`}>
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            className="px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm"
-            aria-label="Toggle theme"
-            title="Toggle theme"
-          >
-            {isDark ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
-          </button>
           {!collapsed && (
             <button
               type="button"
               onClick={onLogout}
-              className="px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm"
+              className="px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-sm w-full"
             >
               Logout
             </button>

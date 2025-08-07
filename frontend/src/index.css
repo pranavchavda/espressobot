@@ -25,14 +25,16 @@ html, body, #root {
   height: 100%;
 }
 
+html {
+  @apply bg-white lg:bg-zinc-100 dark:bg-zinc-900 dark:lg:bg-zinc-950;
+}
+
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
-  background: #f9f9f9;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: rgb(var(--fg));
-  background-color: rgb(var(--bg));
+  @apply text-zinc-900 dark:text-zinc-100;
 }
 
 * {

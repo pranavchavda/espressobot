@@ -1,0 +1,24 @@
+# Core dependencies
+fastapi
+uvicorn[standard]
+sse-starlette
+python-dotenv
+aiosqlite
+sqlalchemy
+alembic
+
+# LangChain ecosystem
+langgraph
+langchain
+langchain-community
+langchain-anthropic
+
+# Testing
+pytest
+pytest-asyncio
+httpx
+
+# Utilities
+redis
+prometheus-client
+python-multipart

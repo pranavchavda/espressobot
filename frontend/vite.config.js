@@ -139,10 +139,17 @@ export default defineConfig({
         const authRoutes = (await import('./server/auth')).default;
         const convHandler = (await import('./server/conversations')).default;
         
-        // Use bash orchestrator as the default and only orchestrator
-        console.log('Using Bash Orchestrator (Shell Agency)');
+        // Check if we should use LangGraph backend
+        const useLangGraph = process.env.USE_LANGGRAPH === 'true';
         
-        const orchestratorRouter = (await import('./server/bash-orchestrator-api')).default;
+        let orchestratorRouter;
+        if (useLangGraph) {
+          console.log('Using LangGraph Backend Integration');
+          orchestratorRouter = (await import('./server/langgraph-orchestrator')).default;
+        } else {
+          console.log('Using Bash Orchestrator (Shell Agency)');
+          orchestratorRouter = (await import('./server/bash-orchestrator-api')).default;
+        }
 
         const apiApp = express();
         

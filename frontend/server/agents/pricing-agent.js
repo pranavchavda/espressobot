@@ -128,7 +128,7 @@ You have access to the Pricing Server which provides:
     instructions,
     mcpServers: [mcpServer],
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-    toolUseBehavior: 'run_llm_again'
+    // toolUseBehavior removed to prevent loops
   });
 
   return agent;

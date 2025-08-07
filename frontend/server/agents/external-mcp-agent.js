@@ -118,7 +118,7 @@ Available MCP servers and their capabilities:`;
     instructions: finalInstructions,
     mcpServers: mcpServers,
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-    toolUseBehavior: 'run_llm_again'
+    // toolUseBehavior removed to prevent loops
   });
 
   return agent;

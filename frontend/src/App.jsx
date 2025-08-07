@@ -239,19 +239,36 @@ function App() {
 
   const toggleTheme = () => {
     const root = document.documentElement;
-    const next = !root.classList.contains('dark');
-    root.classList.toggle('dark', next);
+    const next = !isDark;
+    
+    if (next) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    
     setIsDark(next);
     // Persist preference
-    try { localStorage.setItem('theme', next ? 'dark' : 'light'); } catch {}
+    try { 
+      localStorage.setItem('theme', next ? 'dark' : 'light'); 
+    } catch (e) {
+      console.error('Failed to save theme preference:', e);
+    }
   };
 
   useEffect(() => {
-    const pref = localStorage.getItem('theme');
-    if (pref === 'dark') {
+    // Initialize theme from localStorage or system preference
+    const storedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    // Determine initial theme
+    const shouldBeDark = storedTheme === 'dark' || (!storedTheme && prefersDark);
+    
+    // Apply theme
+    if (shouldBeDark) {
       document.documentElement.classList.add('dark');
       setIsDark(true);
-    } else if (pref === 'light') {
+    } else {
       document.documentElement.classList.remove('dark');
       setIsDark(false);
     }
@@ -316,8 +333,6 @@ function App() {
                 navigate("/");
               }}
               onOpenScratchpad={() => setShowScratchpadDialog(true)}
-              isDark={isDark}
-              onToggleTheme={toggleTheme}
               collapsible={true}
               collapsed={sidebarCollapsed}
               onToggleCollapsed={() => setSidebarCollapsed(prev => !prev)}
@@ -340,7 +355,15 @@ function App() {
                   // Instead of updating state, refetch to ensure consistency
                   fetchConversations();
                 }}
-                onNewConversation={() => setSelectedChat(null)}
+                onNewConversation={(newConvId) => {
+                  console.log('[DEBUG] App.jsx: onNewConversation called with:', newConvId);
+                  if (newConvId) {
+                    setSelectedChat(newConvId);
+                    fetchConversations(); // Refresh the sidebar
+                  } else {
+                    setSelectedChat(null);
+                  }
+                }}
               />
               <PWAInstallPrompt />
             </>

@@ -127,8 +127,8 @@ IMPORTANT:
     name: 'Media Agent',
     instructions,
     mcpServers: [mcpServer],
-    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-    toolUseBehavior: 'run_llm_again'
+    model: process.env.OPENAI_MODEL || 'gpt-4.1-mini'
+    // Removed toolUseBehavior to prevent infinite loops
   });
 
   return agent;
