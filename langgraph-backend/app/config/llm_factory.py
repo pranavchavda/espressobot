@@ -144,37 +144,48 @@ class LLMFactory:
             return None
         
         if provider == Provider.OPENROUTER:
-            # GPT-5 models require temperature=1.0
+            # GPT-5 models don't support temperature parameter at all
             if "gpt-5" in model_id:
-                actual_temperature = 1.0 if temperature == 0.0 else temperature
+                return ChatOpenAI(
+                    model=model_id,
+                    max_tokens=max_tokens,
+                    api_key=self.openrouter_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    default_headers={
+                        "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
+                        "X-Title": "EspressoBot"
+                    }
+                    # No temperature parameter for GPT-5
+                )
             else:
-                actual_temperature = temperature
-                
-            return ChatOpenAI(
-                model=model_id,
-                temperature=actual_temperature,
-                max_tokens=max_tokens,
-                api_key=self.openrouter_key,
-                base_url="https://openrouter.ai/api/v1",
-                default_headers={
-                    "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
-                    "X-Title": "EspressoBot"
-                }
-            )
+                return ChatOpenAI(
+                    model=model_id,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=self.openrouter_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    default_headers={
+                        "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
+                        "X-Title": "EspressoBot"
+                    }
+                )
         
         elif provider == Provider.OPENAI:
-            # GPT-5 models require temperature=1.0
+            # GPT-5 models don't support temperature parameter at all
             if "gpt-5" in model_id:
-                actual_temperature = 1.0 if temperature == 0.0 else temperature
+                return ChatOpenAI(
+                    model=model_id,
+                    max_tokens=max_tokens,
+                    api_key=self.openai_key
+                    # No temperature parameter for GPT-5
+                )
             else:
-                actual_temperature = temperature
-            
-            return ChatOpenAI(
-                model=model_id,
-                temperature=actual_temperature,
-                max_tokens=max_tokens,
-                api_key=self.openai_key
-            )
+                return ChatOpenAI(
+                    model=model_id,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=self.openai_key
+                )
         
         elif provider == Provider.ANTHROPIC:
             return ChatAnthropic(
