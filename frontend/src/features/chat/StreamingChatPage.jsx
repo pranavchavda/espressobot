@@ -20,7 +20,23 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const [isSending, setIsSending] = useState(false);
   const [activeConv, setActiveConv] = useState(convId);
   const [suggestions, setSuggestions] = useState([]);
-  const [streamingMessage, setStreamingMessage] = useState(null);
+  const [streamingMessage, setStreamingMessageState] = useState(null);
+  const streamingMessageRef = useRef(null); // Track streaming message in a ref
+  
+  // Custom setter that updates both state and ref
+  const setStreamingMessage = (value) => {
+    if (typeof value === 'function') {
+      setStreamingMessageState(prev => {
+        const newValue = value(prev);
+        streamingMessageRef.current = newValue;
+        return newValue;
+      });
+    } else {
+      streamingMessageRef.current = value;
+      setStreamingMessageState(value);
+    }
+  };
+  
   const [toolCallStatus, setToolCallStatus] = useState(""); // Can be repurposed or used for general status
   const [currentTasks, setCurrentTasks] = useState([]);
   const [imageAttachment, setImageAttachment] = useState(null);
@@ -686,18 +702,25 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
     if ((!textToSend && !imageAttachment && !fileAttachment) || isSending) return;
 
-    // Remove this check - streaming messages are now moved to messages array in the 'done' handler
-    // if (streamingMessage?.isComplete) {
-    //   setMessages(prev => [
-    //     ...prev,
-    //     {
-    //       id: `msg-${Date.now()}`,
-    //       role: "assistant",
-    //       content: streamingMessage.content,
-    //       timestamp: streamingMessage.timestamp,
-    //     }
-    //   ]);
-    // }
+    // Safety: if previous assistant draft exists and is NOT streaming (e.g. backend didn't emit 'done'),
+    // finalize it into messages before starting a new send so it doesn't disappear.
+    const prevDraft = streamingMessageRef.current;
+    if (prevDraft && prevDraft.content && !prevDraft.isStreaming) {
+      const messageId = `msg-${Date.now()}`;
+      const timestamp = prevDraft.timestamp || new Date().toISOString();
+      const currentTaskMarkdownRef = taskMarkdown && 
+        String(taskMarkdown.conversation_id) === String(activeConv || convId) 
+        ? taskMarkdown 
+        : null;
+      setStreamingMessage(null);
+      setMessages(prev => [...prev, {
+        id: messageId,
+        role: "assistant",
+        content: prevDraft.content,
+        timestamp,
+        taskMarkdown: currentTaskMarkdownRef
+      }]);
+    }
 
     const userMessage = {
       role: "user",
@@ -852,33 +875,65 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               // Handle 'done' event regardless of agent mode
               if (eventName === 'done') {
                 console.log("FRONTEND: Received explicit 'done' event");
-                // The done event should just ensure completion and preserve content for useEffect processing
-                setStreamingMessage(prev => {
-                  if (!prev) return null;
-                  // If we still have content that wasn't marked complete, complete it now
-                  if (prev.content && !prev.isComplete) {
-                    return { ...prev, isStreaming: false, isComplete: true };
+                // IMPORTANT: Only handle here for basic agent mode.
+                // For multi-agent mode, let the later switch('done') handle it to avoid double-append.
+                if (useBasicAgent) {
+                  // If this is a NEW conversation (no convId yet), skip local append and rely on
+                  // the upcoming fetch(/api/conversations/:id) to hydrate messages to prevent duplicates.
+                  if (!convId) {
+                    setStreamingMessage(null);
+                    setIsSending(false);
+                    shouldStop = true;
+                    if (readerRef.current) {
+                      try {
+                        console.log("FRONTEND: Attempting to cancel reader");
+                        readerRef.current.cancel("Stream completed");
+                      } catch (e) {
+                        console.error("Error cancelling reader:", e);
+                      }
+                    }
+                    break;
                   }
-                  // If already complete with content, preserve it for useEffect to move to messages
-                  if (prev.isComplete && prev.content && !prev.addedToMessages) {
-                    return prev; // Keep the completed message for useEffect processing
+                  const currentTaskMarkdownRef = taskMarkdown && 
+                    String(taskMarkdown.conversation_id) === String(activeConv || convId) 
+                    ? taskMarkdown 
+                    : null;
+                  const messageId = `msg-${Date.now()}`;
+                  const timestamp = new Date().toISOString();
+                  const streamingContent = streamingMessageRef.current?.content;
+                  if (streamingContent) {
+                    setStreamingMessage(null);
+                    setMessages(prev => {
+                      const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
+                      // Also guard against echo: if the most recent user message has identical content, skip
+                      const lastUser = [...prev].reverse().find(m => m.role === 'user');
+                      const isEchoOfUser = lastUser && String(lastUser.content || '').trim() === String(streamingContent || '').trim();
+                      if (isEchoOfUser) return prev;
+                      if (alreadyExists) return prev; // Prevent duplicate append anywhere in list
+                      return [...prev, {
+                        id: messageId,
+                        role: "assistant",
+                        content: streamingContent,
+                        timestamp: timestamp,
+                        taskMarkdown: currentTaskMarkdownRef
+                      }];
+                    });
+                  } else {
+                    setStreamingMessage(null);
                   }
-                  // Otherwise just clear it
-                  return null;
-                });
-                setIsSending(false);
-                shouldStop = true;
-                
-                // If there's an active reader, attempt to release/cancel it
-                if (readerRef.current) {
-                  try {
-                    console.log("FRONTEND: Attempting to cancel reader");
-                    readerRef.current.cancel("Stream completed");
-                  } catch (e) {
-                    console.error("Error cancelling reader:", e);
+                  setIsSending(false);
+                  shouldStop = true;
+                  if (readerRef.current) {
+                    try {
+                      console.log("FRONTEND: Attempting to cancel reader");
+                      readerRef.current.cancel("Stream completed");
+                    } catch (e) {
+                      console.error("Error cancelling reader:", e);
+                    }
                   }
+                  break;
                 }
-                break;
+                // Not basic agent: do nothing here; the multi-agent switch will handle 'done'
               }
             
               // Handle conversation ID events regardless of agent mode
@@ -1453,45 +1508,72 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   // Update the conversation title in the UI
                   if (actualEventPayload.title && actualEventPayload.thread_id) {
                     console.log(`New title for thread ${actualEventPayload.thread_id}: ${actualEventPayload.title}`);
-                    // Call the parent callback to refresh the conversations list
-                    // Use a delay to ensure the backend has saved the title
-                    setTimeout(() => {
+                    
+                    // Try multiple times to ensure the title is updated
+                    const attemptRefresh = (attempt = 1) => {
                       if (onTopicUpdate) {
-                        console.log("FRONTEND: Triggering conversation refresh after title generation");
+                        console.log(`FRONTEND: Triggering conversation refresh after title generation (attempt ${attempt})`);
                         // The onTopicUpdate expects (conversationId, topicTitle, topicDetails)
                         // For LangGraph backend, we need to trigger a refresh since it handles titles differently
                         onTopicUpdate(null, null, null); // This will trigger fetchConversations() in App.jsx
+                        
+                        // Try again after a longer delay if this is the first attempt
+                        if (attempt === 1) {
+                          setTimeout(() => attemptRefresh(2), 2000);
+                        }
+                      } else {
+                        console.warn("FRONTEND: onTopicUpdate callback not available");
                       }
-                    }, 1000); // 1 second delay to ensure backend has saved the title
+                    };
+                    
+                    // First attempt after 1 second
+                    setTimeout(() => attemptRefresh(1), 1000);
                   }
                   break;
                   
                 case 'done':
                   console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
                   
-                  // Get the current streaming message content before clearing it
-                  const currentStreamingContent = streamingMessage?.content;
+                  // Move streaming message to messages array and clear streaming state in one batch
                   const currentTaskMarkdownRef = taskMarkdown && 
                     String(taskMarkdown.conversation_id) === String(activeConv || convId) 
                     ? taskMarkdown 
                     : null;
                   
-                  // Add the streaming message to messages if it has content
-                  if (currentStreamingContent) {
-                    setMessages(prev => [
-                      ...prev,
-                      {
-                        id: `msg-${Date.now()}`,
-                        role: "assistant",
-                        content: currentStreamingContent,
-                        timestamp: new Date().toISOString(),
-                        taskMarkdown: currentTaskMarkdownRef
-                      }
-                    ]);
-                  }
+                  // Use React 18's automatic batching by performing all state updates together
+                  const messageId = `msg-${Date.now()}`;
+                  const timestamp = new Date().toISOString();
                   
-                  // Clear the streaming message
-                  setStreamingMessage(null);
+                  // Capture streaming message content before clearing
+                  const streamingContent = streamingMessageRef.current?.content;
+                  
+                  // If this is a NEW conversation (no convId yet), skip local append and rely on fetch
+                  if (!convId) {
+                    setStreamingMessage(null);
+                    break;
+                  }
+
+                  if (streamingContent) {
+                    // Clear streaming first, then add to messages (dedup if identical content already exists)
+                    setStreamingMessage(null);
+                    setMessages(prev => {
+                      const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
+                      const lastUser = [...prev].reverse().find(m => m.role === 'user');
+                      const isEchoOfUser = lastUser && String(lastUser.content || '').trim() === String(streamingContent || '').trim();
+                      if (isEchoOfUser) return prev;
+                      if (alreadyExists) return prev;
+                      return [...prev, {
+                        id: messageId,
+                        role: "assistant",
+                        content: streamingContent,
+                        timestamp: timestamp,
+                        taskMarkdown: currentTaskMarkdownRef
+                      }];
+                    });
+                  } else {
+                    // No content, just clear streaming
+                    setStreamingMessage(null);
+                  }
                   
                   setIsSending(false);
                   
@@ -1547,7 +1629,35 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               // Also check for data.done = true pattern (older style)
               if (data.done === true) {
                 console.log("FRONTEND: Received data.done=true");
-                setStreamingMessage(prev => ({ ...prev, isStreaming: false, isComplete: true, timestamp: new Date().toISOString() }));
+                // If this is a NEW conversation (no convId yet), skip local append and rely on fetch
+                if (!convId) {
+                  setStreamingMessage(null);
+                  setIsSending(false); 
+                  shouldStop = true;
+                  break;
+                }
+                // Move streaming content into messages and clear streaming state (legacy)
+                const messageId = `msg-${Date.now()}`;
+                const timestamp = new Date().toISOString();
+                const streamingContent = streamingMessageRef.current?.content;
+                if (streamingContent) {
+                  setStreamingMessage(null);
+                  setMessages(prev => {
+                    const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
+                    const lastUser = [...prev].reverse().find(m => m.role === 'user');
+                    const isEchoOfUser = lastUser && String(lastUser.content || '').trim() === String(streamingContent || '').trim();
+                    if (isEchoOfUser) return prev;
+                    if (alreadyExists) return prev; // Prevent duplicate append anywhere in list
+                    return [...prev, {
+                      id: messageId,
+                      role: "assistant",
+                      content: streamingContent,
+                      timestamp
+                    }];
+                  });
+                } else {
+                  setStreamingMessage(null);
+                }
                 setIsSending(false); 
                 shouldStop = true;
                 break;
@@ -1827,8 +1937,12 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               })}
 
 
-              {/* Render streaming message if present and has content - but not if already added to messages */}
-              {streamingMessage && !streamingMessage.addedToMessages && (streamingMessage.content || streamingMessage.isStreaming) && (
+              {/* Render streaming message ONLY while actively streaming and not identical to last finalized assistant message */}
+              {(() => {
+                const lastMsg = messages[messages.length - 1];
+                const isDuplicateOfLast = !!(streamingMessage && lastMsg && lastMsg.role === 'assistant' && lastMsg.content === streamingMessage.content);
+                return streamingMessage && streamingMessage.isStreaming && !isDuplicateOfLast;
+              })() && (
                 <div className="flex items-start gap-2">
                   <div className="flex-shrink-0">
                     <Avatar
