@@ -12,6 +12,49 @@ import logo from "../../../static/EspressoBotLogo.png";
 import { ApprovalRequest } from "@components/chat/ApprovalRequest";
 
 
+  // Helper to merge server history with local UI state while avoiding duplicates
+  // - Prefers server messages when IDs exist
+  // - Keeps locally injected user messages that server may not yet have persisted
+  // - Dedupes assistant messages by identical content
+  const mergeServerAndLocalMessages = (serverMsgs = [], localMsgs = []) => {
+    if (!Array.isArray(serverMsgs)) serverMsgs = [];
+    if (!Array.isArray(localMsgs)) localMsgs = [];
+
+    // Build maps for quick lookup
+    const byId = new Map();
+    const result = [];
+
+    // First, add all server messages (authoritative when IDs exist)
+    for (const m of serverMsgs) {
+      if (m && m.id) byId.set(m.id, true);
+      result.push(m);
+    }
+
+    // Then, add any local messages that are not present on server
+    for (const m of localMsgs) {
+      // If server already has this id, skip
+      if (m && m.id && byId.has(m.id)) continue;
+
+      // If message is a locally injected user message without id, keep it if not clearly duplicated
+      if (m && m.role === 'user' && !m.id) {
+        const dupUser = result.some(x => x.role === 'user' && String(x.content || '') === String(m.content || ''));
+        if (!dupUser) result.push(m);
+        continue;
+      }
+
+      // Avoid duplicating assistant messages by same content (common during streaming vs persisted)
+      if (m && m.role === 'assistant') {
+        const dupAssistant = result.some(x => x.role === 'assistant' && String(x.content || '') === String(m.content || ''));
+        if (dupAssistant) continue;
+      }
+
+      // Fallback: add message
+      if (m) result.push(m);
+    }
+
+    return result;
+  };
+
 function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const location = useLocation();
   const [messages, setMessages] = useState([]);
@@ -22,6 +65,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessageState] = useState(null);
   const streamingMessageRef = useRef(null); // Track streaming message in a ref
+  const pendingServerHistoryRef = useRef(null); // buffer server history while streaming
   
   // Custom setter that updates both state and ref
   const setStreamingMessage = (value) => {
@@ -114,7 +158,15 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     })
       .then((res) => res.json())
       .then(({ messages: fetchedMessages, tasks: persistedTasks, taskMarkdown: fetchedTaskMarkdown }) => {
-        setMessages(fetchedMessages);
+        // If we are in the middle of streaming, stash the server history for merge after 'done'
+        const isCurrentlyStreaming = !!streamingMessageRef.current?.isStreaming;
+        if (isCurrentlyStreaming) {
+          console.log('FRONTEND: Stashing server history during streaming for later merge. Count:', fetchedMessages?.length || 0);
+          pendingServerHistoryRef.current = fetchedMessages || [];
+        } else {
+          // Merge immediately with local UI to avoid flicker/duplication
+          setMessages(prev => mergeServerAndLocalMessages(fetchedMessages || [], prev));
+        }
         setCurrentTasks(persistedTasks);
         setHasShownTasks(persistedTasks && persistedTasks.length > 0); // Set based on existing tasks
         setActiveConv(convId);
@@ -905,10 +957,6 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     setStreamingMessage(null);
                     setMessages(prev => {
                       const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
-                      // Also guard against echo: if the most recent user message has identical content, skip
-                      const lastUser = [...prev].reverse().find(m => m.role === 'user');
-                      const isEchoOfUser = lastUser && String(lastUser.content || '').trim() === String(streamingContent || '').trim();
-                      if (isEchoOfUser) return prev;
                       if (alreadyExists) return prev; // Prevent duplicate append anywhere in list
                       return [...prev, {
                         id: messageId,
@@ -1056,6 +1104,21 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     isStreaming: true, 
                     isComplete: false 
                   }));
+                  break;
+                case 'assistant_delta':
+                  // Multi-agent token streaming support (match basic agent behavior)
+                  if (plannerStatus) setPlannerStatus("");
+                  if (dispatcherStatus) setDispatcherStatus("");
+                  setSynthesizerStatus("Synthesizer: streaming...");
+                  setToolCallStatus("");
+                  setCurrentTasks(prev => prev.map(t => (t.status === 'running' ? { ...t, status: 'completed_implicit' } : t)));
+                  console.log("FRONTEND: [multi-agent] Received 'assistant_delta' event payload:", JSON.stringify(actualEventPayload));
+                  setStreamingMessage(prev => {
+                    const newContent = (prev?.content || "") + (actualEventPayload.delta || "");
+                    console.log("FRONTEND: [multi-agent] Updating streamingMessage, new content length:", newContent.length);
+                    const newState = { ...prev, content: newContent, isStreaming: true, isComplete: false };
+                    return newState;
+                  });
                   break;
                 case 'tool_call':
                   console.log("FRONTEND: Tool call by agent", actualEventPayload);
@@ -1550,6 +1613,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   // If this is a NEW conversation (no convId yet), skip local append and rely on fetch
                   if (!convId) {
                     setStreamingMessage(null);
+                    // If server history was stashed, apply it now that streaming is complete
+                    if (Array.isArray(pendingServerHistoryRef.current)) {
+                      setMessages(prev => mergeServerAndLocalMessages(pendingServerHistoryRef.current || [], prev));
+                      pendingServerHistoryRef.current = null;
+                    }
                     break;
                   }
 
@@ -1558,9 +1626,6 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     setStreamingMessage(null);
                     setMessages(prev => {
                       const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
-                      const lastUser = [...prev].reverse().find(m => m.role === 'user');
-                      const isEchoOfUser = lastUser && String(lastUser.content || '').trim() === String(streamingContent || '').trim();
-                      if (isEchoOfUser) return prev;
                       if (alreadyExists) return prev;
                       return [...prev, {
                         id: messageId,
@@ -1575,6 +1640,12 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     setStreamingMessage(null);
                   }
                   
+                  // Merge any pending server history now that streaming has ended
+                  if (Array.isArray(pendingServerHistoryRef.current)) {
+                    setMessages(prev => mergeServerAndLocalMessages(pendingServerHistoryRef.current || [], prev));
+                    pendingServerHistoryRef.current = null;
+                  }
+
                   setIsSending(false);
                   
                   // CRITICAL: Force shouldStop to true to end the reader loop
@@ -1644,9 +1715,6 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   setStreamingMessage(null);
                   setMessages(prev => {
                     const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
-                    const lastUser = [...prev].reverse().find(m => m.role === 'user');
-                    const isEchoOfUser = lastUser && String(lastUser.content || '').trim() === String(streamingContent || '').trim();
-                    if (isEchoOfUser) return prev;
                     if (alreadyExists) return prev; // Prevent duplicate append anywhere in list
                     return [...prev, {
                       id: messageId,

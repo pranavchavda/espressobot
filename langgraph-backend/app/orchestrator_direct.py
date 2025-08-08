@@ -20,6 +20,10 @@ class DirectOrchestrator:
     
     def __init__(self, checkpointer=None):
         self.agents: Dict[str, Any] = {}
+        # Per-thread token queues for real-time streaming of orchestrator direct responses
+        self._token_queues: Dict[str, asyncio.Queue] = {}
+        # Event loop used by the HTTP layer; needed for thread-safe queue puts
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Memory and checkpointing
         if not checkpointer:
@@ -42,6 +46,12 @@ class DirectOrchestrator:
         self.graph = None
         self._initialize_agents()
         self._build_graph()
+
+    def get_token_queue(self, thread_id: Optional[str]) -> Optional[asyncio.Queue]:
+        """Return the token queue for a thread if present"""
+        if not thread_id:
+            return None
+        return self._token_queues.get(thread_id)
     
     def _initialize_agents(self):
         """Initialize all specialist agents (no Router or General needed)"""
@@ -104,8 +114,14 @@ You have TWO responsibilities:
 
 ## Decision Process:
 Analyze the user's request and decide:
-- If it's a greeting, general question, or unclear request: Respond directly with a helpful message
-- If it requires specialist knowledge: Route to the appropriate agent
+- If it's a greeting, general question, or unclear request: Respond directly with a helpful message.
+- If it requires specialist knowledge: Route to the appropriate agent.
+
+IMPORTANT EXECUTION PRINCIPLES (Anti-Avoidance):
+- Act-first. If the user asks to fetch, list, summarize, or update something, perform the action without asking for confirmation.
+- Minimize questions. Only ask a clarifying question when a required parameter is missing or ambiguous.
+- Be concise. Return the result directly with a short summary and clear next-step affordances (e.g., "Reply 1/2/3 to open full email").
+- Never stall with meta confirmation like "Would you like me to fetch ...?" when the request already authorizes it.
 
 ## Routing Rules:
 - Product searches, SKU lookups, product details → products
@@ -129,7 +145,7 @@ For direct response:
 {{"action": "respond", "message": "Your friendly response here"}}
 
 For routing:
-{{"action": "route", "agent": "agent_name", "reason": "Brief explanation"}}
+{{"action": "route", "agent": "agent_name", "reason": "Brief explanation (include any inferred parameters)"}}
 
 For multi-agent tasks (A2A):
 {{"action": "multi_agent", "agents": ["agent1", "agent2"], "reason": "Why multiple agents needed"}}"""
@@ -176,13 +192,56 @@ For multi-agent tasks (A2A):
                 decision = self._parse_decision(response.content)
                 
                 if decision["action"] == "respond":
-                    # Direct response from orchestrator
+                    # Direct response from orchestrator with TRUE token streaming
+                    thread_id = state.get("thread_id") or state.get("configurable", {}).get("thread_id")
+                    # Ensure queue exists for this thread
+                    if thread_id and thread_id not in self._token_queues:
+                        self._token_queues[thread_id] = asyncio.Queue()
+                    q = self._token_queues.get(thread_id)
+
+                    full_text = []
+                    try:
+                        # Stream tokens from the model
+                        async for chunk in self.model.astream(conversation):
+                            # Try multiple attributes to extract delta safely
+                            token = getattr(chunk, "content", None)
+                            if not token:
+                                token = getattr(chunk, "delta", None)
+                            if not token:
+                                token = getattr(chunk, "text", None)
+                            if not token and hasattr(chunk, "message"):
+                                token = getattr(chunk.message, "content", None)
+                            if not token:
+                                token = ""
+                            if token:
+                                full_text.append(token)
+                                if q:
+                                    try:
+                                        loop = getattr(self, "_event_loop", None)
+                                        if loop is not None:
+                                            # We are likely in a different thread; schedule the put on the HTTP loop
+                                            import asyncio as _asyncio
+                                            _asyncio.run_coroutine_threadsafe(
+                                                q.put({"agent": "orchestrator", "delta": token}),
+                                                loop,
+                                            )
+                                        else:
+                                            # Fallback if loop not set (same-thread case)
+                                            await q.put({"agent": "orchestrator", "delta": token})
+                                    except Exception as e:
+                                        logger.debug(f"Failed to enqueue token delta: {e}")
+                    except Exception as e:
+                        logger.warning(f"astream failed, falling back to single response: {e}")
+                        full_text.append(decision["message"])  # fall back to decided message
+
+                    final_text = "".join(full_text) if full_text else decision.get("message", "")
+                    # Append final AIMessage to state so it persists
                     state["messages"].append(AIMessage(
-                        content=decision["message"],
+                        content=final_text,
                         metadata={"agent": "orchestrator", "direct_response": True}
                     ))
                     state["should_continue"] = False
-                    logger.info("Orchestrator provided direct response")
+                    logger.info("Orchestrator provided direct response (streamed)")
                     
                 elif decision["action"] == "route":
                     # Route to specialist agent
@@ -429,6 +488,16 @@ Provide a unified, helpful response that combines the key information."""
             # Ensure user_id is in state
             if user_id:
                 current_state["user_id"] = user_id
+            # New user turn: ensure we continue the graph execution
+            current_state["should_continue"] = True
+            # Clear transient routing flags from prior runs
+            if "routing_reason" in current_state:
+                current_state.pop("routing_reason", None)
+            # Keep current_agent unset until orchestrator selects one this turn
+            current_state.pop("current_agent", None)
+            # Ensure thread_id present in state for streaming callbacks
+            if thread_id:
+                current_state["thread_id"] = thread_id
             initial_state = current_state
         else:
             logger.info(f"No existing state found for thread {thread_id}, creating new state")
@@ -436,7 +505,38 @@ Provide a unified, helpful response that combines the key information."""
             # Add user_id to new state
             if user_id:
                 initial_state["user_id"] = user_id
-        
-        # Stream through the graph (use sync stream since our checkpointer doesn't support async)
-        for chunk in self.graph.stream(initial_state, config):
-            yield chunk
+            # New threads should continue by default
+            initial_state["should_continue"] = True
+            # Inject thread_id so nodes can access it (needed for token streaming)
+            if thread_id:
+                initial_state["thread_id"] = thread_id
+    
+        # Capture the HTTP/server event loop for thread-safe queue puts
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Not in an event loop; leave as None
+            self._event_loop = None
+
+        # Prepare token queue for this thread
+        if thread_id and thread_id not in self._token_queues:
+            self._token_queues[thread_id] = asyncio.Queue()
+
+        try:
+            # Stream through the graph (use sync stream since our checkpointer doesn't support async)
+            for chunk in self.graph.stream(initial_state, config):
+                # Attach thread id so downstream can correlate
+                try:
+                    for _, updates in chunk.items():
+                        if isinstance(updates, dict):
+                            updates.setdefault("thread_id", thread_id)
+                except Exception:
+                    pass
+                yield chunk
+        finally:
+            # Do not delete the queue immediately; HTTP layer will read remaining tokens and then clean up
+            pass
+
+    def cleanup_token_queue(self, thread_id: str):
+        if thread_id in self._token_queues:
+            del self._token_queues[thread_id]
