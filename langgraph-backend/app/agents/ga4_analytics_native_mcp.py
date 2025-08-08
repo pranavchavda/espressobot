@@ -1,5 +1,5 @@
 """
-GA4 Analytics Agent using direct Google Analytics Data API integration
+GA4 Analytics Agent using direct Google Analytics Data API HTTP requests
 Handles Google Analytics 4 data retrieval and analysis with OAuth authentication
 """
 from typing import List, Dict, Any, Optional, Union
@@ -13,42 +13,15 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 import json
-
-# Google Analytics imports
-try:
-    from google.analytics.data_v1beta import BetaAnalyticsDataClient
-    from google.analytics.data_v1beta.types import (
-        RunReportRequest, 
-        RunRealtimeReportRequest,
-        DateRange, 
-        Dimension, 
-        Metric,
-        OrderBy,
-        FilterExpression,
-        Filter,
-        StringFilter
-    )
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google.auth.exceptions import RefreshError
-    GA4_AVAILABLE = True
-except ImportError:
-    GA4_AVAILABLE = False
-    # Define placeholder if imports fail
-    Credentials = None
-
+import aiohttp
 import asyncpg
 import aiosqlite
 
 logger = logging.getLogger(__name__)
 
 
-async def get_user_ga4_credentials(user_id: int) -> tuple[Optional['Credentials'], Optional[str]]:
-    """Get Google credentials and GA4 property ID for the user from database using direct queries"""
-    if not GA4_AVAILABLE:
-        logger.warning("Google Analytics Data API libraries not available")
-        return None, None
-    
+async def get_user_ga4_credentials(user_id: int) -> tuple[Optional[str], Optional[str]]:
+    """Get Google access token and GA4 property ID for the user from database"""
     try:
         # Get database URL and connect appropriately
         database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./espressobot.db")
@@ -70,33 +43,20 @@ async def get_user_ga4_credentials(user_id: int) -> tuple[Optional['Credentials'
                 if not property_id:
                     return None, None
                 
-                credentials = Credentials(
-                    token=row[0],
-                    refresh_token=row[1],
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=os.getenv("GOOGLE_CLIENT_ID"),
-                    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-                    scopes=['https://www.googleapis.com/auth/analytics.readonly']
-                )
+                access_token = row[0]
+                refresh_token = row[1]
+                token_expiry = row[2]
                 
-                if row[2]:
-                    credentials.expiry = datetime.fromisoformat(row[2]) if isinstance(row[2], str) else row[2]
+                # Check if token is expired and refresh if needed
+                if token_expiry:
+                    expiry_date = datetime.fromisoformat(token_expiry) if isinstance(token_expiry, str) else token_expiry
+                    if expiry_date < datetime.now():
+                        # Refresh token using HTTP request
+                        access_token = await refresh_access_token(refresh_token, user_id, conn)
+                        if not access_token:
+                            return None, None
                 
-                # Refresh if expired
-                if credentials.expired and credentials.refresh_token:
-                    try:
-                        credentials.refresh(Request())
-                        # Update database with new token (no updated_at)
-                        await conn.execute(
-                            "UPDATE users SET google_access_token = ?, google_token_expiry = ? WHERE id = ?",
-                            (credentials.token, credentials.expiry.isoformat() if credentials.expiry else None, user_id)
-                        )
-                        await conn.commit()
-                    except RefreshError as e:
-                        logger.error(f"Token refresh failed for user {user_id}: {e}")
-                        return None, None
-                
-                return credentials, property_id
+                return access_token, property_id
         
         else:
             # PostgreSQL using asyncpg
@@ -117,32 +77,18 @@ async def get_user_ga4_credentials(user_id: int) -> tuple[Optional['Credentials'
                 if not property_id:
                     return None, None
                 
-                credentials = Credentials(
-                    token=row[0],
-                    refresh_token=row[1],
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=os.getenv("GOOGLE_CLIENT_ID"),
-                    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-                    scopes=['https://www.googleapis.com/auth/analytics.readonly']
-                )
+                access_token = row[0]
+                refresh_token = row[1]
+                token_expiry = row[2]
                 
-                if row[2]:
-                    credentials.expiry = row[2]
-                
-                # Refresh if expired
-                if credentials.expired and credentials.refresh_token:
-                    try:
-                        credentials.refresh(Request())
-                        # Update database with new token (no updated_at)
-                        await conn.execute(
-                            "UPDATE users SET google_access_token = $1, google_token_expiry = $2 WHERE id = $3",
-                            credentials.token, credentials.expiry, user_id
-                        )
-                    except RefreshError as e:
-                        logger.error(f"Token refresh failed for user {user_id}: {e}")
+                # Check if token is expired and refresh if needed
+                if token_expiry and token_expiry < datetime.now():
+                    # Refresh token using HTTP request
+                    access_token = await refresh_access_token_pg(refresh_token, user_id, conn)
+                    if not access_token:
                         return None, None
                 
-                return credentials, property_id
+                return access_token, property_id
             finally:
                 await conn.close()
                 
@@ -150,13 +96,82 @@ async def get_user_ga4_credentials(user_id: int) -> tuple[Optional['Credentials'
         logger.error(f"Failed to get GA4 credentials for user {user_id}: {e}")
         return None, None
 
+
+async def refresh_access_token(refresh_token: str, user_id: int, conn) -> Optional[str]:
+    """Refresh Google access token using HTTP request (SQLite)"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            data = {
+                'client_id': os.getenv("GOOGLE_CLIENT_ID"),
+                'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
+                'refresh_token': refresh_token,
+                'grant_type': 'refresh_token'
+            }
+            
+            async with session.post('https://oauth2.googleapis.com/token', data=data) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    new_access_token = result.get('access_token')
+                    expires_in = result.get('expires_in', 3600)
+                    
+                    # Update database with new token
+                    new_expiry = datetime.now() + timedelta(seconds=expires_in)
+                    await conn.execute(
+                        "UPDATE users SET google_access_token = ?, google_token_expiry = ? WHERE id = ?",
+                        (new_access_token, new_expiry.isoformat(), user_id)
+                    )
+                    await conn.commit()
+                    
+                    logger.info(f"Refreshed access token for user {user_id}")
+                    return new_access_token
+                else:
+                    logger.error(f"Token refresh failed: {response.status}")
+                    return None
+    except Exception as e:
+        logger.error(f"Error refreshing token: {e}")
+        return None
+
+
+async def refresh_access_token_pg(refresh_token: str, user_id: int, conn) -> Optional[str]:
+    """Refresh Google access token using HTTP request (PostgreSQL)"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            data = {
+                'client_id': os.getenv("GOOGLE_CLIENT_ID"),
+                'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
+                'refresh_token': refresh_token,
+                'grant_type': 'refresh_token'
+            }
+            
+            async with session.post('https://oauth2.googleapis.com/token', data=data) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    new_access_token = result.get('access_token')
+                    expires_in = result.get('expires_in', 3600)
+                    
+                    # Update database with new token
+                    new_expiry = datetime.now() + timedelta(seconds=expires_in)
+                    await conn.execute(
+                        "UPDATE users SET google_access_token = $1, google_token_expiry = $2 WHERE id = $3",
+                        new_access_token, new_expiry, user_id
+                    )
+                    
+                    logger.info(f"Refreshed access token for user {user_id}")
+                    return new_access_token
+                else:
+                    logger.error(f"Token refresh failed: {response.status}")
+                    return None
+    except Exception as e:
+        logger.error(f"Error refreshing token: {e}")
+        return None
+
 class GA4Error(Exception):
     """Custom exception for GA4 operations"""
     pass
 
 
 class GA4RunReportTool(BaseTool):
-    """Tool for running custom GA4 reports with specified dimensions and metrics"""
+    """Tool for running custom GA4 reports with specified dimensions and metrics using HTTP API"""
     name: str = "ga4_run_report"
     description: str = "Run a custom GA4 report with specified dimensions and metrics. Use this for flexible analytics queries."
     user_id: int
@@ -179,88 +194,86 @@ class GA4RunReportTool(BaseTool):
     async def _arun(self, start_date: str, end_date: str, dimensions: List[str], metrics: List[str],
                    dimension_filter: Optional[Dict[str, str]] = None, order_by: Optional[str] = None, 
                    limit: int = 10) -> Dict[str, Any]:
-        """Run custom GA4 report"""
+        """Run custom GA4 report using HTTP API"""
         try:
-            client, property_id = await self._get_ga4_client()
-            if not client:
-                return {"error": "GA4 client not available"}
+            access_token, property_id = await get_user_ga4_credentials(self.user_id)
+            if not access_token or not property_id:
+                return {"error": "GA4 credentials not available"}
             
-            # Build request
-            request = RunReportRequest(
-                property=f"properties/{property_id}",
-                date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-                dimensions=[Dimension(name=dim) for dim in dimensions],
-                metrics=[Metric(name=metric) for metric in metrics],
-                limit=limit
-            )
+            # Build request payload
+            request_data = {
+                "dateRanges": [{"startDate": start_date, "endDate": end_date}],
+                "dimensions": [{"name": dim} for dim in dimensions],
+                "metrics": [{"name": metric} for metric in metrics],
+                "limit": limit
+            }
             
             # Add dimension filter if provided
             if dimension_filter:
-                string_filter = StringFilter(
-                    match_type=dimension_filter.get('operator', 'EXACT'),
-                    value=dimension_filter['value']
-                )
-                request.dimension_filter = FilterExpression(
-                    filter=Filter(
-                        field_name=dimension_filter['dimension'],
-                        string_filter=string_filter
-                    )
-                )
+                request_data["dimensionFilter"] = {
+                    "filter": {
+                        "fieldName": dimension_filter['dimension'],
+                        "stringFilter": {
+                            "matchType": dimension_filter.get('operator', 'EXACT'),
+                            "value": dimension_filter['value']
+                        }
+                    }
+                }
             
             # Add ordering if provided
             if order_by:
                 if order_by in metrics:
-                    request.order_bys = [OrderBy(metric=OrderBy.MetricOrderBy(metric_name=order_by), desc=True)]
+                    request_data["orderBys"] = [{"metric": {"metricName": order_by}, "desc": True}]
                 else:
-                    request.order_bys = [OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name=order_by))]
+                    request_data["orderBys"] = [{"dimension": {"dimensionName": order_by}}]
             
-            # Execute report
-            response = client.run_report(request=request)
-            
-            # Process response
-            rows = []
-            for row in response.rows:
-                row_data = {
-                    'dimensions': [
-                        {'name': dimensions[i], 'value': dim_value.value}
-                        for i, dim_value in enumerate(row.dimension_values)
-                    ],
-                    'metrics': [
-                        {'name': metrics[i], 'value': metric_value.value}
-                        for i, metric_value in enumerate(row.metric_values)
-                    ]
-                }
-                rows.append(row_data)
-            
-            return {
-                'success': True,
-                'rows': rows,
-                'row_count': len(rows),
-                'date_range': f"{start_date} to {end_date}",
-                'dimensions': dimensions,
-                'metrics': metrics
+            # Make HTTP request to GA4 API
+            url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
             }
             
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=request_data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        
+                        # Process response
+                        rows = []
+                        for row in result.get('rows', []):
+                            row_data = {
+                                'dimensions': [
+                                    {'name': dimensions[i], 'value': dim_value.get('value', '')}
+                                    for i, dim_value in enumerate(row.get('dimensionValues', []))
+                                ],
+                                'metrics': [
+                                    {'name': metrics[i], 'value': metric_value.get('value', '0')}
+                                    for i, metric_value in enumerate(row.get('metricValues', []))
+                                ]
+                            }
+                            rows.append(row_data)
+                        
+                        return {
+                            'success': True,
+                            'rows': rows,
+                            'row_count': len(rows),
+                            'date_range': f"{start_date} to {end_date}",
+                            'dimensions': dimensions,
+                            'metrics': metrics
+                        }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"GA4 API error {response.status}: {error_text}")
+                        return {'error': f"GA4 API error: {response.status}"}
+                        
         except Exception as e:
             logger.error(f"GA4 run report error: {e}")
             return {'error': f"GA4 report failed: {str(e)}"}
-    
-    async def _get_ga4_client(self):
-        """Get authenticated GA4 client and property ID"""
-        creds, property_id = await self._get_ga4_credentials()
-        if not creds or not property_id:
-            return None, None
-        
-        client = BetaAnalyticsDataClient(credentials=creds)
-        return client, property_id
-    
-    async def _get_ga4_credentials(self) -> tuple[Optional['Credentials'], Optional[str]]:
-        """Get Google credentials and GA4 property ID for the user from database"""
-        return await get_user_ga4_credentials(self.user_id)
 
 
 class GA4RealtimeTool(BaseTool):
-    """Tool for getting real-time visitor data from GA4"""
+    """Tool for getting real-time visitor data from GA4 using HTTP API"""
     name: str = "ga4_get_realtime"
     description: str = "Get real-time visitor data from GA4 including current active users and their activities."
     user_id: int
@@ -275,60 +288,174 @@ class GA4RealtimeTool(BaseTool):
         raise NotImplementedError("Use async version")
     
     async def _arun(self, dimensions: List[str] = None, metrics: List[str] = None) -> Dict[str, Any]:
-        """Get real-time GA4 data"""
+        """Get real-time GA4 data using HTTP API"""
         try:
             dimensions = dimensions or ['unifiedScreenName']
             metrics = metrics or ['activeUsers']
             
-            client, property_id = await self._get_ga4_client()
-            if not client:
-                return {"error": "GA4 client not available"}
+            access_token, property_id = await get_user_ga4_credentials(self.user_id)
+            if not access_token or not property_id:
+                return {"error": "GA4 credentials not available"}
             
-            request = RunRealtimeReportRequest(
-                property=f"properties/{property_id}",
-                dimensions=[Dimension(name=dim) for dim in dimensions],
-                metrics=[Metric(name=metric) for metric in metrics]
-            )
-            
-            response = client.run_realtime_report(request=request)
-            
-            # Calculate total active users
-            total_active_users = sum(
-                int(row.metric_values[0].value) for row in response.rows
-            ) if response.rows else 0
-            
-            # Process by page/screen
-            by_page = [
-                {
-                    'page': row.dimension_values[0].value if row.dimension_values else 'Unknown',
-                    'active_users': int(row.metric_values[0].value) if row.metric_values else 0
-                }
-                for row in response.rows
-            ] if response.rows else []
-            
-            return {
-                'success': True,
-                'total_active_users': total_active_users,
-                'by_page': by_page,
-                'timestamp': datetime.now().isoformat()
+            # Build request payload
+            request_data = {
+                "dimensions": [{"name": dim} for dim in dimensions],
+                "metrics": [{"name": metric} for metric in metrics]
             }
             
+            # Make HTTP request to GA4 realtime API
+            url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runRealtimeReport"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=request_data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        
+                        # Calculate total active users
+                        total_active_users = sum(
+                            int(row.get('metricValues', [{}])[0].get('value', '0')) 
+                            for row in result.get('rows', [])
+                        )
+                        
+                        # Process by page/screen
+                        by_page = []
+                        for row in result.get('rows', []):
+                            dimension_values = row.get('dimensionValues', [])
+                            metric_values = row.get('metricValues', [])
+                            
+                            by_page.append({
+                                'page': dimension_values[0].get('value', 'Unknown') if dimension_values else 'Unknown',
+                                'active_users': int(metric_values[0].get('value', '0')) if metric_values else 0
+                            })
+                        
+                        return {
+                            'success': True,
+                            'total_active_users': total_active_users,
+                            'by_page': by_page,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"GA4 realtime API error {response.status}: {error_text}")
+                        return {'error': f"GA4 realtime API error: {response.status}"}
+                        
         except Exception as e:
             logger.error(f"GA4 realtime error: {e}")
             return {'error': f"GA4 realtime data failed: {str(e)}"}
+
+
+class GA4AdvertisingTool(BaseTool):
+    """Tool for getting Google Ads performance metrics via GA4 using HTTP API"""
+    name: str = "ga4_get_ads_performance"
+    description: str = "Get Google Ads performance metrics including spend, clicks, and traffic from GA4."
+    user_id: int
     
-    async def _get_ga4_client(self):
-        """Get authenticated GA4 client and property ID"""
-        creds, property_id = await self._get_ga4_credentials()
-        if not creds or not property_id:
-            return None, None
-        
-        client = BetaAnalyticsDataClient(credentials=creds)
-        return client, property_id
+    class ArgsSchema(BaseModel):
+        start_date: str = Field(description="Start date (YYYY-MM-DD or relative like 'today')")
+        end_date: str = Field(description="End date (YYYY-MM-DD or relative like 'today')")
     
-    async def _get_ga4_credentials(self) -> tuple[Optional['Credentials'], Optional[str]]:
-        """Get Google credentials and GA4 property ID for the user from database"""
-        return await get_user_ga4_credentials(self.user_id)
+    args_schema: type[BaseModel] = ArgsSchema
+    
+    def _run(self, **kwargs) -> Dict[str, Any]:
+        raise NotImplementedError("Use async version")
+    
+    async def _arun(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """Get Google Ads performance metrics using HTTP API"""
+        try:
+            access_token, property_id = await get_user_ga4_credentials(self.user_id)
+            if not access_token or not property_id:
+                return {"error": "GA4 credentials not available"}
+            
+            # Build request payload for advertising metrics - using sessionDefaultChannelGroup
+            # to make the advertising metrics compatible (following GA4 API requirements)
+            request_data = {
+                "dateRanges": [{"startDate": start_date, "endDate": end_date}],
+                "dimensions": [{"name": "sessionDefaultChannelGroup"}],
+                "metrics": [
+                    {"name": "advertiserAdClicks"},
+                    {"name": "advertiserAdCost"},
+                    {"name": "advertiserAdCostPerClick"},
+                    {"name": "returnOnAdSpend"},
+                    {"name": "sessions"},
+                    {"name": "totalRevenue"},
+                    {"name": "conversions"}
+                ]
+            }
+            
+            # Make HTTP request to GA4 API
+            url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=request_data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        
+                        # Process summary data - aggregate across all channel groups
+                        rows = result.get('rows', [])
+                        if rows:
+                            # Sum metrics across all channel groups to get total advertising performance
+                            total_clicks = 0
+                            total_cost = 0.0
+                            total_sessions = 0
+                            total_revenue = 0.0
+                            total_conversions = 0
+                            
+                            for row in rows:
+                                metrics = row.get('metricValues', [])
+                                total_clicks += int(metrics[0].get('value', '0')) if len(metrics) > 0 else 0
+                                total_cost += float(metrics[1].get('value', '0')) if len(metrics) > 1 else 0.0
+                                total_sessions += int(metrics[4].get('value', '0')) if len(metrics) > 4 else 0
+                                total_revenue += float(metrics[5].get('value', '0')) if len(metrics) > 5 else 0.0
+                                total_conversions += int(metrics[6].get('value', '0')) if len(metrics) > 6 else 0
+                            
+                            # Calculate average CPC and ROAS
+                            avg_cpc = total_cost / total_clicks if total_clicks > 0 else 0.0
+                            roas = total_revenue / total_cost if total_cost > 0 else 0.0
+                            
+                            return {
+                                'success': True,
+                                'date_range': f"{start_date} to {end_date}",
+                                'summary': {
+                                    'clicks': total_clicks,
+                                    'cost': total_cost,
+                                    'cpc': avg_cpc,
+                                    'roas': roas,
+                                    'sessions': total_sessions,
+                                    'revenue': total_revenue,
+                                    'conversions': total_conversions
+                                }
+                            }
+                        else:
+                            return {
+                                'success': True,
+                                'date_range': f"{start_date} to {end_date}",
+                                'summary': {
+                                    'clicks': 0,
+                                    'cost': 0.0,
+                                    'cpc': 0.0,
+                                    'roas': 0.0,
+                                    'sessions': 0,
+                                    'revenue': 0.0,
+                                    'conversions': 0
+                                },
+                                'message': 'No Google Ads data available for the specified date range'
+                            }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"GA4 ads API error {response.status}: {error_text}")
+                        return {'error': f"GA4 ads API error: {response.status}"}
+                        
+        except Exception as e:
+            logger.error(f"GA4 ads performance error: {e}")
+            return {'error': f"GA4 ads performance failed: {str(e)}"}
 
 
 class GA4EcommerceTool(BaseTool):
@@ -641,16 +768,10 @@ class GA4AnalyticsAgentNativeMCP:
         
     def _create_tools(self, user_id: int) -> List[BaseTool]:
         """Create GA4 tools for specific user"""
-        if not GA4_AVAILABLE:
-            logger.warning("Google Analytics Data API libraries not available. Install with: pip install google-analytics-data")
-            return []
-        
         return [
             GA4RunReportTool(user_id=user_id),
             GA4RealtimeTool(user_id=user_id),
-            GA4EcommerceTool(user_id=user_id),
-            GA4TrafficSourcesTool(user_id=user_id),
-            GA4ProductPerformanceTool(user_id=user_id)
+            GA4AdvertisingTool(user_id=user_id)
         ]
         
     async def _ensure_agent_ready(self, user_id: int):
@@ -658,8 +779,8 @@ class GA4AnalyticsAgentNativeMCP:
         if not self.agent or not self.tools:
             try:
                 # Check if user has Google credentials and GA4 property ID
-                credentials, property_id = await get_user_ga4_credentials(user_id)
-                if not credentials:
+                access_token, property_id = await get_user_ga4_credentials(user_id)
+                if not access_token:
                     raise GA4Error("User has not authorized Google Analytics access")
                 
                 if not property_id:
@@ -701,18 +822,10 @@ You have access to the following GA4 tools using the user's authenticated Google
   - Shows current active users and their locations/activities
   - Use for immediate website activity monitoring
   
-- **ga4_get_ecommerce**: Get ecommerce performance metrics
-  - Revenue, transactions, AOV, conversion rates
-  - Can group by date, device, country for trend analysis
-  
-- **ga4_get_traffic_sources**: Analyze traffic channels and sources
-  - Breakdown by channel (Organic, Paid, Direct, etc.)
-  - Shows revenue and conversions by source
-  - Includes organic vs paid comparison
-  
-- **ga4_get_product_performance**: Product-level analytics
-  - Best sellers, views, add-to-cart rates
-  - Revenue by product and conversion funnels
+- **ga4_get_ads_performance**: Get Google Ads performance metrics
+  - Advertising spend (adCost), clicks, traffic data
+  - Sessions, active users, revenue from ads
+  - Use for Google Ads ROI analysis
 
 ## Date Formatting Guidelines:
 - Use relative dates: "today", "yesterday", "7daysAgo", "30daysAgo"
@@ -722,10 +835,10 @@ You have access to the following GA4 tools using the user's authenticated Google
 
 ## Common Analytics Queries:
 - "What's today's traffic?" → Use ga4_get_realtime
-- "Show this month's revenue" → Use ga4_get_ecommerce with date range
-- "Which products are selling best?" → Use ga4_get_product_performance
-- "Where are my visitors coming from?" → Use ga4_get_traffic_sources
+- "Show Google Ads spend today/this week" → Use ga4_get_ads_performance
+- "What's the advertising performance?" → Use ga4_get_ads_performance
 - "Custom report on mobile vs desktop performance" → Use ga4_run_report with deviceCategory dimension
+- "Get traffic by source" → Use ga4_run_report with sessionDefaultChannelGroup dimension
 
 ## Key Metrics Explained:
 - **Active Users**: Unique users who had an engaged session

@@ -1,6 +1,90 @@
 # Claude Development Log
 
-## 🚨 **CRITICAL ISSUE IDENTIFIED** (August 1, 2025)
+## ✅ **LATEST UPDATES** (August 7, 2025)
+
+### 🔧 **Current Issues** (August 8, 2025)
+
+**Streaming Message Display Bug:**
+- **Issue**: Assistant messages briefly appear twice during streaming, then one disappears after user replies
+- **Behavior**: Message displays correctly after page refresh (not a data storage issue, only UI rendering)
+- **Attempted fixes**:
+  - Moved message completion logic to 'done' event handler
+  - Removed nested setState calls to avoid timing issues
+  - Disabled useEffect that was causing duplicate processing
+- **Status**: ⚠️ Still occurring - needs further investigation
+
+**Title Auto-Refresh Issue:**
+- **Issue**: Sidebar doesn't auto-refresh when title is generated
+- **Behavior**: Title appears after manual refresh
+- **Attempted fixes**:
+  - Added 1-second delay before triggering fetchConversations()
+  - Added logging to track refresh trigger
+- **Status**: ⚠️ Not working - onTopicUpdate callback may need different approach
+
+**Model Change:**
+- Changed title generator from GPT-5-nano to GPT-4.1-nano
+- Reduced max_completion_tokens from 1200 to 100 (appropriate for 4.1-nano)
+
+### 🎯 **Today's Fixes**
+1. **GA4 Analytics Agent Fixed**
+   - Issue: "dimensions & metrics are incompatible" error for advertising metrics
+   - Root cause: GA4 API requires compatible dimensions for advertising metrics
+   - Solution: Added `sessionDefaultChannelGroup` dimension and aggregated results
+   - Status: ✅ Google Ads spend and traffic data now retrieving successfully
+
+2. **Google Workspace Agent**
+   - Issue: Tasks could be created but not marked complete
+   - Root cause: Missing update/complete functions in Google Tasks tools
+   - Status: ⚠️ Needs implementation of task update functionality
+   - Both agents now properly use stored OAuth tokens (single sign-in working)
+
+3. **Auto-Titling Fixed** 
+   - Issue: Conversations weren't getting automatic titles
+   - Root cause: GPT-5-nano is a reasoning model (like o1) requiring different configuration
+   - Solution: 
+     - Increased `max_completion_tokens` to 1200 (reasoning models need tokens for thinking)
+     - Removed temperature parameter (not supported)
+     - Simplified prompt to control length via instructions
+   - Status: ✅ Generating titles like "📈 Google Ads Performance Report"
+
+### 🔍 **Investigation Notes for Streaming Bug**
+
+The streaming message issue appears to be a React state management problem where:
+1. Message streams in and displays correctly
+2. When streaming completes ('done' event), message is added to messages array
+3. Brief moment where both streamingMessage and the new message in messages array are visible
+4. After user sends next message, something clears or hides the assistant's message
+5. On refresh, everything displays correctly (backend has all the data)
+
+**Key files to investigate:**
+- `/frontend/src/features/chat/StreamingChatPage.jsx:1499-1525` - 'done' event handler
+- `/frontend/src/features/chat/StreamingChatPage.jsx:1843-1880` - Streaming message rendering
+- `/frontend/src/features/chat/StreamingChatPage.jsx:300` - Disabled useEffect for message completion
+
+**Possible root causes:**
+- State update batching issue in React
+- Closure capturing stale streamingMessage reference
+- Conflict between message array and streamingMessage display logic
+- Component re-render clearing state unexpectedly
+
+### 📅 **Tomorrow's Agenda** (August 9, 2025)
+1. **UI Message Duplication Fix**
+   - Issue: Messages sometimes appear twice in the frontend
+   - Investigation needed in streaming response handling
+
+2. **Memory System Deep Dive**
+   - Explore native memory implementation
+   - Test prompt fragments system
+   - Optimize memory retrieval and storage
+   - Review deduplication threshold (currently 0.7)
+
+3. **OpenRouter Integration**
+   - Switch to OpenRouter for GPT-5 models (more credits available)
+   - Test GPT-5, GPT-5-mini, GPT-5-nano via OpenRouter
+   - Verify tool execution works correctly
+   - Update model configuration for OpenRouter preference
+
+## 🚨 **PREVIOUS: CRITICAL ISSUE IDENTIFIED** (August 1, 2025)
 
 **STATUS**: Orchestrator broken after OpenRouter integration - tools not executing
 
@@ -551,6 +635,42 @@ Successfully split the monolithic Python MCP server into specialized servers:
 
 ---
 
-*Last Updated: August 1, 2025*
+---
+
+## Technical Notes (August 7, 2025)
+
+### GPT-5-nano Configuration
+```javascript
+// GPT-5-nano is a reasoning model - requires special handling
+ChatOpenAI({
+    model: "gpt-5-nano",
+    max_completion_tokens: 1200,  // NOT max_tokens!
+    // No temperature parameter (not supported)
+    // No max_tokens parameter (use max_completion_tokens)
+})
+```
+
+### GA4 Advertising Metrics Fix
+```python
+# Advertising metrics require compatible dimensions
+request_data = {
+    "dateRanges": [{"startDate": start_date, "endDate": end_date}],
+    "dimensions": [{"name": "sessionDefaultChannelGroup"}],  # Required!
+    "metrics": [
+        {"name": "advertiserAdClicks"},
+        {"name": "advertiserAdCost"},
+        # ... other advertising metrics
+    ]
+}
+```
+
+### Key Files Modified Today
+- `/langgraph-backend/app/agents/ga4_analytics_native_mcp.py` - GA4 agent fixes
+- `/langgraph-backend/app/api/title_generator.py` - Auto-titling with GPT-5-nano
+- `/langgraph-backend/app/api/chat.py` - Auto-title trigger on new conversations
+
+---
+
+*Last Updated: August 7, 2025*
 ```
 IMPORTANT: This repo is indexed on DeepWiki and the DeepWiki MCP can be invoked to gather context about the code instead of having to search through and read the code directly. https://deepwiki.com/pranavchavda/espressobot

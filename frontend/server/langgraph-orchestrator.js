@@ -17,20 +17,22 @@ router.post('/run', async (req, res) => {
   try {
     console.log('[LangGraph Proxy] Forwarding request to backend...');
     
-    // Forward the request to LangGraph backend with timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    // Add user_id from authenticated user to the request body
+    const requestBody = {
+      ...req.body,
+      user_id: req.user?.id?.toString() || "1"  // Convert to string and default to "1"
+    };
     
+    console.log('[LangGraph Proxy] User ID:', requestBody.user_id);
+    
+    // Forward the request to LangGraph backend without timeout for long-running tasks
     const response = await fetch(`${LANGGRAPH_BACKEND}/api/agent/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(req.body),
-      signal: controller.signal,
+      body: JSON.stringify(requestBody),
     });
-    
-    clearTimeout(timeout);
 
     // Set SSE headers for frontend compatibility
     res.setHeader('Content-Type', 'text/event-stream');

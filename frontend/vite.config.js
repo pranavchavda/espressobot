@@ -137,6 +137,7 @@ export default defineConfig({
         // Import auth configuration
         const configureGoogleStrategy = (await import('./server/config/auth')).default;
         const authRoutes = (await import('./server/auth')).default;
+        const { authenticateToken } = await import('./server/auth');
         const convHandler = (await import('./server/conversations')).default;
         
         // Check if we should use LangGraph backend
@@ -183,7 +184,8 @@ export default defineConfig({
         // Routes
         apiApp.use('/api/auth', authRoutes);
         apiApp.use('/api/conversations', convHandler);
-        apiApp.use('/api/agent', orchestratorRouter);
+        // Apply authentication to agent routes so user_id is available
+        apiApp.use('/api/agent', authenticateToken, orchestratorRouter);
         
         // Profile routes
         const profileRoutes = (await import('./server/profile')).default;

@@ -1,5 +1,5 @@
 """
-Conversation title generator using GPT-5-nano
+Conversation title generator using GPT-4.1-nano
 Generates concise titles with emoji prefixes for conversations
 """
 from typing import Optional
@@ -9,50 +9,60 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class TitleGenerator:
-    """Generate conversation titles with emojis using GPT-5-nano"""
+    """Generate conversation titles with emojis using GPT-4.1-nano"""
     
     def __init__(self):
-        from app.config.llm_factory import llm_factory
-        self.model = llm_factory.create_llm(
-            model_name="gpt-5-nano",
-            temperature=0.7,
-            max_tokens=50
+        import os
+        from langchain_openai import ChatOpenAI
+        
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+            
+        # GPT-4.1-nano is a reasoning model - it needs tokens for thinking
+        # Use a smaller amount suitable for 4.1-nano
+        self.model = ChatOpenAI(
+            model="gpt-4.1-nano",
+            max_completion_tokens=100,  # Reduced for 4.1-nano
+            api_key=api_key,
+            timeout=30,
+            max_retries=1
         )
-        logger.info("TitleGenerator initialized with GPT-5-nano")
+        logger.info("TitleGenerator initialized with GPT-4.1-nano")
     
     async def generate_title(self, first_message: str) -> str:
         """Generate a title with emoji prefix from the first message"""
         
-        prompt = f"""Generate a concise title (3-7 words) for a conversation that starts with:
-"{first_message[:500]}"
+        prompt = f"""Generate a title for this conversation:
+"{first_message[:300]}"
 
-Rules:
-1. Start with ONE relevant emoji that represents the topic
-2. Follow with 2-6 words that capture the essence
-3. Be specific and descriptive
-4. No quotes or extra punctuation
-5. Format: 🎯 Topic Summary
+Requirements:
+- Maximum 30 characters total (including emoji)
+- Start with ONE emoji
+- Follow with 2-5 words
+- Be specific and descriptive
 
 Examples:
-- 📊 Sales Data Analysis Request
-- 🛍️ Product Pricing Update
-- 📦 Inventory Check Yesterday
-- ☕ Coffee Machine Recommendations
-- 🔧 Fix Login Authentication Issue
-- 📈 Revenue Report Generation
-- 🤖 GPT-5 Model Testing
-- 🎨 Image Upload Feature
-- 💾 Database Migration Help
+📊 Sales Analysis
+💰 Pricing Updates
+📦 Inventory Check
+☕ Coffee Machines
+🔧 Login Fix
+📈 Revenue Report
 
-Title:"""
+Output only the title, nothing else:"""
         
         try:
             # Generate title with timeout
+            from langchain_core.messages import SystemMessage, HumanMessage
+            
+            messages = [
+                SystemMessage(content="You are a helpful assistant that generates concise, descriptive titles with emoji prefixes."),
+                HumanMessage(content=prompt)
+            ]
+            
             response = await asyncio.wait_for(
-                self.model.ainvoke([
-                    {"role": "system", "content": "You are a helpful assistant that generates concise, descriptive titles with emoji prefixes."},
-                    {"role": "user", "content": prompt}
-                ]),
+                self.model.ainvoke(messages),
                 timeout=10.0
             )
             

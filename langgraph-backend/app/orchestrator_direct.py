@@ -166,11 +166,11 @@ For multi-agent tasks (A2A):
                 elif isinstance(msg, AIMessage):
                     conversation.append({"role": "assistant", "content": msg.content})
             
-            # Get decision with timeout protection
+            # Get decision with timeout protection (increased for complex reasoning)
             try:
                 response = await asyncio.wait_for(
                     self.model.ainvoke(conversation),
-                    timeout=30.0
+                    timeout=120.0  # 2 minutes for routing decisions
                 )
                 
                 decision = self._parse_decision(response.content)
@@ -279,6 +279,13 @@ For multi-agent tasks (A2A):
         if state.get("should_continue") == False:
             return "end"
         
+        # Check if we already processed with an agent - avoid loops
+        last_message = state.get("messages", [])[-1] if state.get("messages") else None
+        if last_message and hasattr(last_message, 'metadata'):
+            # If the last message has an error or is from an agent, end the flow
+            if last_message.metadata.get("error") or last_message.metadata.get("agent"):
+                return "end"
+        
         # Check for multi-agent task
         if state.get("multi_agent_task"):
             task = state["multi_agent_task"]
@@ -332,7 +339,7 @@ Provide a unified, helpful response that combines the key information."""
                     {"role": "system", "content": synthesis_prompt.format(responses=formatted_responses)},
                     {"role": "user", "content": state["messages"][-1].content}
                 ]),
-                timeout=30.0
+                timeout=180.0  # 3 minutes for synthesis of complex responses
             )
             
             state["messages"].append(AIMessage(
@@ -357,14 +364,22 @@ Provide a unified, helpful response that combines the key information."""
         
         return state
     
+    def _make_sync_wrapper(self, async_func):
+        """Create a synchronous wrapper for async functions"""
+        def sync_wrapper(state):
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, async_func(state))
+                return future.result()
+        return sync_wrapper
+    
     def _build_graph(self):
         """Build the LangGraph workflow"""
         workflow = StateGraph(GraphState)
         
-        # Add orchestrator as the main entry point
+        # Add nodes with sync wrappers for sync streaming
         workflow.add_node("orchestrator", self._make_sync_wrapper(self.process_request))
         
-        # Add specialist agents
+        # Add specialist agents with sync wrappers
         for agent_name, agent in self.agents.items():
             workflow.add_node(agent_name, self._make_sync_wrapper(agent))
         
@@ -382,9 +397,9 @@ Provide a unified, helpful response that combines the key information."""
             }
         )
         
-        # All agents route back to orchestrator for potential follow-up
+        # All agents route to END (not back to orchestrator to avoid loops)
         for agent_name in self.agents.keys():
-            workflow.add_edge(agent_name, "orchestrator")
+            workflow.add_edge(agent_name, END)
         
         # Synthesis completes the flow
         workflow.add_edge("synthesize", END)
@@ -395,30 +410,33 @@ Provide a unified, helpful response that combines the key information."""
         self.graph = workflow.compile(checkpointer=self.checkpointer)
         logger.info("Direct orchestrator graph compiled successfully")
     
-    def _make_sync_wrapper(self, async_func):
-        """Create a synchronous wrapper for async functions"""
-        def sync_wrapper(state):
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, async_func(state))
-                return future.result()
-        return sync_wrapper
-    
-    async def stream(self, messages: List[Any], thread_id: str = None):
+    async def stream(self, messages: List[Any], thread_id: str = None, user_id: str = None):
         """Stream responses through the graph"""
         config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
         
         # Get existing state
-        current_state = self.graph.get_state(config).values if thread_id else None
+        try:
+            state_snapshot = self.graph.get_state(config)
+            current_state = state_snapshot.values if state_snapshot else None
+        except Exception as e:
+            logger.warning(f"Could not get state for thread {thread_id}: {e}")
+            current_state = None
         
         if current_state and current_state.get("messages"):
             logger.info(f"Found existing state with {len(current_state['messages'])} messages")
             # Append new message to existing state
             current_state["messages"].extend(messages)
+            # Ensure user_id is in state
+            if user_id:
+                current_state["user_id"] = user_id
             initial_state = current_state
         else:
             logger.info(f"No existing state found for thread {thread_id}, creating new state")
             initial_state = {"messages": messages}
+            # Add user_id to new state
+            if user_id:
+                initial_state["user_id"] = user_id
         
-        # Stream through the graph
-        async for chunk in self.graph.astream(initial_state, config):
+        # Stream through the graph (use sync stream since our checkpointer doesn't support async)
+        for chunk in self.graph.stream(initial_state, config):
             yield chunk

@@ -297,35 +297,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // When a streaming agent message completes, append it to messages and clear the stream buffer
-  useEffect(() => {
-    if (streamingMessage?.isComplete && !streamingMessage?.addedToMessages) {
-      const { content, timestamp } = streamingMessage;
-      if (content) {
-        // Only save task markdown if it belongs to the current conversation
-        const currentTaskMarkdown = taskMarkdown && 
-          String(taskMarkdown.conversation_id) === String(activeConv || convId) 
-          ? taskMarkdown 
-          : null;
-          
-        setMessages(prev => [
-          ...prev,
-          { 
-            id: `msg-${Date.now()}`, 
-            role: "assistant", 
-            content, 
-            timestamp,
-            taskMarkdown: currentTaskMarkdown // Save current task markdown with the message
-          }
-        ]);
-        
-        // Mark as added to messages and clear the streaming message
-        setStreamingMessage(prev => prev ? { ...prev, addedToMessages: true } : null);
-        // Clear it after a brief delay to ensure state updates
-        setTimeout(() => setStreamingMessage(null), 100);
-      }
-    }
-  }, [streamingMessage?.isComplete, streamingMessage?.content, taskMarkdown, activeConv, convId]);
+  // NOTE: Message completion is now handled directly in the 'done' event to prevent duplicate display
 
   // Handle image paste from clipboard
   useEffect(() => {
@@ -1476,20 +1448,50 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   console.error("SSE Orchestrator Error:", actualEventPayload);
                   setStreamingMessage(prev => ({ ...prev, content: (prev?.content || "") + `\n\n**Error:** ${errorMsg}`, isStreaming: false, isComplete: true }));
                   setIsSending(false); shouldStop = true; break;
+                case 'title_generated':
+                  console.log("FRONTEND: Title generated event", actualEventPayload);
+                  // Update the conversation title in the UI
+                  if (actualEventPayload.title && actualEventPayload.thread_id) {
+                    console.log(`New title for thread ${actualEventPayload.thread_id}: ${actualEventPayload.title}`);
+                    // Call the parent callback to refresh the conversations list
+                    // Use a delay to ensure the backend has saved the title
+                    setTimeout(() => {
+                      if (onTopicUpdate) {
+                        console.log("FRONTEND: Triggering conversation refresh after title generation");
+                        // The onTopicUpdate expects (conversationId, topicTitle, topicDetails)
+                        // For LangGraph backend, we need to trigger a refresh since it handles titles differently
+                        onTopicUpdate(null, null, null); // This will trigger fetchConversations() in App.jsx
+                      }
+                    }, 1000); // 1 second delay to ensure backend has saved the title
+                  }
+                  break;
+                  
                 case 'done':
                   console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
                   
-                  // Mark streaming message as complete - the useEffect will handle moving it to messages
-                  setStreamingMessage(prev => {
-                    console.log("Setting message to complete, prev state:", prev);
-                    if (!prev) return null;
-                    return {
+                  // Get the current streaming message content before clearing it
+                  const currentStreamingContent = streamingMessage?.content;
+                  const currentTaskMarkdownRef = taskMarkdown && 
+                    String(taskMarkdown.conversation_id) === String(activeConv || convId) 
+                    ? taskMarkdown 
+                    : null;
+                  
+                  // Add the streaming message to messages if it has content
+                  if (currentStreamingContent) {
+                    setMessages(prev => [
                       ...prev,
-                      isStreaming: false,
-                      isComplete: true,
-                      timestamp: new Date().toISOString()
-                    };
-                  });
+                      {
+                        id: `msg-${Date.now()}`,
+                        role: "assistant",
+                        content: currentStreamingContent,
+                        timestamp: new Date().toISOString(),
+                        taskMarkdown: currentTaskMarkdownRef
+                      }
+                    ]);
+                  }
+                  
+                  // Clear the streaming message
+                  setStreamingMessage(null);
                   
                   setIsSending(false);
                   
@@ -1562,9 +1564,32 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       }
     } catch (e) {
       console.error("Failed to send message or process stream:", e);
-      setStreamingMessage(prev => 
-        prev ? { ...prev, content: (prev?.content || "") + `\n\n**Error:** ${e.message}`, isError: true, isStreaming: false, isComplete: true } : null
-      );
+      
+      // Remove the user message that was added optimistically since the request failed
+      setMessages(prev => {
+        // Remove the last message if it's the user message we just added
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage && lastMessage.role === 'user' && lastMessage.content === textToSend) {
+          console.log("Removing failed user message from UI");
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
+      
+      // Show error message instead of echoing user input
+      const errorMessage = e.message || "Unable to connect to server";
+      setStreamingMessage({
+        role: "system",
+        content: `⚠️ **Connection Error**\n\n${errorMessage}\n\nPlease check your connection and try again.`,
+        timestamp: new Date().toISOString(),
+        isStreaming: false,
+        isComplete: true,
+        isError: true  // Add flag to style error messages differently
+      });
+      
+      // Clean up UI state
+      setAgentProcessingStatus("");
+      setToolCallStatus("");
     } finally {
       setIsSending(false);
       // setToolCallStatus(""); // Keep agent specific statuses for review

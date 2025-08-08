@@ -42,6 +42,9 @@ async def chat_stream(request: ChatRequest):
     # Use conversation_id as thread_id for LangGraph checkpointing
     thread_id = request.thread_id or conversation_id or f"chat-{int(time.time())}"
     
+    # Get user_id from request - default to "1" if not provided
+    user_id = request.user_id or "1"
+    
     async def generate():
         try:
             # Send conversation ID first so frontend knows what thread is being used
@@ -70,7 +73,8 @@ async def chat_stream(request: ChatRequest):
             
             async for chunk in orchestrator.stream(
                 messages=messages,
-                thread_id=thread_id
+                thread_id=thread_id,
+                user_id=user_id
             ):
                 # LangGraph returns chunks as {node_name: {state_updates}}
                 logger.info(f"Stream chunk: {chunk}")
@@ -96,8 +100,11 @@ async def chat_stream(request: ChatRequest):
                                     "tokens": [content]
                                 }) + "\n"
                 
-                # Keep original handling for backward compatibility
-                if isinstance(chunk, dict) and chunk.get("type") == "token":
+                # Skip the original handling since we're processing LangGraph chunks above
+                continue
+                
+                # Original handling (disabled for now)
+                if False and isinstance(chunk, dict) and chunk.get("type") == "token":
                     # Handle content that might be a list or string
                     content = chunk["content"]
                     if isinstance(content, list):
@@ -174,6 +181,62 @@ async def chat_stream(request: ChatRequest):
                     "message": buffer
                 }) + "\n"
             
+            # Auto-generate title if this is a new conversation (first message)
+            try:
+                # Check if conversation already has a title
+                from app.api.conversations import get_db_connection
+                conn = await get_db_connection()
+                try:
+                    # Ensure table exists
+                    await conn.execute("""
+                        CREATE TABLE IF NOT EXISTS conversation_metadata (
+                            thread_id TEXT PRIMARY KEY,
+                            title TEXT,
+                            auto_generated BOOLEAN DEFAULT FALSE,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    
+                    # Check if title exists for this thread
+                    existing_title = await conn.fetchval("""
+                        SELECT title FROM conversation_metadata 
+                        WHERE thread_id = $1
+                    """, thread_id)
+                    
+                    if not existing_title:
+                        # This is a new conversation, generate title
+                        from app.api.title_generator import get_title_generator
+                        generator = get_title_generator()
+                        title = await generator.generate_title(request.message)
+                        
+                        # Store the generated title
+                        await conn.execute("""
+                            INSERT INTO conversation_metadata (thread_id, title, auto_generated, updated_at)
+                            VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)
+                            ON CONFLICT (thread_id) 
+                            DO UPDATE SET 
+                                title = EXCLUDED.title,
+                                auto_generated = EXCLUDED.auto_generated,
+                                updated_at = CURRENT_TIMESTAMP
+                        """, thread_id, title)
+                        
+                        logger.info(f"Auto-generated title for new conversation {thread_id}: {title}")
+                        
+                        # Send title update event to frontend
+                        yield json.dumps({
+                            "event": "title_generated",
+                            "thread_id": thread_id,
+                            "title": title
+                        }) + "\n"
+                        
+                finally:
+                    await conn.close()
+                    
+            except Exception as e:
+                logger.warning(f"Failed to auto-generate title for {thread_id}: {e}")
+                # Don't fail the whole request if title generation fails
+            
             # Send done event
             yield json.dumps({
                 "event": "done",
@@ -181,7 +244,9 @@ async def chat_stream(request: ChatRequest):
             }) + "\n"
             
         except Exception as e:
-            logger.error(f"Error in HTTP stream: {e}")
+            import traceback
+            error_details = traceback.format_exc()
+            logger.error(f"Error in HTTP stream: {e}\n{error_details}")
             yield json.dumps({
                 "event": "error",
                 "error": str(e)
@@ -228,11 +293,64 @@ async def chat_message(request: ChatRequest):
                 "metadata": getattr(msg, "metadata", {})
             })
         
+        # Auto-generate title if this is a new conversation
+        generated_title = None
+        try:
+            thread_id = request.thread_id or request.conversation_id or f"chat-{int(time.time())}"
+            from app.api.conversations import get_db_connection
+            conn = await get_db_connection()
+            try:
+                # Ensure table exists
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS conversation_metadata (
+                        thread_id TEXT PRIMARY KEY,
+                        title TEXT,
+                        auto_generated BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Check if title exists for this thread
+                existing_title = await conn.fetchval("""
+                    SELECT title FROM conversation_metadata 
+                    WHERE thread_id = $1
+                """, thread_id)
+                
+                if not existing_title:
+                    # This is a new conversation, generate title
+                    from app.api.title_generator import get_title_generator
+                    generator = get_title_generator()
+                    generated_title = await generator.generate_title(request.message)
+                    
+                    # Store the generated title
+                    await conn.execute("""
+                        INSERT INTO conversation_metadata (thread_id, title, auto_generated, updated_at)
+                        VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)
+                        ON CONFLICT (thread_id) 
+                        DO UPDATE SET 
+                            title = EXCLUDED.title,
+                            auto_generated = EXCLUDED.auto_generated,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, thread_id, generated_title)
+                    
+                    logger.info(f"Auto-generated title for new conversation {thread_id}: {generated_title}")
+                    
+            finally:
+                await conn.close()
+                
+        except Exception as e:
+            logger.warning(f"Failed to auto-generate title: {e}")
+
+        response_metadata = result.get("metadata", {})
+        if generated_title:
+            response_metadata["generated_title"] = generated_title
+
         return {
             "success": True,
             "messages": messages,
             "last_agent": result.get("last_agent"),
-            "metadata": result.get("metadata", {})
+            "metadata": response_metadata
         }
         
     except Exception as e:

@@ -1,0 +1,57 @@
+--- StreamingChatPage.jsx.original
++++ StreamingChatPage.jsx.fixed
+@@ -1100,6 +1100,17 @@
+                   setIsSending(false); 
+                   shouldStop = true; 
+                   break;
++                
++                case 'title_generated':
++                  console.log("FRONTEND: Title generated event", actualEventPayload);
++                  // Update the conversation title in the UI
++                  if (actualEventPayload.title && actualEventPayload.thread_id) {
++                    // You might want to update the conversation list or title display
++                    // This would depend on how you're managing conversation state
++                    console.log(`New title for thread ${actualEventPayload.thread_id}: ${actualEventPayload.title}`);
++                    // TODO: Update conversation title in the sidebar or header
++                  }
++                  break;
+                   
+                 case 'done':
+                   console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload));
+@@ -1200,11 +1211,30 @@
+       }
+       
+     } catch (error) {
+-      console.error("Streaming error:", error);
+-      setStreamingMessage((prev) => ({ 
+-        ...prev, 
+-        content: prev?.content || "Error: Unable to process message.", 
+-        isStreaming: false, 
++      console.error("Connection/Streaming error:", error);
++      
++      // Remove the user message that was added optimistically since the request failed
++      setMessages(prev => {
++        // Remove the last message if it's the user message we just added
++        const lastMessage = prev[prev.length - 1];
++        if (lastMessage && lastMessage.role === 'user' && lastMessage.content === textToSend) {
++          return prev.slice(0, -1);
++        }
++        return prev;
++      });
++      
++      // Show error message instead of echoing user input
++      const errorMessage = error.message || "Unable to connect to server";
++      setStreamingMessage({
++        role: "system",
++        content: `⚠️ **Connection Error**\n\n${errorMessage}\n\nPlease check your connection and try again.`,
++        timestamp: new Date().toISOString(),
++        isStreaming: false,
++        isComplete: true,
++        isError: true  // Add flag to style error messages differently
++      });
++      
++      // Clean up UI state
+       setIsSending(false);
++      setAgentProcessingStatus("");
+     }
+   };
