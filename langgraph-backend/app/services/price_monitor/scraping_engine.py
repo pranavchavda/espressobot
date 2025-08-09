@@ -249,7 +249,7 @@ class CompetitorScraper:
                     ]
                     
                     price_pattern = r'[\$£€](\d+(?:\.\d{2})?)'
-                    link_pattern = r'href=[\'"](\/products\/[^\'"]+)[\'"']'
+                    link_pattern = r'href=[\'"](/products/[^\'"]+)[\'"]'
                     
                     title = None
                     for title_pattern in title_patterns:
