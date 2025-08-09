@@ -32,6 +32,10 @@ class LLMFactory:
             Provider.OPENROUTER: "openai/gpt-5",
             Provider.OPENAI: "gpt-5"
         },
+        "gpt-5-chat": {
+            Provider.OPENROUTER: "openai/gpt-5-chat",
+            Provider.OPENAI: "gpt-5-chat"
+        },
         "gpt-5-mini": {
             Provider.OPENROUTER: "openai/gpt-5-mini",
             Provider.OPENAI: "gpt-5-mini"
@@ -41,8 +45,8 @@ class LLMFactory:
             Provider.OPENAI: "gpt-5-nano"
         },
         "gpt-4": {
-            Provider.OPENROUTER: "openai/gpt-4-turbo-preview",
-            Provider.OPENAI: "gpt-4-turbo-preview"
+            Provider.OPENROUTER: "openai/gpt-4.1",
+            Provider.OPENAI: "gpt-4.1"
         },
         "claude-3-opus": {
             Provider.OPENROUTER: "anthropic/claude-3-opus-20240229",
@@ -58,6 +62,10 @@ class LLMFactory:
         },
         "qwen-2-72b": {
             Provider.OPENROUTER: "qwen/qwen-2-72b-instruct",
+            Provider.OPENAI: None  # Not available via OpenAI
+        },
+        "glm-4.5": {
+            Provider.OPENROUTER: "z-ai/glm-4.5",
             Provider.OPENAI: None  # Not available via OpenAI
         }
     }
@@ -93,7 +101,7 @@ class LLMFactory:
         Create an LLM instance with automatic provider selection and fallback
         
         Args:
-            model_name: Generic model name (e.g., "gpt-5", "claude-3-opus")
+            model_name: Generic model name (e.g., "gpt-5", "claude-3-opus") or full model ID
             temperature: Model temperature
             max_tokens: Maximum tokens to generate
             preferred_provider: Preferred provider to use
@@ -102,10 +110,15 @@ class LLMFactory:
             LangChain LLM instance
         """
         
-        # Get model mapping
+        # Check if this is a full model ID (e.g., "openai/gpt-5-chat")
+        if "/" in model_name or model_name.startswith("claude-") or model_name.startswith("gpt-"):
+            # Try to use the model directly with the appropriate provider
+            return self._create_llm_direct(model_name, temperature, max_tokens, preferred_provider)
+        
+        # Get model mapping for known short names
         if model_name not in self.MODEL_MAPPINGS:
-            logger.warning(f"Unknown model: {model_name}, falling back to GPT-4")
-            model_name = "gpt-4"
+            logger.warning(f"Unknown model: {model_name}, attempting direct usage")
+            return self._create_llm_direct(model_name, temperature, max_tokens, preferred_provider)
         
         model_map = self.MODEL_MAPPINGS[model_name]
         
@@ -113,8 +126,8 @@ class LLMFactory:
         if preferred_provider and preferred_provider in self.available_providers:
             providers = [preferred_provider] + [p for p in self.available_providers if p != preferred_provider]
         else:
-            # Default order: OpenAI direct, then OpenRouter, then Anthropic
-            provider_order = [Provider.OPENAI, Provider.OPENROUTER, Provider.ANTHROPIC]
+            # Default order: OpenRouter first, then OpenAI direct, then Anthropic
+            provider_order = [Provider.OPENROUTER, Provider.OPENAI, Provider.ANTHROPIC]
             providers = [p for p in provider_order if p in self.available_providers]
         
         # Try each provider
@@ -238,6 +251,128 @@ class LLMFactory:
             )
         
         return None
+    
+    def _create_llm_direct(
+        self,
+        model_name: str,
+        temperature: float,
+        max_tokens: int,
+        preferred_provider: Optional[Provider] = None
+    ):
+        """Create LLM directly from model ID without mapping"""
+        
+        # Determine provider from model name
+        if model_name.startswith("claude-") or "claude" in model_name.lower():
+            provider = Provider.ANTHROPIC
+        elif "/" in model_name:
+            # Models with "/" are typically from OpenRouter
+            provider = Provider.OPENROUTER
+        elif model_name.startswith("gpt-") or model_name.startswith("o1-") or model_name.startswith("o3-"):
+            # Could be OpenAI direct or through OpenRouter
+            provider = preferred_provider or Provider.OPENROUTER
+        else:
+            # Default to OpenRouter as it has the most models
+            provider = preferred_provider or Provider.OPENROUTER
+        
+        # Try to create with determined provider
+        if provider == Provider.OPENROUTER and self.openrouter_key:
+            # Handle GPT-5 models specially
+            if "gpt-5" in model_name.lower():
+                return ChatOpenAI(
+                    model=model_name,
+                    api_key=self.openrouter_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    max_completion_tokens=max_tokens,
+                    timeout=30,
+                    max_retries=1,
+                    default_headers={
+                        "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
+                        "X-Title": "EspressoBot"
+                    }
+                )
+            else:
+                return ChatOpenAI(
+                    model=model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=self.openrouter_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    timeout=30,
+                    max_retries=1,
+                    default_headers={
+                        "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
+                        "X-Title": "EspressoBot"
+                    }
+                )
+        
+        elif provider == Provider.OPENAI and self.openai_key:
+            # Strip provider prefix if present
+            clean_model = model_name.replace("openai/", "")
+            
+            if "gpt-5" in clean_model.lower():
+                return ChatOpenAI(
+                    model=clean_model,
+                    api_key=self.openai_key,
+                    max_completion_tokens=max_tokens,
+                    timeout=30,
+                    max_retries=1
+                )
+            else:
+                return ChatOpenAI(
+                    model=clean_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=self.openai_key,
+                    timeout=30,
+                    max_retries=1
+                )
+        
+        elif provider == Provider.ANTHROPIC and self.anthropic_key and ANTHROPIC_AVAILABLE:
+            # Strip provider prefix if present
+            clean_model = model_name.replace("anthropic/", "")
+            
+            return ChatAnthropic(
+                model=clean_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=self.anthropic_key
+            )
+        
+        # Fallback to any available provider
+        logger.warning(f"Could not create {model_name} with {provider}, trying fallbacks")
+        
+        # Try with model mappings as last resort
+        short_name = model_name.split("/")[-1] if "/" in model_name else model_name
+        if short_name in self.MODEL_MAPPINGS:
+            return self.create_llm(short_name, temperature, max_tokens, preferred_provider)
+        
+        # Ultimate fallback
+        logger.error(f"Failed to create model {model_name}, using GPT-4 fallback")
+        if self.openai_key:
+            return ChatOpenAI(
+                model="gpt-4-turbo-preview",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=self.openai_key,
+                timeout=30,
+                max_retries=1
+            )
+        elif self.openrouter_key:
+            return ChatOpenAI(
+                model="openai/gpt-4-turbo-preview",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=self.openrouter_key,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=30,
+                max_retries=1,
+                default_headers={
+                    "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
+                    "X-Title": "EspressoBot"
+                }
+            )
+        else:
+            raise Exception("No available providers for fallback")
     
     def test_providers(self):
         """Test all configured providers"""

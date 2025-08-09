@@ -1,5 +1,5 @@
 """
-Conversation title generator using GPT-4.1-nano
+Conversation title generator using OpenRouter
 Generates concise titles with emoji prefixes for conversations
 """
 from typing import Optional
@@ -9,26 +9,43 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class TitleGenerator:
-    """Generate conversation titles with emojis using GPT-4.1-nano"""
+    """Generate conversation titles with emojis using OpenRouter"""
     
     def __init__(self):
         import os
         from langchain_openai import ChatOpenAI
         
-        api_key = os.getenv("OPENAI_API_KEY")
+        # Use OpenRouter API instead of OpenAI directly
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
-            
-        # GPT-4.1-nano is a reasoning model - it needs tokens for thinking
-        # Use a smaller amount suitable for 4.1-nano
-        self.model = ChatOpenAI(
-            model="gpt-4.1-nano",
-            max_completion_tokens=100,  # Reduced for 4.1-nano
-            api_key=api_key,
-            timeout=30,
-            max_retries=1
-        )
-        logger.info("TitleGenerator initialized with GPT-4.1-nano")
+            # Fallback to OpenAI if OpenRouter not configured
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY or OPENAI_API_KEY environment variable is required")
+            # Use OpenAI directly as fallback
+            self.model = ChatOpenAI(
+                model="gpt-4o-mini",
+                max_completion_tokens=100,
+                api_key=api_key,
+                timeout=30,
+                max_retries=1
+            )
+            logger.info("TitleGenerator initialized with OpenAI GPT-4o-mini (fallback)")
+        else:
+            # Use OpenRouter
+            self.model = ChatOpenAI(
+                model="openai/gpt-4o-mini",  # OpenRouter format
+                max_completion_tokens=100,
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=30,
+                max_retries=1,
+                default_headers={
+                    "HTTP-Referer": "https://idrinkcoffee.com",
+                    "X-Title": "EspressoBot"
+                }
+            )
+            logger.info("TitleGenerator initialized with OpenRouter GPT-4o-mini")
     
     async def generate_title(self, first_message: str) -> str:
         """Generate a title with emoji prefix from the first message"""

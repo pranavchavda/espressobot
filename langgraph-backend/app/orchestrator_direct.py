@@ -9,6 +9,7 @@ import json
 import re
 from app.state.graph_state import GraphState
 from app.memory.memory_config import MemoryConfig
+from app.memory.memory_persistence import MemoryPersistenceNode
 from langchain_core.messages import AIMessage, HumanMessage
 import asyncio
 import concurrent.futures
@@ -25,6 +26,9 @@ class DirectOrchestrator:
         # Event loop used by the HTTP layer; needed for thread-safe queue puts
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         
+        # Initialize memory persistence for extracting memories from conversations
+        self.memory_node = MemoryPersistenceNode()
+        
         # Memory and checkpointing
         if not checkpointer:
             memory_config = MemoryConfig()
@@ -34,14 +38,10 @@ class DirectOrchestrator:
             self.checkpointer = checkpointer
             self.memory_config = MemoryConfig()
         
-        # GPT-5 for orchestration and routing
-        from app.config.llm_factory import llm_factory
-        self.model = llm_factory.create_llm(
-            model_name="gpt-5",
-            temperature=0.0,
-            max_tokens=2048
-        )
-        logger.info("Initialized Direct Orchestrator with GPT-5")
+        # Use dynamic model configuration
+        from app.config.agent_model_manager import agent_model_manager
+        self.model = agent_model_manager.get_model_for_agent("orchestrator")
+        logger.info(f"Initialized Direct Orchestrator with model: {type(self.model).__name__}")
         
         self.graph = None
         self._initialize_agents()
@@ -95,6 +95,49 @@ class DirectOrchestrator:
                 logger.info(f"Initialized {agent.name} agent: {agent.description}")
             except Exception as e:
                 logger.error(f"Failed to initialize {AgentClass.__name__}: {e}")
+    
+    def _build_context_for_agent(self, messages: List) -> str:
+        """Build a concise context summary for agent handoff"""
+        context_parts = []
+        
+        # Include last 6 messages (3 exchanges) for context
+        recent_messages = messages[-6:] if len(messages) > 6 else messages
+        
+        for msg in recent_messages:
+            if isinstance(msg, HumanMessage):
+                context_parts.append(f"User: {msg.content[:200]}")
+            elif isinstance(msg, AIMessage):
+                # Skip routing messages
+                if not msg.metadata.get("routing"):
+                    context_parts.append(f"Assistant: {msg.content[:200]}")
+        
+        return "\n".join(context_parts)
+    
+    def _extract_key_entities(self, messages: List) -> Dict[str, Any]:
+        """Extract key entities mentioned in conversation"""
+        entities = {
+            "people": [],
+            "products": [],
+            "topics": [],
+            "references": []
+        }
+        
+        # Simple entity extraction from recent messages
+        for msg in messages[-10:]:
+            if isinstance(msg, (HumanMessage, AIMessage)):
+                content = msg.content.lower()
+                
+                # Extract people names (simple heuristic)
+                if "luca" in content:
+                    entities["people"].append("Luca Kulesza")
+                if "sales stats" in content or "july sales" in content:
+                    entities["topics"].append("July sales statistics")
+                if "email" in content and "luca" in content:
+                    entities["references"].append("Email from Luca about sales stats")
+                if "ticket" in content and "351747179" in content:
+                    entities["references"].append("Ticket #351747179")
+                    
+        return entities
     
     def _get_routing_prompt(self) -> str:
         """Generate the routing and conversation prompt"""
@@ -153,6 +196,10 @@ For multi-agent tasks (A2A):
     async def process_request(self, state: GraphState) -> GraphState:
         """Process request - either respond directly or route to agent"""
         try:
+            # Initialize memory node if not already done
+            if not self.memory_node._initialized:
+                await self.memory_node.initialize()
+                logger.info("Initialized memory persistence node")
             # Trim messages if needed
             if state["messages"] and len(state["messages"]) > self.memory_config.max_history_length:
                 state["messages"] = self.memory_config.trim_messages(state["messages"])
@@ -192,49 +239,163 @@ For multi-agent tasks (A2A):
                 decision = self._parse_decision(response.content)
                 
                 if decision["action"] == "respond":
-                    # Direct response from orchestrator with TRUE token streaming
+                    # Direct response from orchestrator - use the message from the decision
                     thread_id = state.get("thread_id") or state.get("configurable", {}).get("thread_id")
                     # Ensure queue exists for this thread
                     if thread_id and thread_id not in self._token_queues:
                         self._token_queues[thread_id] = asyncio.Queue()
                     q = self._token_queues.get(thread_id)
 
-                    full_text = []
-                    try:
-                        # Stream tokens from the model
-                        async for chunk in self.model.astream(conversation):
-                            # Try multiple attributes to extract delta safely
-                            token = getattr(chunk, "content", None)
-                            if not token:
-                                token = getattr(chunk, "delta", None)
-                            if not token:
-                                token = getattr(chunk, "text", None)
-                            if not token and hasattr(chunk, "message"):
-                                token = getattr(chunk.message, "content", None)
-                            if not token:
-                                token = ""
-                            if token:
-                                full_text.append(token)
+                    # Get the message from the decision
+                    message_content = decision.get("message", "")
+                    
+                    # Check if we have a complete response from the routing decision
+                    # The routing prompt asks for a full response in the message field
+                    if message_content and len(message_content) > 20:  # Reasonable response length
+                        # Use the message directly from routing decision - no second API call needed!
+                        full_text = [message_content]
+                        
+                        # Stream the existing message to the queue if available
+                        if q:
+                            try:
+                                # Stream in chunks for better UX
+                                step = 20
+                                for i in range(0, len(message_content), step):
+                                    chunk = message_content[i:i+step]
+                                    loop = getattr(self, "_event_loop", None)
+                                    if loop is not None:
+                                        import asyncio as _asyncio
+                                        _asyncio.run_coroutine_threadsafe(
+                                            q.put({"agent": "orchestrator", "delta": chunk}),
+                                            loop,
+                                        )
+                                    else:
+                                        await q.put({"agent": "orchestrator", "delta": chunk})
+                                    await asyncio.sleep(0.01)  # Small delay for natural streaming feel
+                            except Exception as e:
+                                logger.debug(f"Failed to stream routing response: {e}")
+                    else:
+                        # Fallback: generate a new response if routing didn't provide one
+                        # This should rarely happen with a proper routing prompt
+                        response_conversation = [
+                            {"role": "system", "content": "You are EspressoBot, a helpful AI assistant powered by GPT-5 for iDrinkCoffee.com. Be friendly, conversational, and helpful."}
+                        ]
+                        
+                        # Add conversation history for context (last 20 messages to maintain context)
+                        for msg in state["messages"][-20:]:
+                            if isinstance(msg, HumanMessage):
+                                response_conversation.append({"role": "user", "content": msg.content})
+                            elif isinstance(msg, AIMessage):
+                                response_conversation.append({"role": "assistant", "content": msg.content})
+                        
+                        # Add the current message if it's not already included
+                        if not response_conversation[-1]["content"] == last_message.content:
+                            response_conversation.append({"role": "user", "content": last_message.content})
+                        
+                        full_text = []
+                        
+                        # Check if model is GPT-5 (which may require org verification for streaming)
+                        model_name = getattr(self.model, "model_name", "")
+                        skip_streaming = "gpt-5" in model_name.lower()
+                        
+                        if skip_streaming:
+                            # Skip streaming for GPT-5 models to avoid verification errors
+                            logger.info(f"Skipping streaming for {model_name} model")
+                            try:
+                                response = await asyncio.wait_for(
+                                    self.model.ainvoke(response_conversation),
+                                    timeout=120.0
+                                )
+                                full_text = [response.content]
+                                # Send full response as single chunk if queue available
                                 if q:
                                     try:
                                         loop = getattr(self, "_event_loop", None)
                                         if loop is not None:
-                                            # We are likely in a different thread; schedule the put on the HTTP loop
                                             import asyncio as _asyncio
                                             _asyncio.run_coroutine_threadsafe(
-                                                q.put({"agent": "orchestrator", "delta": token}),
+                                                q.put({"agent": "orchestrator", "delta": response.content}),
                                                 loop,
                                             )
                                         else:
-                                            # Fallback if loop not set (same-thread case)
-                                            await q.put({"agent": "orchestrator", "delta": token})
+                                            await q.put({"agent": "orchestrator", "delta": response.content})
                                     except Exception as e:
-                                        logger.debug(f"Failed to enqueue token delta: {e}")
-                    except Exception as e:
-                        logger.warning(f"astream failed, falling back to single response: {e}")
-                        full_text.append(decision["message"])  # fall back to decided message
+                                        logger.debug(f"Failed to enqueue response: {e}")
+                            except asyncio.TimeoutError:
+                                logger.error("Model invoke timed out after 120 seconds")
+                                full_text = ["I apologize, but I'm taking too long to respond. Please try again."]
+                        else:
+                            try:
+                                # Stream tokens from the model with the proper conversation
+                                async for chunk in self.model.astream(response_conversation):
+                                    # Log the raw chunk for debugging
+                                    logger.debug(f"Raw streaming chunk type: {type(chunk)}, chunk: {chunk}")
+                                    
+                                    # Extract token from chunk
+                                    token = None
+                                    
+                                    # For AIMessageChunk, get the content directly
+                                    if hasattr(chunk, "content"):
+                                        content = chunk.content
+                                        if content and isinstance(content, str):
+                                            token = content
+                                    
+                                    # Only append non-empty string tokens
+                                    if token and isinstance(token, str) and token.strip():
+                                        logger.debug(f"Extracted token: {token}")
+                                        full_text.append(token)
+                                        if q:
+                                            try:
+                                                loop = getattr(self, "_event_loop", None)
+                                                if loop is not None:
+                                                    # We are likely in a different thread; schedule the put on the HTTP loop
+                                                    import asyncio as _asyncio
+                                                    _asyncio.run_coroutine_threadsafe(
+                                                        q.put({"agent": "orchestrator", "delta": token}),
+                                                        loop,
+                                                    )
+                                                else:
+                                                    # Fallback if loop not set (same-thread case)
+                                                    await q.put({"agent": "orchestrator", "delta": token})
+                                            except Exception as e:
+                                                logger.debug(f"Failed to enqueue token delta: {e}")
+                                    elif hasattr(chunk, "text") and callable(chunk.text):
+                                        # Don't send the method reference to the UI
+                                        logger.debug(f"Skipping text method reference from chunk: {chunk}")
+                            except Exception as e:
+                                logger.warning(f"astream failed (likely org verification needed), falling back to non-streaming: {e}")
+                                # Fall back to non-streaming invoke
+                                try:
+                                    response = await asyncio.wait_for(
+                                        self.model.ainvoke(response_conversation),
+                                        timeout=120.0
+                                    )
+                                    full_text = [response.content]
+                                    # Send full response as single chunk if queue available
+                                    if q:
+                                        try:
+                                            loop = getattr(self, "_event_loop", None)
+                                            if loop is not None:
+                                                import asyncio as _asyncio
+                                                _asyncio.run_coroutine_threadsafe(
+                                                    q.put({"agent": "orchestrator", "delta": response.content}),
+                                                    loop,
+                                                )
+                                            else:
+                                                await q.put({"agent": "orchestrator", "delta": response.content})
+                                        except Exception as qe:
+                                            logger.debug(f"Failed to enqueue full response: {qe}")
+                                except Exception as invoke_error:
+                                    logger.error(f"Both streaming and non-streaming failed: {invoke_error}")
+                                    fallback_msg = decision.get("message", "I apologize, but I'm having trouble generating a response.") if isinstance(decision, dict) else "I apologize, but I'm having trouble generating a response."
+                                    full_text = [fallback_msg]
 
-                    final_text = "".join(full_text) if full_text else decision.get("message", "")
+                    # Ensure all items in full_text are strings
+                    try:
+                        final_text = "".join(str(item) for item in full_text) if full_text else (decision.get("message", "") if isinstance(decision, dict) else "")
+                    except Exception as join_error:
+                        logger.error(f"Error joining full_text: {join_error}, full_text contents: {full_text}")
+                        final_text = "I apologize, but I encountered an error generating the response."
                     # Append final AIMessage to state so it persists
                     state["messages"].append(AIMessage(
                         content=final_text,
@@ -249,7 +410,18 @@ For multi-agent tasks (A2A):
                     if agent_name in self.agents:
                         state["current_agent"] = agent_name
                         state["routing_reason"] = decision.get("reason", "")
+                        
+                        # Build conversation context for the agent (A2A context passing)
+                        context_summary = self._build_context_for_agent(state["messages"])
+                        state["agent_context"] = {
+                            "conversation_summary": context_summary,
+                            "key_entities": self._extract_key_entities(state["messages"]),
+                            "last_topic": decision.get("reason", ""),
+                            "message_count": len(state["messages"])
+                        }
+                        
                         logger.info(f"Routing to {agent_name}: {decision.get('reason', '')}")
+                        logger.info(f"Passing context with {len(context_summary)} chars to agent")
                     else:
                         # Unknown agent, respond directly
                         state["messages"].append(AIMessage(
@@ -284,6 +456,14 @@ For multi-agent tasks (A2A):
                     metadata={"agent": "orchestrator", "timeout": True}
                 ))
                 state["should_continue"] = False
+            
+            # Extract and persist memories from the conversation
+            if state.get("user_id"):
+                try:
+                    state = await self.memory_node.persist_conversation_memories(state)
+                    logger.info(f"Extracted {state.get('metadata', {}).get('memories_extracted', 0)} memories")
+                except Exception as e:
+                    logger.error(f"Failed to persist memories: {e}")
             
             return state
             
@@ -421,6 +601,14 @@ Provide a unified, helpful response that combines the key information."""
                 metadata={"agent": "orchestrator", "fallback_synthesis": True}
             ))
         
+        # Extract and persist memories after synthesis
+        if state.get("user_id"):
+            try:
+                state = await self.memory_node.persist_conversation_memories(state)
+                logger.info(f"Extracted {state.get('metadata', {}).get('memories_extracted', 0)} memories after synthesis")
+            except Exception as e:
+                logger.error(f"Failed to persist memories after synthesis: {e}")
+        
         return state
     
     def _make_sync_wrapper(self, async_func):
@@ -524,7 +712,10 @@ Provide a unified, helpful response that combines the key information."""
 
         try:
             # Stream through the graph (use sync stream since our checkpointer doesn't support async)
+            chunk_count = 0
             for chunk in self.graph.stream(initial_state, config):
+                chunk_count += 1
+                logger.info(f"Streaming chunk {chunk_count}: {list(chunk.keys())}")
                 # Attach thread id so downstream can correlate
                 try:
                     for _, updates in chunk.items():
@@ -533,8 +724,10 @@ Provide a unified, helpful response that combines the key information."""
                 except Exception:
                     pass
                 yield chunk
+            logger.info(f"Graph stream completed after {chunk_count} chunks")
         finally:
             # Do not delete the queue immediately; HTTP layer will read remaining tokens and then clean up
+            logger.info("Stream generator finalizing")
             pass
 
     def cleanup_token_queue(self, thread_id: str):

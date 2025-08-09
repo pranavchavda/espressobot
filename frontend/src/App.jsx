@@ -14,6 +14,7 @@ import DashboardPage from './pages/DashboardPage';
 import HomePage from './pages/HomePage';
 import PriceMonitorLayout from './pages/price-monitor/PriceMonitorLayout';
 import AgentManagementPage from './pages/AgentManagementPage';
+import MemoryManagementPage from './pages/MemoryManagementPage';
 import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { Loader2Icon, MessageSquarePlusIcon, XIcon, LineChartIcon, FileTextIcon } from 'lucide-react';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
@@ -376,14 +377,11 @@ function App() {
         <Route path="/price-monitor/*" element={<PriceMonitorLayout />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />
-        <Route path="/admin/memory" element={
-          <div className="container mx-auto p-6">
-            <Button onClick={() => setShowMemoryModal(true)}>
-              Open Memory Management
-            </Button>
-          </div>
-        } />
-        <Route path="/agent-management" element={<AgentManagementPage />} />
+        <Route path="/admin/memory" element={<MemoryManagementPage />} />
+        <Route 
+          path="/agent-management" 
+          element={<AgentManagementPage />}
+        />
       </Route>
     </Routes>
         </>

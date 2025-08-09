@@ -51,17 +51,18 @@ Analyze the following conversation and extract important memories that should be
 
 Focus on:
 1. User preferences and personal information
-2. Important facts mentioned by the user
-3. Decisions made or conclusions reached
-4. Context that would be valuable in future conversations
-5. User goals or objectives mentioned
+2. Important facts mentioned by the user  
+3. Problems or issues discussed
+4. Solutions provided or decisions made
+5. Products or services mentioned
+6. Interactions and context that would be valuable in future conversations
 
 Conversation:
 {conversation_text}
 
 Return a JSON list of memories to extract. Each memory should have:
 - "content": The specific memory content (be concise but complete)
-- "category": Category like "preference", "fact", "decision", "goal", "personal"
+- "category": Must be one of: "preferences", "facts", "problems", "solutions", "products", "interactions", or "general"
 - "importance": Score from 0.1 to 1.0 indicating importance
 - "metadata": Any additional context
 
@@ -80,10 +81,9 @@ Return empty array [] if no significant memories found.
         
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5-mini",
                 messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.1,
-                max_tokens=1500
+                max_completion_tokens=1500
             )
             
             import json

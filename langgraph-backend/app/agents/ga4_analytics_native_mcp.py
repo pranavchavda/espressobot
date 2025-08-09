@@ -3,7 +3,7 @@ GA4 Analytics Agent using direct Google Analytics Data API HTTP requests
 Handles Google Analytics 4 data retrieval and analysis with OAuth authentication
 """
 from typing import List, Dict, Any, Optional, Union
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import create_react_agent
@@ -18,6 +18,12 @@ import asyncpg
 import aiosqlite
 
 logger = logging.getLogger(__name__)
+
+# Import the model manager
+from app.config.agent_model_manager import agent_model_manager
+
+# Import context mixin for A2A context handling
+from app.agents.base_context_mixin import ContextAwareMixin
 
 
 async def get_user_ga4_credentials(user_id: int) -> tuple[Optional[str], Optional[str]]:
@@ -751,17 +757,14 @@ class GA4ProductPerformanceTool(BaseTool):
         return await get_user_ga4_credentials(self.user_id)
 
 
-class GA4AnalyticsAgentNativeMCP:
+class GA4AnalyticsAgentNativeMCP(ContextAwareMixin):
     """GA4 Analytics agent using direct Google Analytics Data API integration with stored OAuth tokens"""
     
     def __init__(self):
         self.name = "ga4_analytics"
         self.description = "Handles Google Analytics 4 data retrieval and analysis for website traffic, user behavior, conversions, and performance metrics"
-        self.model = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
-            temperature=0.0,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
-        )
+        self.model = agent_model_manager.get_model_for_agent(self.name)
+        logger.info(f"{self.name} agent initialized with model: {type(self.model).__name__}")
         self.tools = None  # Will be created when user_id is available
         self.agent = None
         self.system_prompt = self._get_system_prompt()
@@ -908,11 +911,14 @@ Always provide clear, formatted responses with relevant analytics insights and a
             if not isinstance(last_message, HumanMessage):
                 return state
             
-            # Use the agent to process the request with full conversation history
-            agent_state = {"messages": messages}
+            # Use context-aware messages from the mixin
+            context_aware_messages = self.build_context_aware_messages(state, self.system_prompt)
+            
+            # Use the agent to process the request with context
+            agent_state = {"messages": context_aware_messages}
             
             # Run the agent
-            logger.info(f"🚀 Running GA4 Analytics agent with message: {last_message.content[:100]}...")
+            logger.info(f"🚀 Running GA4 Analytics agent with context-aware prompt with message: {last_message.content[:100]}...")
             result = await self.agent.ainvoke(agent_state)
             logger.info(f"✅ GA4 Analytics agent completed")
             

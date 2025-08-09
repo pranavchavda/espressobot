@@ -201,9 +201,9 @@ export default defineConfig({
           });
         });
         
-        // Memory management routes (admin only)
-        const memoryManagementRoutes = (await import('./server/memory-management')).default;
-        apiApp.use('/api/memory', memoryManagementRoutes);
+        // Memory management routes - proxy to LangGraph backend
+        const memoryProxyRoutes = (await import('./server/api/memory-proxy')).default;
+        apiApp.use('/api/memory', memoryProxyRoutes);
         
         // Prompt library routes (admin only)
         const promptLibraryRoutes = (await import('./server/api/prompt-library')).default;
@@ -225,9 +225,9 @@ export default defineConfig({
         const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
         apiApp.use('/api/price-monitor', priceMonitorRoutes);
         
-        // Agent management routes
-        const agentManagementRoutes = (await import('./server/api/agent-management.js')).default;
-        apiApp.use('/api/agent-management', agentManagementRoutes);
+        // Agent management routes - proxy to Python backend
+        const agentManagementProxy = (await import('./server/api/agent-management-proxy.js')).default;
+        apiApp.use('/api/agent-management', agentManagementProxy);
         
         // Add aggressive cache-busting middleware before API routes
         server.middlewares.use((req, res, next) => {

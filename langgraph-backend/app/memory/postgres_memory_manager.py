@@ -130,11 +130,12 @@ class PostgresMemoryManager:
         try:
             self.pool = await asyncpg.create_pool(
                 self.database_url,
-                min_size=2,
+                min_size=5,  # Increased minimum connections
                 max_size=20,
                 max_queries=50000,
                 max_inactive_connection_lifetime=300,
                 command_timeout=60,
+                connection_class=asyncpg.Connection,
                 server_settings={
                     'application_name': 'espressobot_memory',
                     'jit': 'off'  # Disable JIT for consistent performance
@@ -182,16 +183,27 @@ class PostgresMemoryManager:
     async def _execute_command(self, query: str, *args) -> Any:
         """Execute command (INSERT, UPDATE, DELETE)"""
         start_time = time.time()
-        try:
-            async with self.pool.acquire() as conn:
-                result = await conn.execute(query, *args)
-                duration = (time.time() - start_time) * 1000
-                self.query_times.append(duration)
-                return result
-        except Exception as e:
-            self.connection_errors += 1
-            logger.error(f"Database command failed: {e}")
-            raise
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    result = await conn.execute(query, *args)
+                    duration = (time.time() - start_time) * 1000
+                    self.query_times.append(duration)
+                    return result
+            except asyncpg.exceptions.ConnectionDoesNotExistError:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    self.connection_errors += 1
+                    logger.error(f"Database command failed after {max_retries} retries: connection lost")
+                    raise
+                await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+            except Exception as e:
+                self.connection_errors += 1
+                logger.error(f"Database command failed: {str(e)[:200]}")
+                raise
     
     async def check_duplicates(self, user_id: str, content: str, embedding: List[float]) -> Optional[int]:
         """Check for duplicates using 4-layer approach"""
@@ -238,12 +250,20 @@ class PostgresMemoryManager:
                 return existing['id']
             
             # Layer 4: Semantic similarity
-            if existing_embedding:
-                semantic_score = await self.deduplicator.semantic_similarity(embedding, existing_embedding)
-                if semantic_score >= self.semantic_threshold:
-                    await self._record_duplicate(existing['id'], content_hash, semantic_score, 'semantic')
-                    logger.debug(f"Semantic duplicate found with score {semantic_score}")
-                    return existing['id']
+            if existing_embedding and embedding:
+                try:
+                    # Deserialize embedding from JSON if it's a string
+                    if isinstance(existing_embedding, str):
+                        existing_embedding = json.loads(existing_embedding)
+                    semantic_score = await self.deduplicator.semantic_similarity(embedding, existing_embedding)
+                    if semantic_score >= self.semantic_threshold:
+                        await self._record_duplicate(existing['id'], content_hash, semantic_score, 'semantic')
+                        logger.debug(f"Semantic duplicate found with score {semantic_score}")
+                        return existing['id']
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.debug(f"Could not parse embedding for deduplication: {str(e)[:100]}")
+                except Exception as e:
+                    logger.debug(f"Semantic similarity check failed: {str(e)[:100]}")
         
         return None
     
@@ -284,7 +304,7 @@ class PostgresMemoryManager:
             query,
             memory.user_id,
             memory.content,
-            memory.embedding,
+            json.dumps(memory.embedding) if memory.embedding else None,  # Serialize embedding as JSON
             json.dumps(memory.metadata),
             memory.category,
             memory.importance_score,
@@ -308,29 +328,27 @@ class PostgresMemoryManager:
     async def search_memories(self, user_id: str, query: str, limit: int = 10,
                             similarity_threshold: float = 0.7,
                             include_metadata: bool = True) -> List[SearchResult]:
-        """Search memories using semantic similarity"""
+        """Search memories using semantic similarity or fallback to text search"""
         
         start_time = time.time()
         
-        # Generate query embedding
-        embedding_result = await self.embedding_service.get_embedding(query)
-        query_embedding = embedding_result.embedding
-        
-        # Search using pgvector similarity
+        # For now, use simple text search until pgvector is installed
+        # TODO: Re-enable semantic search when pgvector is available
         search_query = """
         SELECT id, user_id, content, metadata, category, importance_score,
                access_count, last_accessed_at, created_at, updated_at,
-               (embedding <=> $2) as distance,
-               (1 - (embedding <=> $2)) as similarity
+               embedding,
+               1.0 as similarity
         FROM memories 
         WHERE user_id = $1 
-          AND (1 - (embedding <=> $2)) >= $3
-        ORDER BY embedding <=> $2
-        LIMIT $4
+          AND (content ILIKE $2 OR category ILIKE $2)
+        ORDER BY importance_score DESC, created_at DESC
+        LIMIT $3
         """
         
+        search_pattern = f'%{query}%'
         results = await self._execute_query(
-            search_query, user_id, query_embedding, similarity_threshold, limit
+            search_query, user_id, search_pattern, limit
         )
         
         # Convert to SearchResult objects

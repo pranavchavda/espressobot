@@ -22,7 +22,10 @@ const AgentManagementPage = () => {
   const [activeTab, setActiveTab] = useState('agents');
   const [currentProvider, setCurrentProvider] = useState(null);
   
-  // Load initial data
+  // Python backend URL
+  const PYTHON_BACKEND_URL = 'http://localhost:8000';
+
+  // Load data on component mount
   useEffect(() => {
     loadData();
   }, []);
@@ -31,9 +34,9 @@ const AgentManagementPage = () => {
     setLoading(true);
     try {
       const [agentsRes, modelsRes, statsRes] = await Promise.all([
-        fetch('/api/agent-management/agents'),
-        fetch('/api/agent-management/models'),
-        fetch('/api/agent-management/stats')
+        fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents`),
+        fetch(`${PYTHON_BACKEND_URL}/api/agent-management/models`),
+        fetch(`${PYTHON_BACKEND_URL}/api/agent-management/stats`)
       ]);
 
       const agentsData = await agentsRes.json();
@@ -56,7 +59,7 @@ const AgentManagementPage = () => {
 
   const syncAgents = async () => {
     try {
-      const response = await fetch('/api/agent-management/sync', {
+      const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/sync`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -77,30 +80,53 @@ const AgentManagementPage = () => {
     }
   };
 
-  const updateAgentModel = async (agentId, modelSlug) => {
+  const updateAgentConfig = async (agentId, updates) => {
+    // Validate inputs
+    if (!agentId || !updates) {
+      console.error('Invalid parameters:', { agentId, updates });
+      alert('Error: Invalid agent ID or update data');
+      return;
+    }
+
     try {
-      const response = await fetch(`/api/agent-management/agents/${agentId}`, {
+      console.log(`Updating agent ${agentId} with:`, updates);
+      console.log('Request URL:', `${PYTHON_BACKEND_URL}/api/agent-management/agents/${agentId}`);
+      
+      const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${agentId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_slug: modelSlug })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(updates)
       });
 
       const result = await response.json();
+      
+      if (response.status === 422) {
+        // Validation error from backend
+        const details = result.detail?.map(d => d.msg).join(', ') || 'Validation error';
+        alert('Failed to update agent: ' + details);
+        return;
+      }
+      
       if (result.success) {
         // Refresh agents list
         loadData();
       } else {
-        alert('Failed to update agent: ' + result.error);
+        // Better error handling - check for different error formats
+        const errorMessage = result.error || result.detail || result.message || 'Unknown error';
+        alert('Failed to update agent: ' + errorMessage);
       }
     } catch (error) {
       console.error('Error updating agent:', error);
-      alert('Error updating agent');
+      alert('Error updating agent: ' + error.message);
     }
   };
 
   const loadAgentPrompt = async (agent) => {
     try {
-      const response = await fetch(`/api/agent-management/agents/${agent.id}/prompt`);
+      const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${agent.id}/prompt`);
       const result = await response.json();
       
       if (result.success) {
@@ -117,7 +143,7 @@ const AgentManagementPage = () => {
     if (!selectedAgent) return;
     
     try {
-      const response = await fetch(`/api/agent-management/agents/${selectedAgent.id}/prompt`, {
+      const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${selectedAgent.id}/prompt`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ system_prompt: promptText })
@@ -137,11 +163,13 @@ const AgentManagementPage = () => {
     }
   };
 
-  const getProviderBadgeColor = (modelSlug) => {
-    if (modelSlug.includes('openai')) return 'green';
-    if (modelSlug.includes('anthropic')) return 'purple';
-    if (modelSlug.includes('openrouter')) return 'blue';
-    if (modelSlug.includes('free')) return 'orange';
+  const getProviderBadgeColor = (provider) => {
+    if (!provider) return 'gray';
+    const p = provider.toLowerCase();
+    if (p.includes('openai') || p === 'openai') return 'green';
+    if (p.includes('anthropic') || p === 'anthropic') return 'purple';
+    if (p.includes('openrouter') || p === 'openrouter') return 'blue';
+    if (p.includes('free')) return 'orange';
     return 'gray';
   };
 
@@ -257,10 +285,15 @@ const AgentManagementPage = () => {
                 
                 <div className="space-y-3">
                   <div>
-                    <Text className="text-sm text-zinc-600 dark:text-zinc-400 font-medium">Current Model</Text>
-                    <Badge color={getProviderBadgeColor(agent.model_slug)} className="mt-1">
-                      {agent.model_slug}
-                    </Badge>
+                    <Text className="text-sm text-zinc-600 dark:text-zinc-400 font-medium">Current Configuration</Text>
+                    <div className="mt-1 space-y-1">
+                      <Badge color={getProviderBadgeColor(agent.model_provider || 'openrouter')} className="mr-2">
+                        {agent.model_provider || 'openrouter'}
+                      </Badge>
+                      <Badge color="gray">
+                        {agent.model_slug || agent.model_name}
+                      </Badge>
+                    </div>
                     {agent.hardcoded_model && agent.hardcoded_model !== agent.model_slug && (
                       <div className="mt-1">
                         <Text className="text-xs text-zinc-500">Hardcoded: {agent.hardcoded_model}</Text>
@@ -269,17 +302,41 @@ const AgentManagementPage = () => {
                   </div>
                   
                   <div>
-                    <Text className="text-sm text-zinc-600 dark:text-zinc-400 font-medium mb-2">Change Model</Text>
+                    <Text className="text-sm text-zinc-600 dark:text-zinc-400 font-medium mb-2">Provider</Text>
+                    <Select
+                      value={agent.model_provider || 'openrouter'}
+                      onChange={(e) => updateAgentConfig(agent.id, { model_provider: e.target.value })}
+                      className="w-full mb-2"
+                    >
+                      <option value="openai">OpenAI (Direct)</option>
+                      <option value="anthropic">Anthropic (Direct)</option>
+                      <option value="openrouter">OpenRouter (Proxy)</option>
+                    </Select>
+                    
+                    <Text className="text-sm text-zinc-600 dark:text-zinc-400 font-medium mb-2">Model</Text>
                     <Select
                       value={agent.model_slug}
-                      onChange={(e) => updateAgentModel(agent.id, e.target.value)}
+                      onChange={(e) => updateAgentConfig(agent.id, { model_slug: e.target.value })}
                       className="w-full"
                     >
-                      {models.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} ({model.provider}){model.id.includes('free') ? ' - Free' : ''}
-                        </option>
-                      ))}
+                      {models
+                        .filter(model => {
+                          // Filter models based on selected provider
+                          const provider = agent.model_provider || 'openrouter';
+                          if (provider === 'openai') {
+                            return model.id.startsWith('gpt') || model.id.startsWith('o1');
+                          } else if (provider === 'anthropic') {
+                            return model.id.includes('claude');
+                          } else {
+                            // OpenRouter - show all
+                            return true;
+                          }
+                        })
+                        .map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name} {model.id.includes('free') ? ' - Free' : ''}
+                          </option>
+                        ))}
                     </Select>
                   </div>
 

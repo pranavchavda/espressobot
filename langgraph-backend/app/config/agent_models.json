@@ -1,0 +1,142 @@
+{
+  "orchestrator": {
+    "agent_name": "orchestrator",
+    "agent_type": "orchestrator",
+    "model_provider": "openai",
+    "model_name": "gpt-5",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Handles routing and general conversation",
+    "configurable": true
+  },
+  "products": {
+    "agent_name": "products",
+    "agent_type": "specialist",
+    "model_provider": "openrouter",
+    "model_name": "openai/gpt-5-mini",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Product searches, SKU lookups, and product information",
+    "configurable": true
+  },
+  "pricing": {
+    "agent_name": "pricing",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Price updates, discounts, and pricing strategies",
+    "configurable": true
+  },
+  "inventory": {
+    "agent_name": "inventory",
+    "agent_type": "specialist",
+    "model_provider": "openrouter",
+    "model_name": "qwen/qwen-2.5-72b-instruct",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Stock levels, inventory counts and management",
+    "configurable": true
+  },
+  "sales": {
+    "agent_name": "sales",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "MAP sales, promotions, and discount management",
+    "configurable": true
+  },
+  "features": {
+    "agent_name": "features",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Product features, descriptions, and metafields",
+    "configurable": true
+  },
+  "media": {
+    "agent_name": "media",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Images and media management for products",
+    "configurable": true
+  },
+  "integrations": {
+    "agent_name": "integrations",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "System integrations and connections",
+    "configurable": true
+  },
+  "product_management": {
+    "agent_name": "product_management",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Complex product creation and variant management",
+    "configurable": true
+  },
+  "utility": {
+    "agent_name": "utility",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "General operations and utilities",
+    "configurable": true
+  },
+  "graphql": {
+    "agent_name": "graphql",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Direct GraphQL operations on Shopify API",
+    "configurable": true
+  },
+  "orders": {
+    "agent_name": "orders",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Sales data, revenue, and order analytics",
+    "configurable": true
+  },
+  "google_workspace": {
+    "agent_name": "google_workspace",
+    "agent_type": "specialist",
+    "model_provider": "anthropic",
+    "model_name": "claude-3-5-haiku-20241022",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Google services integration",
+    "configurable": true
+  },
+  "ga4_analytics": {
+    "agent_name": "ga4_analytics",
+    "agent_type": "specialist",
+    "model_provider": "openrouter",
+    "model_name": "google/gemini-2.5-pro-preview",
+    "temperature": 0.0,
+    "max_tokens": 2048,
+    "description": "Google Analytics 4 data and reporting",
+    "configurable": true
+  }
+}

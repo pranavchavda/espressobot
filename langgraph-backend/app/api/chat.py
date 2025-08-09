@@ -66,15 +66,54 @@ async def chat_stream(request: ChatRequest):
             out_q: asyncio.Queue = asyncio.Queue()
             stop_event = asyncio.Event()
 
-            messages = [HumanMessage(content=request.message)]
+            # Build message content with image support
+            if request.image:
+                # Multimodal message with image
+                content = [
+                    {"type": "text", "text": request.message}
+                ]
+                
+                # Add image to content
+                if request.image.get("type") == "url" or "url" in request.image:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": request.image["url"]}
+                    })
+                elif request.image.get("type") == "data_url" or "data" in request.image:
+                    # Handle data URL - it might already include the data:image prefix
+                    data_url = request.image.get("data", request.image.get("dataUrl", ""))
+                    if not data_url.startswith("data:"):
+                        data_url = f"data:image/jpeg;base64,{data_url}"
+                    content.append({
+                        "type": "image_url", 
+                        "image_url": {"url": data_url}
+                    })
+                elif "base64" in request.image:
+                    content.append({
+                        "type": "image_url", 
+                        "image_url": {"url": f"data:image/jpeg;base64,{request.image['base64']}"}
+                    })
+                
+                messages = [HumanMessage(content=content)]
+                logger.info(f"Created multimodal message with image type: {request.image.get('type', 'unknown')}")
+            else:
+                # Text-only message
+                messages = [HumanMessage(content=request.message)]
 
             async def produce_graph_chunks():
                 try:
+                    logger.info(f"Starting graph stream for thread {thread_id}")
+                    chunk_count = 0
                     async for chunk in orchestrator.stream(messages=messages, thread_id=thread_id, user_id=user_id):
+                        chunk_count += 1
+                        logger.info(f"Received chunk {chunk_count} from orchestrator")
                         await out_q.put(("graph", chunk))
+                    logger.info(f"Graph stream ended after {chunk_count} chunks")
                 except Exception as e:
+                    logger.error(f"Error in graph stream: {e}")
                     await out_q.put(("error", str(e)))
                 finally:
+                    logger.info("Sending graph_complete signal")
                     await out_q.put(("graph_complete", None))
 
             async def produce_token_deltas():
@@ -136,10 +175,15 @@ async def chat_stream(request: ChatRequest):
                                             is_ai = hasattr(last_msg, 'type') and getattr(last_msg, 'type', '') == 'ai'
                                         if is_ai and hasattr(last_msg, 'content'):
                                             content = last_msg.content
-                                            agent_name = getattr(last_msg, 'metadata', {}).get("agent", node_name)
+                                            metadata = getattr(last_msg, 'metadata', {})
+                                            agent_name = metadata.get("agent", node_name)
+                                            is_direct_response = metadata.get("direct_response", False)
+                                            
                                             if content:
-                                                # Fallback: if no true token deltas were emitted, synthesize small deltas
-                                                if not any_delta_emitted:
+                                                # Only synthesize deltas if:
+                                                # 1. No real deltas were emitted AND
+                                                # 2. This is not a direct orchestrator response (which already streamed)
+                                                if not any_delta_emitted and not is_direct_response:
                                                     try:
                                                         step = 20
                                                         for i in range(0, len(content), step):
@@ -151,6 +195,8 @@ async def chat_stream(request: ChatRequest):
                                                             }) + "\n"
                                                     except Exception:
                                                         pass
+                                                
+                                                # Always send agent_complete for UI to know message is done
                                                 yield json.dumps({
                                                     "event": "agent_complete",
                                                     "agent": agent_name,
@@ -159,6 +205,7 @@ async def chat_stream(request: ChatRequest):
                         except Exception:
                             pass
                     elif kind == "graph_complete":
+                        logger.info("Received graph_complete signal, ending stream")
                         graph_done = True
                         stop_event.set()
                         break
@@ -219,34 +266,46 @@ async def chat_stream(request: ChatRequest):
                         thread_id,
                     )
                     if not existing_title:
-                        from app.api.title_generator import get_title_generator
-                        generator = get_title_generator()
-                        title = await generator.generate_title(request.message)
-                        await conn.execute(
-                            """
-                            INSERT INTO conversation_metadata (thread_id, title, auto_generated, updated_at)
-                            VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)
-                            ON CONFLICT (thread_id) 
-                            DO UPDATE SET 
-                                title = EXCLUDED.title,
-                                auto_generated = EXCLUDED.auto_generated,
-                                updated_at = CURRENT_TIMESTAMP
-                            """,
-                            thread_id,
-                            title,
-                        )
-                        yield json.dumps({
-                            "event": "title_generated",
-                            "thread_id": thread_id,
-                            "title": title,
-                        }) + "\n"
+                        try:
+                            from app.api.title_generator import get_title_generator
+                            generator = get_title_generator()
+                            # Add timeout to prevent hanging
+                            title = await asyncio.wait_for(
+                                generator.generate_title(request.message),
+                                timeout=5.0
+                            )
+                            await conn.execute(
+                                """
+                                INSERT INTO conversation_metadata (thread_id, title, auto_generated, updated_at)
+                                VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)
+                                ON CONFLICT (thread_id) 
+                                DO UPDATE SET 
+                                    title = EXCLUDED.title,
+                                    auto_generated = EXCLUDED.auto_generated,
+                                    updated_at = CURRENT_TIMESTAMP
+                                """,
+                                thread_id,
+                                title,
+                            )
+                            yield json.dumps({
+                                "event": "title_generated",
+                                "thread_id": thread_id,
+                                "title": title,
+                            }) + "\n"
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Title generation timed out for thread {thread_id}")
+                        except Exception as e:
+                            logger.warning(f"Title generation failed: {e}")
                 finally:
                     await conn.close()
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Title generation database error: {e}")
                 pass
 
             # Signal done and cleanup
+            logger.info(f"Sending done event for thread {thread_id}")
             yield json.dumps({"event": "done", "message": "Completed"}) + "\n"
+            logger.info(f"Done event sent for thread {thread_id}")
             try:
                 orchestrator.cleanup_token_queue(thread_id)
             except Exception:

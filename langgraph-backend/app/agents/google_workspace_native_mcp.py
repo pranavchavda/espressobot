@@ -3,7 +3,7 @@ Google Workspace Agent using direct Google API integration with stored OAuth tok
 Handles Gmail, Calendar, Drive, and Tasks operations
 """
 from typing import List, Dict, Any, Optional, Union
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_anthropic import ChatAnthropic
 from langgraph.prebuilt import create_react_agent
@@ -33,6 +33,9 @@ import asyncpg
 import aiosqlite
 
 logger = logging.getLogger(__name__)
+
+# Import the model manager
+from app.config.agent_model_manager import agent_model_manager
 
 
 async def get_user_google_credentials(user_id: int) -> Optional['Credentials']:
@@ -721,11 +724,8 @@ class GoogleWorkspaceAgentNativeMCP:
     def __init__(self):
         self.name = "google_workspace"
         self.description = "Handles Gmail, Calendar, Drive, and Tasks operations using direct Google API integration"
-        self.model = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
-            temperature=0.0,
-            api_key=os.getenv("ANTHROPIC_API_KEY")
-        )
+        self.model = agent_model_manager.get_model_for_agent(self.name)
+        logger.info(f"{self.name} agent initialized with model: {type(self.model).__name__}")
         self.tools = None  # Will be created when user_id is available
         self.agent = None
         self.system_prompt = self._get_system_prompt()
@@ -867,11 +867,64 @@ Always provide clear, formatted responses with relevant information and confirm 
             if not isinstance(last_message, HumanMessage):
                 return state
             
+            # Check if orchestrator passed context (A2A context)
+            agent_context = state.get("agent_context", {})
+            
+            if agent_context:
+                # Use orchestrator-provided context
+                conversation_context = agent_context.get("conversation_summary", "")
+                key_entities = agent_context.get("key_entities", {})
+                
+                # Build entity context
+                entity_parts = []
+                if key_entities.get("people"):
+                    entity_parts.append(f"People mentioned: {', '.join(set(key_entities['people']))}")
+                if key_entities.get("references"):
+                    entity_parts.append(f"References: {', '.join(set(key_entities['references']))}")
+                if key_entities.get("topics"):
+                    entity_parts.append(f"Topics: {', '.join(set(key_entities['topics']))}")
+                
+                entity_context = "\n".join(entity_parts) if entity_parts else ""
+                
+                logger.info(f"📋 Using orchestrator-provided context: {len(conversation_context)} chars")
+            else:
+                # Fallback: Build context from conversation history
+                context_messages = []
+                for msg in messages[-10:]:  # Include last 10 messages for context
+                    if isinstance(msg, HumanMessage):
+                        context_messages.append(f"User: {msg.content}")
+                    elif isinstance(msg, AIMessage):
+                        context_messages.append(f"Assistant: {msg.content}")
+                
+                conversation_context = "\n".join(context_messages[-6:])  # Last 3 exchanges
+                entity_context = ""
+                logger.info(f"📋 Building context from message history")
+            
+            # Create an enhanced system prompt with conversation context
+            enhanced_prompt = f"""{self.system_prompt}
+
+## Recent Conversation Context:
+{conversation_context}
+
+{f'## Key Information:' if entity_context else ''}
+{entity_context}
+
+## Current Request:
+Now, please help with the user's current request based on the above context."""
+            
             # Use the agent to process the request with full conversation history
-            agent_state = {"messages": messages}
+            # Include the enhanced prompt to ensure context awareness
+            agent_state = {
+                "messages": [
+                    SystemMessage(content=enhanced_prompt),
+                    *messages[-8:],  # Include recent message history
+                    last_message  # Ensure current message is included
+                ]
+            }
             
             # Run the agent
             logger.info(f"🚀 Running Google Workspace agent with message: {last_message.content[:100]}...")
+            logger.info(f"📝 Including {len(agent_state['messages'])} messages in agent state")
             result = await self.agent.ainvoke(agent_state)
             logger.info(f"✅ Google Workspace agent completed")
             

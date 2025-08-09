@@ -178,7 +178,11 @@ class EmbeddingService:
             
             return float(np.dot(a, b) / (norm_a * norm_b))
         except Exception as e:
-            logger.error(f"Error calculating cosine similarity: {e}")
+            error_msg = str(e)
+            # Truncate error message if it's too long (likely contains embeddings)
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "... (truncated)"
+            logger.error(f"Error calculating cosine similarity: {error_msg}")
             return 0.0
     
     def calculate_similarities(self, query_embedding: List[float], 
