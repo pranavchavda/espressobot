@@ -44,7 +44,7 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, conversations, auth_proxy, chat_enhanced, agent_management, memory_enhanced
+from app.api import chat, conversations, auth_proxy, chat_enhanced, agent_management, memory_enhanced, dashboard, price_monitor
 
 app.include_router(chat.router, prefix="/api/agent")
 app.include_router(chat_enhanced.router, prefix="/api/agent/v2")
@@ -53,6 +53,11 @@ app.include_router(auth_proxy.router)  # Auth proxy includes its own /api/auth p
 app.include_router(agent_management.router)  # Agent management API
 app.include_router(memory_enhanced.router, prefix="/api/memory")  # Enhanced memory management API
 
+# Enable dashboard router
+app.include_router(dashboard.router, prefix="/api/dashboard")
+
+# Enable price monitor router
+app.include_router(price_monitor.router)
+
 # Temporarily disable other routers that depend on SQLAlchemy
-# app.include_router(auth.router, prefix="/api/auth") 
-# app.include_router(dashboard.router, prefix="/api/dashboard")
+# app.include_router(auth.router, prefix="/api/auth")

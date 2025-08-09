@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.database.session import get_db
 from app.database.models import Conversation, Message, User
+from app.services.dashboard_analytics import get_dashboard_analytics_service
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -59,3 +63,72 @@ async def get_activity(
         "dates": [str(row.date) for row in activity],
         "message_counts": [row.count for row in activity]
     }
+
+
+@router.get("/analytics")
+async def get_dashboard_analytics(
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format"),
+    user_id: int = Query(1, description="User ID"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Fetch dashboard analytics data directly for dashboard UI
+    Provides Shopify, GA4, and Google Workspace data
+    """
+    try:
+        analytics_service = get_dashboard_analytics_service()
+        
+        dashboard_data = await analytics_service.get_dashboard_analytics(
+            db=db,
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        logger.info("[Dashboard Analytics] Successfully compiled dashboard data")
+        return dashboard_data
+        
+    except Exception as error:
+        logger.error(f"[Dashboard Analytics] Error: {error}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Failed to fetch analytics data",
+                "message": str(error),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+
+@router.get("/summary")
+async def get_dashboard_summary(
+    date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
+    user_id: int = Query(1, description="User ID"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Provide a conversational summary of analytics data for agents
+    """
+    try:
+        analytics_service = get_dashboard_analytics_service()
+        
+        summary = await analytics_service.get_dashboard_summary(
+            db=db,
+            user_id=user_id,
+            date=date
+        )
+        
+        logger.info("[Dashboard Summary] Successfully generated conversational summary")
+        return summary
+        
+    except Exception as error:
+        logger.error(f"[Dashboard Summary] Error: {error}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Failed to generate analytics summary",
+                "message": str(error),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )

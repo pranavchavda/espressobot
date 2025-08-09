@@ -15,6 +15,7 @@ pydantic-settings>=2.3.3
 pytest==8.2.2
 pytest-asyncio==0.23.7
 httpx==0.27.0
+aiohttp==3.9.1
 redis==5.0.5
 prometheus-client==0.20.0
 python-multipart==0.0.9
@@ -33,3 +34,5 @@ google-analytics-data>=0.18.0
 google-auth>=2.0.0
 google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.2.0
+# Google API client for Workspace APIs
+google-api-python-client>=2.0.0
