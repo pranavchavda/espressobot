@@ -81,12 +81,21 @@ class LLMFactory:
         # Initialize LangSmith if configured
         self.langsmith_enabled = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
         if self.langsmith_enabled:
-            try:
-                self.langsmith_client = Client()
-                logger.info("✅ LangSmith tracing enabled")
-            except Exception as e:
-                logger.warning(f"⚠️ LangSmith initialization failed: {e}")
+            langsmith_key = os.getenv("LANGSMITH_API_KEY")
+            if not langsmith_key:
+                logger.warning("⚠️ LANGSMITH_TRACING is true but LANGSMITH_API_KEY is not set")
                 self.langsmith_enabled = False
+            else:
+                try:
+                    self.langsmith_client = Client()
+                    project = os.getenv("LANGSMITH_PROJECT", "default")
+                    logger.info(f"✅ LangSmith tracing enabled for project: {project}")
+                    logger.info(f"   View traces at: https://smith.langchain.com/o/336cb8ba-b6ab-42fa-85a4-9c079014f4ce/projects/p/{project}/runs")
+                except Exception as e:
+                    logger.warning(f"⚠️ LangSmith initialization failed: {e}")
+                    self.langsmith_enabled = False
+        else:
+            logger.info("ℹ️ LangSmith tracing is disabled (set LANGSMITH_TRACING=true to enable)")
         
         # Determine available providers
         self.available_providers = []
