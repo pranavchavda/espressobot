@@ -130,7 +130,7 @@ class DirectOrchestrator:
                 
                 # Extract people names (simple heuristic)
                 if "luca" in content:
-                    entities["people"].append("Luca Kulesza")
+                    entities["people"].append("Luca")
                 if "sales stats" in content or "july sales" in content:
                     entities["topics"].append("July sales statistics")
                 if "email" in content and "luca" in content:
