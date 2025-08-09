@@ -88,7 +88,7 @@ langgraph-backend/
   LANGSMITH_API_KEY="<your-api-key>"
   LANGSMITH_PROJECT="espressobot"
   ```
-- View traces at: https://smith.langchain.com/o/pranav-kulesza/projects/p/espressobot/runs
+- View traces at: https://smith.langchain.com/projects/p/espressobot/runs
 
 ### 🚀 Next Steps
 

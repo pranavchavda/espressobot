@@ -51,7 +51,7 @@ async def test_simple_tracing():
         print("\n" + "="*50)
         print("✅ Test completed successfully!")
         print("\n📊 Check your traces at:")
-        print(f"https://smith.langchain.com/o/pranav-kulesza/projects/p/espressobot/runs")
+        print(f"https://smith.langchain.com/projects/p/espressobot/runs")
         print("="*50 + "\n")
         
     except Exception as e:

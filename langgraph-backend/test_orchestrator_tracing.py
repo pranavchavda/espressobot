@@ -71,7 +71,7 @@ async def test_orchestrator_tracing():
         print("\n" + "="*60)
         print("✅ All tests completed successfully!")
         print("\n📊 Check your traces at:")
-        print(f"https://smith.langchain.com/o/pranav-kulesza/projects/p/espressobot/runs")
+        print(f"https://smith.langchain.com/projects/p/espressobot/runs")
         print("="*60 + "\n")
         
     except Exception as e:
