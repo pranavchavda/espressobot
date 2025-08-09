@@ -480,12 +480,36 @@ For multi-agent tasks (A2A):
             
             return state
             
+        except asyncio.TimeoutError:
+            logger.error("Orchestrator decision timed out - API may be slow")
+            # For simple queries like "?", provide a contextual response
+            last_msg = state["messages"][-1].content if state["messages"] else ""
+            if len(last_msg) <= 2:  # Very short query like "?" or "ok"
+                state["messages"].append(AIMessage(
+                    content="Could you please clarify what you'd like to know?",
+                    metadata={"agent": "orchestrator", "timeout": True}
+                ))
+            else:
+                state["messages"].append(AIMessage(
+                    content="I apologize for the delay. Let me help you with that. Could you please repeat your question?",
+                    metadata={"agent": "orchestrator", "timeout": True}
+                ))
+            state["should_continue"] = False
+            return state
         except Exception as e:
             logger.error(f"Error in orchestrator: {e}")
-            state["messages"].append(AIMessage(
-                content="I'm here to help! How can I assist you today?",
-                metadata={"agent": "orchestrator", "error": str(e)}
-            ))
+            # Provide more contextual error response
+            error_msg = str(e).lower()
+            if "timeout" in error_msg:
+                state["messages"].append(AIMessage(
+                    content="The response took too long. Please try again.",
+                    metadata={"agent": "orchestrator", "error": str(e)}
+                ))
+            else:
+                state["messages"].append(AIMessage(
+                    content="I encountered an issue processing your request. Please try again.",
+                    metadata={"agent": "orchestrator", "error": str(e)}
+                ))
             state["should_continue"] = False
             return state
     
