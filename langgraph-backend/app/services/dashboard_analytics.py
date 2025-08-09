@@ -57,7 +57,8 @@ class DashboardAnalyticsService:
             
             logger.info(f"[Shopify Analytics] Raw MCP response: {result}")
             
-            # The MCP tool returns nested data structure
+            # Handle different MCP response formats
+            # Format 1: Direct success/data format
             if result and result.get('success') and result.get('data'):
                 data = result['data']
                 return {
@@ -67,14 +68,36 @@ class DashboardAnalyticsService:
                     'top_products': data.get('top_products', []),
                     'raw_response': result
                 }
-            else:
-                logger.error(f"[Shopify Analytics] Unexpected result format: {result}")
-                return {
-                    'total_revenue': '0', 
-                    'order_count': 0, 
-                    'average_order_value': '0', 
-                    'top_products': []
-                }
+            # Format 2: MCP content array format
+            elif result and 'content' in result:
+                content = result.get('content', [])
+                if content and len(content) > 0:
+                    # Parse the text content as JSON
+                    import json
+                    try:
+                        text_data = content[0].get('text', '{}')
+                        parsed_data = json.loads(text_data)
+                        
+                        if parsed_data.get('success') and parsed_data.get('data'):
+                            data = parsed_data['data']
+                            return {
+                                'total_revenue': str(data.get('summary', {}).get('total_revenue', '0')),
+                                'order_count': data.get('summary', {}).get('order_count', 0),
+                                'average_order_value': str(data.get('summary', {}).get('average_order_value', '0')),
+                                'top_products': data.get('top_products', []),
+                                'raw_response': parsed_data
+                            }
+                    except json.JSONDecodeError as e:
+                        logger.error(f"[Shopify Analytics] Failed to parse JSON from MCP response: {e}")
+            
+            # Default fallback
+            logger.error(f"[Shopify Analytics] Unexpected result format: {result}")
+            return {
+                'total_revenue': '0', 
+                'order_count': 0, 
+                'average_order_value': '0', 
+                'top_products': []
+            }
                 
         except Exception as error:
             logger.error(f"[Shopify Analytics] Error calling MCP tool: {error}")

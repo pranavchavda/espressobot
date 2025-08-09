@@ -52,11 +52,31 @@ router.get('/analytics', authenticateToken, async (req, res) => {
     const { start_date, end_date } = req.query;
     const userId = req.user?.id || '1';
     
-    console.log(`[Dashboard Proxy] Analytics request: start=${start_date}, end=${end_date}, user=${userId}`);
+    // Ensure dates are strings, not objects
+    let startDate = start_date;
+    let endDate = end_date;
+    
+    // Handle if dates come as objects or invalid formats
+    if (typeof startDate === 'object') {
+      startDate = startDate.toString();
+    }
+    if (typeof endDate === 'object') {
+      endDate = endDate.toString();
+    }
+    
+    // Default to today if not provided or invalid
+    if (!startDate || startDate === '[object Object]') {
+      startDate = new Date().toISOString().split('T')[0];
+    }
+    if (!endDate || endDate === '[object Object]') {
+      endDate = new Date().toISOString().split('T')[0];
+    }
+    
+    console.log(`[Dashboard Proxy] Analytics request: start=${startDate}, end=${endDate}, user=${userId}`);
     
     const data = await proxyToPython('analytics', {
-      start_date: start_date || new Date().toISOString().split('T')[0],
-      end_date: end_date || new Date().toISOString().split('T')[0],
+      start_date: startDate,
+      end_date: endDate,
       user_id: userId
     });
     
