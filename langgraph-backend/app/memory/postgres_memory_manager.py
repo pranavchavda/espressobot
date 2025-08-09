@@ -109,7 +109,20 @@ class MemoryDeduplicator:
 class PostgresMemoryManager:
     """PostgreSQL-based memory manager with pgvector similarity search"""
     
+    _instance = None
+    _lock = asyncio.Lock()
+    
+    def __new__(cls, database_url: Optional[str] = None):
+        """Ensure singleton instance"""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self, database_url: Optional[str] = None):
+        # Only initialize once
+        if hasattr(self, '_initialized'):
+            return
+            
         self.database_url = database_url or os.getenv("DATABASE_URL")
         self.pool: Optional[Pool] = None
         self.embedding_service = get_embedding_service()
@@ -126,7 +139,8 @@ class PostgresMemoryManager:
         self.connection_errors = 0
         
         # Concurrency control - limit concurrent DB operations
-        self._db_semaphore = asyncio.Semaphore(5)  # Max 5 concurrent DB operations
+        self._db_semaphore = asyncio.Semaphore(3)  # Reduced to 3 concurrent operations
+        self._initialized = True
     
     async def _init_connection(self, conn):
         """Initialize each new connection in the pool"""
@@ -140,13 +154,20 @@ class PostgresMemoryManager:
     async def initialize(self):
         """Initialize database connection pool"""
         try:
+            # Close existing pool if it exists
+            if self.pool:
+                try:
+                    await self.pool.close()
+                except:
+                    pass
+            
             self.pool = await asyncpg.create_pool(
                 self.database_url,
-                min_size=10,  # Increased minimum connections
-                max_size=30,  # Increased max connections
+                min_size=2,  # Reduced to prevent connection exhaustion
+                max_size=10,  # Reduced max connections
                 max_queries=50000,
-                max_inactive_connection_lifetime=300,
-                command_timeout=60,
+                max_inactive_connection_lifetime=60,  # Shorter lifetime
+                command_timeout=30,
                 connection_class=asyncpg.Connection,
                 init=self._init_connection,  # Initialize each connection
                 server_settings={
@@ -165,6 +186,20 @@ class PostgresMemoryManager:
             await self.pool.close()
             logger.info("Memory manager database pool closed")
     
+    async def _ensure_pool_health(self):
+        """Ensure the pool is healthy, recreate if needed"""
+        if not self.pool:
+            await self.initialize()
+            return
+            
+        try:
+            # Test the pool with a simple query
+            async with self.pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+        except Exception as e:
+            logger.warning(f"Pool health check failed: {e}, recreating pool...")
+            await self.initialize()
+    
     async def _execute_query(self, query: str, *args) -> Any:
         """Execute query with error handling and timing"""
         async with self._db_semaphore:  # Limit concurrent DB operations
@@ -174,32 +209,31 @@ class PostgresMemoryManager:
             
             while retry_count < max_retries:
                 try:
+                    # Ensure pool is healthy before acquiring connection
+                    if retry_count > 0:
+                        await self._ensure_pool_health()
+                    
                     async with self.pool.acquire() as conn:
                         result = await conn.fetch(query, *args)
                         duration = (time.time() - start_time) * 1000
                         self.query_times.append(duration)
                         return result
                 except (asyncpg.exceptions.ConnectionDoesNotExistError, 
-                        asyncpg.exceptions.InterfaceError) as e:
+                        asyncpg.exceptions.InterfaceError,
+                        asyncpg.exceptions.InternalClientError) as e:
                     retry_count += 1
                     if retry_count >= max_retries:
                         self.connection_errors += 1
                         logger.error(f"Database query failed after {max_retries} retries: {e}")
                         raise
-                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
-                    logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
-                except asyncpg.exceptions.InternalClientError as e:
-                    # Handle "another operation is in progress" errors
+                    
+                    # Log the specific error type
                     if "another operation is in progress" in str(e):
-                        retry_count += 1
-                        if retry_count >= max_retries:
-                            logger.error(f"Database query failed - connection busy: {e}")
-                            raise
-                        await asyncio.sleep(0.2 * retry_count)  # Longer wait for busy connections
                         logger.warning(f"Connection busy, retrying (attempt {retry_count}/{max_retries})")
+                        await asyncio.sleep(0.3 * retry_count)  # Longer wait for busy connections
                     else:
-                        logger.error(f"Database query failed: {e}")
-                        raise
+                        logger.warning(f"Connection error, retrying (attempt {retry_count}/{max_retries}): {type(e).__name__}")
+                        await asyncio.sleep(0.2 * retry_count)
                 except Exception as e:
                     self.connection_errors += 1
                     logger.error(f"Database query failed: {e}")
@@ -207,30 +241,9 @@ class PostgresMemoryManager:
     
     async def _execute_one(self, query: str, *args) -> Any:
         """Execute query expecting single result"""
-        async with self._db_semaphore:  # Limit concurrent DB operations
-            start_time = time.time()
-            max_retries = 3
-            retry_count = 0
-            
-            while retry_count < max_retries:
-                try:
-                    async with self.pool.acquire() as conn:
-                        result = await conn.fetchrow(query, *args)
-                        duration = (time.time() - start_time) * 1000
-                        self.query_times.append(duration)
-                        return result
-                except asyncpg.exceptions.ConnectionDoesNotExistError as e:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        self.connection_errors += 1
-                        logger.error(f"Database query failed after {max_retries} retries: {e}")
-                        raise
-                    await asyncio.sleep(0.1 * retry_count)
-                    logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
-                except Exception as e:
-                    self.connection_errors += 1
-                    logger.error(f"Database query failed: {e}")
-                    raise
+        # Delegate to _execute_query
+        results = await self._execute_query(query, *args)
+        return results[0] if results else None
     
     async def _execute_command(self, query: str, *args) -> Any:
         """Execute command (INSERT, UPDATE, DELETE)"""
