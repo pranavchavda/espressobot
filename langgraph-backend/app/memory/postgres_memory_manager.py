@@ -179,31 +179,31 @@ class PostgresMemoryManager:
                         duration = (time.time() - start_time) * 1000
                         self.query_times.append(duration)
                         return result
-            except (asyncpg.exceptions.ConnectionDoesNotExistError, 
-                    asyncpg.exceptions.InterfaceError) as e:
-                retry_count += 1
-                if retry_count >= max_retries:
-                    self.connection_errors += 1
-                    logger.error(f"Database query failed after {max_retries} retries: {e}")
-                    raise
-                await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
-                logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
-            except asyncpg.exceptions.InternalClientError as e:
-                # Handle "another operation is in progress" errors
-                if "another operation is in progress" in str(e):
+                except (asyncpg.exceptions.ConnectionDoesNotExistError, 
+                        asyncpg.exceptions.InterfaceError) as e:
                     retry_count += 1
                     if retry_count >= max_retries:
-                        logger.error(f"Database query failed - connection busy: {e}")
+                        self.connection_errors += 1
+                        logger.error(f"Database query failed after {max_retries} retries: {e}")
                         raise
-                    await asyncio.sleep(0.2 * retry_count)  # Longer wait for busy connections
-                    logger.warning(f"Connection busy, retrying (attempt {retry_count}/{max_retries})")
-                else:
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                    logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
+                except asyncpg.exceptions.InternalClientError as e:
+                    # Handle "another operation is in progress" errors
+                    if "another operation is in progress" in str(e):
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            logger.error(f"Database query failed - connection busy: {e}")
+                            raise
+                        await asyncio.sleep(0.2 * retry_count)  # Longer wait for busy connections
+                        logger.warning(f"Connection busy, retrying (attempt {retry_count}/{max_retries})")
+                    else:
+                        logger.error(f"Database query failed: {e}")
+                        raise
+                except Exception as e:
+                    self.connection_errors += 1
                     logger.error(f"Database query failed: {e}")
                     raise
-            except Exception as e:
-                self.connection_errors += 1
-                logger.error(f"Database query failed: {e}")
-                raise
     
     async def _execute_one(self, query: str, *args) -> Any:
         """Execute query expecting single result"""
@@ -219,18 +219,18 @@ class PostgresMemoryManager:
                         duration = (time.time() - start_time) * 1000
                         self.query_times.append(duration)
                         return result
-            except asyncpg.exceptions.ConnectionDoesNotExistError as e:
-                retry_count += 1
-                if retry_count >= max_retries:
+                except asyncpg.exceptions.ConnectionDoesNotExistError as e:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        self.connection_errors += 1
+                        logger.error(f"Database query failed after {max_retries} retries: {e}")
+                        raise
+                    await asyncio.sleep(0.1 * retry_count)
+                    logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
+                except Exception as e:
                     self.connection_errors += 1
-                    logger.error(f"Database query failed after {max_retries} retries: {e}")
+                    logger.error(f"Database query failed: {e}")
                     raise
-                await asyncio.sleep(0.1 * retry_count)
-                logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
-            except Exception as e:
-                self.connection_errors += 1
-                logger.error(f"Database query failed: {e}")
-                raise
     
     async def _execute_command(self, query: str, *args) -> Any:
         """Execute command (INSERT, UPDATE, DELETE)"""
@@ -246,17 +246,17 @@ class PostgresMemoryManager:
                         duration = (time.time() - start_time) * 1000
                         self.query_times.append(duration)
                         return result
-            except asyncpg.exceptions.ConnectionDoesNotExistError:
-                retry_count += 1
-                if retry_count >= max_retries:
+                except asyncpg.exceptions.ConnectionDoesNotExistError:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        self.connection_errors += 1
+                        logger.error(f"Database command failed after {max_retries} retries: connection lost")
+                        raise
+                    await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                except Exception as e:
                     self.connection_errors += 1
-                    logger.error(f"Database command failed after {max_retries} retries: connection lost")
+                    logger.error(f"Database command failed: {str(e)[:200]}")
                     raise
-                await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
-            except Exception as e:
-                self.connection_errors += 1
-                logger.error(f"Database command failed: {str(e)[:200]}")
-                raise
     
     async def check_duplicates(self, user_id: str, content: str, embedding: List[float]) -> Optional[int]:
         """Check for duplicates using 4-layer approach"""
