@@ -60,38 +60,56 @@ Focus on:
 Conversation:
 {conversation_text}
 
-Return a JSON list of memories to extract. Each memory should have:
+Return a JSON object with a "memories" array containing extracted memories. Each memory should have:
 - "content": The specific memory content (be concise but complete)
 - "category": Must be one of: "preferences", "facts", "problems", "solutions", "products", "interactions", or "general"
 - "importance": Score from 0.1 to 1.0 indicating importance
 - "metadata": Any additional context
 
 Example format:
-[
-    {{
-        "content": "User prefers email notifications over SMS",
-        "category": "preference", 
-        "importance": 0.8,
-        "metadata": {{"topic": "notifications", "context": "communication preferences"}}
-    }}
-]
+{{
+    "memories": [
+        {{
+            "content": "User prefers email notifications over SMS",
+            "category": "preferences", 
+            "importance": 0.8,
+            "metadata": {{"topic": "notifications", "context": "communication preferences"}}
+        }}
+    ]
+}}
 
-Return empty array [] if no significant memories found.
+Return {{"memories": []}} if no significant memories found.
 """
         
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-5-mini",
+                model="gpt-4.1-nano",  # Use gpt-4o-mini instead of gpt-5-mini
                 messages=[{"role": "user", "content": extraction_prompt}],
-                max_completion_tokens=1500
+                max_completion_tokens=1500,
+                response_format={"type": "json_object"}  # Ensure JSON response
             )
             
             import json
-            extracted_data = json.loads(response.choices[0].message.content)
+            response_content = response.choices[0].message.content
+            logger.debug(f"Raw extraction response: {response_content[:200]}...")
+            
+            # Handle case where model returns array directly or wrapped in object
+            extracted_data = json.loads(response_content)
+            
+            # If response is wrapped in an object like {"memories": [...]}
+            if isinstance(extracted_data, dict):
+                extracted_data = extracted_data.get("memories", extracted_data.get("items", []))
+            
+            # Ensure we have a list
+            if not isinstance(extracted_data, list):
+                logger.warning(f"Unexpected extraction format: {type(extracted_data)}")
+                extracted_data = []
             
             # Convert to Memory objects
             memories = []
             for item in extracted_data:
+                if not isinstance(item, dict):
+                    continue
                 memory = Memory(
                     user_id=user_id,
                     content=item.get("content", ""),
@@ -100,10 +118,15 @@ Return empty array [] if no significant memories found.
                     metadata=item.get("metadata", {})
                 )
                 memories.append(memory)
+                # Log each extracted memory for visibility
+                logger.info(f"📝 Extracted memory: '{memory.content}' (category: {memory.category}, importance: {memory.importance_score})")
             
-            logger.info(f"Extracted {len(memories)} memories from conversation")
+            logger.info(f"Extracted {len(memories)} total memories from conversation")
             return memories
             
+        except json.JSONDecodeError as e:
+            logger.error(f"Memory extraction JSON parsing failed: {e}")
+            return []
         except Exception as e:
             logger.error(f"Memory extraction failed: {e}")
             return []

@@ -24,7 +24,7 @@ class TitleGenerator:
                 raise ValueError("OPENROUTER_API_KEY or OPENAI_API_KEY environment variable is required")
             # Use OpenAI directly as fallback
             self.model = ChatOpenAI(
-                model="gpt-4o-mini",
+                model="gpt-4.1-nano",
                 max_completion_tokens=100,
                 api_key=api_key,
                 timeout=30,

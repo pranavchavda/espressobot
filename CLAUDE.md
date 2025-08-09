@@ -71,6 +71,25 @@ langgraph-backend/
 │       └── agent_management.py      # Dynamic agent configuration
 ```
 
+### ✅ LangSmith Tracing Integration (January 9, 2025)
+
+**Implementation Complete:**
+- Added LangSmith client initialization in `llm_factory.py`
+- Decorated orchestrator methods with `@traceable`:
+  - `process_request` - Main request processing
+  - `synthesize_multi_agent` - Multi-agent coordination
+- Decorated agent base methods with `@traceable`:
+  - `__call__` - Agent invocation
+  - `_process_messages` - Message processing
+- Environment variables required:
+  ```bash
+  LANGSMITH_TRACING="true"
+  LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+  LANGSMITH_API_KEY="<your-api-key>"
+  LANGSMITH_PROJECT="espressobot"
+  ```
+- View traces at: https://smith.langchain.com/o/pranav-kulesza/projects/p/espressobot/runs
+
 ### 🚀 Next Steps
 
 1. **Memory Injection Refinement**
@@ -83,8 +102,13 @@ langgraph-backend/
    - Add conversation summary for multi-agent tasks
 
 3. **Performance Monitoring**
-   - Track API usage reduction metrics
+   - Track API usage reduction metrics via LangSmith
    - Monitor memory extraction quality
+   - Analyze trace data for optimization opportunities
+
+4. **Fix Database Issues**
+   - Fix prompt_fragments table vector type
+   - Resolve PostgreSQL role "pranav" error
 
 ### 📝 Important Configuration Notes
 
@@ -115,3 +139,4 @@ grep "API Call" server.log | tail -20
 
 ---
 *Last Updated: January 9, 2025*
+- model name is fine. gpt-4.1-nano is faster, cheaper and newer than gpt-4o-mini

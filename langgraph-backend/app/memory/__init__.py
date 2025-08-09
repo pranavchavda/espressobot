@@ -5,7 +5,7 @@ This package provides comprehensive memory management capabilities including:
 - PostgreSQL-based memory storage with pgvector similarity search
 - OpenAI text-embedding-3-large embeddings for semantic search
 - 4-layer deduplication (exact, fuzzy, key phrase, semantic)
-- Intelligent prompt assembly with GPT-4o-mini consolidation
+- Intelligent prompt assembly with GPT-4.1-nano consolidation
 - Tiered context system (core, standard, full)
 - Performance optimization with connection pooling
 """

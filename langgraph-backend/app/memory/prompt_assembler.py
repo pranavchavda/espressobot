@@ -68,9 +68,11 @@ class PromptAssembler:
         )
         
         # 2. Get relevant prompt fragments
-        prompt_fragments = await self._get_prompt_fragments(
-            user_query, agent_type, context_tier
-        )
+        # TODO: Re-enable when prompt_fragments table has vector type
+        prompt_fragments = []  # Temporarily disabled until prompt_fragments uses vector type
+        # prompt_fragments = await self._get_prompt_fragments(
+        #     user_query, agent_type, context_tier
+        # )
         
         # 3. Determine if consolidation is needed
         estimated_tokens = self._estimate_tokens(relevant_memories, prompt_fragments, conversation_context)
@@ -78,7 +80,7 @@ class PromptAssembler:
         
         consolidation_applied = False
         if estimated_tokens > tier_limit:
-            # Apply GPT-4o-mini consolidation
+            # Apply GPT-4.1-nano consolidation
             relevant_memories, prompt_fragments = await self._consolidate_context(
                 relevant_memories, prompt_fragments, user_query, tier_limit
             )
@@ -112,9 +114,9 @@ class PromptAssembler:
         
         # Adjust search parameters based on tier
         tier_params = {
-            ContextTier.CORE: {"limit": 3, "threshold": 0.8},
-            ContextTier.STANDARD: {"limit": 7, "threshold": 0.7},
-            ContextTier.FULL: {"limit": 15, "threshold": 0.6}
+            ContextTier.CORE: {"limit": 5, "threshold": 0.3},  # Lowered from 0.8
+            ContextTier.STANDARD: {"limit": 10, "threshold": 0.25},  # Lowered from 0.7
+            ContextTier.FULL: {"limit": 20, "threshold": 0.2}  # Lowered from 0.6
         }
         
         params = tier_params[context_tier]
@@ -187,7 +189,7 @@ class PromptAssembler:
     async def _consolidate_context(self, memories: List[Memory], 
                                  fragments: List[PromptFragment],
                                  user_query: str, token_limit: int) -> Tuple[List[Memory], List[PromptFragment]]:
-        """Use GPT-4o-mini to consolidate context intelligently"""
+        """Use GPT-4.1-nano to consolidate context intelligently"""
         
         # Prepare context for consolidation
         memories_text = "\n".join([f"Memory {i+1}: {mem.content}" for i, mem in enumerate(memories)])
@@ -228,7 +230,7 @@ Response format:
         
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-nano",
                 messages=[{"role": "user", "content": consolidation_prompt}],
                 temperature=0.1,
                 max_tokens=2000

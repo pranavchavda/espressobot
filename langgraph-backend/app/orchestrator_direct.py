@@ -13,6 +13,7 @@ from app.memory.memory_persistence import MemoryPersistenceNode
 from langchain_core.messages import AIMessage, HumanMessage
 import asyncio
 import concurrent.futures
+from langsmith.run_helpers import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,7 @@ For routing:
 For multi-agent tasks (A2A):
 {{"action": "multi_agent", "agents": ["agent1", "agent2"], "reason": "Why multiple agents needed"}}"""
     
+    @traceable(name="orchestrator_process_request", run_type="chain")
     async def process_request(self, state: GraphState) -> GraphState:
         """Process request - either respond directly or route to agent"""
         try:
@@ -200,6 +202,16 @@ For multi-agent tasks (A2A):
             if not self.memory_node._initialized:
                 await self.memory_node.initialize()
                 logger.info("Initialized memory persistence node")
+            
+            # Load memory context BEFORE processing the request
+            state = await self.memory_node.load_memory_context(state)
+            memory_context = state.get('memory_context', [])
+            logger.info(f"Loaded memory context: {len(memory_context)} relevant memories")
+            
+            # Log the actual memories loaded for context
+            for i, mem in enumerate(memory_context[:3], 1):  # Show first 3 memories
+                logger.info(f"  Memory {i}: '{mem['content'][:80]}...' (similarity: {mem.get('similarity', 'N/A')})")
+            
             # Trim messages if needed
             if state["messages"] and len(state["messages"]) > self.memory_config.max_history_length:
                 state["messages"] = self.memory_config.trim_messages(state["messages"])
@@ -219,8 +231,19 @@ For multi-agent tasks (A2A):
             # Get routing decision from GPT-5
             routing_prompt = self._get_routing_prompt()
             
+            # Add memory context to the routing prompt if available
+            memory_context_str = ""
+            if state.get("memory_context"):
+                memory_items = []
+                for mem in state["memory_context"][:5]:  # Include top 5 most relevant memories
+                    memory_items.append(f"- {mem['content']} (importance: {mem.get('importance', 0.5):.1f})")
+                if memory_items:
+                    memory_context_str = f"\n\n## Relevant User Context from Previous Conversations:\n" + "\n".join(memory_items)
+            
+            enhanced_routing_prompt = routing_prompt + memory_context_str
+            
             # Include conversation history for context
-            conversation = [{"role": "system", "content": routing_prompt}]
+            conversation = [{"role": "system", "content": enhanced_routing_prompt}]
             
             # Add recent conversation history (last 5 exchanges)
             for msg in state["messages"][-10:]:
@@ -417,7 +440,8 @@ For multi-agent tasks (A2A):
                             "conversation_summary": context_summary,
                             "key_entities": self._extract_key_entities(state["messages"]),
                             "last_topic": decision.get("reason", ""),
-                            "message_count": len(state["messages"])
+                            "message_count": len(state["messages"]),
+                            "memory_context": state.get("memory_context", [])  # Pass memory context to agent
                         }
                         
                         logger.info(f"Routing to {agent_name}: {decision.get('reason', '')}")
@@ -548,6 +572,7 @@ For multi-agent tasks (A2A):
         
         return "end"
     
+    @traceable(name="orchestrator_synthesize", run_type="chain")
     async def synthesize_multi_agent(self, state: GraphState) -> GraphState:
         """Synthesize responses from multiple agents"""
         task = state.get("multi_agent_task", {})

@@ -7,6 +7,8 @@ import logging
 from typing import Optional, Dict, Any
 from enum import Enum
 from langchain_openai import ChatOpenAI
+from langsmith import Client
+from langsmith.run_helpers import traceable
 
 # Conditional imports for optional providers
 try:
@@ -75,6 +77,16 @@ class LLMFactory:
         self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        
+        # Initialize LangSmith if configured
+        self.langsmith_enabled = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+        if self.langsmith_enabled:
+            try:
+                self.langsmith_client = Client()
+                logger.info("✅ LangSmith tracing enabled")
+            except Exception as e:
+                logger.warning(f"⚠️ LangSmith initialization failed: {e}")
+                self.langsmith_enabled = False
         
         # Determine available providers
         self.available_providers = []

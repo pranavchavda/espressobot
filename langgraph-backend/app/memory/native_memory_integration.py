@@ -94,7 +94,7 @@ class MemoryConfig:
     vector_similarity_threshold: float = 0.7
     vector_top_k: int = 5
     embedding_model: str = "text-embedding-3-large"
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "gpt-4.1-nano"
     database_url: Optional[str] = None
     table_name: str = "langchain_pg_embedding"
     collection_name: str = "espressobot_memories"

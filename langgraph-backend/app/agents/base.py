@@ -3,6 +3,7 @@ from typing import Dict, Any, List, Optional
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import logging
 import os
+from langsmith.run_helpers import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class BaseAgent(ABC):
         """Return the tools available to this agent"""
         pass
     
+    @traceable(name="agent_call", run_type="chain")
     async def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Process the current state and return updated state"""
         try:
@@ -71,8 +73,8 @@ class BaseAgent(ABC):
             state["messages"].append(error_message)
             return state
     
+    @traceable(name="agent_process_messages", run_type="llm")
     async def _process_messages(self, messages: List[BaseMessage]) -> AIMessage:
-        """Process messages and return agent response"""
         
         formatted_messages = [
             {"role": "system", "content": self.system_prompt}

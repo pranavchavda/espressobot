@@ -155,30 +155,54 @@ class PostgresMemoryManager:
     async def _execute_query(self, query: str, *args) -> Any:
         """Execute query with error handling and timing"""
         start_time = time.time()
-        try:
-            async with self.pool.acquire() as conn:
-                result = await conn.fetch(query, *args)
-                duration = (time.time() - start_time) * 1000
-                self.query_times.append(duration)
-                return result
-        except Exception as e:
-            self.connection_errors += 1
-            logger.error(f"Database query failed: {e}")
-            raise
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetch(query, *args)
+                    duration = (time.time() - start_time) * 1000
+                    self.query_times.append(duration)
+                    return result
+            except asyncpg.exceptions.ConnectionDoesNotExistError as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    self.connection_errors += 1
+                    logger.error(f"Database query failed after {max_retries} retries: {e}")
+                    raise
+                await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
+                logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
+            except Exception as e:
+                self.connection_errors += 1
+                logger.error(f"Database query failed: {e}")
+                raise
     
     async def _execute_one(self, query: str, *args) -> Any:
         """Execute query expecting single result"""
         start_time = time.time()
-        try:
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchrow(query, *args)
-                duration = (time.time() - start_time) * 1000
-                self.query_times.append(duration)
-                return result
-        except Exception as e:
-            self.connection_errors += 1
-            logger.error(f"Database query failed: {e}")
-            raise
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetchrow(query, *args)
+                    duration = (time.time() - start_time) * 1000
+                    self.query_times.append(duration)
+                    return result
+            except asyncpg.exceptions.ConnectionDoesNotExistError as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    self.connection_errors += 1
+                    logger.error(f"Database query failed after {max_retries} retries: {e}")
+                    raise
+                await asyncio.sleep(0.1 * retry_count)
+                logger.warning(f"Retrying query due to connection error (attempt {retry_count}/{max_retries})")
+            except Exception as e:
+                self.connection_errors += 1
+                logger.error(f"Database query failed: {e}")
+                raise
     
     async def _execute_command(self, query: str, *args) -> Any:
         """Execute command (INSERT, UPDATE, DELETE)"""
@@ -290,6 +314,7 @@ class PostgresMemoryManager:
         if duplicate_id:
             # Update access count and return existing ID
             await self._update_memory_access(duplicate_id)
+            logger.info(f"🔄 Memory deduplicated (existing ID: {duplicate_id}): '{memory.content[:60]}...'")
             return duplicate_id
         
         # Store new memory
@@ -313,7 +338,7 @@ class PostgresMemoryManager:
         )
         
         memory_id = result['id']
-        logger.info(f"Stored new memory {memory_id} for user {memory.user_id}")
+        logger.info(f"✅ Stored new memory {memory_id}: '{memory.content[:60]}...' (category: {memory.category}, user: {memory.user_id})")
         return memory_id
     
     async def _update_memory_access(self, memory_id: int):
@@ -332,24 +357,46 @@ class PostgresMemoryManager:
         
         start_time = time.time()
         
-        # For now, use simple text search until pgvector is installed
-        # TODO: Re-enable semantic search when pgvector is available
-        search_query = """
-        SELECT id, user_id, content, metadata, category, importance_score,
-               access_count, last_accessed_at, created_at, updated_at,
-               embedding,
-               1.0 as similarity
-        FROM memories 
-        WHERE user_id = $1 
-          AND (content ILIKE $2 OR category ILIKE $2)
-        ORDER BY importance_score DESC, created_at DESC
-        LIMIT $3
-        """
-        
-        search_pattern = f'%{query}%'
-        results = await self._execute_query(
-            search_query, user_id, search_pattern, limit
-        )
+        # Generate embedding for the query
+        try:
+            embedding_result = await self.embedding_service.get_embedding(query)
+            query_embedding = embedding_result.embedding
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for search: {e}")
+            # Fallback to text search
+            search_query = """
+            SELECT id, user_id, content, metadata, category, importance_score,
+                   access_count, last_accessed_at, created_at, updated_at,
+                   embedding,
+                   1.0 as similarity
+            FROM memories 
+            WHERE user_id = $1 
+              AND (content ILIKE $2 OR category ILIKE $2)
+            ORDER BY importance_score DESC, created_at DESC
+            LIMIT $3
+            """
+            
+            search_pattern = f'%{query}%'
+            results = await self._execute_query(
+                search_query, user_id, search_pattern, limit
+            )
+        else:
+            # Use vector similarity search with pgvector
+            search_query = """
+            SELECT id, user_id, content, metadata, category, importance_score,
+                   access_count, last_accessed_at, created_at, updated_at,
+                   embedding,
+                   1 - (embedding <=> $2::vector) as similarity
+            FROM memories 
+            WHERE user_id = $1 
+              AND 1 - (embedding <=> $2::vector) >= $3
+            ORDER BY similarity DESC, importance_score DESC
+            LIMIT $4
+            """
+            
+            results = await self._execute_query(
+                search_query, user_id, str(query_embedding), similarity_threshold, limit
+            )
         
         # Convert to SearchResult objects
         search_results = []
