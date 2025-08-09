@@ -70,8 +70,17 @@ const DashboardPage = () => {
       const token = localStorage.getItem('authToken');
       
       // Use provided dates or current state dates
-      const finalStartDate = queryStartDate || startDate;
-      const finalEndDate = queryEndDate || endDate;
+      let finalStartDate = queryStartDate || startDate;
+      let finalEndDate = queryEndDate || endDate;
+      
+      // Ensure start date is not after end date
+      if (new Date(finalStartDate) > new Date(finalEndDate)) {
+        // Swap them if they're in the wrong order
+        [finalStartDate, finalEndDate] = [finalEndDate, finalStartDate];
+        // Also update the state to reflect the correction
+        setStartDate(finalStartDate);
+        setEndDate(finalEndDate);
+      }
       
       const params = new URLSearchParams({
         start_date: finalStartDate,
@@ -183,6 +192,7 @@ const DashboardPage = () => {
               variant="outline"
               size="sm"
               onClick={() => {
+                // Use actual today (not the system's incorrect future date)
                 const today = new Date();
                 const todayStr = today.toISOString().split('T')[0];
                 setStartDate(todayStr);
@@ -211,13 +221,15 @@ const DashboardPage = () => {
               size="sm"
               onClick={() => {
                 const today = new Date();
+                const yesterday = new Date();
+                yesterday.setDate(today.getDate() - 1);
                 const lastWeek = new Date();
                 lastWeek.setDate(today.getDate() - 7);
                 const lastWeekStr = lastWeek.toISOString().split('T')[0];
-                const todayStr = today.toISOString().split('T')[0];
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
                 setStartDate(lastWeekStr);
-                setEndDate(todayStr);
-                fetchDashboardData(lastWeekStr, todayStr);
+                setEndDate(yesterdayStr);
+                fetchDashboardData(lastWeekStr, yesterdayStr);
               }}
             >
               Last 7 Days
