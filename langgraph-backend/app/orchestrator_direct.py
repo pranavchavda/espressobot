@@ -123,21 +123,10 @@ class DirectOrchestrator:
             "references": []
         }
         
-        # Simple entity extraction from recent messages
-        for msg in messages[-10:]:
-            if isinstance(msg, (HumanMessage, AIMessage)):
-                content = msg.content.lower()
-                
-                # Extract people names (simple heuristic)
-                if "luca" in content:
-                    entities["people"].append("Luca")
-                if "sales stats" in content or "july sales" in content:
-                    entities["topics"].append("July sales statistics")
-                if "email" in content and "luca" in content:
-                    entities["references"].append("Email from Luca about sales stats")
-                if "ticket" in content and "351747179" in content:
-                    entities["references"].append("Ticket #351747179")
-                    
+        # TODO: Implement proper NER (Named Entity Recognition) using spaCy or similar
+        # For now, just return empty entities rather than hardcoded test data
+        # This should extract actual entities from the conversation dynamically
+        
         return entities
     
     def _get_routing_prompt(self) -> str:
