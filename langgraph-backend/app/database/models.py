@@ -16,7 +16,6 @@ class User(Base):
     is_whitelisted = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Google Workspace OAuth tokens
     google_id = Column(String, unique=True)
