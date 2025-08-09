@@ -31,7 +31,7 @@ export default function MemoryManagementPage() {
   const fetchDashboard = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      const userId = selectedUserId || 'all';
+      const userId = selectedUserId || '1'; // Default to user ID 1 instead of 'all'
       const res = await fetch(`/api/memory/dashboard/${userId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -53,7 +53,7 @@ export default function MemoryManagementPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
-      const userId = selectedUserId || 'all';
+      const userId = selectedUserId || '1'; // Default to user ID 1 instead of 'all'
       const params = new URLSearchParams();
       
       if (selectedCategory) params.append('category', selectedCategory);
@@ -85,7 +85,7 @@ export default function MemoryManagementPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
-      const userId = selectedUserId || 'all';
+      const userId = selectedUserId || '1'; // Default to user ID 1 instead of 'all'
       
       const res = await fetch(`/api/memory/search/${userId}`, {
         method: 'POST',
