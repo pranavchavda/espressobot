@@ -55,9 +55,9 @@ async function setupRoutes() {
     const profileRoutes = (await import('./server/profile.js')).default;
     const memoryManagementRoutes = (await import('./server/memory-management.js')).default;
     const promptLibraryRoutes = (await import('./server/api/prompt-library.js')).default;
-    const dashboardAnalyticsRoutes = (await import('./server/api/dashboard-analytics.js')).default;
+    const dashboardProxyRoutes = (await import('./server/api/dashboard-proxy.js')).default;
     const scratchpadRoutes = (await import('./server/api/scratchpad.js')).default;
-    const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
+    const priceMonitorProxyRoutes = (await import('./server/api/price-monitor-proxy.js')).default;
     
     // Setup routes
     app.use('/api/auth', authRoutes);
@@ -66,9 +66,9 @@ async function setupRoutes() {
     app.use('/api/profile', profileRoutes);
     app.use('/api/memory', memoryManagementRoutes);
     app.use('/api/prompt-library', promptLibraryRoutes);
-    app.use('/api/dashboard', dashboardAnalyticsRoutes);
+    app.use('/api/dashboard', dashboardProxyRoutes);
     app.use('/api/scratchpad', scratchpadRoutes);
-    app.use('/api/price-monitor', priceMonitorRoutes);
+    app.use('/api/price-monitor', priceMonitorProxyRoutes);
     
     // Guardrail routes
     const { setupGuardrailRoutes } = await import('./server/api/guardrail-decision-handler.js');

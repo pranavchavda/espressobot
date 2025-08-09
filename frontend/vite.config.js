@@ -213,17 +213,17 @@ export default defineConfig({
         const { setupGuardrailRoutes } = await import('./server/api/guardrail-decision-handler.js');
         setupGuardrailRoutes(apiApp);
         
-        // Dashboard analytics routes
-        const dashboardAnalyticsRoutes = (await import('./server/api/dashboard-analytics.js')).default;
-        apiApp.use('/api/dashboard', dashboardAnalyticsRoutes);
+        // Dashboard analytics routes - proxy to Python backend
+        const dashboardProxyRoutes = (await import('./server/api/dashboard-proxy.js')).default;
+        apiApp.use('/api/dashboard', dashboardProxyRoutes);
         
         // Scratchpad routes
         const scratchpadRoutes = (await import('./server/api/scratchpad.js')).default;
         apiApp.use('/api/scratchpad', scratchpadRoutes);
         
-        // Price monitor routes
-        const priceMonitorRoutes = (await import('./server/api/price-monitor/index.js')).default;
-        apiApp.use('/api/price-monitor', priceMonitorRoutes);
+        // Price monitor routes - proxy to Python backend
+        const priceMonitorProxyRoutes = (await import('./server/api/price-monitor-proxy.js')).default;
+        apiApp.use('/api/price-monitor', priceMonitorProxyRoutes);
         
         // Agent management routes - proxy to Python backend
         const agentManagementProxy = (await import('./server/api/agent-management-proxy.js')).default;
