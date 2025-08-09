@@ -124,18 +124,31 @@ class PostgresMemoryManager:
         # Performance tracking
         self.query_times = []
         self.connection_errors = 0
+        
+        # Concurrency control - limit concurrent DB operations
+        self._db_semaphore = asyncio.Semaphore(5)  # Max 5 concurrent DB operations
+    
+    async def _init_connection(self, conn):
+        """Initialize each new connection in the pool"""
+        # Set statement timeout to prevent long-running queries
+        await conn.execute("SET statement_timeout = '30s'")
+        # Set lock timeout to prevent long waits
+        await conn.execute("SET lock_timeout = '10s'")
+        # Set idle transaction timeout
+        await conn.execute("SET idle_in_transaction_session_timeout = '60s'")
     
     async def initialize(self):
         """Initialize database connection pool"""
         try:
             self.pool = await asyncpg.create_pool(
                 self.database_url,
-                min_size=5,  # Increased minimum connections
-                max_size=20,
+                min_size=10,  # Increased minimum connections
+                max_size=30,  # Increased max connections
                 max_queries=50000,
                 max_inactive_connection_lifetime=300,
                 command_timeout=60,
                 connection_class=asyncpg.Connection,
+                init=self._init_connection,  # Initialize each connection
                 server_settings={
                     'application_name': 'espressobot_memory',
                     'jit': 'off'  # Disable JIT for consistent performance
@@ -154,17 +167,18 @@ class PostgresMemoryManager:
     
     async def _execute_query(self, query: str, *args) -> Any:
         """Execute query with error handling and timing"""
-        start_time = time.time()
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetch(query, *args)
-                    duration = (time.time() - start_time) * 1000
-                    self.query_times.append(duration)
-                    return result
+        async with self._db_semaphore:  # Limit concurrent DB operations
+            start_time = time.time()
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    async with self.pool.acquire() as conn:
+                        result = await conn.fetch(query, *args)
+                        duration = (time.time() - start_time) * 1000
+                        self.query_times.append(duration)
+                        return result
             except (asyncpg.exceptions.ConnectionDoesNotExistError, 
                     asyncpg.exceptions.InterfaceError) as e:
                 retry_count += 1
@@ -193,17 +207,18 @@ class PostgresMemoryManager:
     
     async def _execute_one(self, query: str, *args) -> Any:
         """Execute query expecting single result"""
-        start_time = time.time()
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetchrow(query, *args)
-                    duration = (time.time() - start_time) * 1000
-                    self.query_times.append(duration)
-                    return result
+        async with self._db_semaphore:  # Limit concurrent DB operations
+            start_time = time.time()
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    async with self.pool.acquire() as conn:
+                        result = await conn.fetchrow(query, *args)
+                        duration = (time.time() - start_time) * 1000
+                        self.query_times.append(duration)
+                        return result
             except asyncpg.exceptions.ConnectionDoesNotExistError as e:
                 retry_count += 1
                 if retry_count >= max_retries:
@@ -219,17 +234,18 @@ class PostgresMemoryManager:
     
     async def _execute_command(self, query: str, *args) -> Any:
         """Execute command (INSERT, UPDATE, DELETE)"""
-        start_time = time.time()
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                async with self.pool.acquire() as conn:
-                    result = await conn.execute(query, *args)
-                    duration = (time.time() - start_time) * 1000
-                    self.query_times.append(duration)
-                    return result
+        async with self._db_semaphore:  # Limit concurrent DB operations
+            start_time = time.time()
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    async with self.pool.acquire() as conn:
+                        result = await conn.execute(query, *args)
+                        duration = (time.time() - start_time) * 1000
+                        self.query_times.append(duration)
+                        return result
             except asyncpg.exceptions.ConnectionDoesNotExistError:
                 retry_count += 1
                 if retry_count >= max_retries:

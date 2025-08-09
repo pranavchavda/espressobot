@@ -264,13 +264,15 @@ class MemoryPersistenceNode:
                 messages, user_id
             )
             
-            # Store memories
+            # Store memories sequentially to avoid connection conflicts
             stored_count = 0
             for memory in new_memories:
                 try:
                     memory_id = await self.memory_manager.store_memory(memory)
                     if memory_id:
                         stored_count += 1
+                    # Small delay between stores to prevent connection issues
+                    await asyncio.sleep(0.05)
                 except Exception as e:
                     logger.error(f"Failed to store memory: {e}")
             
