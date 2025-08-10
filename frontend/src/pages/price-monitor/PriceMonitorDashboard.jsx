@@ -55,12 +55,37 @@ export default function PriceMonitorDashboard() {
     }
   };
 
+  // Parse various timestamp formats safely: ISO string, ms epoch, or s epoch
+  const parseExecutedAt = (executed_at) => {
+    if (!executed_at) return null;
+    let ts = executed_at;
+    // If it's an object like { seconds: 1712345678 }
+    if (typeof ts === 'object' && ts !== null) {
+      if ('seconds' in ts) ts = ts.seconds * 1000;
+      else if ('milliseconds' in ts) ts = ts.milliseconds;
+    }
+    // If numeric string, coerce
+    if (typeof ts === 'string' && /^\d+$/.test(ts)) {
+      ts = Number(ts);
+    }
+    // If seconds resolution, convert to ms
+    if (typeof ts === 'number' && ts > 0 && ts < 1e12) {
+      ts = ts * 1000;
+    }
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return null;
+    // Treat epoch/ancient dates as invalid (common when value is 0)
+    if (d.getFullYear() < 2000) return null;
+    return d;
+  };
+
   const formatLastRun = (lastRun) => {
     if (!lastRun) return 'Never';
-    
-    const date = new Date(lastRun.executed_at);
+    const date = parseExecutedAt(lastRun.executed_at);
+    if (!date) return 'Never';
     const now = new Date();
-    const diffMs = now - date;
+    let diffMs = now - date;
+    if (diffMs < 0) diffMs = 0; // clamp future timestamps to "just now"
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -79,8 +104,10 @@ export default function PriceMonitorDashboard() {
   // Badge color by recency for better at-a-glance status
   const getLastRunBadgeColor = (lastRun) => {
     if (!lastRun) return 'zinc';
-    const date = new Date(lastRun.executed_at);
-    const diffMs = Date.now() - date.getTime();
+    const date = parseExecutedAt(lastRun.executed_at);
+    if (!date) return 'zinc';
+    let diffMs = Date.now() - date.getTime();
+    if (diffMs < 0) diffMs = 0;
     const diffMins = Math.floor(diffMs / (1000 * 60));
     if (diffMins < 60) return 'green';
     if (diffMins < 60 * 24) return 'amber';
@@ -259,7 +286,8 @@ export default function PriceMonitorDashboard() {
           <p className="mt-2 text-zinc-600 dark:text-zinc-400">
             Monitor competitor pricing compliance and MAP violations
           </p>
-          {lastRuns.cron_job && (
+          {/* TODO(idc): Re-enable automated sync badge when API timestamps are consistent */}
+          {false && lastRuns.cron_job && (
             <div className="mt-2">
               <Badge color={getLastRunBadgeColor(lastRuns.cron_job)} className="align-middle">
                 🕐 Automated sync: {formatLastRun(lastRuns.cron_job)}
@@ -338,7 +366,8 @@ export default function PriceMonitorDashboard() {
           <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Import products from your Shopify store and generate embeddings for semantic matching.
           </p>
-          {lastRuns.shopify_sync && (
+          {/* TODO(idc): Re-enable last-run once backend returns reliable timestamps */}
+          {false && lastRuns.shopify_sync && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               Last run: {formatLastRun(lastRuns.shopify_sync)}
             </p>
@@ -422,7 +451,8 @@ export default function PriceMonitorDashboard() {
           <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Scrape competitor websites to collect product data and pricing information.
           </p>
-          {lastRuns.competitor_scrape && (
+          {/* TODO(idc): Re-enable last-run once backend returns reliable timestamps */}
+          {false && lastRuns.competitor_scrape && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               Last run: {formatLastRun(lastRuns.competitor_scrape)}
             </p>
@@ -447,7 +477,8 @@ export default function PriceMonitorDashboard() {
           <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Scan existing product matches for MAP pricing violations and generate alerts.
           </p>
-          {lastRuns.violation_scan && (
+          {/* TODO(idc): Re-enable last-run once backend returns reliable timestamps */}
+          {false && lastRuns.violation_scan && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               Last run: {formatLastRun(lastRuns.violation_scan)}
             </p>

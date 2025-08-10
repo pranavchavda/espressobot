@@ -62,8 +62,8 @@
   "media": {
     "agent_name": "media",
     "agent_type": "specialist",
-    "model_provider": "anthropic",
-    "model_name": "claude-3-5-haiku-20241022",
+    "model_provider": "openai",
+    "model_name": "gpt-5",
     "temperature": 0.0,
     "max_tokens": 2048,
     "description": "Images and media management for products",

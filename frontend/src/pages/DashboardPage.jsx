@@ -181,7 +181,7 @@ const DashboardPage = () => {
       </div>
 
       {/* Date Picker */}
-      <div className="mb-6 bg-white rounded-lg border border-zinc-200 p-4 shadow-sm">
+      <div className="mb-6 bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <div className="flex items-center gap-2">
@@ -365,7 +365,7 @@ const DashboardPage = () => {
         <div className="space-y-6 lg:space-y-8">
           {/* Quick Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
-            <div className="bg-white rounded-lg border border-zinc-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
               <div className="flex items-center justify-between">
                 <div>
                   <Text className="text-sm font-medium text-zinc-600">Revenue</Text>
@@ -396,7 +396,7 @@ const DashboardPage = () => {
               </div>
             </div>
             
-            <div className="bg-white rounded-lg border border-zinc-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
               <div className="flex items-center justify-between">
                 <div>
                   <Text className="text-sm font-medium text-zinc-600">Orders</Text>
@@ -427,7 +427,7 @@ const DashboardPage = () => {
               </div>
             </div>
             
-            <div className="bg-white rounded-lg border border-zinc-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5">
               <div className="flex items-center justify-between">
                 <div>
                   <Text className="text-sm font-medium text-zinc-600">Visitors</Text>
@@ -493,7 +493,7 @@ const DashboardPage = () => {
           {/* Performance Sections */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
             {/* Shopify Performance */}
-            <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-green-50 to-green-100 px-6 py-4 border-b border-zinc-200">
                 <Heading level={3} className="text-zinc-900 flex items-center gap-2">
                   <ShoppingCartIcon className="h-5 w-5 text-green-600" />
@@ -545,7 +545,7 @@ const DashboardPage = () => {
             </div>
 
             {/* GA4 Performance */}
-            <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
+            <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-6 py-4 border-b border-zinc-200">
                 <Heading level={3} className="text-zinc-900 flex items-center gap-2">
                   <BarChart3Icon className="h-5 w-5 text-blue-600" />
@@ -603,7 +603,7 @@ const DashboardPage = () => {
           {dashboardData?.workspace && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
               {/* Google Tasks Widget */}
-              <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
+              <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-md">
                 <div className="bg-gradient-to-r from-green-50 to-green-100 px-4 py-3 border-b border-zinc-200">
                   <div className="flex items-center justify-between">
                     <Heading level={4} className="text-zinc-900 flex items-center gap-2">
@@ -653,7 +653,7 @@ const DashboardPage = () => {
               </div>
 
               {/* Recent Emails Widget */}
-              <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
+              <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 shadow-sm overflow-hidden">
                 <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-4 py-3 border-b border-zinc-200">
                   <div className="flex items-center justify-between">
                     <Heading level={4} className="text-zinc-900 flex items-center gap-2">
@@ -699,7 +699,7 @@ const DashboardPage = () => {
               </div>
 
               {/* Upcoming Calendar Widget */}
-              <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
+              <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 shadow-sm overflow-hidden">
                 <div className="bg-gradient-to-r from-purple-50 to-purple-100 px-4 py-3 border-b border-zinc-200">
                   <div className="flex items-center justify-between">
                     <Heading level={4} className="text-zinc-900 flex items-center gap-2">
