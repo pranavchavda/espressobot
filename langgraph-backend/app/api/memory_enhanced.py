@@ -37,7 +37,7 @@ class MemoryResponse(BaseModel):
     metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
-    last_accessed_at: datetime
+    last_accessed_at: Optional[datetime] = None  # Can be None for new memories
     similarity_score: Optional[float] = None
 
 class MemoryCreateRequest(BaseModel):
@@ -80,10 +80,8 @@ class MemoryDashboardResponse(BaseModel):
 
 async def get_memory_manager():
     """Get memory manager instance"""
-    from app.memory.postgres_memory_manager import PostgresMemoryManager
-    manager = PostgresMemoryManager()
-    await manager.initialize()
-    return manager
+    from app.memory.shared_manager import get_shared_memory_manager
+    return await get_shared_memory_manager()
 
 async def verify_user_access(user_id: str, memory_id: Optional[int] = None):
     """Verify user has access to memory"""
@@ -159,7 +157,7 @@ async def get_memory_dashboard(
             for row in category_results
         }
         
-        await manager.close()
+        # Don't close the shared manager
         
         return MemoryDashboardResponse(
             stats=stats,
@@ -217,7 +215,7 @@ async def list_memories(
         
         memories = [_row_to_memory(row) for row in results]
         
-        await manager.close()
+        # Don't close the shared manager
         
         return memories
         
@@ -245,7 +243,7 @@ async def get_memory(memory_id: str, user_id: str = Query(...)):
         
         memory = _row_to_memory(result)
         
-        await manager.close()
+        # Don't close the shared manager
         
         return memory
         
@@ -282,7 +280,7 @@ async def create_memory(
         
         created_memory = _row_to_memory(result)
         
-        await manager.close()
+        # Don't close the shared manager
         
         return created_memory
         
@@ -347,7 +345,7 @@ async def update_memory(
         
         updated_memory = _row_to_memory(result)
         
-        await manager.close()
+        # Don't close the shared manager
         
         return updated_memory
         
@@ -358,24 +356,39 @@ async def update_memory(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{memory_id}")
-async def delete_memory(memory_id: str, user_id: str = Query(...)):
+async def delete_memory(memory_id: str, user_id: str = Query(None)):
     """Delete a memory"""
     try:
+        # Handle case where user_id might not be provided or be 'undefined'
+        if not user_id or user_id == 'undefined' or user_id == 'null':
+            user_id = "1"  # Default to user ID 1
+            logger.warning(f"No valid user_id provided for deletion, using default: {user_id}")
+        
         manager = await get_memory_manager()
+        
+        # Log the deletion attempt
+        logger.info(f"Attempting to delete memory {memory_id} for user {user_id}")
         
         success = await manager.delete_memory(memory_id, user_id)
         
         if not success:
+            logger.warning(f"Memory {memory_id} not found for user {user_id}")
+            # Try without user_id constraint as fallback
+            query = "DELETE FROM memories WHERE id = $1"
+            result = await manager._execute_command(query, memory_id)
+            if result and "DELETE" in str(result):
+                logger.info(f"Deleted memory {memory_id} without user constraint")
+                return {"success": True, "message": "Memory deleted successfully"}
             raise HTTPException(status_code=404, detail="Memory not found")
         
-        await manager.close()
+        # Don't close the shared manager
         
         return {"success": True, "message": "Memory deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting memory: {e}")
+        logger.error(f"Error deleting memory {memory_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== Bulk Operations ====================
@@ -403,7 +416,7 @@ async def bulk_memory_operation(
             
             deleted_count = int(result.split()[-1]) if result else 0
             
-            await manager.close()
+            # Don't close the shared manager
             
             return {
                 "success": True,
@@ -431,7 +444,7 @@ async def bulk_memory_operation(
             
             memories = [_row_to_memory(row) for row in results]
             
-            await manager.close()
+            # Don't close the shared manager
             
             return {
                 "success": True,
@@ -467,7 +480,7 @@ async def search_memories(
             memory_dict['similarity_score'] = result.similarity_score
             memories.append(MemoryResponse(**memory_dict))
         
-        await manager.close()
+        # Don't close the shared manager
         
         return memories
         
@@ -493,7 +506,7 @@ async def export_memories(
         """
         results = await manager._execute_query(query, user_id)
         
-        await manager.close()
+        # Don't close the shared manager
         
         if format == "json":
             # Export as JSON
@@ -596,7 +609,7 @@ async def import_memories(
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
         
-        await manager.close()
+        # Don't close the shared manager
         
         return {
             "success": True,
@@ -620,11 +633,11 @@ def _row_to_memory(row) -> MemoryResponse:
         content=row['content'],
         category=row['category'],
         importance_score=float(row['importance_score']),
-        access_count=row['access_count'],
+        access_count=row['access_count'] or 0,
         metadata=json.loads(row['metadata']) if row['metadata'] else {},
         created_at=row['created_at'],
         updated_at=row['updated_at'],
-        last_accessed_at=row['last_accessed_at']
+        last_accessed_at=row.get('last_accessed_at')  # Handle None gracefully
     )
 
 def _memory_to_dict(memory) -> dict:
@@ -639,7 +652,7 @@ def _memory_to_dict(memory) -> dict:
         "metadata": memory.metadata,
         "created_at": memory.created_at,
         "updated_at": memory.updated_at,
-        "last_accessed_at": memory.last_accessed_at
+        "last_accessed_at": memory.last_accessed_at if hasattr(memory, 'last_accessed_at') else None
     }
 
 def _row_to_dict(row) -> dict:

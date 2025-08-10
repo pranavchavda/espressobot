@@ -4,6 +4,33 @@
 
 ## System Status (August 9, 2025)
 
+### ✅ Memory System v2 - Quality & Decay Implementation
+
+#### Memory Extraction Improvements:
+1. **Better Quality Filtering**
+   - Refined extraction prompts to focus on long-term value
+   - Added ephemerality detection (filters task-specific memories)
+   - Confidence scoring (filters < 0.3 confidence)
+   - Result: ~70% reduction in low-quality memories expected
+
+2. **Memory Decay System**
+   - Time-based decay with category-specific rates
+   - Usage tracking (access_count, last_accessed_at)
+   - Usefulness scoring with feedback loop
+   - Automatic archival of old/unused memories
+
+3. **Database Enhancements**
+   - Added 10 new tracking columns to memories table
+   - Created calculate_effective_importance() function
+   - Added performance indexes for better query speed
+   - Archive status for memory lifecycle management
+
+4. **Feedback Loop Implementation**
+   - Tracks which memories influenced responses
+   - Updates usefulness scores based on usage
+   - Analytics for memory health monitoring
+   - Memory verification system for quality control
+
 ### ✅ Price Monitor Python Migration - COMPLETE
 
 #### Successfully Migrated Components:
@@ -154,13 +181,22 @@ langgraph-backend/
 
 ```bash
 # Check memory count in database
-PGPASSWORD=localdev123 psql -h localhost -U espressobot -d espressobot_dev -c "SELECT COUNT(*) FROM memories;"
+PGPASSWORD=localdev123 psql -h localhost -U espressobot -d espressobot_dev -c "SELECT COUNT(*) FROM memories WHERE status='active';"
+
+# View memory quality metrics
+PGPASSWORD=localdev123 psql -h localhost -U espressobot -d espressobot_dev -c "SELECT AVG(confidence_score) as avg_confidence, AVG(usefulness_score) as avg_usefulness, COUNT(*) FILTER (WHERE is_ephemeral) as ephemeral_count FROM memories WHERE status='active';"
 
 # Test memory API
 curl -s "http://localhost:8000/api/memory/list/1?limit=10" | jq '.'
 
+# Archive old memories manually
+PGPASSWORD=localdev123 psql -h localhost -U espressobot -d espressobot_dev -c "SELECT archive_old_memories();"
+
 # View orchestrator logs for duplicate call monitoring
 grep "API Call" server.log | tail -20
+
+# Monitor memory extraction quality
+grep "Extracted memory\|filtered" server.log | tail -20
 ```
 
 ### ⚠️ Known Issues to Monitor

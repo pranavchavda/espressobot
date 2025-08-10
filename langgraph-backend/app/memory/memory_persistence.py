@@ -11,6 +11,7 @@ from ..state.graph_state import GraphState
 from .postgres_memory_manager import PostgresMemoryManager, Memory
 from .prompt_assembler import PromptAssembler, ContextTier
 from .embedding_service import get_embedding_service
+from .memory_decay_service import get_decay_service
 
 logger = logging.getLogger(__name__)
 
@@ -47,38 +48,66 @@ class MemoryExtractionService:
             return []
         
         extraction_prompt = f"""
-Analyze the following conversation and extract important memories that should be preserved for future interactions.
+Analyze this conversation and extract ONLY high-value, long-term memories that will be useful in future interactions.
 
-Focus on:
-1. User preferences and personal information
-2. Important facts mentioned by the user  
-3. Problems or issues discussed
-4. Solutions provided or decisions made
-5. Products or services mentioned
-6. Interactions and context that would be valuable in future conversations
+EXTRACT memories that are:
+✓ Personal preferences that will persist (e.g., "I prefer dark roast coffee", "I like detailed explanations")
+✓ Important facts about the user (e.g., "I work at Google", "I have two kids", "I'm based in Toronto")
+✓ Recurring problems or pain points (e.g., "I always struggle with Python async", "My team needs better documentation")
+✓ Learned solutions that could apply again (e.g., "Using Redis solved our caching issues")
+✓ Business relationships and context (e.g., "I manage the DevOps team", "We use AWS exclusively")
+✓ User's expertise or knowledge areas (e.g., "I'm experienced with React", "I'm new to machine learning")
+
+DO NOT EXTRACT ephemeral memories like:
+✗ One-time tasks or requests (e.g., "check today's sales", "run this command")
+✗ Temporary states (e.g., "currently looking at...", "just finished...")  
+✗ Action descriptions (e.g., "user reviewed emails", "user requested analysis")
+✗ Time-specific data (e.g., "today's performance", "this week's metrics")
+✗ Conversation mechanics (e.g., "user thanked assistant", "user asked for help")
 
 Conversation:
 {conversation_text}
 
-Return a JSON object with a "memories" array containing extracted memories. Each memory should have:
-- "content": The specific memory content (be concise but complete)
-- "category": Must be one of: "preferences", "facts", "problems", "solutions", "products", "interactions", or "general"
-- "importance": Score from 0.1 to 1.0 indicating importance
-- "metadata": Any additional context
+Return a JSON object with a "memories" array. For each memory provide:
+- "content": The specific memory (be precise and complete, e.g., "User prefers Python over JavaScript for backend development")
+- "category": One of: "preferences", "facts", "problems", "solutions", "relationships", "expertise", "general"
+- "importance": 0.1-1.0 based on long-term value (preferences/facts: 0.7-1.0, problems: 0.5-0.8, general: 0.3-0.6)
+- "is_ephemeral": true if this is task/time-specific (these will be filtered out)
+- "confidence": 0.1-1.0 indicating extraction confidence
+- "reasoning": Brief explanation of why this memory has long-term value
+- "metadata": Additional context (optional)
 
-Example format:
+Quality Guidelines:
+- Each memory should be self-contained and understandable without conversation context
+- Prefer specific over generic (e.g., "Uses VS Code with Python extension" not "Uses an IDE")
+- Combine related facts into single memories when appropriate
+- Focus on information that would change how the assistant interacts with the user
+
+Example:
 {{
     "memories": [
         {{
-            "content": "User prefers email notifications over SMS",
-            "category": "preferences", 
+            "content": "User is a senior backend engineer at Google working primarily with Python and Go",
+            "category": "facts",
+            "importance": 0.9,
+            "is_ephemeral": false,
+            "confidence": 0.95,
+            "reasoning": "Core professional identity that affects technical discussions",
+            "metadata": {{"topics": ["career", "expertise"]}}
+        }},
+        {{
+            "content": "User prefers concise, code-focused explanations over lengthy theoretical discussions",
+            "category": "preferences",
             "importance": 0.8,
-            "metadata": {{"topic": "notifications", "context": "communication preferences"}}
+            "is_ephemeral": false,
+            "confidence": 0.85,
+            "reasoning": "Communication style preference that should guide all responses",
+            "metadata": {{"topics": ["communication"]}}
         }}
     ]
 }}
 
-Return {{"memories": []}} if no significant memories found.
+Return {{"memories": []}} if no high-value, long-term memories are found.
 """
         
         try:
@@ -105,23 +134,46 @@ Return {{"memories": []}} if no significant memories found.
                 logger.warning(f"Unexpected extraction format: {type(extracted_data)}")
                 extracted_data = []
             
-            # Convert to Memory objects
+            # Convert to Memory objects with quality filtering
             memories = []
+            filtered_count = 0
             for item in extracted_data:
                 if not isinstance(item, dict):
                     continue
+                
+                # Skip ephemeral memories
+                if item.get("is_ephemeral", False):
+                    filtered_count += 1
+                    logger.debug(f"Filtered ephemeral memory: {item.get('content', '')[:50]}...")
+                    continue
+                
+                # Skip low confidence memories
+                confidence = item.get("confidence", 0.5)
+                if confidence < 0.3:
+                    filtered_count += 1
+                    logger.debug(f"Filtered low confidence ({confidence}) memory: {item.get('content', '')[:50]}...")
+                    continue
+                
+                # Build metadata including new fields
+                metadata = item.get("metadata", {})
+                metadata["confidence"] = confidence
+                metadata["reasoning"] = item.get("reasoning", "")
+                metadata["extraction_version"] = "v2_quality_focused"
+                
                 memory = Memory(
                     user_id=user_id,
                     content=item.get("content", ""),
                     category=item.get("category", "general"),
                     importance_score=item.get("importance", 0.5),
-                    metadata=item.get("metadata", {})
+                    metadata=metadata
                 )
                 memories.append(memory)
                 # Log each extracted memory for visibility
-                logger.info(f"📝 Extracted memory: '{memory.content}' (category: {memory.category}, importance: {memory.importance_score})")
+                logger.info(f"📝 Extracted memory: '{memory.content}' (category: {memory.category}, importance: {memory.importance_score}, confidence: {confidence})")
             
-            logger.info(f"Extracted {len(memories)} total memories from conversation")
+            logger.info(f"Extracted {len(memories)} high-quality memories from conversation (filtered {filtered_count} ephemeral/low-confidence)")
+            if filtered_count > 0:
+                logger.info(f"Memory quality filter: {len(memories)} kept, {filtered_count} filtered ({filtered_count/(len(memories)+filtered_count)*100:.1f}% filtered)")
             return memories
             
         except json.JSONDecodeError as e:
@@ -149,23 +201,29 @@ class MemoryPersistenceNode:
     """Memory persistence node for LangGraph workflow"""
     
     def __init__(self, database_url: Optional[str] = None):
-        self.memory_manager = PostgresMemoryManager(database_url)
-        self.prompt_assembler = PromptAssembler(self.memory_manager)
+        from .shared_manager import get_shared_memory_manager
+        self.memory_manager = None  # Will be set in initialize
+        self.prompt_assembler = None  # Will be set in initialize
         self.extraction_service = MemoryExtractionService()
         self.embedding_service = get_embedding_service()
+        self.decay_service = None  # Will be set in initialize
         self._initialized = False
+        self._conversation_memories = {}  # Track memories used per conversation
+        self._get_shared_manager = get_shared_memory_manager
     
     async def initialize(self):
         """Initialize the memory system"""
         if not self._initialized:
-            await self.memory_manager.initialize()
+            self.memory_manager = await self._get_shared_manager()
+            self.prompt_assembler = PromptAssembler(self.memory_manager)
+            self.decay_service = get_decay_service(self.memory_manager)
             self._initialized = True
-            logger.info("Memory persistence node initialized")
+            logger.info("Memory persistence node initialized with shared manager")
     
     async def close(self):
         """Close resources"""
         if self._initialized:
-            await self.memory_manager.close()
+            # Don't close the shared manager, just mark as uninitialized
             self._initialized = False
     
     async def load_memory_context(self, state: GraphState) -> GraphState:
@@ -234,6 +292,10 @@ class MemoryPersistenceNode:
             state["context"]["system_prompt_enhancement"] = assembled_prompt.system_prompt
             state["context"]["memory_count"] = len(assembled_prompt.relevant_memories)
             state["context"]["fragment_count"] = len(assembled_prompt.prompt_fragments)
+            
+            # Store memories for later tracking
+            conversation_id = state.get("conversation_id", str(datetime.utcnow()))
+            self._conversation_memories[conversation_id] = assembled_prompt.relevant_memories
             
             logger.info(f"Loaded memory context: {len(assembled_prompt.relevant_memories)} memories, "
                        f"{len(assembled_prompt.prompt_fragments)} fragments, tier: {context_tier.value}")
@@ -347,6 +409,62 @@ class MemoryPersistenceNode:
         except Exception as e:
             logger.error(f"Failed to get memory stats: {e}")
             return {}
+    
+    async def track_memory_usage(self, state: GraphState) -> GraphState:
+        """Track which memories were useful after agent response"""
+        
+        if not self._initialized:
+            await self.initialize()
+        
+        try:
+            conversation_id = state.get("conversation_id", str(datetime.utcnow()))
+            
+            # Get memories that were provided for this conversation
+            provided_memories = self._conversation_memories.get(conversation_id, [])
+            
+            if not provided_memories:
+                return state
+            
+            # Get the last AI message (agent response)
+            messages = state.get("messages", [])
+            agent_response = None
+            user_message = None
+            
+            for msg in reversed(messages):
+                if isinstance(msg, AIMessage) and not agent_response:
+                    agent_response = msg.content
+                elif isinstance(msg, HumanMessage) and not user_message:
+                    user_message = msg.content
+                
+                if agent_response and user_message:
+                    break
+            
+            if agent_response:
+                # Track memory usage
+                analytics = await self.decay_service.track_memory_usage(
+                    conversation_id=conversation_id,
+                    memories_provided=provided_memories,
+                    agent_response=agent_response,
+                    user_message=user_message
+                )
+                
+                # Store analytics in state
+                if "metadata" not in state:
+                    state["metadata"] = {}
+                
+                state["metadata"]["memory_usage_analytics"] = analytics
+                
+                logger.info(f"📊 Memory usage: {analytics['memories_used']}/{analytics['total_memories_provided']} "
+                          f"({analytics['usage_rate']*100:.1f}% usage rate)")
+            
+            # Clean up tracked memories
+            if conversation_id in self._conversation_memories:
+                del self._conversation_memories[conversation_id]
+        
+        except Exception as e:
+            logger.error(f"Failed to track memory usage: {e}")
+        
+        return state
     
     async def search_user_memories(self, user_id: str, query: str, 
                                  limit: int = 10) -> List[Dict[str, Any]]:

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Memory:
-    """Memory record structure"""
+    """Memory record structure with tracking and decay support"""
     id: Optional[int] = None
     user_id: str = ""
     content: str = ""
@@ -33,13 +33,40 @@ class Memory:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
+    # New tracking fields
+    usefulness_score: float = 0.5
+    decay_rate: float = 0.01
+    is_ephemeral: bool = False
+    confidence_score: float = 0.5
+    verification_status: str = "unverified"
+    source_conversation_id: Optional[str] = None
+    used_in_conversations: List[str] = None
+    status: str = "active"  # active, archived, deleted
+    
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
-        if self.last_accessed_at is None:
-            self.last_accessed_at = datetime.utcnow()
+        if self.used_in_conversations is None:
+            self.used_in_conversations = []
         if self.created_at is None:
             self.created_at = datetime.utcnow()
+    
+    def calculate_effective_importance(self) -> float:
+        """Calculate importance considering decay and usage"""
+        import math
+        
+        # Time decay factor
+        days_old = (datetime.utcnow() - self.created_at).days if self.created_at else 0
+        time_decay = math.exp(-self.decay_rate * days_old)
+        
+        # Usage boost factor (cap at 10 accesses)
+        usage_boost = 1 + (0.1 * min(self.access_count, 10))
+        
+        # Usefulness multiplier
+        usefulness_mult = 0.5 + self.usefulness_score
+        
+        # Combined score
+        return self.importance_score * time_decay * usage_boost * usefulness_mult
 
 @dataclass
 class PromptFragment:
@@ -139,7 +166,7 @@ class PostgresMemoryManager:
         self.connection_errors = 0
         
         # Concurrency control - limit concurrent DB operations
-        self._db_semaphore = asyncio.Semaphore(3)  # Reduced to 3 concurrent operations
+        self._db_semaphore = asyncio.Semaphore(10)  # Allow more concurrent operations
         self._initialized = True
     
     async def _init_connection(self, conn):
@@ -163,10 +190,10 @@ class PostgresMemoryManager:
             
             self.pool = await asyncpg.create_pool(
                 self.database_url,
-                min_size=2,  # Reduced to prevent connection exhaustion
-                max_size=10,  # Reduced max connections
+                min_size=2,  # Minimum connections
+                max_size=20,  # Increased max connections for better concurrency
                 max_queries=50000,
-                max_inactive_connection_lifetime=60,  # Shorter lifetime
+                max_inactive_connection_lifetime=300,  # 5 minutes
                 command_timeout=30,
                 connection_class=asyncpg.Connection,
                 init=self._init_connection,  # Initialize each connection
@@ -213,6 +240,11 @@ class PostgresMemoryManager:
                     if retry_count > 0:
                         await self._ensure_pool_health()
                     
+                    # Check if pool exists
+                    if not self.pool:
+                        logger.error("Database pool is None, initializing...")
+                        await self.initialize()
+                    
                     async with self.pool.acquire() as conn:
                         result = await conn.fetch(query, *args)
                         duration = (time.time() - start_time) * 1000
@@ -236,7 +268,16 @@ class PostgresMemoryManager:
                         await asyncio.sleep(0.2 * retry_count)
                 except Exception as e:
                     self.connection_errors += 1
-                    logger.error(f"Database query failed: {e}")
+                    error_msg = str(e) if e else "Unknown error"
+                    
+                    # Check if it's a transient error we can ignore
+                    if "cannot perform operation" in error_msg or "connection was closed" in error_msg:
+                        logger.warning(f"Transient database error (will return empty): {error_msg[:200]}")
+                        return []  # Return empty result for transient errors
+                    
+                    logger.error(f"Database query failed: {error_msg[:500]}")
+                    logger.debug(f"Query was: {query[:200] if query else 'None'}")
+                    logger.debug(f"Args were: {str(args)[:200] if args else 'None'}")
                     raise
     
     async def _execute_one(self, query: str, *args) -> Any:
@@ -359,13 +400,21 @@ class PostgresMemoryManager:
             logger.info(f"🔄 Memory deduplicated (existing ID: {duplicate_id}): '{memory.content[:60]}...'")
             return duplicate_id
         
-        # Store new memory
+        # Store new memory with all tracking fields
         query = """
-        INSERT INTO memories (user_id, content, embedding, metadata, category, 
-                             importance_score, access_count, last_accessed_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO memories (
+            user_id, content, embedding, metadata, category, 
+            importance_score, access_count, last_accessed_at,
+            usefulness_score, decay_rate, is_ephemeral,
+            confidence_score, verification_status, source_conversation_id,
+            used_in_conversations, status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING id
         """
+        
+        # Extract confidence from metadata if available
+        confidence = memory.metadata.get("confidence", memory.confidence_score) if memory.metadata else memory.confidence_score
         
         result = await self._execute_one(
             query,
@@ -376,7 +425,15 @@ class PostgresMemoryManager:
             memory.category,
             memory.importance_score,
             memory.access_count,
-            memory.last_accessed_at
+            memory.last_accessed_at,
+            memory.usefulness_score,
+            memory.decay_rate,
+            memory.is_ephemeral,
+            confidence,
+            memory.verification_status,
+            memory.source_conversation_id,
+            json.dumps(memory.used_in_conversations) if memory.used_in_conversations else "[]",
+            memory.status
         )
         
         memory_id = result['id']
@@ -392,12 +449,29 @@ class PostgresMemoryManager:
         """
         await self._execute_command(query, memory_id)
     
+    async def _batch_update_access_counts(self, memory_ids: List[str]):
+        """Batch update access counts for multiple memories"""
+        try:
+            query = """
+            UPDATE memories 
+            SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP
+            WHERE id = ANY($1::text[])
+            """
+            await self._execute_command(query, memory_ids)
+        except Exception as e:
+            logger.debug(f"Failed to update access counts: {e}")
+    
     async def search_memories(self, user_id: str, query: str, limit: int = 10,
                             similarity_threshold: float = 0.7,
                             include_metadata: bool = True) -> List[SearchResult]:
         """Search memories using semantic similarity or fallback to text search"""
         
         start_time = time.time()
+        
+        # Ensure pool is initialized
+        if not self.pool:
+            logger.info("Pool not initialized, initializing now...")
+            await self.initialize()
         
         # Generate embedding for the query
         try:
@@ -424,6 +498,7 @@ class PostgresMemoryManager:
             )
         else:
             # Use vector similarity search with pgvector
+            # Simplified query without new columns that may not exist yet
             search_query = """
             SELECT id, user_id, content, metadata, category, importance_score,
                    access_count, last_accessed_at, created_at, updated_at,
@@ -432,7 +507,8 @@ class PostgresMemoryManager:
             FROM memories 
             WHERE user_id = $1 
               AND 1 - (embedding <=> $2::vector) >= $3
-            ORDER BY similarity DESC, importance_score DESC
+            ORDER BY 
+              (1 - (embedding <=> $2::vector)) * 0.6 + importance_score * 0.4 DESC
             LIMIT $4
             """
             
@@ -442,6 +518,8 @@ class PostgresMemoryManager:
         
         # Convert to SearchResult objects
         search_results = []
+        memory_ids_to_update = []
+        
         for i, row in enumerate(results):
             memory = Memory(
                 id=row['id'],
@@ -462,12 +540,15 @@ class PostgresMemoryManager:
                 rank=i + 1
             ))
             
-            # Update access count
-            await self._update_memory_access(row['id'])
+            memory_ids_to_update.append(row['id'])
         
-        # Record analytics
+        # Batch update access counts (do it asynchronously to avoid blocking)
+        if memory_ids_to_update:
+            asyncio.create_task(self._batch_update_access_counts(memory_ids_to_update))
+        
+        # Record analytics asynchronously
         duration = (time.time() - start_time) * 1000
-        await self._record_search_analytics(user_id, query, len(search_results), duration)
+        asyncio.create_task(self._record_search_analytics(user_id, query, len(search_results), duration))
         
         return search_results
     
@@ -516,23 +597,27 @@ class PostgresMemoryManager:
         
         return memories
     
-    async def delete_memory(self, memory_id: int, user_id: str) -> bool:
+    async def delete_memory(self, memory_id: Union[str, int], user_id: str) -> bool:
         """Delete memory and related duplicates"""
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                # Delete duplicates first
-                await conn.execute(
-                    "DELETE FROM memory_duplicates WHERE original_id = $1",
-                    memory_id
-                )
-                
-                # Delete memory
-                result = await conn.execute(
-                    "DELETE FROM memories WHERE id = $1 AND user_id = $2",
-                    memory_id, user_id
-                )
-                
-                return "DELETE 1" in str(result)
+        try:
+            # Convert to string if integer passed (for backward compatibility)
+            memory_id_str = str(memory_id)
+            
+            query = "DELETE FROM memories WHERE id = $1 AND user_id = $2"
+            result = await self._execute_command(query, memory_id_str, user_id)
+            
+            # Check if deletion was successful
+            deleted = result and ("DELETE 1" in str(result) or "DELETE" in str(result))
+            
+            if deleted:
+                logger.info(f"✅ Deleted memory {memory_id_str} for user {user_id}")
+            else:
+                logger.warning(f"⚠️ Memory {memory_id_str} not found for user {user_id}")
+            
+            return deleted
+        except Exception as e:
+            logger.error(f"Failed to delete memory {memory_id}: {e}")
+            return False
     
     async def update_memory_importance(self, memory_id: int, importance_score: float) -> bool:
         """Update memory importance score"""

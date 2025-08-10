@@ -131,7 +131,8 @@ class PromptAssembler:
             
             return [result.memory for result in search_results]
         except Exception as e:
-            logger.error(f"Failed to search memories: {e}")
+            logger.error(f"Failed to search memories: {str(e)[:500]}")
+            logger.debug(f"Search params - user_id: {user_id}, query: {query[:100]}, limit: {params['limit']}, threshold: {params['threshold']}")
             return []
     
     async def _get_prompt_fragments(self, query: str, agent_type: str,
@@ -147,22 +148,21 @@ class PromptAssembler:
             return []
         
         # Search for relevant fragments
+        # Note: Simplified query - prompt_fragments table may not have embeddings yet
         search_query = """
         SELECT id, category, priority, content, tags, agent_type, context_tier, 
-               is_active, created_at, updated_at,
-               (1 - (embedding <=> $1)) as similarity
+               is_active, created_at, updated_at
         FROM prompt_fragments 
         WHERE (agent_type = $2 OR agent_type IS NULL)
           AND context_tier = $3
           AND is_active = true
-          AND (1 - (embedding <=> $1)) >= 0.6
-        ORDER BY priority DESC, similarity DESC
+        ORDER BY priority DESC
         LIMIT 10
         """
         
         try:
             results = await self.memory_manager._execute_query(
-                search_query, query_embedding, agent_type, context_tier.value
+                search_query, agent_type, context_tier.value
             )
             
             fragments = []
