@@ -2,7 +2,39 @@
 
 - Use context7 and/or deepwiki to ascertain what langgraph wants, we are using the latest versions, and they won't align with your training data pre-knowledge-cutoff
 
-## System Status (January 9, 2025)
+## System Status (August 9, 2025)
+
+### ✅ Price Monitor Python Migration - COMPLETE
+
+#### Successfully Migrated Components:
+1. **Product Matching with Embeddings** (`app/services/price_monitor/product_matching.py`)
+   - Implemented OpenAI text-embedding-3-large (3072 dimensions)
+   - Cosine similarity calculation working
+   - Hybrid matching: 40% embeddings + 60% traditional factors
+   - **Result**: 37/51 products matched (72% match rate)
+
+2. **MAP Violation Detection** (`app/services/price_monitor/violations.py`)
+   - Detecting 7 violations correctly with severity levels
+   - Creating PriceAlert records in database
+   - Fixed SQL cartesian product bug (was showing 49 instead of 7)
+   - Violation history tracking operational
+
+3. **Frontend Integration** (`app/api/price_monitor.py`)
+   - All endpoints operational including violation-history
+   - Fixed field naming (plural forms for frontend compatibility)
+   - Fixed PriceAlert model fields (old_price/new_price)
+   - Competitor product URLs working
+
+#### Fixed Issues:
+- ✅ Shopify data showing $0 (MCP layer issue)
+- ✅ "Today" button fetching tomorrow's date (timezone)
+- ✅ Price monitor infinite polling loop
+- ✅ Brotli compression error in competitor scraping
+- ✅ Product matching finding 0 matches (missing embeddings)
+- ✅ "Unknown Product" display in price alerts
+- ✅ MAP violation statistics showing 49 instead of 7
+
+## Previous System Status (January 9, 2025)
 
 ### ✅ Major Optimizations Completed
 
@@ -138,5 +170,7 @@ grep "API Call" server.log | tail -20
 3. **Memory Injection**: Not yet fully tested with agent responses
 
 ---
-*Last Updated: January 9, 2025*
+*Last Updated: August 9, 2025*
+- Price monitor Python migration complete with embeddings
+- SQL cartesian product issue fixed in violation statistics
 - model name is fine. gpt-4.1-nano is faster, cheaper and newer than gpt-4o-mini

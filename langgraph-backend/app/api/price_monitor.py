@@ -371,6 +371,24 @@ async def sync_idc_products(request: SyncRequest):
         logger.error(f"Error syncing iDC products: {e}")
         raise HTTPException(status_code=500, detail="Failed to sync iDC products")
 
+# Add the "safe" router for compatibility with frontend
+shopify_sync_safe_router = APIRouter(prefix="/api/price-monitor/shopify-sync-safe", tags=["price-monitor-safe"])
+
+@shopify_sync_safe_router.post("/sync-idc-products-safe")
+async def sync_idc_products_safe(request: SyncRequest):
+    """Safe version of sync iDC products endpoint (compatibility route)"""
+    try:
+        result = await shopify_service.sync_idc_products_safe(
+            brands=request.brands,
+            force=request.force
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error syncing iDC products (safe): {e}")
+        raise HTTPException(status_code=500, detail="Failed to sync iDC products")
+
 @router.get("/shopify-sync/sync-status")
 async def get_sync_status():
     """Get synchronization status for all brands"""
@@ -580,6 +598,98 @@ async def trigger_product_matching(
     except Exception as e:
         logger.error(f"Error triggering matching operation: {e}")
         raise HTTPException(status_code=500, detail="Failed to trigger matching operation")
+
+@router.get("/alerts")
+async def get_alerts(
+    db: AsyncSession = Depends(get_db),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    severity: Optional[str] = Query(None, description="Filter by severity"),
+    limit: int = Query(100, description="Maximum records to return"),
+    offset: int = Query(0, description="Offset for pagination")
+):
+    """Get price alerts"""
+    try:
+        from sqlalchemy import select, and_
+        from app.database.price_monitor_models import PriceAlert, ProductMatch, IdcProduct, CompetitorProduct, Competitor
+        from sqlalchemy.orm import selectinload
+        
+        query = select(PriceAlert).options(
+            selectinload(PriceAlert.product_match).options(
+                selectinload(ProductMatch.idc_product),
+                selectinload(ProductMatch.competitor_product).selectinload(CompetitorProduct.competitor)
+            )
+        )
+        
+        conditions = []
+        if status:
+            conditions.append(PriceAlert.status == status)
+        if severity:
+            conditions.append(PriceAlert.alert_type == severity)
+        
+        if conditions:
+            query = query.where(and_(*conditions))
+        
+        query = query.order_by(PriceAlert.created_at.desc()).offset(offset).limit(limit)
+        
+        result = await db.execute(query)
+        alerts = result.scalars().all()
+        
+        alerts_list = []
+        for alert in alerts:
+            alert_data = {
+                'id': alert.id,
+                'alert_type': alert.alert_type,
+                'title': alert.title if alert.title else 'MAP Violation',
+                'message': alert.message if alert.message else '',
+                'severity': alert.severity if alert.severity else 'medium',
+                'status': alert.status,
+                'old_price': float(alert.old_price) if alert.old_price else 0,  # MAP price
+                'new_price': float(alert.new_price) if alert.new_price else 0,  # Competitor price
+                'price_change': float(alert.price_change) if alert.price_change else 0,
+                'created_at': alert.created_at.isoformat() if alert.created_at else None,
+            }
+            
+            # Add product match data with proper product information
+            if alert.product_match:
+                match = alert.product_match
+                alert_data['product_match'] = {
+                    'id': match.id,
+                    'overall_score': float(match.overall_score) if match.overall_score else 0,
+                    'is_map_violation': match.is_map_violation,
+                    'violation_amount': float(match.violation_amount) if match.violation_amount else 0,
+                    'violation_percentage': match.violation_percentage if match.violation_percentage else 0
+                }
+                
+                if match.idc_product:
+                    alert_data['product_match']['idc_product'] = {
+                        'id': match.idc_product.id,
+                        'title': match.idc_product.title or 'Unknown Product',
+                        'vendor': match.idc_product.vendor or 'Unknown',
+                        'sku': match.idc_product.sku or 'Unknown',
+                        'price': float(match.idc_product.price) if match.idc_product.price else 0,
+                        'handle': match.idc_product.handle
+                    }
+                    alert_data['title'] = match.idc_product.title or 'MAP Violation'
+                
+                if match.competitor_product:
+                    alert_data['product_match']['competitor_product'] = {
+                        'id': match.competitor_product.id,
+                        'title': match.competitor_product.title or 'Unknown Product',
+                        'price': float(match.competitor_product.price) if match.competitor_product.price else 0,
+                        'product_url': match.competitor_product.product_url,
+                        'competitor': {
+                            'name': match.competitor_product.competitor.name if match.competitor_product.competitor else 'Unknown',
+                            'domain': match.competitor_product.competitor.domain if match.competitor_product.competitor else ''
+                        } if match.competitor_product.competitor else None
+                    }
+            
+            alerts_list.append(alert_data)
+        
+        return {'alerts': alerts_list, 'total': len(alerts_list)}
+        
+    except Exception as e:
+        logger.error(f"Error fetching alerts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch alerts")
 
 @router.post("/alerts/generate")
 async def generate_alerts(
@@ -1067,3 +1177,252 @@ async def validate_system_settings(
     except Exception as e:
         logger.error(f"Error validating settings: {e}")
         raise HTTPException(status_code=500, detail="Failed to validate settings")
+
+
+# MAP Violations endpoints - Additional routes that match frontend expectations
+@router.post("/map-violations/scan-violations")
+async def scan_map_violations(
+    db: AsyncSession = Depends(get_db),
+    request: ViolationScanRequest = Body(...)
+):
+    """MAP violation scanner that matches frontend expectations"""
+    try:
+        result = await violations_service.scan_and_record_violations(
+            db=db,
+            brands=request.brands,
+            severity_filter=request.severity_filter,
+            record_history=request.record_history,
+            capture_screenshots=request.capture_screenshots,
+            dry_run=request.dry_run
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error scanning MAP violations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to scan MAP violations")
+
+# Violation History endpoints
+@router.get("/violation-history/statistics")
+async def get_violation_statistics(
+    db: AsyncSession = Depends(get_db),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    brand: Optional[str] = Query(None, description="Filter by brand"),
+    competitor: Optional[str] = Query(None, description="Filter by competitor"),
+    group_by: str = Query('day', description="Grouping period (day, week, month)")
+):
+    """Get violation statistics over time"""
+    try:
+        from datetime import datetime
+        
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d') if start_date else None
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d') if end_date else None
+        
+        statistics = await violations_service.get_violation_statistics(
+            db=db,
+            brand=brand,
+            competitor=competitor,
+            start_date=start_dt,
+            end_date=end_dt,
+            group_by=group_by
+        )
+        
+        return statistics
+        
+    except Exception as e:
+        logger.error(f"Error fetching violation statistics: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch violation statistics")
+
+@router.get("/violation-history/{product_match_id}")
+async def get_violation_history(
+    product_match_id: str,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, description="Maximum records to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
+):
+    """Get violation history for a specific product match"""
+    try:
+        from datetime import datetime
+        
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d') if start_date else None
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d') if end_date else None
+        
+        history = await violations_service.get_violation_history(
+            db=db,
+            product_match_id=product_match_id,
+            limit=limit,
+            offset=offset,
+            start_date=start_dt,
+            end_date=end_dt
+        )
+        
+        return history
+        
+    except Exception as e:
+        logger.error(f"Error fetching violation history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch violation history")
+
+@router.post("/violation-history/export")
+async def export_violation_history(
+    db: AsyncSession = Depends(get_db),
+    request: Dict[str, Any] = Body(...)
+):
+    """Export violation history to CSV or JSON"""
+    try:
+        from datetime import datetime
+        
+        # Parse request
+        brand = request.get('brand')
+        competitor = request.get('competitor')
+        start_date = request.get('start_date')
+        end_date = request.get('end_date')
+        format_type = request.get('format', 'csv')
+        
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d') if start_date else None
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d') if end_date else None
+        
+        export_data = await violations_service.export_violation_history(
+            db=db,
+            brand=brand,
+            competitor=competitor,
+            start_date=start_dt,
+            end_date=end_dt,
+            format=format_type
+        )
+        
+        if format_type == 'csv':
+            return Response(
+                content=export_data,
+                media_type='text/csv',
+                headers={"Content-Disposition": f"attachment; filename=violation-history-{datetime.utcnow().strftime('%Y-%m-%d')}.csv"}
+            )
+        else:
+            return export_data
+            
+    except Exception as e:
+        logger.error(f"Error exporting violation history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to export violation history")
+
+@router.get("/map-violations/violations")
+async def get_map_violations(
+    db: AsyncSession = Depends(get_db),
+    resolved: Optional[bool] = Query(None, description="Filter by resolved status"),
+    limit: int = Query(100, description="Maximum records to return"),
+    offset: int = Query(0, description="Offset for pagination"),
+    brand: Optional[str] = Query(None, description="Filter by brand"),
+    competitor: Optional[str] = Query(None, description="Filter by competitor"),
+    severity: Optional[str] = Query(None, description="Filter by severity")
+):
+    """Get MAP violations list"""
+    try:
+        # Get product matches with violations
+        from sqlalchemy import select, and_, func
+        from app.database.price_monitor_models import ProductMatch, IdcProduct, CompetitorProduct, Competitor
+        from sqlalchemy.orm import selectinload
+        
+        query = select(ProductMatch).options(
+            selectinload(ProductMatch.idc_product),
+            selectinload(ProductMatch.competitor_product).selectinload(CompetitorProduct.competitor),
+            selectinload(ProductMatch.violation_history)
+        )
+        
+        # Filter for violations
+        conditions = []
+        if resolved is False:
+            conditions.append(ProductMatch.is_map_violation == True)
+        elif resolved is True:
+            conditions.append(ProductMatch.is_map_violation == False)
+        
+        if brand:
+            query = query.join(ProductMatch.idc_product).where(IdcProduct.vendor == brand)
+        
+        if competitor:
+            query = query.join(ProductMatch.competitor_product).join(CompetitorProduct.competitor).where(
+                Competitor.name == competitor
+            )
+        
+        if conditions:
+            query = query.where(and_(*conditions))
+        
+        # Apply pagination
+        query = query.offset(offset).limit(limit)
+        
+        result = await db.execute(query)
+        matches = result.scalars().all()
+        
+        # Format response - match frontend expectations with plural field names
+        violations_list = []
+        for match in matches:
+            if match.is_map_violation and match.idc_product and match.competitor_product:
+                # Determine severity based on violation percentage
+                severity = 'minor'
+                if match.violation_percentage:
+                    if match.violation_percentage >= 20:
+                        severity = 'severe'
+                    elif match.violation_percentage >= 10:
+                        severity = 'moderate'
+                
+                violations_list.append({
+                    'id': match.id,
+                    'severity': severity,
+                    'price_change': float(match.violation_amount) if match.violation_amount else 0,
+                    # Add old_price and new_price for the violation column display
+                    'old_price': float(match.idc_product.price) if match.idc_product.price else 0,  # MAP price
+                    'new_price': float(match.competitor_product.price) if match.competitor_product.price else 0,  # Competitor price
+                    # Add created_at for the detected column
+                    'created_at': match.first_violation_date.isoformat() if match.first_violation_date else match.last_checked_at.isoformat() if match.last_checked_at else None,
+                    'product_matches': {  # Frontend expects 'product_matches' (plural)
+                        'id': match.id,
+                        'overall_score': float(match.overall_score) if match.overall_score else 0,
+                        'is_map_violation': match.is_map_violation,
+                        'is_manual_match': match.is_manual_match,
+                        'idc_products': {  # Frontend expects 'idc_products' (plural)
+                            'id': match.idc_product.id,
+                            'title': match.idc_product.title,
+                            'vendor': match.idc_product.vendor,
+                            'sku': match.idc_product.sku,
+                            'price': float(match.idc_product.price) if match.idc_product.price else 0,
+                            'handle': match.idc_product.handle,
+                            'idc_url': f'https://idrinkcoffee.com/products/{match.idc_product.handle}' if match.idc_product.handle else None
+                        },
+                        'competitor_products': {  # Frontend expects 'competitor_products' (plural)
+                            'id': match.competitor_product.id,
+                            'title': match.competitor_product.title,
+                            'vendor': match.competitor_product.vendor,
+                            'price': float(match.competitor_product.price) if match.competitor_product.price else 0,
+                            'competitors': {  # Frontend expects 'competitors' (plural)
+                                'name': match.competitor_product.competitor.name if match.competitor_product.competitor else '',
+                                'domain': match.competitor_product.competitor.domain if match.competitor_product.competitor else ''
+                            },
+                            'product_url': match.competitor_product.product_url,  # Frontend expects 'product_url'
+                            'competitor_url': match.competitor_product.product_url  # Keep both for compatibility
+                        }
+                    },
+                    'violation_amount': float(match.violation_amount) if match.violation_amount else 0,
+                    'violation_percentage': match.violation_percentage or 0,
+                    'first_violation_date': match.first_violation_date.isoformat() if match.first_violation_date else None,
+                    'last_checked_at': match.last_checked_at.isoformat() if match.last_checked_at else None
+                })
+        
+        # Get total count
+        count_query = select(func.count(ProductMatch.id)).where(ProductMatch.is_map_violation == True)
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+        
+        return {
+            'violations': violations_list,
+            'pagination': {
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+                'has_more': offset + limit < total
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching MAP violations: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch MAP violations")

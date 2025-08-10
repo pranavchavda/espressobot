@@ -493,29 +493,99 @@ class ViolationsService:
             if conditions:
                 base_query = base_query.where(and_(*conditions))
             
-            # Get summary statistics
-            total_violations_query = select(func.count(ViolationHistory.id)).select_from(base_query.subquery())
+            # Get summary statistics - use direct queries to avoid cartesian product
+            # Build conditions for direct queries
+            stats_conditions = conditions.copy()
+            
+            # Total violations - direct count
+            total_violations_query = select(func.count(ViolationHistory.id))
+            if brand or competitor:
+                total_violations_query = total_violations_query.select_from(ViolationHistory)
+                total_violations_query = total_violations_query.join(ViolationHistory.product_match)
+                if brand:
+                    total_violations_query = total_violations_query.join(ProductMatch.idc_product).where(
+                        IdcProduct.vendor == brand
+                    )
+                if competitor:
+                    total_violations_query = total_violations_query.join(ProductMatch.competitor_product).join(
+                        CompetitorProduct.competitor
+                    ).where(
+                        Competitor.name == competitor
+                    )
+            else:
+                total_violations_query = total_violations_query.select_from(ViolationHistory)
+            
+            if stats_conditions:
+                total_violations_query = total_violations_query.where(and_(*stats_conditions))
+            
+            # Average and max statistics - direct queries
             avg_violation_query = select(
                 func.avg(ViolationHistory.violation_percent),
                 func.avg(ViolationHistory.violation_amount)
-            ).select_from(base_query.subquery())
+            ).select_from(ViolationHistory)
+            
             max_violation_query = select(
                 func.max(ViolationHistory.violation_percent),
                 func.max(ViolationHistory.violation_amount)
-            ).select_from(base_query.subquery())
+            ).select_from(ViolationHistory)
+            
+            # Apply same filters to avg and max queries
+            if brand or competitor:
+                avg_violation_query = avg_violation_query.join(ViolationHistory.product_match)
+                max_violation_query = max_violation_query.join(ViolationHistory.product_match)
+                if brand:
+                    avg_violation_query = avg_violation_query.join(ProductMatch.idc_product).where(
+                        IdcProduct.vendor == brand
+                    )
+                    max_violation_query = max_violation_query.join(ProductMatch.idc_product).where(
+                        IdcProduct.vendor == brand
+                    )
+                if competitor:
+                    avg_violation_query = avg_violation_query.join(ProductMatch.competitor_product).join(
+                        CompetitorProduct.competitor
+                    ).where(
+                        Competitor.name == competitor
+                    )
+                    max_violation_query = max_violation_query.join(ProductMatch.competitor_product).join(
+                        CompetitorProduct.competitor
+                    ).where(
+                        Competitor.name == competitor
+                    )
+            
+            if stats_conditions:
+                avg_violation_query = avg_violation_query.where(and_(*stats_conditions))
+                max_violation_query = max_violation_query.where(and_(*stats_conditions))
             
             # Active violations count
             active_violations_query = select(func.count(ProductMatch.id)).where(
                 ProductMatch.is_map_violation == True
             )
             
-            # Violations by type
+            # Violations by type - direct query to avoid cartesian product
             violations_by_type_query = select(
                 ViolationHistory.violation_type,
                 func.count(ViolationHistory.id).label('count'),
                 func.sum(ViolationHistory.violation_amount).label('total_amount'),
                 func.avg(ViolationHistory.violation_percent).label('avg_percent')
-            ).select_from(base_query.subquery()).group_by(ViolationHistory.violation_type)
+            ).select_from(ViolationHistory)
+            
+            if brand or competitor:
+                violations_by_type_query = violations_by_type_query.join(ViolationHistory.product_match)
+                if brand:
+                    violations_by_type_query = violations_by_type_query.join(ProductMatch.idc_product).where(
+                        IdcProduct.vendor == brand
+                    )
+                if competitor:
+                    violations_by_type_query = violations_by_type_query.join(ProductMatch.competitor_product).join(
+                        CompetitorProduct.competitor
+                    ).where(
+                        Competitor.name == competitor
+                    )
+            
+            if stats_conditions:
+                violations_by_type_query = violations_by_type_query.where(and_(*stats_conditions))
+            
+            violations_by_type_query = violations_by_type_query.group_by(ViolationHistory.violation_type)
             
             # Execute queries
             total_result = await db.execute(total_violations_query)

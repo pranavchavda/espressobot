@@ -58,6 +58,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard")
 
 # Enable price monitor router
 app.include_router(price_monitor.router)
+app.include_router(price_monitor.shopify_sync_safe_router)
 
 # Temporarily disable other routers that depend on SQLAlchemy
 # app.include_router(auth.router, prefix="/api/auth")

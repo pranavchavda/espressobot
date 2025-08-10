@@ -194,7 +194,7 @@ class GmailSearchTool(BaseTool):
                     metadataHeaders=['Subject', 'From', 'Date']
                 ).execute()
                 
-                headers = {h['name']: h['value'] for h in msg_detail['payload'].get('headers', [])}
+                headers = {h.get('name', ''): h.get('value', '') for h in msg_detail['payload'].get('headers', []) if h.get('name')}
                 
                 message_summaries.append({
                     'id': msg['id'],
@@ -255,7 +255,7 @@ class GmailGetMessageTool(BaseTool):
             ).execute()
             
             # Extract headers
-            headers = {h['name']: h['value'] for h in message['payload'].get('headers', [])}
+            headers = {h.get('name', ''): h.get('value', '') for h in message['payload'].get('headers', []) if h.get('name')}
             
             # Extract body
             body_text = ""

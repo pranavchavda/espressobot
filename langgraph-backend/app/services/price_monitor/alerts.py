@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, asc, and_, or_, case
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
+from decimal import Decimal
 import uuid
 import logging
 
@@ -486,23 +487,49 @@ class AlertsService:
         try:
             self.logger.info('Starting alert generation (MAP violation scan)')
             
-            # Placeholder scan results - in production this would call violation scanning
-            scan_results = {
-                'total_matches_scanned': 0,
-                'violations_found': 0,
-                'by_severity': {
-                    'minor': 0,
-                    'moderate': 0,
-                    'severe': 0
-                },
-                'violations': [],
-                'message': f'MAP violation scan initiated{" (dry run)" if dry_run else ""}',
-                'filters': {
-                    'brands': brands or 'all_monitored_brands',
-                    'severity_filter': severity_filter or 'all_severities',
-                    'create_alerts': create_alerts,
-                    'dry_run': dry_run
-                }
+            # Call the actual violations scanner to detect and create alerts
+            from app.services.price_monitor.violations import ViolationsService
+            violations_service = ViolationsService()
+            
+            scan_results = await violations_service.scan_and_record_violations(
+                db=db,
+                brands=brands,
+                severity_filter=severity_filter,
+                record_history=True,
+                capture_screenshots=False,
+                dry_run=dry_run
+            )
+            
+            # Create PriceAlert records for each violation found if create_alerts is True
+            if create_alerts and not dry_run and scan_results.get('violations'):
+                for violation in scan_results['violations']:
+                    if violation.get('is_new'):  # Only create alerts for new violations
+                        alert = PriceAlert(
+                            id=str(uuid.uuid4()),
+                            product_match_id=violation['match_id'],
+                            alert_type=f"map_violation_{violation['violation']['severity']}",
+                            title=violation['idc_product']['title'],
+                            message=f"MAP violation detected: {violation['competitor_product']['competitor']} selling {violation['violation']['percentage']:.1f}% below MAP",
+                            severity=violation['violation']['severity'],
+                            old_price=Decimal(str(violation['idc_product']['price'])),  # MAP price
+                            new_price=Decimal(str(violation['competitor_product']['price'])),  # Competitor price
+                            price_change=Decimal(str(violation['violation']['amount'])),
+                            status='active',
+                            created_at=datetime.utcnow(),
+                            updated_at=datetime.utcnow()
+                        )
+                        db.add(alert)
+                
+                await db.commit()
+                self.logger.info(f"Created {len([v for v in scan_results['violations'] if v.get('is_new')])} new price alerts")
+            
+            # Modify the response to match what was expected
+            scan_results['message'] = f'MAP violation scan completed{" (dry run)" if dry_run else ""}'
+            scan_results['filters'] = {
+                'brands': brands or 'all_monitored_brands',
+                'severity_filter': severity_filter or 'all_severities',
+                'create_alerts': create_alerts,
+                'dry_run': dry_run
             }
             
             self.logger.info(f'Alert generation completed: {scan_results["violations_found"]} violations found')

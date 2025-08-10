@@ -205,10 +205,30 @@ class ProductMatcher:
             return 0.0
         
         try:
-            # TODO: Implement actual cosine similarity calculation
-            # This would require parsing the embedding strings and calculating cosine similarity
-            # For now, return a placeholder value
-            return 0.5
+            # Parse JSON embedding strings
+            import json
+            import numpy as np
+            
+            emb1 = json.loads(embedding1)
+            emb2 = json.loads(embedding2)
+            
+            # Convert to numpy arrays
+            vec1 = np.array(emb1)
+            vec2 = np.array(emb2)
+            
+            # Calculate cosine similarity
+            dot_product = np.dot(vec1, vec2)
+            norm1 = np.linalg.norm(vec1)
+            norm2 = np.linalg.norm(vec2)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+                
+            similarity = dot_product / (norm1 * norm2)
+            
+            # Ensure result is between 0 and 1
+            return max(0.0, min(1.0, similarity))
+            
         except Exception as e:
             logger.warning(f"Error calculating embedding similarity: {e}")
             return 0.0

@@ -3,6 +3,16 @@ import { Button } from '@common/button';
 import { Badge } from '@common/badge';
 import { Heading } from '@common/heading';
 import { useToast } from '@common/toast';
+import {
+  ArchiveBoxIcon,
+  BuildingStorefrontIcon,
+  Square2StackIcon,
+  ExclamationTriangleIcon,
+  ShoppingBagIcon,
+  SparklesIcon,
+  GlobeAltIcon,
+  ShieldExclamationIcon,
+} from '@heroicons/react/20/solid';
 
 export default function PriceMonitorDashboard() {
   const [dashboardData, setDashboardData] = useState(null);
@@ -64,6 +74,17 @@ export default function PriceMonitorDashboard() {
     } else {
       return date.toLocaleDateString();
     }
+  };
+
+  // Badge color by recency for better at-a-glance status
+  const getLastRunBadgeColor = (lastRun) => {
+    if (!lastRun) return 'zinc';
+    const date = new Date(lastRun.executed_at);
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 60) return 'green';
+    if (diffMins < 60 * 24) return 'amber';
+    return 'red';
   };
 
   const recordJobExecution = async (jobType) => {
@@ -211,34 +232,45 @@ export default function PriceMonitorDashboard() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4 md:p-6 bg-zinc-50 dark:bg-zinc-950 min-h-[calc(100vh-56px)]">
         <Heading level="1">MAP Enforcement Dashboard</Heading>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <div className="ml-4 text-gray-500 dark:text-gray-400">Loading dashboard...</div>
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-pulse">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 bg-white dark:bg-zinc-900 p-6">
+              <div className="h-5 w-20 rounded bg-zinc-200 dark:bg-zinc-800 mb-4" />
+              <div className="h-8 w-24 rounded bg-zinc-200 dark:bg-zinc-800" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 bg-white dark:bg-zinc-900 p-6 h-32" />
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="p-4 md:p-6 bg-zinc-50 dark:bg-zinc-950 min-h-[calc(100vh-56px)]">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 md:mb-8 gap-4">
         <div>
           <Heading level="1">MAP Enforcement Dashboard</Heading>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
+          <p className="mt-2 text-zinc-600 dark:text-zinc-400">
             Monitor competitor pricing compliance and MAP violations
           </p>
           {lastRuns.cron_job && (
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
-              🕐 Automated sync last run: {formatLastRun(lastRuns.cron_job)}
-            </p>
+            <div className="mt-2">
+              <Badge color={getLastRunBadgeColor(lastRuns.cron_job)} className="align-middle">
+                🕐 Automated sync: {formatLastRun(lastRuns.cron_job)}
+              </Badge>
+            </div>
           )}
         </div>
         <Button 
           onClick={fetchDashboardData} 
           disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white w-full sm:w-auto transition-colors focus-visible:ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900"
         >
           Refresh
         </Button>
@@ -247,76 +279,123 @@ export default function PriceMonitorDashboard() {
       {/* Stats Grid */}
       {dashboardData && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-            <div className="text-3xl font-bold text-blue-600">{dashboardData.total_idc_products || 0}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">IDC Products</div>
-            <div className="text-xs text-gray-500 mt-1">Monitored products</div>
+          <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+            <div className="flex items-center justify-between mb-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-600">
+                <ArchiveBoxIcon className="h-5 w-5" />
+              </span>
+            </div>
+            <div className="text-5xl font-semibold tracking-tight text-indigo-600">{dashboardData.total_idc_products || 0}</div>
+            <div className="text-xs uppercase text-zinc-500 dark:text-zinc-400 mt-1">IDC Products</div>
+            <div className="text-xs text-zinc-500 mt-1">Monitored products</div>
           </div>
           
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-            <div className="text-3xl font-bold text-green-600">{dashboardData.total_competitor_products || 0}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Competitor Products</div>
-            <div className="text-xs text-gray-500 mt-1">From all competitors</div>
+          <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+            <div className="flex items-center justify-between mb-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-green-500/10 text-green-600">
+                <BuildingStorefrontIcon className="h-5 w-5" />
+              </span>
+            </div>
+            <div className="text-5xl font-semibold tracking-tight text-green-600">{dashboardData.total_competitor_products || 0}</div>
+            <div className="text-xs uppercase text-zinc-500 dark:text-zinc-400 mt-1">Competitor Products</div>
+            <div className="text-xs text-zinc-500 mt-1">From all competitors</div>
           </div>
           
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-            <div className="text-3xl font-bold text-orange-600">{dashboardData.total_matches || 0}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Product Matches</div>
-            <div className="text-xs text-gray-500 mt-1">AI-powered matching</div>
+          <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+            <div className="flex items-center justify-between mb-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-orange-500/10 text-orange-600">
+                <Square2StackIcon className="h-5 w-5" />
+              </span>
+            </div>
+            <div className="text-5xl font-semibold tracking-tight text-orange-600">{dashboardData.total_matches || 0}</div>
+            <div className="text-xs uppercase text-zinc-500 dark:text-zinc-400 mt-1">Product Matches</div>
+            <div className="text-xs text-zinc-500 mt-1">AI-powered matching</div>
           </div>
           
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-            <div className="text-3xl font-bold text-red-600">{dashboardData.active_violations || 0}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Active Violations</div>
-            <div className="text-xs text-gray-500 mt-1">MAP violations</div>
+          <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+            <div className="flex items-center justify-between mb-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-red-500/10 text-red-600">
+                <ExclamationTriangleIcon className="h-5 w-5" />
+              </span>
+            </div>
+            <div className="text-5xl font-semibold tracking-tight text-red-600">{dashboardData.active_violations || 0}</div>
+            <div className="text-xs uppercase text-zinc-500 dark:text-zinc-400 mt-1">Active Violations</div>
+            <div className="text-xs text-zinc-500 mt-1">MAP violations</div>
           </div>
         </div>
       )}
 
       {/* Action Buttons */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-2">Sync Shopify Products</h3>
-          <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+        <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+          <div className="-mt-6 -mx-6 mb-4 h-1.5 rounded-t-xl bg-gradient-to-r from-indigo-500/60 to-transparent" />
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600">
+              <ShoppingBagIcon className="h-5 w-5" />
+            </span>
+            <h3 className="text-lg font-semibold">Sync Shopify Products</h3>
+          </div>
+          <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Import products from your Shopify store and generate embeddings for semantic matching.
           </p>
           {lastRuns.shopify_sync && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               Last run: {formatLastRun(lastRuns.shopify_sync)}
             </p>
           )}
           <Button 
             onClick={syncShopifyProducts} 
             disabled={syncLoading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white transition-colors focus-visible:ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900"
           >
             {syncLoading ? 'Syncing...' : 'Sync Products'}
           </Button>
         </div>
-
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-2">Run Product Matching</h3>
-          <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+        
+        <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+          <div className="-mt-6 -mx-6 mb-4 h-1.5 rounded-t-xl bg-gradient-to-r from-indigo-500/60 to-transparent" />
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600">
+              <SparklesIcon className="h-5 w-5" />
+            </span>
+            <h3 className="text-lg font-semibold">Run Product Matching</h3>
+          </div>
+          <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Use AI embeddings to match your products with competitor products.
           </p>
           
-          {/* Confidence Threshold Selector */}
+          {/* Confidence Threshold Segmented Control */}
           <div className="mb-4">
-            <label htmlFor="matching-threshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
               Confidence Threshold
             </label>
-            <select
-              id="matching-threshold"
-              value={matchingThreshold}
-              onChange={(e) => setMatchingThreshold(e.target.value)}
-              disabled={matchingLoading}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="low">Low (60%+) - More matches, less precision</option>
-              <option value="medium">Medium (70%+) - Balanced approach</option>
-              <option value="high">High (80%+) - Fewer matches, higher precision</option>
-            </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <div className="inline-flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-1">
+              <button
+                type="button"
+                disabled={matchingLoading}
+                onClick={() => setMatchingThreshold('low')}
+                className={`${matchingThreshold === 'low' ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow ring-1 ring-zinc-200 dark:ring-zinc-700' : 'text-zinc-600 dark:text-zinc-300'} px-3 py-1.5 text-sm rounded-md transition-colors`}
+              >
+                Low
+              </button>
+              <button
+                type="button"
+                disabled={matchingLoading}
+                onClick={() => setMatchingThreshold('medium')}
+                className={`${matchingThreshold === 'medium' ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow ring-1 ring-zinc-200 dark:ring-zinc-700' : 'text-zinc-600 dark:text-zinc-300'} px-3 py-1.5 text-sm rounded-md transition-colors`}
+              >
+                Medium
+              </button>
+              <button
+                type="button"
+                disabled={matchingLoading}
+                onClick={() => setMatchingThreshold('high')}
+                className={`${matchingThreshold === 'high' ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow ring-1 ring-zinc-200 dark:ring-zinc-700' : 'text-zinc-600 dark:text-zinc-300'} px-3 py-1.5 text-sm rounded-md transition-colors`}
+              >
+                High
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
               {matchingThreshold === 'low' && 'Find more potential matches, may include false positives'}
               {matchingThreshold === 'medium' && 'Recommended balance between precision and recall'}
               {matchingThreshold === 'high' && 'Only very confident matches, may miss some valid matches'}
@@ -326,45 +405,57 @@ export default function PriceMonitorDashboard() {
           <Button 
             onClick={runProductMatching} 
             disabled={matchingLoading}
-            className="w-full bg-green-600 hover:bg-green-700 text-white"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white transition-colors focus-visible:ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900"
           >
             {matchingLoading ? 'Matching...' : `Match Products (${matchingThreshold} confidence)`}
           </Button>
         </div>
-
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-2">Scrape Competitors</h3>
-          <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+        
+        <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+          <div className="-mt-6 -mx-6 mb-4 h-1.5 rounded-t-xl bg-gradient-to-r from-purple-500/60 to-transparent" />
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600">
+              <GlobeAltIcon className="h-5 w-5" />
+            </span>
+            <h3 className="text-lg font-semibold">Scrape Competitors</h3>
+          </div>
+          <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Scrape competitor websites to collect product data and pricing information.
           </p>
           {lastRuns.competitor_scrape && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               Last run: {formatLastRun(lastRuns.competitor_scrape)}
             </p>
           )}
           <Button 
             onClick={runCompetitorScraping} 
             disabled={scrapingLoading}
-            className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white transition-colors focus-visible:ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900"
           >
             {scrapingLoading ? 'Scraping...' : 'Start Scraping'}
           </Button>
         </div>
-
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-2">Scan for Violations</h3>
-          <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+        
+        <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6 shadow-sm hover:shadow-md transition-shadow hover:-translate-y-0.5 transition-transform">
+          <div className="-mt-6 -mx-6 mb-4 h-1.5 rounded-t-xl bg-gradient-to-r from-red-500/60 to-transparent" />
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-600">
+              <ShieldExclamationIcon className="h-5 w-5" />
+            </span>
+            <h3 className="text-lg font-semibold">Scan for Violations</h3>
+          </div>
+          <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-4">
             Scan existing product matches for MAP pricing violations and generate alerts.
           </p>
           {lastRuns.violation_scan && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
               Last run: {formatLastRun(lastRuns.violation_scan)}
             </p>
           )}
           <Button 
             onClick={scanForViolations} 
             disabled={violationScanLoading}
-            className="w-full bg-red-600 hover:bg-red-700 text-white"
+            className="w-full bg-red-600 hover:bg-red-700 text-white transition-colors focus-visible:ring-2 ring-red-500 ring-offset-2 dark:ring-offset-zinc-900"
           >
             {violationScanLoading ? 'Scanning...' : 'Scan Violations'}
           </Button>
@@ -373,33 +464,33 @@ export default function PriceMonitorDashboard() {
 
       {/* Recent Activity */}
       {dashboardData?.recent_activity && (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+        <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-6">
           <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-          <div className="space-y-3">
-            {dashboardData.recent_activity.map((activity, index) => (
-              <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0">
-                <div>
-                  <div className="font-medium text-gray-900 dark:text-white">{activity.title}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">{activity.description}</div>
+          <div className="relative">
+            <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-200 dark:bg-zinc-800" />
+            <div className="space-y-4">
+              {dashboardData.recent_activity.map((activity, index) => (
+                <div key={index} className="relative pl-8">
+                  <span className="absolute left-[9px] top-2 h-2.5 w-2.5 rounded-full bg-zinc-400 ring-2 ring-white dark:ring-zinc-900" />
+                  <div className="font-medium text-zinc-900 dark:text-white">{activity.title}</div>
+                  <div className="text-sm text-zinc-500 dark:text-zinc-400">{activity.description}</div>
+                  <div className="text-xs text-zinc-400 mt-1">{new Date(activity.created_at).toLocaleDateString()}</div>
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {new Date(activity.created_at).toLocaleDateString()}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       )}
 
       {!dashboardData && (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-12 text-center">
-          <div className="text-gray-500 dark:text-gray-400">
+        <div className="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800 p-12 text-center">
+          <div className="text-zinc-500 dark:text-zinc-400">
             <h3 className="text-lg font-medium mb-2">No data available</h3>
             <p className="mb-4">Start by syncing products from Shopify to begin monitoring.</p>
             <Button 
               onClick={syncShopifyProducts} 
               disabled={syncLoading}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white transition-colors focus-visible:ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900"
             >
               {syncLoading ? 'Syncing...' : 'Sync Products Now'}
             </Button>

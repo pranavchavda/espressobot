@@ -16,12 +16,16 @@ const DashboardPage = () => {
   const [startDate, setStartDate] = useState(() => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday.toISOString().split('T')[0]; // YYYY-MM-DD format
+    return yesterday.getFullYear() + '-' + 
+      String(yesterday.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(yesterday.getDate()).padStart(2, '0');
   });
   const [endDate, setEndDate] = useState(() => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday.toISOString().split('T')[0]; // YYYY-MM-DD format
+    return yesterday.getFullYear() + '-' + 
+      String(yesterday.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(yesterday.getDate()).padStart(2, '0');
   });
 
   // Function to parse key metrics from the dashboard response
@@ -138,8 +142,21 @@ const DashboardPage = () => {
           </Heading>
           <Text className="text-zinc-600 mt-2">
             {startDate === endDate ? 
-              `Data for ${new Date(startDate).toLocaleDateString()}` :
-              `Data from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`
+              `Data for ${new Date(startDate).toLocaleDateString('en-US', { 
+                weekday: 'long',
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })}` :
+              `Data from ${new Date(startDate).toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+              })} to ${new Date(endDate).toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+              })}`
             }
           </Text>
           {lastUpdated && (
@@ -171,20 +188,56 @@ const DashboardPage = () => {
               <CalendarIcon className="h-5 w-5 text-zinc-500" />
               <Text className="font-medium text-zinc-700">Date Range:</Text>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="border border-zinc-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <Text className="text-zinc-500">to</Text>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="border border-zinc-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+              <div className="flex flex-col">
+                <label className="text-xs text-zinc-500 mb-1 font-medium">Start Date</label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="border border-zinc-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-24"
+                  />
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">
+                    {startDate ? new Date(startDate).toLocaleDateString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric',
+                      year: 'numeric' 
+                    }) : 'Select date'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-center px-2 py-6 sm:py-0">
+                <Text className="text-zinc-500 font-medium">to</Text>
+              </div>
+              <div className="flex flex-col">
+                <label className="text-xs text-zinc-500 mb-1 font-medium">End Date</label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="border border-zinc-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-24"
+                  />
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-zinc-400 pointer-events-none">
+                    {endDate ? new Date(endDate).toLocaleDateString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric',
+                      year: 'numeric' 
+                    }) : 'Select date'}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="text-xs text-zinc-500 bg-blue-50 rounded px-3 py-2 border border-blue-100">
+              <div className="flex items-center gap-1 mb-1">
+                <CalendarIcon className="h-3 w-3 text-blue-600" />
+                <span className="font-medium text-blue-700">Date Format Guide</span>
+              </div>
+              <div className="text-zinc-600">
+                <div>Selected dates show as: <span className="font-mono font-medium text-blue-700">Jan 9, 2025</span></div>
+                <div className="mt-1">All times in your local timezone</div>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -192,15 +245,21 @@ const DashboardPage = () => {
               variant="outline"
               size="sm"
               onClick={() => {
-                // Use actual today (not the system's incorrect future date)
+                // Use local date to avoid timezone issues
                 const today = new Date();
-                const todayStr = today.toISOString().split('T')[0];
+                const todayStr = today.getFullYear() + '-' + 
+                  String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(today.getDate()).padStart(2, '0');
                 setStartDate(todayStr);
                 setEndDate(todayStr);
                 fetchDashboardData(todayStr, todayStr);
               }}
+              className="flex flex-col items-center py-2 px-3 h-auto"
             >
-              Today
+              <span className="text-xs font-medium">Today</span>
+              <span className="text-xs text-zinc-500">
+                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
             </Button>
             <Button
               variant="outline"
@@ -208,13 +267,23 @@ const DashboardPage = () => {
               onClick={() => {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                const yesterdayStr = yesterday.getFullYear() + '-' + 
+                  String(yesterday.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(yesterday.getDate()).padStart(2, '0');
                 setStartDate(yesterdayStr);
                 setEndDate(yesterdayStr);
                 fetchDashboardData(yesterdayStr, yesterdayStr);
               }}
+              className="flex flex-col items-center py-2 px-3 h-auto"
             >
-              Yesterday
+              <span className="text-xs font-medium">Yesterday</span>
+              <span className="text-xs text-zinc-500">
+                {(() => {
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  return yesterday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                })()}
+              </span>
             </Button>
             <Button
               variant="outline"
@@ -225,21 +294,38 @@ const DashboardPage = () => {
                 yesterday.setDate(today.getDate() - 1);
                 const lastWeek = new Date();
                 lastWeek.setDate(today.getDate() - 7);
-                const lastWeekStr = lastWeek.toISOString().split('T')[0];
-                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                
+                const lastWeekStr = lastWeek.getFullYear() + '-' + 
+                  String(lastWeek.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(lastWeek.getDate()).padStart(2, '0');
+                const yesterdayStr = yesterday.getFullYear() + '-' + 
+                  String(yesterday.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(yesterday.getDate()).padStart(2, '0');
+                  
                 setStartDate(lastWeekStr);
                 setEndDate(yesterdayStr);
                 fetchDashboardData(lastWeekStr, yesterdayStr);
               }}
+              className="flex flex-col items-center py-2 px-3 h-auto"
             >
-              Last 7 Days
+              <span className="text-xs font-medium">Last 7 Days</span>
+              <span className="text-xs text-zinc-500">
+                {(() => {
+                  const lastWeek = new Date();
+                  lastWeek.setDate(lastWeek.getDate() - 7);
+                  const yesterday = new Date();
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  return `${lastWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${yesterday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                })()}
+              </span>
             </Button>
             <Button
               size="sm"
               onClick={() => fetchDashboardData()}
               disabled={loading}
+              className="bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              Apply
+              Apply Changes
             </Button>
           </div>
         </div>
@@ -288,8 +374,19 @@ const DashboardPage = () => {
                   </div>
                   <Text className="text-xs text-zinc-500 mt-1">
                     {startDate === endDate ? 
-                      new Date(startDate).toLocaleDateString() : 
-                      `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+                      new Date(startDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      }) : 
+                      `${new Date(startDate).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })} - ${new Date(endDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}`
                     }
                   </Text>
                 </div>
@@ -308,8 +405,19 @@ const DashboardPage = () => {
                   </div>
                   <Text className="text-xs text-zinc-500 mt-1">
                     {startDate === endDate ? 
-                      new Date(startDate).toLocaleDateString() : 
-                      `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+                      new Date(startDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      }) : 
+                      `${new Date(startDate).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })} - ${new Date(endDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}`
                     }
                   </Text>
                 </div>
@@ -328,8 +436,19 @@ const DashboardPage = () => {
                   </div>
                   <Text className="text-xs text-zinc-500 mt-1">
                     {startDate === endDate ? 
-                      new Date(startDate).toLocaleDateString() : 
-                      `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+                      new Date(startDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      }) : 
+                      `${new Date(startDate).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })} - ${new Date(endDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}`
                     }
                   </Text>
                 </div>
@@ -348,8 +467,19 @@ const DashboardPage = () => {
                   </div>
                   <Text className="text-xs text-zinc-500 mt-1">
                     {startDate === endDate ? 
-                      new Date(startDate).toLocaleDateString() : 
-                      `${new Date(startDate).toLocaleDateString()} - ${new Date(endDate).toLocaleDateString()}`
+                      new Date(startDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      }) : 
+                      `${new Date(startDate).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })} - ${new Date(endDate).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}`
                     }
                   </Text>
                 </div>

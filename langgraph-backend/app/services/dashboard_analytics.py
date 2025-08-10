@@ -43,17 +43,22 @@ class DashboardAnalyticsService:
         Get Shopify analytics using existing MCP client
         """
         try:
-            logger.info(f"[Shopify Analytics] Calling analytics_order_summary directly for {start_date}")
+            logger.info(f"[Shopify Analytics] Using direct tool call for {start_date}")
             
-            mcp_manager = await self._get_mcp_manager()
+            # Import and directly call the working analytics tool that agents use
+            import sys
+            import os
+            sys.path.append('/home/pranav/espressobot/frontend/python-tools')
             
-            # Use the orders MCP server for analytics data
-            result = await mcp_manager.call_tool('orders', 'analytics_order_summary', {
-                'start_date': start_date,
-                'end_date': end_date,
-                'include_products': True,
-                'product_limit': 10
-            })
+            from mcp_tools.analytics.daily_sales import DailySalesTool
+            
+            # Create and execute the tool directly
+            tool = DailySalesTool()
+            result = await tool.execute(
+                date=start_date,
+                compare_previous=True,
+                include_hourly=False
+            )
             
             logger.info(f"[Shopify Analytics] Raw MCP response: {result}")
             
@@ -195,9 +200,9 @@ class DashboardAnalyticsService:
                     ).execute()
                     
                     headers = detail.get('payload', {}).get('headers', [])
-                    subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-                    from_addr = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown')
-                    date = next((h['value'] for h in headers if h['name'] == 'Date'), '')
+                    subject = next((h.get('value') for h in headers if h.get('name') == 'Subject'), 'No Subject')
+                    from_addr = next((h.get('value') for h in headers if h.get('name') == 'From'), 'Unknown')
+                    date = next((h.get('value') for h in headers if h.get('name') == 'Date'), '')
                     
                     emails.append({
                         'id': msg['id'],

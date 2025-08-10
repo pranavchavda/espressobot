@@ -387,9 +387,19 @@ class CompetitorScraper:
             'scraped_at': datetime.utcnow()
         }
         
-        # TODO: Generate embedding if embeddings service is available
-        # embedding = await generate_embedding(product_data)
-        # product_data['embedding'] = embedding
+        # Generate embedding if embeddings service is available
+        from app.memory.embedding_service import get_embedding_service
+        embedding_service = get_embedding_service()
+        
+        # Create combined text for embedding
+        embedding_text = f"{product_data['title']} {product_data['vendor']} {product_data['product_type']} {product_data['description']}"
+        try:
+            embedding_result = await embedding_service.get_embedding(embedding_text)
+            # Store as JSON string for database compatibility
+            product_data['embedding'] = json.dumps(embedding_result.embedding)
+        except Exception as embedding_error:
+            logger.warning(f"Failed to generate embedding for competitor product {product['id']}: {embedding_error}")
+            product_data['embedding'] = None
         
         # Upsert product
         existing_query = select(CompetitorProduct).where(

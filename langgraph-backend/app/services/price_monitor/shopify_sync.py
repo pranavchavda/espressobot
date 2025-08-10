@@ -23,6 +23,7 @@ from app.database.session import AsyncSessionLocal
 from uuid import uuid4
 import os
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,9 @@ class ShopifySyncService:
                         logger.info(f"Syncing products for brand: {brand_name}")
                         
                         # Find or create monitored brand
-                        monitored_brand = await session.get(MonitoredBrand, brand_name)
+                        monitored_brand_query = select(MonitoredBrand).where(MonitoredBrand.brand_name == brand_name)
+                        monitored_brand_result = await session.execute(monitored_brand_query)
+                        monitored_brand = monitored_brand_result.scalar_one_or_none()
                         if not monitored_brand:
                             monitored_brand = MonitoredBrand(
                                 id=str(uuid4()),
@@ -266,9 +269,19 @@ class ShopifySyncService:
                                 'updated_at': now
                             }
                             
-                            # TODO: Generate embedding for the product
-                            # embedding = await self._generate_product_embedding(product_data)
-                            # product_data['embedding'] = embedding
+                            # Generate embedding for the product
+                            from app.memory.embedding_service import get_embedding_service
+                            embedding_service = get_embedding_service()
+                            
+                            # Create combined text for embedding
+                            embedding_text = f"{product_data['title']} {product_data['vendor']} {product_data['product_type'] or ''} {product_data['description'] or ''}"
+                            try:
+                                embedding_result = await embedding_service.get_embedding(embedding_text)
+                                # Store as JSON string for database compatibility
+                                product_data['embedding'] = json.dumps(embedding_result.embedding)
+                            except Exception as embedding_error:
+                                logger.warning(f"Failed to generate embedding for product {product['id']}: {embedding_error}")
+                                product_data['embedding'] = None
                             
                             # Upsert product
                             existing_product = await session.get(IdcProduct, product['id'])
