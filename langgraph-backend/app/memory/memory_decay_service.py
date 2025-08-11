@@ -14,7 +14,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from .postgres_memory_manager import PostgresMemoryManager, Memory
+from .postgres_memory_manager_v2 import SimpleMemoryManager as PostgresMemoryManager, Memory
 
 logger = logging.getLogger(__name__)
 

@@ -106,7 +106,7 @@ async def get_memory_dashboard(
         # Get recent memories
         recent_query = """
         SELECT * FROM memories 
-        WHERE user_id = $1 
+        WHERE user_id = $1 AND status = 'active'
         ORDER BY created_at DESC 
         LIMIT 10
         """
@@ -116,7 +116,7 @@ async def get_memory_dashboard(
         # Get important memories
         important_query = """
         SELECT * FROM memories 
-        WHERE user_id = $1 AND importance_score >= 0.8
+        WHERE user_id = $1 AND status = 'active' AND importance_score >= 0.8
         ORDER BY importance_score DESC, access_count DESC
         LIMIT 10
         """
@@ -128,7 +128,7 @@ async def get_memory_dashboard(
         SELECT DATE(created_at) as date, COUNT(*) as count, 
                AVG(importance_score) as avg_importance
         FROM memories 
-        WHERE user_id = $1 AND created_at >= $2
+        WHERE user_id = $1 AND status = 'active' AND created_at >= $2
         GROUP BY DATE(created_at)
         ORDER BY date DESC
         """
@@ -148,7 +148,7 @@ async def get_memory_dashboard(
         category_query = """
         SELECT category, COUNT(*) as count
         FROM memories
-        WHERE user_id = $1
+        WHERE user_id = $1 AND status = 'active'
         GROUP BY category
         """
         category_results = await manager._execute_query(category_query, user_id)
@@ -186,7 +186,7 @@ async def list_memories(
         manager = await get_memory_manager()
         
         # Build query with filters
-        query_parts = ["SELECT * FROM memories WHERE user_id = $1"]
+        query_parts = ["SELECT * FROM memories WHERE user_id = $1 AND status = 'active'"]
         params = [user_id]
         param_count = 1
         
@@ -231,7 +231,7 @@ async def get_memory(memory_id: str, user_id: str = Query(...)):
         
         query = """
         SELECT * FROM memories 
-        WHERE id = $1 AND user_id = $2
+        WHERE id = $1 AND user_id = $2 AND status = 'active'
         """
         result = await manager._execute_one(query, memory_id, user_id)
         
@@ -434,7 +434,7 @@ async def bulk_memory_operation(
             # Export memories
             export_query = """
             SELECT * FROM memories 
-            WHERE id = ANY($1) AND user_id = $2
+            WHERE id = ANY($1) AND user_id = $2 AND status = 'active'
             """
             results = await manager._execute_query(
                 export_query,
@@ -501,7 +501,7 @@ async def export_memories(
         
         query = """
         SELECT * FROM memories 
-        WHERE user_id = $1 
+        WHERE user_id = $1 AND status = 'active'
         ORDER BY created_at DESC
         """
         results = await manager._execute_query(query, user_id)

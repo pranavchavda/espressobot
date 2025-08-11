@@ -1610,16 +1610,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   // Capture streaming message content before clearing
                   const streamingContent = streamingMessageRef.current?.content;
                   
-                  // If this is a NEW conversation (no convId yet), skip local append and rely on fetch
-                  if (!convId) {
-                    setStreamingMessage(null);
-                    // If server history was stashed, apply it now that streaming is complete
-                    if (Array.isArray(pendingServerHistoryRef.current)) {
-                      setMessages(prev => mergeServerAndLocalMessages(pendingServerHistoryRef.current || [], prev));
-                      pendingServerHistoryRef.current = null;
-                    }
-                    break;
-                  }
+                  // Always finalize local streaming message; server history merge below prevents duplicates
 
                   if (streamingContent) {
                     // Clear streaming first, then add to messages (dedup if identical content already exists)
@@ -1700,13 +1691,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               // Also check for data.done = true pattern (older style)
               if (data.done === true) {
                 console.log("FRONTEND: Received data.done=true");
-                // If this is a NEW conversation (no convId yet), skip local append and rely on fetch
-                if (!convId) {
-                  setStreamingMessage(null);
-                  setIsSending(false); 
-                  shouldStop = true;
-                  break;
-                }
+                // Always finalize local streaming message; server merge prevents duplicates
                 // Move streaming content into messages and clear streaming state (legacy)
                 const messageId = `msg-${Date.now()}`;
                 const timestamp = new Date().toISOString();

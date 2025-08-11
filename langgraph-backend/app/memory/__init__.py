@@ -10,11 +10,15 @@ This package provides comprehensive memory management capabilities including:
 - Performance optimization with connection pooling
 """
 
-from .postgres_memory_manager import (
-    PostgresMemoryManager,
+from .postgres_memory_manager_v2 import (
+    SimpleMemoryManager as PostgresMemoryManager,
     Memory,
+    SearchResult
+)
+
+# Import missing items from old manager for compatibility
+from .postgres_memory_manager import (
     PromptFragment,
-    SearchResult,
     MemoryDeduplicator
 )
 

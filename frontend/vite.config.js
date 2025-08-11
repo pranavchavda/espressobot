@@ -229,6 +229,14 @@ export default defineConfig({
         const agentManagementProxy = (await import('./server/api/agent-management-proxy.js')).default;
         apiApp.use('/api/agent-management', agentManagementProxy);
         
+        // Dynamic agents routes - proxy to Python backend
+        const dynamicAgentsProxy = (await import('./server/api/dynamic-agents-proxy.js')).default;
+        apiApp.use('/api/dynamic-agents', dynamicAgentsProxy);
+        
+        // User MCP servers routes - proxy to Python backend
+        const userMCPServersProxy = (await import('./server/api/user-mcp-servers-proxy.js')).default;
+        apiApp.use('/api/user-mcp-servers', userMCPServersProxy);
+        
         // Add aggressive cache-busting middleware before API routes
         server.middlewares.use((req, res, next) => {
           // Check if it's a hard refresh (Ctrl+Shift+R or Ctrl+F5)

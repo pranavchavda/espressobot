@@ -220,8 +220,13 @@ def get_available_models() -> List[ModelInfo]:
     
     return models
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.database.session import get_db
+from app.database.models import DynamicAgent as DynamicAgentModel
+
 @router.get("/agents")
-async def get_agents():
+async def get_agents(db: AsyncSession = Depends(get_db)):
     """Get all agent configurations"""
     try:
         from app.api.agent_discovery_fixed import discover_running_agents, get_agent_model_info
@@ -263,7 +268,28 @@ async def get_agents():
                 "model_class": agent_info.get("model_class", ""),
             }
             agents.append(agent_dict)
-        
+
+        # Also include dynamic agents from the database
+        try:
+            result = await db.execute(select(DynamicAgentModel).where(DynamicAgentModel.is_active == True))
+            dyn_agents = result.scalars().all()
+            for da in dyn_agents:
+                # Prefer stored values or sensible defaults
+                model_name = da.model_name or "gpt-4o-mini"
+                provider = da.model_provider or "openrouter"
+                agents.append({
+                    "id": da.name,
+                    "agent_name": da.name,
+                    "agent_type": da.agent_type or "dynamic",
+                    "model_slug": model_name,
+                    "description": da.description or "Dynamic agent",
+                    "source": "dynamic",
+                    "configurable": True,
+                    "model_class": "DynamicAgent"
+                })
+        except Exception as e:
+            logger.warning(f"Unable to list dynamic agents for management UI: {e}")
+
         logger.info(f"Returning {len(agents)} discovered agents")
         
         return {
@@ -363,14 +389,41 @@ async def debug_update_agent(agent_id: str, request: FastAPIRequest):
     return {"received": json_body}
 
 @router.put("/agents/{agent_id}")
-async def update_agent(agent_id: str, request: Dict[str, Any]):
+async def update_agent(agent_id: str, request: Dict[str, Any], db: AsyncSession = Depends(get_db)):
     """Update agent configuration"""
     logger.info(f"Updating agent {agent_id} with request: {request}")
     try:
         configs = load_agent_configs()
         
         if agent_id not in configs:
-            raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+            # Try dynamic agents fallback
+            try:
+                result = await db.execute(select(DynamicAgentModel).where(DynamicAgentModel.name == agent_id))
+                dyn = result.scalar_one_or_none()
+            except Exception as e:
+                dyn = None
+            if dyn is None:
+                raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+            # Update dynamic agent in DB
+            model_provider = request.get("model_provider") or dyn.model_provider
+            model_name = request.get("model_slug") or request.get("model_name") or dyn.model_name
+            temperature = request.get("temperature") if request.get("temperature") is not None else dyn.temperature
+            max_tokens = request.get("max_tokens") if request.get("max_tokens") is not None else dyn.max_tokens
+
+            # Normalize provider-specific model IDs
+            if model_provider == "openai" and model_name and "/" in model_name:
+                model_name = model_name.split("/")[-1]
+            if model_provider == "anthropic" and model_name and model_name.startswith("anthropic/"):
+                model_name = model_name.replace("anthropic/", "")
+
+            dyn.model_provider = model_provider
+            dyn.model_name = model_name
+            dyn.temperature = {"value": temperature} if isinstance(temperature, (int, float)) else temperature
+            dyn.max_tokens = max_tokens
+            await db.commit()
+
+            logger.info(f"Updated dynamic agent {agent_id} to {model_provider}/{model_name}")
+            return {"success": True, "message": f"Updated dynamic agent {agent_id}. Restart or reload dynamic agents to take effect."}
         
         # Update the configuration
         config = configs[agent_id]

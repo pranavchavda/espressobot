@@ -96,6 +96,85 @@ class DirectOrchestrator:
                 logger.info(f"Initialized {agent.name} agent: {agent.description}")
             except Exception as e:
                 logger.error(f"Failed to initialize {AgentClass.__name__}: {e}")
+        
+        # Initialize storage for dynamic agents
+        self._dynamic_agents = []
+        
+        # Schedule dynamic agent loading after a delay to avoid initialization conflicts
+        # This prevents database connection issues during startup
+        async def delayed_load():
+            await asyncio.sleep(2.0)  # Wait for main initialization to complete
+            await self._load_dynamic_agents()
+        
+        task = asyncio.create_task(delayed_load())
+        # Add callback to catch any errors
+        task.add_done_callback(self._dynamic_agents_task_done)
+    
+    async def _load_dynamic_agents(self):
+        """Load dynamic agents from database"""
+        try:
+            from app.database.session import get_db
+            from app.agents.dynamic_agent import DynamicAgentFactory
+            
+            # Get database session
+            async for db in get_db():
+                try:
+                    # Get list of available dynamic agents
+                    available_agents = await DynamicAgentFactory.list_available_agents(db)
+                    
+                    logger.info(f"Found {len(available_agents)} dynamic agents to load")
+                    
+                    # Load each agent
+                    for agent_info in available_agents:
+                        agent_name = agent_info['name']
+                        
+                        try:
+                            # Create agent from database
+                            logger.info(f"Attempting to create dynamic agent: {agent_name}")
+                            agent = await DynamicAgentFactory.create_from_database(db, agent_name)
+                            
+                            if agent:
+                                # Register with orchestrator
+                                self.agents[agent.name] = agent
+                                self._dynamic_agents.append(agent)
+                                logger.info(f"✅ Loaded dynamic agent: {agent.name} - {agent.description}")
+                                logger.info(f"   MCP servers: {getattr(agent, 'mcp_servers', [])}")
+                                logger.info(f"   Capabilities: {getattr(agent, 'capabilities', [])}")
+                            else:
+                                logger.warning(f"❌ Dynamic agent creation returned None: {agent_name}")
+                        
+                        except Exception as e:
+                            logger.error(f"❌ Failed to load dynamic agent {agent_name}: {e}")
+                            import traceback
+                            logger.error(f"   Stack trace: {traceback.format_exc()}")
+                    
+                    logger.info(f"Successfully loaded {len(self._dynamic_agents)} dynamic agents")
+                    
+                    # Log all available agents for debugging
+                    all_agent_names = list(self.agents.keys())
+                    logger.info(f"All available agents: {', '.join(all_agent_names)}")
+                    
+                    # Rebuild the graph to include dynamic agents
+                    if self._dynamic_agents:
+                        self._build_graph()
+                        logger.info("Rebuilt orchestrator graph with dynamic agents")
+                    
+                    break
+                    
+                except Exception as e:
+                    logger.error(f"Error in dynamic agent loading: {e}")
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Failed to load dynamic agents: {e}")
+    
+    def _dynamic_agents_task_done(self, task):
+        """Callback for dynamic agents loading task"""
+        try:
+            if task.exception():
+                logger.error(f"Dynamic agents loading task failed: {task.exception()}")
+        except Exception as e:
+            logger.error(f"Error in dynamic agents task callback: {e}")
     
     def _build_context_for_agent(self, messages: List) -> str:
         """Build a concise context summary for agent handoff"""
@@ -133,14 +212,16 @@ class DirectOrchestrator:
         """Generate the routing and conversation prompt"""
         
         agent_descriptions = []
+        # Include all agents (both built-in and dynamic)
         for name, agent in self.agents.items():
             agent_descriptions.append(f"- **{name}**: {agent.description}")
         
         return f"""You are EspressoBot, a helpful AI assistant powered by GPT-5 for iDrinkCoffee.com.
 
-You have TWO responsibilities:
+You have THREE responsibilities:
 1. Handle general conversation, greetings, and unclear requests directly
-2. Route specific technical requests to specialist agents
+2. Answer questions about available agents, their capabilities, and system status directly
+3. Route specific technical requests to specialist agents
 
 ## Available Specialist Agents:
 {chr(10).join(agent_descriptions)}
@@ -148,7 +229,8 @@ You have TWO responsibilities:
 ## Decision Process:
 Analyze the user's request and decide:
 - If it's a greeting, general question, or unclear request: Respond directly with a helpful message.
-- If it requires specialist knowledge: Route to the appropriate agent.
+- If it's asking about agents, their existence, capabilities, or system status: Respond directly using your knowledge of available agents listed above.
+- If it requires specialist knowledge for actual work: Route to the appropriate agent.
 
 IMPORTANT EXECUTION PRINCIPLES (Anti-Avoidance):
 - Act-first. If the user asks to fetch, list, summarize, or update something, perform the action without asking for confirmation.
@@ -166,10 +248,12 @@ IMPORTANT EXECUTION PRINCIPLES (Anti-Avoidance):
 - Images, media management → media
 - System integrations, connections → integrations
 - Complex product creation, variants → product_management
-- Utilities, general operations → utility
+- Memory operations, research tasks, what do you know → utility
 - Direct GraphQL operations → graphql
 - Google services → google_workspace
 - Analytics data → ga4_analytics
+
+IMPORTANT: Questions about agent existence, capabilities, or system status should be handled DIRECTLY by the orchestrator without routing to any agent.
 
 ## Response Format:
 Return a JSON object with ONE of these structures:
@@ -187,15 +271,40 @@ For multi-agent tasks (A2A):
     async def process_request(self, state: GraphState) -> GraphState:
         """Process request - either respond directly or route to agent"""
         try:
+            logger.info(f"🎯 ORCHESTRATOR: Processing request with {len(state['messages'])} messages")
+            user_message = state["messages"][-1].content if state["messages"] else ""
+            logger.info(f"🎯 ORCHESTRATOR: User message: {user_message[:100]}...")
             # Initialize memory node if not already done
             if not self.memory_node._initialized:
                 await self.memory_node.initialize()
                 logger.info("Initialized memory persistence node")
             
-            # Load memory context BEFORE processing the request
-            state = await self.memory_node.load_memory_context(state)
-            memory_context = state.get('memory_context', [])
-            logger.info(f"Loaded memory context: {len(memory_context)} relevant memories")
+            # Start loading memory context asynchronously
+            memory_load_task = asyncio.create_task(self.memory_node.load_memory_context(state.copy()))
+            
+            # Try to get memory context with a short wait
+            try:
+                # Wait briefly to see if memory loads quickly
+                done, pending = await asyncio.wait([memory_load_task], timeout=0.5)
+                
+                if done:
+                    # Memory loaded quickly, use it
+                    memory_state = await memory_load_task
+                    state.update(memory_state)
+                    memory_context = state.get('memory_context', [])
+                    logger.info(f"Loaded memory context quickly: {len(memory_context)} relevant memories")
+                else:
+                    # Memory still loading, proceed without it for now
+                    memory_context = []
+                    logger.info("Memory context still loading, proceeding without blocking")
+                    
+                    # Store the task to potentially use later
+                    state['memory_load_task'] = memory_load_task
+                    
+            except Exception as e:
+                logger.warning(f"Error loading memory context: {e}")
+                memory_context = []
+                state['skip_memory'] = True
             
             # Log the actual memories loaded for context
             for i, mem in enumerate(memory_context[:3], 1):  # Show first 3 memories
@@ -433,8 +542,9 @@ For multi-agent tasks (A2A):
                             "memory_context": state.get("memory_context", [])  # Pass memory context to agent
                         }
                         
-                        logger.info(f"Routing to {agent_name}: {decision.get('reason', '')}")
-                        logger.info(f"Passing context with {len(context_summary)} chars to agent")
+                        logger.info(f"🚀 ORCHESTRATOR: Routing to {agent_name}: {decision.get('reason', '')}")
+                        logger.info(f"🚀 ORCHESTRATOR: Passing context with {len(context_summary)} chars to agent")
+                        logger.info(f"🚀 ORCHESTRATOR: Agent type: {type(self.agents.get(agent_name, 'unknown'))}")
                     else:
                         # Unknown agent, respond directly
                         state["messages"].append(AIMessage(
@@ -469,6 +579,20 @@ For multi-agent tasks (A2A):
                     metadata={"agent": "orchestrator", "timeout": True}
                 ))
                 state["should_continue"] = False
+            
+            # Check if memory loading task completed in background
+            memory_load_task = state.get('memory_load_task')
+            if memory_load_task and not memory_load_task.done():
+                try:
+                    # Give it a bit more time to complete
+                    await asyncio.wait_for(memory_load_task, timeout=2.0)
+                    memory_state = memory_load_task.result()
+                    # Update state with loaded memories for next turn
+                    if 'memory_context' in memory_state:
+                        state['memory_context'] = memory_state['memory_context']
+                        logger.info(f"Background memory loading completed: {len(memory_state.get('memory_context', []))} memories")
+                except:
+                    pass  # Memory loading failed or timed out, ignore
             
             # Extract and persist memories from the conversation
             if state.get("user_id"):
@@ -558,9 +682,13 @@ For multi-agent tasks (A2A):
         # Check if we already processed with an agent - avoid loops
         last_message = state.get("messages", [])[-1] if state.get("messages") else None
         if last_message and hasattr(last_message, 'metadata'):
-            # If the last message has an error or is from an agent, end the flow
-            if last_message.metadata.get("error") or last_message.metadata.get("agent"):
+            # End on error
+            if last_message.metadata.get("error"):
                 return "end"
+            # If the last message is from a specialist agent, synthesize an orchestrator response
+            last_agent = last_message.metadata.get("agent")
+            if last_agent and last_agent != "orchestrator":
+                return "synthesize"
         
         # Check for multi-agent task
         if state.get("multi_agent_task"):

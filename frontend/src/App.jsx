@@ -15,6 +15,8 @@ import HomePage from './pages/HomePage';
 import PriceMonitorLayout from './pages/price-monitor/PriceMonitorLayout';
 import AgentManagementPage from './pages/AgentManagementPage';
 import MemoryManagementPage from './pages/MemoryManagementPage';
+import AgentBuilder from './features/agents/AgentBuilder';
+import MCPServerManager from './features/agents/MCPServerManager';
 import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { Loader2Icon, MessageSquarePlusIcon, XIcon, LineChartIcon, FileTextIcon } from 'lucide-react';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
@@ -378,6 +380,9 @@ function App() {
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />
         <Route path="/admin/memory" element={<MemoryManagementPage />} />
+        <Route path="/admin/agents" element={<AgentBuilder />} />
+        <Route path="/admin/agents/edit/:agentName" element={<AgentBuilder />} />
+        <Route path="/admin/mcp-servers" element={<MCPServerManager />} />
         <Route 
           path="/agent-management" 
           element={<AgentManagementPage />}

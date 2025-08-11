@@ -47,25 +47,32 @@ class AgentModelManager:
             if preferred_provider != Provider.OPENROUTER:
                 model_name = self._normalize_model_name(model_name)
             
-            # Create model using factory
+            # Create model using factory with proper parameters
             try:
+                # Get proper parameters based on model type
+                model_params = self._get_model_parameters(
+                    model_name, 
+                    config.get("temperature", 0.0),
+                    config.get("max_tokens", 2048),
+                    preferred_provider
+                )
+                
                 return llm_factory.create_llm(
                     model_name=model_name,
-                    temperature=config.get("temperature", 0.0),
-                    max_tokens=config.get("max_tokens", 2048),
-                    preferred_provider=preferred_provider
+                    preferred_provider=preferred_provider,
+                    **model_params
                 )
             except Exception as e:
                 logger.error(f"Error creating model for {agent_name}: {e}")
         
         # Default fallback based on agent type
         if agent_name == "orchestrator":
-            # Orchestrator uses GPT-5-chat
+            # Orchestrator uses GPT-5-chat (no temperature/token params for GPT-5)
+            model_params = self._get_model_parameters("gpt-5-chat", 0.0, 2048, Provider.OPENROUTER)
             return llm_factory.create_llm(
                 model_name="gpt-5-chat",
-                temperature=0.0,
-                max_tokens=2048,
-                preferred_provider=Provider.OPENROUTER
+                preferred_provider=Provider.OPENROUTER,
+                **model_params
             )
         else:
             # All other agents use Claude 3.5 Haiku
@@ -75,6 +82,36 @@ class AgentModelManager:
                 temperature=0.0,
                 api_key=os.getenv("ANTHROPIC_API_KEY")
             )
+    
+    def _get_model_parameters(self, model_name: str, temperature: float, max_tokens: int, provider: Provider) -> Dict[str, Any]:
+        """Get proper parameters based on model type and provider"""
+        params = {}
+        
+        # Check if it's a GPT-5 series model
+        is_gpt5_series = any(x in model_name.lower() for x in ['gpt-5', 'gpt5'])
+        
+        # Check if it's an OpenAI provider model
+        is_openai_model = (provider == Provider.OPENAI or 
+                          any(x in model_name.lower() for x in ['gpt-', 'o1-']))
+        
+        # GPT-5 series models don't support temperature or max_tokens parameters
+        if is_gpt5_series:
+            logger.info(f"GPT-5 series model detected ({model_name}): excluding temperature and token limits")
+            # GPT-5 models don't accept temperature or token parameters
+            return params
+        
+        # Add temperature for non-GPT-5 models
+        params["temperature"] = temperature
+        
+        # Use max_completion_tokens for OpenAI models, max_tokens for others
+        if is_openai_model and not is_gpt5_series:
+            params["max_completion_tokens"] = max_tokens
+            logger.info(f"OpenAI model detected ({model_name}): using max_completion_tokens={max_tokens}")
+        elif not is_gpt5_series:
+            params["max_tokens"] = max_tokens
+            logger.info(f"Non-OpenAI model detected ({model_name}): using max_tokens={max_tokens}")
+        
+        return params
     
     def _normalize_model_name(self, model_name: str) -> str:
         """Normalize model names to match factory expectations"""

@@ -20,19 +20,22 @@ class BaseAgent(ABC):
         self.name = name
         self.description = description
         
-        # Use LLM factory with agent-specific model configuration
-        from app.config.model_config import model_config
+        # Use Agent Model Manager for proper parameter handling
+        from app.config.agent_model_manager import AgentModelManager
         try:
-            self.model = model_config.get_langchain_llm(self.name)
-            logger.info(f"Initialized {self.name} agent with GPT-5 model via LLM factory")
+            agent_model_manager = AgentModelManager()
+            self.model = agent_model_manager.get_model_for_agent(self.name)
+            logger.info(f"Initialized {self.name} agent with model via AgentModelManager")
         except Exception as e:
-            logger.warning(f"Failed to create model for {self.name} via factory, falling back: {e}")
-            # Fallback to direct factory call
-            from app.config.llm_factory import llm_factory
-            self.model = llm_factory.create_llm(
-                model_name="gpt-5-mini",  # Safe default
+            logger.warning(f"Failed to create model for {self.name} via AgentModelManager, falling back: {e}")
+            # Fallback to direct factory call with safe parameters
+            from app.config.llm_factory import llm_factory, Provider
+            # Use Claude as safe fallback (no GPT-5 parameter issues)
+            from langchain_anthropic import ChatAnthropic
+            self.model = ChatAnthropic(
+                model="claude-3-5-haiku-20241022",
                 temperature=temperature,
-                max_tokens=2048
+                api_key=os.getenv("ANTHROPIC_API_KEY")
             )
         
         self.tools: List[Any] = []

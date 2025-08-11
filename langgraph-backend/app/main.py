@@ -44,7 +44,7 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, conversations, auth_proxy, chat_enhanced, agent_management, memory_enhanced, dashboard, price_monitor
+from app.api import chat, conversations, auth_proxy, chat_enhanced, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin
 
 app.include_router(chat.router, prefix="/api/agent")
 app.include_router(chat_enhanced.router, prefix="/api/agent/v2")
@@ -59,6 +59,11 @@ app.include_router(dashboard.router, prefix="/api/dashboard")
 # Enable price monitor router
 app.include_router(price_monitor.router)
 app.include_router(price_monitor.shopify_sync_safe_router)
+
+# Dynamic agents and MCP servers
+app.include_router(dynamic_agents.router)  # Dynamic agent management
+app.include_router(user_mcp_servers.router)  # User MCP server management
+app.include_router(orchestrator_admin.router)  # Orchestrator admin endpoints
 
 # Temporarily disable other routers that depend on SQLAlchemy
 # app.include_router(auth.router, prefix="/api/auth")

@@ -4,6 +4,7 @@ Provides direct access to analytics data without LLM processing
 """
 
 import os
+import sys
 import logging
 import asyncio
 from datetime import datetime
@@ -17,6 +18,12 @@ from sqlalchemy import select
 
 from app.database.models import User
 from app.tools.mcp_client import get_mcp_manager
+from app.services.analytics_cache_service import get_cache_service
+
+# Add MCP tools path and import at module level
+sys.path.append('/home/pranav/espressobot/frontend/python-tools')
+from mcp_tools.analytics.daily_sales import DailySalesTool
+from mcp_tools.analytics.order_analytics import OrderAnalyticsTool
 
 logger = logging.getLogger(__name__)
 
@@ -45,24 +52,47 @@ class DashboardAnalyticsService:
         try:
             logger.info(f"[Shopify Analytics] Using direct tool call for {start_date}")
             
-            # Import and directly call the working analytics tool that agents use
-            import sys
-            import os
-            sys.path.append('/home/pranav/espressobot/frontend/python-tools')
-            
-            from mcp_tools.analytics.daily_sales import DailySalesTool
-            
-            # Create and execute the tool directly
-            tool = DailySalesTool()
-            result = await tool.execute(
+            # Create and execute the daily sales tool
+            daily_tool = DailySalesTool()
+            daily_result = await daily_tool.execute(
                 date=start_date,
                 compare_previous=True,
                 include_hourly=False
             )
             
-            logger.info(f"[Shopify Analytics] Raw MCP response: {result}")
+            # Also get top products using OrderAnalyticsTool
+            order_tool = OrderAnalyticsTool()
+            order_result = await order_tool.execute(
+                start_date=start_date,
+                end_date=end_date,
+                include_products=True,
+                product_limit=10
+            )
             
-            # Handle different MCP response formats
+            logger.info(f"[Shopify Analytics] Raw daily response: {daily_result}")
+            logger.info(f"[Shopify Analytics] Got top products from order analytics")
+            
+            # Combine results
+            result = daily_result
+            
+            # Extract top products from order analytics
+            top_products = []
+            if order_result and order_result.get('success') and order_result.get('data'):
+                top_products = order_result['data'].get('top_products', [])
+            elif order_result and 'content' in order_result:
+                # Handle MCP format
+                content = order_result.get('content', [])
+                if content and len(content) > 0:
+                    try:
+                        import json
+                        text_data = content[0].get('text', '{}')
+                        parsed = json.loads(text_data)
+                        if parsed.get('success') and parsed.get('data'):
+                            top_products = parsed['data'].get('top_products', [])
+                    except:
+                        pass
+            
+            # Handle different MCP response formats for daily sales
             # Format 1: Direct success/data format
             if result and result.get('success') and result.get('data'):
                 data = result['data']
@@ -70,7 +100,7 @@ class DashboardAnalyticsService:
                     'total_revenue': str(data.get('summary', {}).get('total_revenue', '0')),
                     'order_count': data.get('summary', {}).get('order_count', 0),
                     'average_order_value': str(data.get('summary', {}).get('average_order_value', '0')),
-                    'top_products': data.get('top_products', []),
+                    'top_products': top_products,  # Use products from order analytics
                     'raw_response': result
                 }
             # Format 2: MCP content array format
@@ -89,7 +119,7 @@ class DashboardAnalyticsService:
                                 'total_revenue': str(data.get('summary', {}).get('total_revenue', '0')),
                                 'order_count': data.get('summary', {}).get('order_count', 0),
                                 'average_order_value': str(data.get('summary', {}).get('average_order_value', '0')),
-                                'top_products': data.get('top_products', []),
+                                'top_products': top_products,  # Use products from order analytics
                                 'raw_response': parsed_data
                             }
                     except json.JSONDecodeError as e:
@@ -446,32 +476,64 @@ class DashboardAnalyticsService:
         
         logger.info(f"[Dashboard Analytics] Fetching data for {start_date} to {end_date}")
         
-        # Fetch all data concurrently
-        shopify_task = asyncio.create_task(
-            self.get_shopify_analytics(start_date, end_date, user_id)
-        )
-        ga4_task = asyncio.create_task(
-            self.get_ga4_analytics(start_date, end_date, user)
-        )
-        tasks_task = asyncio.create_task(
-            self.get_google_tasks(user)
-        )
-        emails_task = asyncio.create_task(
-            self.get_recent_emails(user, 10)
-        )
-        calendar_task = asyncio.create_task(
-            self.get_upcoming_calendar(user, 10)
-        )
+        # Check cache first (only for historical data, not today)
+        cache_service = get_cache_service()
+        cached_data = await cache_service.get_cached_analytics(db, start_date)
         
-        # Wait for all tasks to complete
-        shopify_data, ga4_data, tasks_data, emails_data, calendar_data = await asyncio.gather(
-            shopify_task,
-            ga4_task,
-            tasks_task,
-            emails_task,
-            calendar_task,
-            return_exceptions=True
-        )
+        if cached_data:
+            logger.info(f"[Dashboard Analytics] Using cached data for {start_date}")
+            # Still fetch fresh workspace data as it changes frequently
+            tasks_data = await self.get_google_tasks(user)
+            emails_data = await self.get_recent_emails(user, 10)
+            calendar_data = await self.get_upcoming_calendar(user, 10)
+            
+            # Merge cached and fresh data
+            shopify_data = cached_data['shopify']
+            ga4_data = cached_data['ga4']
+        else:
+            logger.info(f"[Dashboard Analytics] Fetching fresh data for {start_date}")
+            # Fetch all data concurrently
+            shopify_task = asyncio.create_task(
+                self.get_shopify_analytics(start_date, end_date, user_id)
+            )
+            ga4_task = asyncio.create_task(
+                self.get_ga4_analytics(start_date, end_date, user)
+            )
+            tasks_task = asyncio.create_task(
+                self.get_google_tasks(user)
+            )
+            emails_task = asyncio.create_task(
+                self.get_recent_emails(user, 10)
+            )
+            calendar_task = asyncio.create_task(
+                self.get_upcoming_calendar(user, 10)
+            )
+            
+            # Wait for all tasks to complete
+            shopify_data, ga4_data, tasks_data, emails_data, calendar_data = await asyncio.gather(
+                shopify_task,
+                ga4_task,
+                tasks_task,
+                emails_task,
+                calendar_task,
+                return_exceptions=True
+            )
+            
+            # Save to cache if successful (only for historical data)
+            from datetime import date
+            query_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if query_date < date.today() and not isinstance(shopify_data, Exception) and not isinstance(ga4_data, Exception):
+                await cache_service.save_analytics_to_cache(
+                    db, 
+                    start_date,
+                    shopify_data if not isinstance(shopify_data, Exception) else {},
+                    ga4_data if not isinstance(ga4_data, Exception) else {},
+                    {
+                        'tasks': tasks_data if not isinstance(tasks_data, Exception) else [],
+                        'emails': emails_data if not isinstance(emails_data, Exception) else [],
+                        'calendar': calendar_data if not isinstance(calendar_data, Exception) else []
+                    }
+                )
         
         # Handle any exceptions
         if isinstance(shopify_data, Exception):
@@ -590,7 +652,7 @@ class DashboardAnalyticsService:
                 'orders': shopify_data.get('order_count', 0),
                 'aov': shopify_data.get('average_order_value', '0'),
                 'top_product': (
-                    f"{shopify_data['top_products'][0]['name']} was the top seller with {shopify_data['top_products'][0]['quantity_sold']} units sold for ${shopify_data['top_products'][0]['revenue']} in revenue."
+                    f"{shopify_data['top_products'][0]['title']} was the top seller with {shopify_data['top_products'][0]['quantity_sold']} units sold for ${shopify_data['top_products'][0]['revenue']} in revenue."
                     if shopify_data.get('top_products') else 'No top product data available.'
                 )
             },
@@ -610,7 +672,7 @@ class DashboardAnalyticsService:
                     f"Revenue comparison: Shopify reports ${shopify_data.get('total_revenue', '0')} while GA4 shows ${ga4_data['ecommerce'].get('revenue', '0')}",
                     f"Advertising efficiency: {ga4_data['ads_performance'].get('roas', '0')}x ROAS on ${ga4_data['ads_performance'].get('total_spend', '0')} ad spend",
                     (
-                        f"Best performer: {shopify_data['top_products'][0]['name']} with ${shopify_data['top_products'][0]['revenue']} revenue"
+                        f"Best performer: {shopify_data['top_products'][0]['title']} with ${shopify_data['top_products'][0]['revenue']} revenue"
                         if shopify_data.get('top_products') else None
                     )
                 ] if insight is not None
@@ -642,7 +704,7 @@ class DashboardAnalyticsService:
         # Performance insights
         if shopify_data.get('top_products'):
             top_product = shopify_data['top_products'][0]
-            insights.append(f"Top performing product: {top_product['name']} generated ${top_product['revenue']} from {top_product['quantity_sold']} units sold")
+            insights.append(f"Top performing product: {top_product['title']} generated ${top_product['revenue']} from {top_product['quantity_sold']} units sold")
         
         # ROAS insight
         roas = float(ga4_data['ads_performance'].get('roas', '0') or '0')
@@ -660,7 +722,7 @@ class DashboardAnalyticsService:
         top_product_line = ""
         if shopify_data.get('top_products'):
             top_product = shopify_data['top_products'][0]
-            top_product_line = f"- Top Product: {top_product['name']} (${top_product['revenue']})"
+            top_product_line = f"- Top Product: {top_product['title']} (${top_product['revenue']})"
         
         top_traffic_line = ""
         if ga4_data.get('traffic_sources'):
@@ -683,7 +745,7 @@ class DashboardAnalyticsService:
         
         product_insight = ""
         if shopify_data.get('top_products'):
-            product_insight = f"- {shopify_data['top_products'][0]['name']} is driving significant revenue"
+            product_insight = f"- {shopify_data['top_products'][0]['title']} is driving significant revenue"
         
         return f"""**Daily Performance Summary for {date}**
 

@@ -1,6 +1,23 @@
 {
-  "timestamp": 1754865128.869754,
+  "timestamp": 1754950069.4888847,
   "models": [
+    {
+      "id": "z-ai/glm-4.5v",
+      "name": "Z.AI: GLM 4.5V",
+      "provider": "openrouter",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.0000006",
+        "completion": "0.0000018",
+        "request": "0",
+        "image": "0",
+        "audio": "0",
+        "web_search": "0",
+        "internal_reasoning": "0",
+        "input_cache_read": "0.00000011"
+      },
+      "description": "via OpenRouter - GLM-4.5V is a vision-language foundation model for multimodal agent applications. Built on a Mixture"
+    },
     {
       "id": "openai/gpt-5-chat",
       "name": "OpenAI: GPT-5 Chat",
@@ -75,8 +92,8 @@
       "provider": "openrouter",
       "context_length": 131072,
       "pricing": {
-        "prompt": "0.00000009",
-        "completion": "0.00000045",
+        "prompt": "0.00000007256312",
+        "completion": "0.0000002903936",
         "request": "0",
         "image": "0",
         "audio": "0",
@@ -682,7 +699,7 @@
       "id": "mistralai/devstral-small-2505",
       "name": "Mistral: Devstral Small 2505",
       "provider": "openrouter",
-      "context_length": 32768,
+      "context_length": 131072,
       "pricing": {
         "prompt": "0.00000001999188",
         "completion": "0.0000000800064",
@@ -782,8 +799,8 @@
       "provider": "openrouter",
       "context_length": 163840,
       "pricing": {
-        "prompt": "0.00000005",
-        "completion": "0.00000005",
+        "prompt": "0.00000018",
+        "completion": "0.00000018",
         "request": "0",
         "image": "0",
         "audio": "0",
@@ -800,22 +817,6 @@
       "pricing": {
         "prompt": "0",
         "completion": "0",
-        "request": "0",
-        "image": "0",
-        "audio": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      },
-      "description": "via OpenRouter - Qwen3, the latest generation in the Qwen large language model series, features both dense and mixtur"
-    },
-    {
-      "id": "qwen/qwen3-30b-a3b",
-      "name": "Qwen: Qwen3 30B A3B",
-      "provider": "openrouter",
-      "context_length": 40960,
-      "pricing": {
-        "prompt": "0.00000001999188",
-        "completion": "0.0000000800064",
         "request": "0",
         "image": "0",
         "audio": "0",

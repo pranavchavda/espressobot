@@ -178,28 +178,25 @@ async def chat_stream(request: ChatRequest):
                                             metadata = getattr(last_msg, 'metadata', {})
                                             agent_name = metadata.get("agent", node_name)
                                             is_direct_response = metadata.get("direct_response", False)
-                                            
-                                            if content:
-                                                # Only synthesize deltas if:
-                                                # 1. No real deltas were emitted AND
-                                                # 2. This is not a direct orchestrator response (which already streamed)
+                                            # Only emit user-visible content for orchestrator messages
+                                            if content and (agent_name == "orchestrator" or is_direct_response):
+                                                # Only synthesize deltas if no real deltas and not direct streamed
                                                 if not any_delta_emitted and not is_direct_response:
                                                     try:
                                                         step = 20
                                                         for i in range(0, len(content), step):
                                                             yield json.dumps({
                                                                 "event": "assistant_delta",
-                                                                "agent": agent_name or "orchestrator",
+                                                                "agent": "orchestrator",
                                                                 "conversation_id": thread_id,
                                                                 "delta": content[i:i+step]
                                                             }) + "\n"
                                                     except Exception:
                                                         pass
-                                                
-                                                # Always send agent_complete for UI to know message is done
+                                                # Always send final message as orchestrator
                                                 yield json.dumps({
                                                     "event": "agent_complete",
-                                                    "agent": agent_name,
+                                                    "agent": "orchestrator",
                                                     "message": content
                                                 }) + "\n"
                         except Exception:
@@ -338,88 +335,77 @@ async def chat_message(request: ChatRequest):
     
     orchestrator = get_orchestrator()
     
+    # Use conv_id if provided (frontend compatibility)
+    conversation_id = request.conv_id or request.conversation_id
+    thread_id = request.thread_id or conversation_id or f"chat-{int(time.time())}"
+    user_id = request.user_id or "1"
+    
     try:
-        result = await orchestrator.run(
-            message=request.message,
-            conversation_id=request.conversation_id,
-            user_id=request.user_id,
-            context=request.context,
-            thread_id=request.thread_id
-        )
+        # Build message content with image support (same as streaming endpoint)
+        if request.image:
+            # Multimodal message with image
+            content = [
+                {"type": "text", "text": request.message}
+            ]
+            
+            # Add image to content
+            if request.image.get("type") == "url" or "url" in request.image:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": request.image["url"]}
+                })
+            elif request.image.get("type") == "data_url" or "data" in request.image:
+                data_url = request.image.get("data", request.image.get("dataUrl", ""))
+                if not data_url.startswith("data:"):
+                    data_url = f"data:image/png;base64,{data_url}"
+                content.append({
+                    "type": "image_url", 
+                    "image_url": {"url": data_url}
+                })
+        else:
+            # Text-only message
+            content = request.message
         
-        if not result["success"]:
-            raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+        from langchain_core.messages import HumanMessage
+        human_message = HumanMessage(content=content)
         
+        # Use the same graph execution pattern as streaming
+        initial_state = {
+            "messages": [human_message],
+            "user_id": user_id,
+            "conversation_id": thread_id,
+            "thread_id": thread_id
+        }
+        
+        config = {
+            "configurable": {"thread_id": thread_id}
+        }
+        
+        # Collect all chunks (non-streaming)
+        final_messages = []
+        for chunk in orchestrator.graph.stream(initial_state, config):
+            for node_name, state_updates in chunk.items():
+                if "messages" in state_updates:
+                    final_messages = state_updates["messages"]
+        
+        # Convert to API format
         messages = []
-        for msg in result["messages"]:
+        for msg in final_messages:
             messages.append({
                 "role": "user" if msg.__class__.__name__ == "HumanMessage" else "assistant",
                 "content": msg.content,
                 "metadata": getattr(msg, "metadata", {})
             })
         
-        # Auto-generate title if this is a new conversation
-        generated_title = None
-        try:
-            thread_id = request.thread_id or request.conversation_id or f"chat-{int(time.time())}"
-            from app.api.conversations import get_db_connection
-            conn = await get_db_connection()
-            try:
-                # Ensure table exists
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS conversation_metadata (
-                        thread_id TEXT PRIMARY KEY,
-                        title TEXT,
-                        auto_generated BOOLEAN DEFAULT FALSE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # Check if title exists for this thread
-                existing_title = await conn.fetchval("""
-                    SELECT title FROM conversation_metadata 
-                    WHERE thread_id = $1
-                """, thread_id)
-                
-                if not existing_title:
-                    # This is a new conversation, generate title
-                    from app.api.title_generator import get_title_generator
-                    generator = get_title_generator()
-                    generated_title = await generator.generate_title(request.message)
-                    
-                    # Store the generated title
-                    await conn.execute("""
-                        INSERT INTO conversation_metadata (thread_id, title, auto_generated, updated_at)
-                        VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)
-                        ON CONFLICT (thread_id) 
-                        DO UPDATE SET 
-                            title = EXCLUDED.title,
-                            auto_generated = EXCLUDED.auto_generated,
-                            updated_at = CURRENT_TIMESTAMP
-                    """, thread_id, generated_title)
-                    
-                    logger.info(f"Auto-generated title for new conversation {thread_id}: {generated_title}")
-                    
-            finally:
-                await conn.close()
-                
-        except Exception as e:
-            logger.warning(f"Failed to auto-generate title: {e}")
-
-        response_metadata = result.get("metadata", {})
-        if generated_title:
-            response_metadata["generated_title"] = generated_title
-
         return {
             "success": True,
             "messages": messages,
-            "last_agent": result.get("last_agent"),
-            "metadata": response_metadata
+            "conversation_id": thread_id,
+            "thread_id": thread_id
         }
         
     except Exception as e:
-        logger.error(f"Error processing message: {e}")
+        logger.error(f"Error in chat message endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/agents")

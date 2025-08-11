@@ -43,7 +43,8 @@ const AgentManagementPage = () => {
       const modelsData = await modelsRes.json();
       const statsData = await statsRes.json();
 
-      if (agentsData.success) setAgents(agentsData.agents);
+      setAgents(agentsData.success ? agentsData.agents : []);
+      
       if (modelsData.success) {
         setModels(modelsData.models);
         setCurrentProvider(modelsData.provider);
@@ -89,9 +90,9 @@ const AgentManagementPage = () => {
     }
 
     try {
+      // Always route updates through agent-management; backend handles dynamic vs built-in
       console.log(`Updating agent ${agentId} with:`, updates);
       console.log('Request URL:', `${PYTHON_BACKEND_URL}/api/agent-management/agents/${agentId}`);
-      
       const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${agentId}`, {
         method: 'PUT',
         headers: { 
@@ -102,19 +103,14 @@ const AgentManagementPage = () => {
       });
 
       const result = await response.json();
-      
       if (response.status === 422) {
-        // Validation error from backend
         const details = result.detail?.map(d => d.msg).join(', ') || 'Validation error';
         alert('Failed to update agent: ' + details);
         return;
       }
-      
       if (result.success) {
-        // Refresh agents list
         loadData();
       } else {
-        // Better error handling - check for different error formats
         const errorMessage = result.error || result.detail || result.message || 'Unknown error';
         alert('Failed to update agent: ' + errorMessage);
       }
@@ -126,13 +122,24 @@ const AgentManagementPage = () => {
 
   const loadAgentPrompt = async (agent) => {
     try {
-      const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${agent.id}/prompt`);
-      const result = await response.json();
-      
-      if (result.success) {
+      let response;
+      if (agent.source === 'dynamic') {
+        // Load dynamic agent details
+        response = await fetch(`${PYTHON_BACKEND_URL}/api/dynamic-agents/${agent.agent_name}`);
+        const agentData = await response.json();
         setSelectedAgent(agent);
-        setPromptText(result.system_prompt || '');
+        setPromptText(agentData.system_prompt || '');
         setEditingPrompt(true);
+      } else {
+        // Load built-in agent prompt
+        response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${agent.id}/prompt`);
+        const result = await response.json();
+        
+        if (result.success) {
+          setSelectedAgent(agent);
+          setPromptText(result.system_prompt || '');
+          setEditingPrompt(true);
+        }
       }
     } catch (error) {
       console.error('Error loading prompt:', error);
@@ -143,19 +150,30 @@ const AgentManagementPage = () => {
     if (!selectedAgent) return;
     
     try {
-      const response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${selectedAgent.id}/prompt`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ system_prompt: promptText })
-      });
+      let response;
+      if (selectedAgent && selectedAgent.source === 'dynamic') {
+        // Update dynamic agent
+        response = await fetch(`${PYTHON_BACKEND_URL}/api/dynamic-agents/${selectedAgent.agent_name}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ system_prompt: promptText })
+        });
+      } else {
+        // Update built-in agent
+        response = await fetch(`${PYTHON_BACKEND_URL}/api/agent-management/agents/${selectedAgent.id}/prompt`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ system_prompt: promptText })
+        });
+      }
 
       const result = await response.json();
-      if (result.success) {
+      if (result.success || response.ok) {
         setEditingPrompt(false);
         setSelectedAgent(null);
         loadData(); // Refresh data
       } else {
-        alert('Failed to save prompt: ' + result.error);
+        alert('Failed to save prompt: ' + (result.error || result.detail || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error saving prompt:', error);
@@ -262,25 +280,43 @@ const AgentManagementPage = () => {
                       <Badge color={agent.agent_type === 'orchestrator' ? 'blue' : 'gray'}>
                         {agent.agent_type}
                       </Badge>
-                      <Badge color={agent.source === 'database' ? 'green' : agent.source === 'file' ? 'orange' : 'purple'}>
+                      <Badge color={agent.source === 'dynamic' ? 'purple' : agent.source === 'database' ? 'green' : agent.source === 'file' ? 'orange' : 'gray'}>
                         {agent.source || 'database'}
                       </Badge>
-                      {!agent.configurable && (
+                      {agent.is_dynamic && (
+                        <Badge color="indigo">
+                          User-created
+                        </Badge>
+                      )}
+                      {!agent.configurable && !agent.is_dynamic && (
                         <Badge color="red">
                           Read-only
                         </Badge>
                       )}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    outline
-                    onClick={() => loadAgentPrompt(agent)}
-                    title="Edit system prompt"
-                    disabled={!agent.configurable}
-                  >
-                    <Edit className="w-4 h-4" />
-                  </Button>
+                  {agent.is_dynamic ? (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        outline
+                        onClick={() => navigate(`/admin/agents/edit/${agent.dynamic_name}`)}
+                        title="Edit in Agent Builder"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      outline
+                      onClick={() => loadAgentPrompt(agent)}
+                      title="Edit system prompt"
+                      disabled={!agent.configurable}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
                 
                 <div className="space-y-3">

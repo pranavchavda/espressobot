@@ -15,6 +15,7 @@ import re
 from difflib import SequenceMatcher
 
 from .embedding_service import get_embedding_service, EmbeddingResult
+from .simple_db_pool import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ class PostgresMemoryManager:
             return
             
         self.database_url = database_url or os.getenv("DATABASE_URL")
-        self.pool: Optional[Pool] = None
+        self.db = get_db_connection()  # Use simple connection manager
         self.embedding_service = get_embedding_service()
         self.deduplicator = MemoryDeduplicator(self.embedding_service)
         
@@ -165,47 +166,49 @@ class PostgresMemoryManager:
         self.query_times = []
         self.connection_errors = 0
         
-        # Concurrency control - limit concurrent DB operations
-        self._db_semaphore = asyncio.Semaphore(10)  # Allow more concurrent operations
+        # Concurrency control - still useful to limit concurrent operations
+        self._db_semaphore = asyncio.Semaphore(3)  # Allow 3 concurrent operations
         self._initialized = True
     
     async def _init_connection(self, conn):
         """Initialize each new connection in the pool"""
         # Set statement timeout to prevent long-running queries
-        await conn.execute("SET statement_timeout = '30s'")
+        await conn.execute("SET statement_timeout = '5s'")
         # Set lock timeout to prevent long waits
-        await conn.execute("SET lock_timeout = '10s'")
+        await conn.execute("SET lock_timeout = '2s'")
         # Set idle transaction timeout
-        await conn.execute("SET idle_in_transaction_session_timeout = '60s'")
+        await conn.execute("SET idle_in_transaction_session_timeout = '10s'")
     
     async def initialize(self):
         """Initialize database connection pool"""
-        try:
-            # Close existing pool if it exists
-            if self.pool:
-                try:
-                    await self.pool.close()
-                except:
-                    pass
-            
-            self.pool = await asyncpg.create_pool(
-                self.database_url,
-                min_size=2,  # Minimum connections
-                max_size=20,  # Increased max connections for better concurrency
-                max_queries=50000,
-                max_inactive_connection_lifetime=300,  # 5 minutes
-                command_timeout=30,
-                connection_class=asyncpg.Connection,
-                init=self._init_connection,  # Initialize each connection
-                server_settings={
-                    'application_name': 'espressobot_memory',
-                    'jit': 'off'  # Disable JIT for consistent performance
-                }
-            )
-            logger.info("Memory manager database pool initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize database pool: {e}")
-            raise
+        async with self._pool_lock:  # Ensure only one initialization at a time
+            try:
+                # Close existing pool if it exists
+                if self.pool:
+                    try:
+                        await self.pool.close()
+                    except:
+                        pass
+                
+                self.pool = await asyncpg.create_pool(
+                    self.database_url,
+                    min_size=1,  # Reduce minimum connections
+                    max_size=5,  # Further reduce max connections for localhost
+                    max_queries=100,  # Recycle connections more frequently
+                    max_inactive_connection_lifetime=60,  # 1 minute - recycle idle connections faster
+                    timeout=10,  # Connection timeout
+                    command_timeout=10,  # Reduce command timeout
+                    connection_class=asyncpg.Connection,
+                    init=self._init_connection,  # Initialize each connection
+                    server_settings={
+                        'application_name': 'espressobot_memory',
+                        'jit': 'off'  # Disable JIT for consistent performance
+                    }
+                )
+                logger.info("Memory manager database pool initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize database pool: {e}")
+                raise
     
     async def close(self):
         """Close database connection pool"""
@@ -245,11 +248,23 @@ class PostgresMemoryManager:
                         logger.error("Database pool is None, initializing...")
                         await self.initialize()
                     
-                    async with self.pool.acquire() as conn:
-                        result = await conn.fetch(query, *args)
-                        duration = (time.time() - start_time) * 1000
-                        self.query_times.append(duration)
-                        return result
+                    # Use timeout for acquiring connection to prevent hanging
+                    try:
+                        async with asyncio.timeout(2.0):  # Reduce to 2 second timeout
+                            async with self.pool.acquire() as conn:
+                                result = await conn.fetch(query, *args)
+                                duration = (time.time() - start_time) * 1000
+                                self.query_times.append(duration)
+                                return result
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout acquiring database connection (attempt {retry_count + 1}/{max_retries})")
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            # Return empty result for memory queries instead of failing
+                            logger.warning("Returning empty result after connection timeouts")
+                            return []
+                        await asyncio.sleep(0.2)  # Fixed short delay
+                        continue
                 except (asyncpg.exceptions.ConnectionDoesNotExistError, 
                         asyncpg.exceptions.InterfaceError,
                         asyncpg.exceptions.InternalClientError) as e:
@@ -295,16 +310,18 @@ class PostgresMemoryManager:
             
             while retry_count < max_retries:
                 try:
-                    async with self.pool.acquire() as conn:
-                        result = await conn.execute(query, *args)
-                        duration = (time.time() - start_time) * 1000
-                        self.query_times.append(duration)
-                        return result
-                except asyncpg.exceptions.ConnectionDoesNotExistError:
+                    # Use timeout for acquiring connection to prevent hanging
+                    async with asyncio.timeout(2.0):  # Reduce to 2 second timeout
+                        async with self.pool.acquire() as conn:
+                            result = await conn.execute(query, *args)
+                            duration = (time.time() - start_time) * 1000
+                            self.query_times.append(duration)
+                            return result
+                except (asyncpg.exceptions.ConnectionDoesNotExistError, asyncio.TimeoutError) as e:
                     retry_count += 1
                     if retry_count >= max_retries:
                         self.connection_errors += 1
-                        logger.error(f"Database command failed after {max_retries} retries: connection lost")
+                        logger.error(f"Database command failed after {max_retries} retries: {type(e).__name__}")
                         raise
                     await asyncio.sleep(0.1 * retry_count)  # Exponential backoff
                 except Exception as e:

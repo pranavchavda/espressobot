@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@common/button';
 import { Heading } from '@common/heading';
-import { Database, FileText, Brain, Settings, ChevronLeft, Bot } from 'lucide-react';
+import { Database, FileText, Brain, Settings, ChevronLeft, Bot, PlusCircle, Server } from 'lucide-react';
 
 export default function AdminPage() {
   const navigate = useNavigate();
@@ -14,6 +14,20 @@ export default function AdminPage() {
       icon: Bot,
       path: '/agent-management',
       color: 'text-indigo-600'
+    },
+    {
+      title: 'Dynamic Agent Builder',
+      description: 'Create and manage custom agents without coding',
+      icon: PlusCircle,
+      path: '/admin/agents',
+      color: 'text-purple-600'
+    },
+    {
+      title: 'MCP Server Manager',
+      description: 'Add and configure MCP servers for additional tools',
+      icon: Server,
+      path: '/admin/mcp-servers',
+      color: 'text-orange-600'
     },
     {
       title: 'Memory Management',
@@ -42,7 +56,7 @@ export default function AdminPage() {
       description: 'Configure system-wide settings',
       icon: Settings,
       path: '/admin/settings',
-      color: 'text-orange-600',
+      color: 'text-gray-600',
       disabled: true
     }
   ];

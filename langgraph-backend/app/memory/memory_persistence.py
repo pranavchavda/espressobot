@@ -8,7 +8,7 @@ from datetime import datetime
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 from ..state.graph_state import GraphState
-from .postgres_memory_manager import PostgresMemoryManager, Memory
+from .postgres_memory_manager_v2 import SimpleMemoryManager, Memory
 from .prompt_assembler import PromptAssembler, ContextTier
 from .embedding_service import get_embedding_service
 from .memory_decay_service import get_decay_service

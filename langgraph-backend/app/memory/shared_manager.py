@@ -2,18 +2,18 @@
 
 import asyncio
 from typing import Optional
-from .postgres_memory_manager import PostgresMemoryManager
+from .postgres_memory_manager_v2 import SimpleMemoryManager
 
-_manager_instance: Optional[PostgresMemoryManager] = None
+_manager_instance: Optional[SimpleMemoryManager] = None
 _lock = asyncio.Lock()
 
-async def get_shared_memory_manager() -> PostgresMemoryManager:
+async def get_shared_memory_manager() -> SimpleMemoryManager:
     """Get or create the shared memory manager instance"""
     global _manager_instance
     
     async with _lock:
         if _manager_instance is None:
-            _manager_instance = PostgresMemoryManager()
+            _manager_instance = SimpleMemoryManager()
             await _manager_instance.initialize()
         return _manager_instance
 
