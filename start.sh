@@ -179,7 +179,7 @@ fi
 
 # Start backend in background
 print_info "Starting backend server on port 8000..."
-DISABLE_MCP_SERVER=true uvicorn app.main:app \
+PYTHONPATH=/home/pranav/espressobot/langgraph-backend DISABLE_MCP_SERVER=true uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8000 \
     --reload \

@@ -6,6 +6,7 @@ const router = Router();
 
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-change-this';
+console.log('[Auth] JWT_SECRET loaded:', JWT_SECRET ? JWT_SECRET.substring(0, 10) + '...' : 'not set');
 
 // Verify JWT token middleware (moved to top to avoid initialization error)
 export const authenticateToken = (req, res, next) => {

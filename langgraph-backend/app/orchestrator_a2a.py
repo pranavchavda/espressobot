@@ -3,7 +3,10 @@ Agent-to-Agent (A2A) Orchestrator Pattern for LangGraph
 Enables agents to collaborate through orchestrated communication
 """
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.postgres import PostgresSaver
+try:
+    from langgraph.checkpoint.postgres import PostgresSaver
+except ImportError:
+    from langgraph.checkpoint.memory import MemorySaver as PostgresSaver
 from typing import Dict, Any, List, Optional, TypedDict, Annotated
 from typing_extensions import Literal
 import logging

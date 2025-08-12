@@ -4,6 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import tailwindTypography from "@tailwindcss/typography";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+// Load environment variables before any server middleware runs
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

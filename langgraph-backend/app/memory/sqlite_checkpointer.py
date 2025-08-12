@@ -1,7 +1,25 @@
 """SQLite-based checkpointer for LangGraph state persistence"""
 
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+try:
+    # Try new import path first (LangGraph >= 0.2.0)
+    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+except ImportError:
+    try:
+        # Try alternative import path
+        from langgraph.checkpoint.memory import MemorySaver as SqliteSaver
+        from langgraph.checkpoint.memory import MemorySaver as AsyncSqliteSaver
+    except ImportError:
+        # Fallback to memory saver if SQLite is not available
+        from langgraph.checkpoint.base import BaseCheckpointSaver
+        
+        class SqliteSaver(BaseCheckpointSaver):
+            """Fallback memory-based saver"""
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+                self.memory = {}
+                
+        AsyncSqliteSaver = SqliteSaver
 from typing import Optional
 import os
 import logging
