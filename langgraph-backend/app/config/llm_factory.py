@@ -214,8 +214,8 @@ class LLMFactory:
                     api_key=self.openrouter_key,
                     base_url="https://openrouter.ai/api/v1",
                     max_completion_tokens=max_tokens,
-                    timeout=60,  # 30 second timeout
-                    max_retries=1,  # Reduce retries to prevent hanging
+                    timeout=180,  # 3 minute timeout for GPT-5 (slower but more reliable)
+                    max_retries=2,  # Allow more retries for GPT-5
                     default_headers={
                         "HTTP-Referer": os.getenv("APP_URL", "https://espressobot.com"),
                         "X-Title": "EspressoBot"
@@ -246,8 +246,8 @@ class LLMFactory:
                     model=model_id,
                     api_key=self.openai_key,
                     max_completion_tokens=max_tokens,
-                    timeout=60,  # 30 second timeout
-                    max_retries=1  # Reduce retries to prevent hanging
+                    timeout=180,  # 3 minute timeout for GPT-5 (slower but more reliable)
+                    max_retries=2  # Allow more retries for GPT-5
                     # No temperature or max_tokens for GPT-5
                 )
             else:

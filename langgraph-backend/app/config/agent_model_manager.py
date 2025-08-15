@@ -57,10 +57,15 @@ class AgentModelManager:
                     preferred_provider
                 )
                 
+                # Convert max_completion_tokens to max_tokens for create_llm()
+                create_params = model_params.copy()
+                if 'max_completion_tokens' in create_params:
+                    create_params['max_tokens'] = create_params.pop('max_completion_tokens')
+                
                 return llm_factory.create_llm(
                     model_name=model_name,
                     preferred_provider=preferred_provider,
-                    **model_params
+                    **create_params
                 )
             except Exception as e:
                 logger.error(f"Error creating model for {agent_name}: {e}")
@@ -69,10 +74,15 @@ class AgentModelManager:
         if agent_name == "orchestrator":
             # Orchestrator uses GPT-5-chat (no temperature/token params for GPT-5)
             model_params = self._get_model_parameters("gpt-5-chat", 0.0, 2048, Provider.OPENROUTER)
+            # Convert max_completion_tokens to max_tokens for create_llm()
+            create_params = model_params.copy()
+            if 'max_completion_tokens' in create_params:
+                create_params['max_tokens'] = create_params.pop('max_completion_tokens')
+            
             return llm_factory.create_llm(
                 model_name="gpt-5-chat",
                 preferred_provider=Provider.OPENROUTER,
-                **model_params
+                **create_params
             )
         else:
             # All other agents use Claude 3.5 Haiku

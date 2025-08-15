@@ -26,7 +26,8 @@ from mcp_scratchpad_tool import SCRATCHPAD_TOOLS
 from mcp_tools.analytics import (
     OrderAnalyticsTool,
     DailySalesTool,
-    RevenueReportsTool
+    RevenueReportsTool,
+    OrderDetailsTool
 )
 
 class OrdersServer(MCPServerBase):
@@ -42,6 +43,7 @@ class OrdersServer(MCPServerBase):
         self.add_tool(OrderAnalyticsTool())
         self.add_tool(DailySalesTool())
         self.add_tool(RevenueReportsTool())
+        self.add_tool(OrderDetailsTool())
         
         # Add scratchpad tools
         for tool_def in SCRATCHPAD_TOOLS:

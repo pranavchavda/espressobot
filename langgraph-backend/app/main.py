@@ -44,17 +44,13 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, conversations, auth_proxy, chat_enhanced, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, chat_custom, chat_progressive, logs_stream
+from app.api import chat, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream
 
-# Use progressive orchestrator for main endpoint (GUI will use this)
-app.include_router(chat_progressive.router, prefix="/api/agent")
+# Main chat endpoint using the orchestrator
+app.include_router(chat.router, prefix="/api/agent")
 
 # Add logs streaming for live console
 app.include_router(logs_stream.router, prefix="/api/agent")
-# Keep old endpoint available as v0 for testing
-app.include_router(chat.router, prefix="/api/agent/v0")
-app.include_router(chat_enhanced.router, prefix="/api/agent/v2")
-app.include_router(chat_custom.router, prefix="/api/chat")  # Also available at /api/chat
 app.include_router(conversations.router, prefix="/api/conversations")
 app.include_router(auth_proxy.router)  # Auth proxy includes its own /api/auth prefix
 app.include_router(agent_management.router)  # Agent management API

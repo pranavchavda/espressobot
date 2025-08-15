@@ -162,27 +162,84 @@ class MemoryExtractionService:
                             }
                         )
                     ]
+                ),
+                lx.data.ExampleData(
+                    text="User: I need help setting up the Breville MAP sale from August 15-21. Please update prices and configure the metafields correctly. I'm working with Monalisa from ClearSale on order analysis.\nAssistant: I'll help set up the Breville promotion.",
+                    extractions=[
+                        # No extractions - all content is task-specific and ephemeral:
+                        # - "Breville MAP sale from August 15-21" is date-specific task
+                        # - "working with Monalisa from ClearSale" is current project detail
+                        # - Price updates and metafields are specific technical tasks
+                    ]
+                ),
+                lx.data.ExampleData(
+                    text="User: For ClearSale fraud review, I need order details from last 3 days - order IDs, customer names, amounts and risk levels. Limit to 5 orders for analysis.\nAssistant: I'll fetch the detailed order information.",
+                    extractions=[
+                        # No extractions - all content is task-specific:
+                        # - "last 3 days" is time-specific  
+                        # - "order IDs, customer names, amounts" are specific data requests
+                        # - "limit to 5 orders" is specific task parameter
+                        # - Nothing reveals lasting user identity or preferences
+                    ]
+                ),
+                lx.data.ExampleData(
+                    text="User: I'm the head of operations at iDrinkCoffee.com and handle all fraud prevention systems. We process about 150 orders daily and work with multiple payment processors.\nAssistant: That's helpful context for understanding your business needs.",
+                    extractions=[
+                        lx.data.Extraction(
+                            extraction_class="user_role",
+                            extraction_text="I'm the head of operations at iDrinkCoffee.com",
+                            attributes={
+                                "content": "User is head of operations at iDrinkCoffee.com",
+                                "category": "facts", 
+                                "importance": 0.95,
+                                "confidence": 0.95,
+                                "reasoning": "Core professional identity that affects all business discussions",
+                                "is_ephemeral": False
+                            }
+                        ),
+                        lx.data.Extraction(
+                            extraction_class="business_context",
+                            extraction_text="handle all fraud prevention systems...process about 150 orders daily",
+                            attributes={
+                                "content": "User manages fraud prevention for e-commerce business processing ~150 orders daily",
+                                "category": "expertise",
+                                "importance": 0.85,
+                                "confidence": 0.9,
+                                "reasoning": "Business context that informs technical needs and priorities",
+                                "is_ephemeral": False
+                            }
+                        )
+                    ]
                 )
             ]
             
             # Extract memories using langextract with proper parameters
-            prompt_description = """Extract ONLY high-value, long-term memories that will be useful in future interactions.
+            prompt_description = """Extract ONLY essential, reusable memories that will have long-term value for future conversations.
+
+                STRICT CRITERIA - INCLUDE only if the information:
+                1. Describes the USER'S identity, role, or core expertise (not temporary work)
+                2. Reveals consistent preferences or patterns that affect multiple conversations
+                3. Establishes context about their business or industry (not specific tasks)
+                4. Shows expertise areas that inform how to help them
                 
-                Focus on:
-                - Personal preferences that persist
-                - Important facts about the user
-                - Recurring problems or pain points  
-                - Business relationships and context
-                - User's expertise areas
+                EXAMPLES OF GOOD EXTRACTIONS:
+                - "User is a senior backend engineer specializing in Python"
+                - "User prefers command-line tools over GUI applications"
+                - "User manages an e-commerce platform with 100+ daily orders"
+                - "User works with payment systems and fraud prevention"
                 
-                Skip ephemeral items like:
-                - One-time tasks or requests
-                - Temporary states
-                - Time-specific data
-                - Conversation mechanics
+                ALWAYS EXCLUDE (mark is_ephemeral=True):
+                - ANY specific task, request, or one-time activity
+                - Date ranges, deadlines, or time-specific information
+                - Specific order numbers, amounts, or data analysis tasks
+                - References to specific people they're working with on current tasks
+                - Workflow steps, process details, or how-to information
+                - Assistant responses, suggestions, or conversational content
+                - System configurations or technical setup for specific projects
+                - Any information that starts with "User needs", "User wants", "User requires"
                 
-                Mark is_ephemeral=True for temporary items (they will be filtered out).
-                Each memory should be self-contained and specific."""
+                CRITICAL RULE: If uncertain whether something has long-term value, DON'T extract it.
+                Most conversations should extract 0-1 memories. Only extract if genuinely essential."""
             
             # Call langextract with OpenAI model
             import os
@@ -253,6 +310,51 @@ class MemoryExtractionService:
                         logger.debug(f"Filtered low confidence ({confidence}) memory: {attrs.get('content', '')[:50]}...")
                         continue
                     
+                    # Additional filtering for task-specific content
+                    content = attrs.get("content", "").lower()
+                    task_indicators = [
+                        # Specific task patterns
+                        "needs to", "wants to", "requires", "requesting", "asked for",
+                        "working on", "currently", "this time", "today", "yesterday",
+                        "last week", "next week", "for analysis", "for review", "for fraud",
+                        
+                        # Specific data requests
+                        "order ids", "customer names", "amounts", "risk levels", 
+                        "order details", "order information", "order data",
+                        "3-day window", "5 orders", "limit", "specific orders",
+                        
+                        # Workflow/process indicators
+                        "analyzes recent", "focuses on", "reviews", "examines",
+                        "coordinates with", "collaborates with", "works with",
+                        "handles order management", "fraud review processes",
+                        
+                        # Time-specific patterns
+                        "window", "period", "timeframe", "recent", "current",
+                        "specific", "particular", "detailed", "individual",
+                        
+                        # System access patterns
+                        "access to systems", "with access", "systems that handle"
+                    ]
+                    
+                    if any(indicator in content for indicator in task_indicators):
+                        filtered_count += 1
+                        logger.debug(f"Filtered task-specific memory: {content[:50]}...")
+                        continue
+                    
+                    # Check for task-specific opening patterns
+                    content_start = content[:30]
+                    bad_starts = [
+                        "user is involved in", "user requires", "user needs",
+                        "user specifically", "user analyzes", "user focuses",
+                        "user works on", "user handles", "user coordinates",
+                        "user reviews", "user requests", "user wants"
+                    ]
+                    
+                    if any(content_start.startswith(start) for start in bad_starts):
+                        filtered_count += 1
+                        logger.debug(f"Filtered task-oriented start pattern: {content[:50]}...")
+                        continue
+                    
                     # Build metadata
                     metadata = {
                         "confidence": confidence,
@@ -292,22 +394,32 @@ class MemoryExtractionService:
         
         # ORIGINAL EXTRACTION CODE - KEPT AS FALLBACK
         extraction_prompt = f"""
-Analyze this conversation and extract ONLY high-value, long-term memories that will be useful in future interactions.
+Extract ONLY essential, reusable memories that will have long-term value for future conversations.
 
-EXTRACT memories that are:
-✓ Personal preferences that will persist (e.g., "I prefer dark roast coffee", "I like detailed explanations")
-✓ Important facts about the user (e.g., "I work at Google", "I have two kids", "I'm based in Toronto")
-✓ Recurring problems or pain points (e.g., "I always struggle with Python async", "My team needs better documentation")
-✓ Learned solutions that could apply again (e.g., "Using Redis solved our caching issues")
-✓ Business relationships and context (e.g., "I manage the DevOps team", "We use AWS exclusively")
-✓ User's expertise or knowledge areas (e.g., "I'm experienced with React", "I'm new to machine learning")
+STRICT CRITERIA - INCLUDE only if the information:
+1. Describes the USER'S identity, role, or core expertise (not temporary work)
+2. Reveals consistent preferences or patterns that affect multiple conversations
+3. Establishes context about their business or industry (not specific tasks)
+4. Shows expertise areas that inform how to help them
 
-DO NOT EXTRACT ephemeral memories like:
-✗ One-time tasks or requests (e.g., "check today's sales", "run this command")
-✗ Temporary states (e.g., "currently looking at...", "just finished...")  
-✗ Action descriptions (e.g., "user reviewed emails", "user requested analysis")
-✗ Time-specific data (e.g., "today's performance", "this week's metrics")
-✗ Conversation mechanics (e.g., "user thanked assistant", "user asked for help")
+EXAMPLES OF GOOD EXTRACTIONS:
+- "User is a senior backend engineer specializing in Python"
+- "User prefers command-line tools over GUI applications"
+- "User manages an e-commerce platform with 100+ daily orders"
+- "User works with payment systems and fraud prevention"
+
+ALWAYS EXCLUDE (mark is_ephemeral=True):
+- ANY specific task, request, or one-time activity
+- Date ranges, deadlines, or time-specific information
+- Specific order numbers, amounts, or data analysis tasks
+- References to specific people they're working with on current tasks
+- Workflow steps, process details, or how-to information
+- Assistant responses, suggestions, or conversational content
+- System configurations or technical setup for specific projects
+- Any information that starts with "User needs", "User wants", "User requires"
+
+CRITICAL RULE: If uncertain whether something has long-term value, DON'T extract it.
+Most conversations should extract 0-1 memories. Only extract if genuinely essential.
 
 Conversation:
 {conversation_text}
@@ -398,11 +510,56 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                     logger.debug(f"Filtered low confidence ({confidence}) memory: {item.get('content', '')[:50]}...")
                     continue
                 
+                # Additional filtering for task-specific content (same as langextract)
+                content = item.get("content", "").lower()
+                task_indicators = [
+                    # Specific task patterns
+                    "needs to", "wants to", "requires", "requesting", "asked for",
+                    "working on", "currently", "this time", "today", "yesterday",
+                    "last week", "next week", "for analysis", "for review", "for fraud",
+                    
+                    # Specific data requests
+                    "order ids", "customer names", "amounts", "risk levels", 
+                    "order details", "order information", "order data",
+                    "3-day window", "5 orders", "limit", "specific orders",
+                    
+                    # Workflow/process indicators
+                    "analyzes recent", "focuses on", "reviews", "examines",
+                    "coordinates with", "collaborates with", "works with",
+                    "handles order management", "fraud review processes",
+                    
+                    # Time-specific patterns
+                    "window", "period", "timeframe", "recent", "current",
+                    "specific", "particular", "detailed", "individual",
+                    
+                    # System access patterns
+                    "access to systems", "with access", "systems that handle"
+                ]
+                
+                if any(indicator in content for indicator in task_indicators):
+                    filtered_count += 1
+                    logger.debug(f"Filtered task-specific memory: {content[:50]}...")
+                    continue
+                
+                # Check for task-specific opening patterns
+                content_start = content[:30]
+                bad_starts = [
+                    "user is involved in", "user requires", "user needs",
+                    "user specifically", "user analyzes", "user focuses",
+                    "user works on", "user handles", "user coordinates",
+                    "user reviews", "user requests", "user wants"
+                ]
+                
+                if any(content_start.startswith(start) for start in bad_starts):
+                    filtered_count += 1
+                    logger.debug(f"Filtered task-oriented start pattern: {content[:50]}...")
+                    continue
+                
                 # Build metadata including new fields
                 metadata = item.get("metadata", {})
                 metadata["confidence"] = confidence
                 metadata["reasoning"] = item.get("reasoning", "")
-                metadata["extraction_version"] = "v2_quality_focused"
+                metadata["extraction_version"] = "v3_quality_focused_gpt_fallback"
                 
                 memory = Memory(
                     user_id=user_id,

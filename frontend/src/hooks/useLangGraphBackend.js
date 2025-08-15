@@ -27,7 +27,7 @@ export function useLangGraphBackend() {
         ...attachments
       };
 
-      const response = await fetch(`${BACKEND_URL}/api/agent/run`, {
+      const response = await fetch(`${BACKEND_URL}/api/agent/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

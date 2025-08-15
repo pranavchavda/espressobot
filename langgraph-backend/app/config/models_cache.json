@@ -1,20 +1,35 @@
 {
-  "timestamp": 1754950069.4888847,
+  "timestamp": 1755278363.0898013,
   "models": [
+    {
+      "id": "mistralai/mistral-medium-3.1",
+      "name": "Mistral: Mistral Medium 3.1",
+      "provider": "openrouter",
+      "context_length": 262144,
+      "pricing": {
+        "prompt": "0.0000004",
+        "completion": "0.000002",
+        "request": "0",
+        "image": "0",
+        "audio": "0",
+        "web_search": "0",
+        "internal_reasoning": "0"
+      },
+      "description": "via OpenRouter - Mistral Medium 3.1 is an updated version of Mistral Medium 3, which is a high-performance enterprise"
+    },
     {
       "id": "z-ai/glm-4.5v",
       "name": "Z.AI: GLM 4.5V",
       "provider": "openrouter",
       "context_length": 65536,
       "pricing": {
-        "prompt": "0.0000006",
-        "completion": "0.0000018",
+        "prompt": "0.0000005",
+        "completion": "0.0000017",
         "request": "0",
         "image": "0",
         "audio": "0",
         "web_search": "0",
-        "internal_reasoning": "0",
-        "input_cache_read": "0.00000011"
+        "internal_reasoning": "0"
       },
       "description": "via OpenRouter - GLM-4.5V is a vision-language foundation model for multimodal agent applications. Built on a Mixture"
     },
@@ -188,7 +203,7 @@
       "id": "z-ai/glm-4.5",
       "name": "Z.AI: GLM 4.5",
       "provider": "openrouter",
-      "context_length": 98304,
+      "context_length": 131072,
       "pricing": {
         "prompt": "0.0000001999188",
         "completion": "0.000000800064",
@@ -287,8 +302,8 @@
       "provider": "openrouter",
       "context_length": 262144,
       "pricing": {
-        "prompt": "0.0000001999188",
-        "completion": "0.000000800064",
+        "prompt": "0.0000002",
+        "completion": "0.0000008",
         "request": "0",
         "image": "0",
         "audio": "0",
@@ -562,22 +577,6 @@
         "input_cache_write": "0.000001625"
       },
       "description": "via OpenRouter - Gemini 2.5 Pro is Google\u2019s state-of-the-art AI model designed for advanced reasoning, coding, mathem"
-    },
-    {
-      "id": "deepseek/deepseek-r1-distill-qwen-7b",
-      "name": "DeepSeek: R1 Distill Qwen 7B",
-      "provider": "openrouter",
-      "context_length": 131072,
-      "pricing": {
-        "prompt": "0.0000001",
-        "completion": "0.0000002",
-        "request": "0",
-        "image": "0",
-        "audio": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      },
-      "description": "via OpenRouter - DeepSeek-R1-Distill-Qwen-7B is a 7 billion parameter dense language model distilled from DeepSeek-R1"
     },
     {
       "id": "deepseek/deepseek-r1-0528-qwen3-8b:free",

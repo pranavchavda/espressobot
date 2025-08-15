@@ -230,8 +230,8 @@ class RevenueReportsTool(BaseMCPTool):
         """Fetch refund data"""
         query = f"""
         {{
-            orders(query: "created_at:>={start_date} created_at:<={end_date} refund_line_items:true") {{
-                edges(first: 250) {{
+            orders(first: 250, query: "created_at:>={start_date} created_at:<={end_date} refund_line_items:true") {{
+                edges {{
                     node {{
                         refunds {{
                             totalRefundedSet {{

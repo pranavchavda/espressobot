@@ -1,10 +1,11 @@
 # 🚀 EspressoBot LangGraph Backend
 
-**Modern, Native MCP-Powered Backend for EspressoBot**
+**Production-Ready E-Commerce AI Backend**
 
-> ⚡ Built with native LangChain MCP support for maximum compatibility and minimal maintenance  
-> 🔄 Always using the latest stable versions - consult DeepWiki for current best practices  
-> 🎯 Zero-maintenance architecture with automatic tool discovery
+> ⚡ Unified orchestrator with native MCP integration  
+> 🧠 Advanced memory system with intelligent filtering  
+> 🔧 Complete e-commerce management: products, orders, inventory, sales  
+> 🎯 Clean, maintainable architecture ready for production
 
 ## 🏗️ Architecture Overview
 
@@ -38,6 +39,33 @@ This backend leverages **native MCP (Model Context Protocol) support** through L
 - 🔄 **Protocol Updates**: MCP protocol evolves with new capabilities
 - 🎯 **Best Practices**: Implementation patterns improve constantly
 - ⚠️ **Deprecation Notices**: Avoid using outdated approaches
+
+## 🎯 Simplified Architecture (August 2025)
+
+### Single Orchestrator Pattern
+- **🎪 `app/orchestrator.py`** - Unified orchestrator handling all requests
+- **🔌 `app/api/chat.py`** - Single API endpoint at `/api/agent/*`
+- **🧠 Memory System v2** - Intelligent extraction with task-specific filtering
+- **⚙️ Agent Management** - Dynamic configuration via `/agent-management` and `/admin/agents`
+
+### Clean File Structure
+```
+langgraph-backend/
+├── app/
+│   ├── orchestrator.py          # Single unified orchestrator
+│   ├── api/chat.py             # Main chat endpoint
+│   ├── agents/                 # All specialized agents
+│   ├── memory/                 # Memory system with langextract
+│   └── config/                 # Dynamic model configuration
+├── docs/                       # Organized documentation
+│   ├── setup/                  # Migration and setup guides
+│   ├── integrations/           # Auth, frontend, GPT-5 docs
+│   ├── memory/                 # Memory system documentation
+│   └── archive/                # Obsolete documentation
+├── migrations/                 # Database migration scripts
+├── tests/                      # Formal unit tests
+└── README.md                   # This file
+```
 
 ## ✅ Current Implementation Status
 

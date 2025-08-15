@@ -45,7 +45,7 @@ export function MemoryManagementModal({ isOpen, onClose }) {
       if (selectedUserId) params.append('userId', selectedUserId);
       params.append('limit', '500');
       
-      const res = await fetch(`/api/memory/all?${params}`, {
+      const res = await fetch(`/api/memory/list/1?${params}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       

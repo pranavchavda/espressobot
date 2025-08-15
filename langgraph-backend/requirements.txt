@@ -29,6 +29,7 @@ langchain-openai>=0.3.28
 langchain-postgres>=0.0.15
 pgvector>=0.3.6
 tiktoken>=0.10.0
+langextract>=0.1.0
 # Google Analytics Data API for GA4 integration
 google-analytics-data>=0.18.0
 google-auth>=2.0.0

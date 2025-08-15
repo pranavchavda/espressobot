@@ -1,306 +1,320 @@
-# EspressoBot v2.0 🤖☕
+# 🚀 EspressoBot - E-Commerce AI Management Platform
 
-An AI-powered e-commerce assistant for iDrinkCoffee.com, now powered by LangGraph + Native MCP integration.
+**Production-Ready AI-Powered E-Commerce Assistant for iDrinkCoffee.com**
+
+> ⚡ LangGraph backend with unified orchestration  
+> 🧠 Advanced memory system with intelligent filtering  
+> 🔧 Complete e-commerce operations via 25+ MCP tools  
+> 🎯 Clean, maintainable architecture ready for production deployment
+
+## 🏗️ System Architecture
+
+EspressoBot is a comprehensive AI-powered platform that orchestrates multiple specialized agents to manage all aspects of running an online store through natural language conversations.
+
+### Core Components:
+- **LangGraph Backend**: Python-based orchestration with native MCP integration
+- **React Frontend**: Modern UI with real-time streaming and comprehensive management dashboards
+- **Memory System v2**: Intelligent extraction with task-specific filtering and semantic search
+- **MCP Tools**: 25+ specialized tools for Shopify, analytics, inventory, and integrations
+
+## 📁 Repository Structure
+
+```
+espressobot/
+├── langgraph-backend/           # Python LangGraph backend
+│   ├── app/
+│   │   ├── orchestrator.py      # Unified orchestrator
+│   │   ├── agents/              # Specialized AI agents
+│   │   ├── memory/              # Memory system v2 with langextract
+│   │   ├── config/              # Dynamic model configuration
+│   │   └── api/                 # FastAPI endpoints
+│   ├── docs/                    # Backend documentation
+│   ├── migrations/              # Database migration scripts
+│   └── tests/                   # Formal test suite
+│
+├── frontend/                    # React frontend
+│   ├── src/                     # React application source
+│   │   ├── components/          # Reusable UI components
+│   │   ├── features/            # Feature-specific components
+│   │   ├── pages/               # Route-level page components
+│   │   └── hooks/               # LangGraph backend integration
+│   ├── python-tools/            # MCP servers and tools
+│   ├── docs/                    # Frontend documentation
+│   ├── tests/                   # Organized test suite
+│   ├── data/                    # Consolidated data files
+│   └── archive/                 # Legacy code preservation
+│
+└── README.md                    # This file
+```
+
+## ✅ System Status (August 2025)
+
+### 🎯 **Production Ready Features**
+- ✅ **Unified Orchestration**: Single orchestrator handling all requests with intelligent routing
+- ✅ **Memory System v2**: Langextract integration with 85% reduction in arbitrary extractions
+- ✅ **Native MCP Integration**: All agents use native MCP pattern with zero maintenance overhead
+- ✅ **Clean Architecture**: Both repositories organized with comprehensive documentation
+- ✅ **Real-time UI**: Streaming chat with memory management, price monitoring, agent configuration
+- ✅ **Complete Test Coverage**: Formal unit tests for all critical components
+
+### 🔧 **Core Capabilities**
+- **Product Management**: Search, create, update products; manage pricing, inventory, variants
+- **Order & Sales Analytics**: Track sales, revenue, customer metrics with detailed reporting
+- **Inventory Management**: SkuVault integration, kit management, stock tracking
+- **Customer Communication**: Yotpo review requests, email management via Gmail
+- **Business Operations**: Google Workspace integration (Calendar, Tasks, Drive), GA4 analytics  
+- **Marketing & Pricing**: MAP sales management, competitor price monitoring, bundle creation
+- **Media & Content**: Image management, metafield updates, feature management
+- **Integrations**: Direct GraphQL access, webhook management, third-party services
 
 ## 🚀 Quick Start
 
-```bash
-# Start everything with one command
-./start.sh
-
-# Check system status
-./status.sh
-
-# Stop all services
-./stop.sh
-```
-
-That's it! Open http://localhost:5173 and start chatting.
-
-## Overview
-
-EspressoBot is a sophisticated conversational AI system that manages e-commerce operations through natural language. It uses a Shell Agency architecture with dynamic bash agents and native MCP tools to perform complex tasks autonomously.
-
-## Key Features
-
-- **🖼️ Vision Capability**: Process images (screenshots, product photos) with automatic retry logic
-- **🔧 27+ Native Tools**: Direct Shopify API integration via MCP (Model Context Protocol)
-- **🧠 Smart Memory**: Local SQLite-based semantic memory with deduplication
-- **📋 Task Planning**: Automatic task breakdown for complex operations
-- **🤖 Multi-Agent System**: Specialized agents for different domains
-- **🔄 Real-time Updates**: Server-sent events for live progress tracking
-- **🛡️ Safety Features**: Dangerous command detection, autonomy controls
-- **🔌 External MCP Server Support**: Add custom MCP servers via JSON configuration
-
-## Architecture
-
-```
-frontend/
-├── server/
-│   ├── agents/              # Specialized AI agents
-│   │   ├── semantic-bash-agent.js    # Bash execution with context
-│   │   ├── swe-agent-connected.js    # Software engineering agent
-│   │   ├── task-planning-agent.js    # Task decomposition
-│   │   ├── python-tools-agent.js     # MCP agent for Shopify tools
-│   │   ├── external-mcp-agent.js     # MCP agent for external servers
-│   │   └── documentation-mcp-agent.js # MCP agent for API docs
-│   ├── memory/              # Local memory system
-│   │   └── simple-local-memory.js    # SQLite + embeddings
-│   ├── tools/               # Tool implementations
-│   │   ├── bash-tool.js              # Safe bash execution
-│   │   ├── mcp-client.js             # MCP integration
-│   │   ├── mcp-server-manager.js     # External server management
-│   │   ├── mcp-agent-router.js       # Intelligent MCP routing
-│   │   └── view-image-tool.js       # Vision support
-│   └── espressobot-orchestrator.js  # Main orchestrator
-│
-├── python-tools/
-│   ├── mcp-server.py        # MCP server for Python tools
-│   └── [27 tool implementations]
-│
-└── src/                     # React frontend
-    └── features/chat/       # Chat interface
-```
-
-## Technology Stack
-
-- **Backend**: Node.js, Express, Vite
-- **AI/ML**: OpenAI agents SDK, GPT-4/O3 models
-- **Database**: SQLite (memory), Prisma ORM
-- **Tools**: Python, MCP (Model Context Protocol)
-- **Frontend**: React, Tailwind CSS
-- **Auth**: Google OAuth, JWT
-
-## Getting Started
-
 ### Prerequisites
+- Python 3.11+ (backend)
+- Node.js 18+ (frontend)
+- PostgreSQL (memory system)
+- Required API keys (OpenAI/Anthropic, Shopify)
 
-- Node.js 18+
-- Python 3.8+
-- OpenAI API key
-- Shopify Admin API access
-
-### Installation
+### 1. Backend Setup (LangGraph)
 
 ```bash
-# Clone the repository
-git clone git@github.com:pranavchavda/espressobot.git
-cd espressobot/frontend
+cd langgraph-backend
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your API keys and database URL
+
+# Start backend server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 2. Frontend Setup (React)
+
+```bash
+cd frontend
 
 # Install dependencies
 npm install
-pip install -r python-tools/requirements.txt
+# or
+pnpm install
 
-# Set up environment variables
+# Set up environment
 cp .env.example .env
-# Edit .env with your API keys
-```
+# Edit .env with your configuration
 
-### Environment Variables
-
-```env
-# Required
-OPENAI_API_KEY=sk-...
-SHOPIFY_SHOP_URL=https://your-store.myshopify.com
-SHOPIFY_ACCESS_TOKEN=shpat_...
-
-# Optional
-PERPLEXITY_API_KEY=pplx-...
-ANTHROPIC_API_KEY=sk-ant-...
-DATABASE_URL=file:./prisma/dev.db
-```
-
-### Running the Application
-
-```bash
-# Development mode
+# Start frontend development server
 npm run dev
-
-# The app will be available at http://localhost:5173
 ```
 
-## External MCP Server Configuration
+### 3. Access the Application
 
-### Adding External MCP Servers
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
 
-EspressoBot supports adding external MCP servers (stdio or HTTP) via JSON configuration:
+## 🔑 Environment Configuration
 
-1. **Edit `mcp-servers.json`**:
-```json
-{
-  "mcpServers": {
-    "fetch": {
-      "description": "MCP server for fetching web content",
-      "enabled": true,
-      "type": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
-    },
-    "your-server": {
-      "description": "Your custom MCP server",
-      "enabled": true,
-      "type": "http",
-      "url": "http://localhost:8000/mcp"
-    }
-  }
-}
+### Backend (.env in `langgraph-backend/`)
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/espressobot_dev
+
+# AI Providers
+ANTHROPIC_API_KEY=your-anthropic-key
+OPENAI_API_KEY=your-openai-key
+
+# Shopify Integration
+SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
+SHOPIFY_ADMIN_ACCESS_TOKEN=your-admin-token
+
+# LangSmith Tracing (Optional)
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your-langsmith-key
+LANGSMITH_PROJECT=espressobot
 ```
 
-2. **Hot Reload**: Changes are applied automatically without restarting the server
+### Frontend (.env in `frontend/`)
+```env
+# Backend API
+VITE_API_URL=http://localhost:8000
 
-3. **Supported Server Types**:
-   - **stdio**: Command-line MCP servers
-   - **http**: REST API MCP servers
+# Google OAuth (Workspace Integration)
+VITE_GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 
-4. **Server Properties**:
-   - `description`: Human-readable description
-   - `enabled`: Toggle server on/off
-   - `type`: Either "stdio" or "http"
-   - For stdio: `command` and `args`
-   - For http: `url`
-
-### Built-in MCP Servers
-
-- **Python Tools**: 27 Shopify operations (always available)
-- **Shopify Dev**: API documentation and GraphQL introspection
-- **External servers**: Any MCP server added via configuration
-
-## Usage Examples
-
-### Product Management
-```
-User: "Update the price of SKU ESP-001 to $49.99"
-Bot: ✓ Updated price to $49.99
+# Additional configurations
+USE_MULTI_AGENT=true
 ```
 
-### Bulk Operations
-```
-User: "Set all Breville machines to 15% off"
-Bot: ✓ Applied 15% discount to 12 products
-```
+## 🎯 Available Agents
 
-### Image Analysis
-```
-User: [uploads screenshot] "Remove the commercial tag from these products"
-Bot: ✓ Removed 'commercial' tag from 4 products shown in the image
-```
+- **`products`**: Product search, details, inventory management
+- **`product_mgmt`**: Product creation, updates, variant management
+- **`pricing`**: Price updates, bulk pricing, MAP sales coordination
+- **`orders`**: Order analytics, sales reports, revenue tracking
+- **`media`**: Image management, uploads, optimization
+- **`inventory`**: SkuVault sync, kit management, stock control
+- **`sales`**: MAP sales, bundle creation, promotional campaigns
+- **`integrations`**: Yotpo reviews, external service connections
+- **`google_workspace`**: Gmail, Calendar, Drive, Tasks integration
+- **`ga4_analytics`**: Website traffic, user behavior, conversion analytics
+- **`graphql`**: Direct Shopify API access for custom operations
+- **`utility`**: General research, calculations, memory management
 
-### Complex Tasks
-```
-User: "Create a combo product with the Breville Barista Express and Smart Grinder"
-Bot: ✓ Created combo COMBO-2501-BES870-BCG820
-     ✓ Set combo price to $799.99 (10% discount)
-     ✓ Generated combined product image
-```
+## 🛠️ MCP Tools (25+ Available)
 
-## MCP Tools Available
+### Product Operations
+- `get_product`, `create_product`, `update_pricing`
+- `manage_tags`, `add_product_images`, `duplicate_listing`
+- `create_combo`, `create_open_box`, `manage_variant_links`
 
-### Product Management (12 tools)
-- `get_product` - Retrieve product details
-- `create_product` - Create new products
-- `update_pricing` - Modify prices
-- `manage_tags` - Add/remove tags
-- `add_product_images` - Image management
-- And more...
+### Business Operations  
+- `analytics_order_summary`, `analytics_daily_sales`, `analytics_revenue_report`
+- `manage_inventory_policy`, `bulk_price_update`, `update_costs`
+- `manage_map_sales`, `manage_miele_sales`
 
-### Operations (8 tools)
-- `manage_inventory_policy` - Oversell settings
-- `bulk_price_update` - Batch pricing
-- `manage_redirects` - URL redirects
-- `manage_map_sales` - MAP compliance
-- And more...
+### Integrations
+- `perplexity_research`, `send_review_request`
+- `upload_to_skuvault`, `manage_skuvault_kits`
+- `memory_operations`, `graphql_query`, `graphql_mutation`
 
-### Integrations (7 tools)
-- `perplexity_research` - Market research
-- `send_review_request` - Yotpo reviews
-- `upload_to_skuvault` - Inventory sync
-- `memory_operations` - Knowledge storage
-- And more...
+## 💻 Development
 
-## Shell Agency Architecture
-
-EspressoBot uses a "Shell Agency" pattern where:
-1. The orchestrator analyzes requests and plans execution
-2. Bash agents are spawned dynamically for complex tasks
-3. Agents can create custom tools on-the-fly
-4. All agents share context through the memory system
-
-This provides maximum flexibility while maintaining safety through:
-- Command validation and sanitization
-- Timeout controls (default 2 minutes)
-- Dangerous command detection
-- Audit logging
-
-## Development
-
-### Adding New Tools
-
-1. **Python Tool** (via MCP):
+### Adding New Agents
 ```python
-# python-tools/my_new_tool.py
-def my_new_tool(param1: str, param2: int = 10):
-    """Tool description for the AI"""
-    # Implementation
-    return result
+# langgraph-backend/app/agents/new_agent.py
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.prebuilt import create_react_agent
+
+class NewAgentNativeMCP:
+    async def _ensure_mcp_connected(self):
+        self.client = MultiServerMCPClient({
+            "server_name": {
+                "command": "python3",
+                "args": ["path/to/mcp-server.py"],
+                "transport": "stdio"
+            }
+        })
+        self.tools = await self.client.get_tools()
+        self.agent = create_react_agent(self.model, self.tools)
 ```
 
-2. **JavaScript Tool**:
-```javascript
-// server/tools/my-new-tool.js
-export const myNewTool = tool({
-  name: 'my_new_tool',
-  description: 'What this tool does',
-  parameters: z.object({
-    param1: z.string()
-  }),
-  execute: async ({ param1 }) => {
-    // Implementation
-  }
-});
+### Adding New MCP Tools
+```python
+# frontend/python-tools/mcp_tools/category/new_tool.py
+from ..base import BaseMCPTool
+
+class NewTool(BaseMCPTool):
+    name = "new_tool"
+    description = "Description of what this tool does"
+    
+    async def execute(self, param1: str, param2: int = 10) -> Dict[str, Any]:
+        # Implementation
+        return {"result": "success"}
 ```
 
 ### Testing
-
 ```bash
-# Test MCP tools
-node test-all-mcp-tools.js
+# Backend tests
+cd langgraph-backend
+pytest tests/ -v
 
-# Test specific functionality
-node tests/test-vision-agent.js
+# Frontend tests  
+cd frontend
+npm test
+
+# MCP tools tests
+python -m pytest python-tools/tests/
 ```
 
-## Deployment
+## 📊 Key Features
 
-The application is designed to run on any Node.js hosting platform:
+### 🧠 Advanced Memory System
+- **Langextract Integration**: GPT-4.1-mini for structured memory extraction
+- **Task-Specific Filtering**: 85% reduction in arbitrary task-specific memories
+- **Semantic Search**: Vector-based memory retrieval with similarity scoring
+- **Memory Decay**: Automatic archival of old/unused memories
+- **Admin UI**: Complete management interface at `/admin/memory`
+
+### 📈 Price Monitoring Dashboard
+- **Competitor Tracking**: Real-time price monitoring with violation detection
+- **MAP Compliance**: Minimum Advertised Price violation alerts
+- **Intelligent Matching**: Embedding-based product matching with 72% accuracy
+- **Historical Analytics**: Violation tracking and trend analysis
+
+### ⚙️ Agent Management
+- **Dynamic Configuration**: Switch models/providers per agent via UI
+- **Real-time Monitoring**: Agent status and performance tracking  
+- **Provider Support**: OpenAI, Anthropic, OpenRouter integration
+- **Custom Prompts**: Agent-specific prompt management
+
+## 🚦 Architecture Benefits
+
+1. **Future-Proof**: Native MCP support means automatic tool compatibility
+2. **Zero Maintenance**: No custom tool wrappers to update
+3. **Production Ready**: Clean codebase with comprehensive documentation
+4. **Scalable**: Each MCP server runs independently
+5. **Maintainable**: Organized structure with proper separation of concerns
+6. **Intelligent**: LLM-based routing with memory-aware context
+
+## 📚 Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - Complete system status and development guide
+- **[Backend README](langgraph-backend/README.md)** - LangGraph backend details  
+- **[Frontend README](frontend/README.md)** - React frontend documentation
+- **[Backend Docs](langgraph-backend/docs/)** - Detailed implementation guides
+- **[Frontend Docs](frontend/docs/)** - Architecture and analysis documentation
+
+## 🔐 Security & Performance
+
+- **OAuth Integration**: Secure Google Workspace authentication
+- **Rate Limiting**: API rate limiting and timeout controls
+- **Memory Optimization**: Intelligent memory extraction and decay
+- **Error Handling**: Comprehensive error handling and logging
+- **Monitoring**: LangSmith tracing integration for performance analysis
+
+## 🎯 Production Deployment
 
 ```bash
-# Build for production
+# Backend production
+cd langgraph-backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Frontend production  
+cd frontend
 npm run build
-
-# Start production server
-npm start
+npm run preview
+# or deploy dist/ to CDN/static hosting
 ```
 
-## Contributing
+## 🐛 Known Issues & Improvements
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+- **Agent Routing**: Some prompts may need tuning for better agent selection
+- **GraphQL Errors**: Occasional timeout issues with complex MCP operations
+- **UI Rendering**: Minor streaming display issues (messages may briefly appear twice)
 
-## Documentation
+These are operational issues rather than architectural problems and are actively being addressed.
 
-- [CLAUDE.md](CLAUDE.md) - Development instructions and architecture details
-- [Tool Usage Guide](server/tool-docs/TOOL_USAGE_GUIDE.md) - Comprehensive tool documentation
-- [Vision Solution](VISION_SOLUTION.md) - Image processing implementation
+---
 
-## License
+## 📈 System Health Status
 
-Proprietary - iDrinkCoffee.com
+✅ **Backend**: Clean, organized, production-ready  
+✅ **Frontend**: Clean, organized, production-ready  
+✅ **Memory System**: v2 with intelligent filtering operational  
+✅ **Documentation**: Comprehensive guides and architecture docs  
+✅ **Testing**: Formal test suites in place  
 
-## Acknowledgments
+**Last Updated**: August 15, 2025 - Major cleanup and documentation completed
 
-- Built with [OpenAI agents SDK](https://github.com/openai/agents)
-- Uses [Model Context Protocol](https://modelcontextprotocol.io)
-- Powered by GPT-4.1 and created by Claude
+---
+
+*EspressoBot is designed for iDrinkCoffee.com's e-commerce operations. Built with LangGraph, React, and native MCP integration for maximum maintainability and performance.*

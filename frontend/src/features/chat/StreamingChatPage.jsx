@@ -883,8 +883,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       const conversationId = convId || activeConv || undefined;
       console.log('[DEBUG] Sending message with conversation_id:', conversationId, 'convId:', convId, 'activeConv:', activeConv);
       const requestData = {
-        conversation_id: conversationId,  // Changed from conv_id to conversation_id
-        thread_id: conversationId,  // Also send as thread_id for compatibility
+        conv_id: conversationId,  // Backend expects conv_id
         message: textToSend,
       };
 

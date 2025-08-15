@@ -119,9 +119,7 @@ def install_log_capture():
     
     # Add to specific loggers we care about
     loggers = [
-        "app.orchestrator_progressive",
-        "app.orchestrator_direct", 
-        "app.orchestrator_a2a",
+        "app.orchestrator",
         "app.agents",
         "app.memory",
         "app.context_manager",

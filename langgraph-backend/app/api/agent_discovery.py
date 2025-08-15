@@ -18,8 +18,8 @@ def discover_running_agents() -> List[Dict[str, Any]]:
         "agent_name": "orchestrator",
         "agent_type": "orchestrator",
         "description": "Handles routing and general conversation",
-        "model_class": "DirectOrchestrator",
-        "source": "orchestrator_direct.py"
+        "model_class": "ProgressiveOrchestrator",
+        "source": "orchestrator.py"
     })
     
     # List of agent modules and their classes

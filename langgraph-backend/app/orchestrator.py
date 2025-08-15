@@ -1,39 +1,160 @@
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
-from typing import Dict, Any, List, Optional
+"""
+Progressive Orchestrator - Implements the original vision
+User → Orchestrator → Agent1 → Orchestrator → Agent2 → Orchestrator → User
+Now with token-efficient compressed context using LangExtract
+And full message persistence for conversation continuity
+"""
+from typing import Dict, Any, List, Optional, AsyncGenerator
 import logging
-import os
-from app.state.graph_state import GraphState
-from app.agents.base import BaseAgent
-from app.agents.router import RouterAgent
-from app.memory.memory_config import MemoryConfig
-from langchain_core.messages import AIMessage
+import json
 import asyncio
+import os
+from datetime import datetime
+from dataclasses import dataclass, field
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langsmith.run_helpers import traceable
+import asyncpg
+from app.context_manager.compressed_context_simple import CompressedContextManager, ExtractedContext
 
 logger = logging.getLogger(__name__)
+# Set logging level to DEBUG for testing
+logger.setLevel(logging.DEBUG)
+# Also add console handler to ensure logs are visible
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
-class Orchestrator:
-    """Main orchestrator for routing and managing agent interactions"""
+@dataclass
+class ConversationMemory:
+    """Stores important findings from the conversation with compressed context"""
+    # Legacy fields for compatibility
+    products: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # product_id -> details
+    searches_performed: List[Dict[str, Any]] = field(default_factory=list)
+    operations_completed: List[Dict[str, Any]] = field(default_factory=list)
+    entities: Dict[str, List[str]] = field(default_factory=dict)  # entity_type -> values
+    agent_attempts: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)  # agent -> attempts
     
-    def __init__(self, checkpointer = None):
-        self.agents: Dict[str, BaseAgent] = {}
-        # Use configured checkpointer for persistent memory
-        if not checkpointer:
-            memory_config = MemoryConfig()
-            self.checkpointer = memory_config.get_checkpointer()
-            self.memory_config = memory_config
-        else:
-            self.checkpointer = checkpointer
-            self.memory_config = MemoryConfig()
-        self.graph = None
-        self.router = None
+    # New compressed context from LangExtract
+    compressed_context: Optional[ExtractedContext] = None
+    recent_messages: List[Any] = field(default_factory=list)  # Keep last few messages for immediate context
+    
+    def remember_product(self, product_id: str, details: Dict[str, Any]):
+        """Remember a product's details"""
+        self.products[product_id] = details
+        logger.info(f"📝 Remembered product: {product_id} -> {details.get('title', 'Unknown')}")
+    
+    def remember_search(self, query: str, results: Any):
+        """Remember a search that was performed"""
+        self.searches_performed.append({
+            "query": query,
+            "results": results,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def remember_operation(self, operation: str, details: Dict[str, Any]):
+        """Remember an operation that was completed"""
+        self.operations_completed.append({
+            "operation": operation,
+            "details": details,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    
+    def get_product_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Find a product by name from memory"""
+        name_lower = name.lower()
+        # Check compressed context first - look through all extractions
+        if self.compressed_context and self.compressed_context.extractions:
+            for class_name, items in self.compressed_context.extractions.items():
+                # Look for product-related extraction classes
+                if 'product' in class_name.lower():
+                    for item in items:
+                        text = item.get('text', '')
+                        attrs = item.get('attributes', {})
+                        if name_lower in text.lower() or name_lower in str(attrs).lower():
+                            # Try to extract product info
+                            product_id = attrs.get('product_id') or attrs.get('id')
+                            title = attrs.get('title') or attrs.get('product_name') or text[:100]
+                            if product_id:
+                                return {"id": product_id, "title": title, **attrs}
+        # Fallback to legacy memory
+        for product_id, details in self.products.items():
+            if name_lower in details.get('title', '').lower():
+                return {"id": product_id, **details}
+        return None
+    
+    def get_compressed_context_string(self, max_tokens: int = 1000) -> str:
+        """Get compressed context as a string for the orchestrator"""
+        if self.compressed_context:
+            return self.compressed_context.to_context_string(max_tokens)
+        # Fallback to legacy format
+        return self._build_legacy_context()
+    
+    def _build_legacy_context(self) -> str:
+        """Build context from legacy fields"""
+        parts = []
+        if self.products:
+            parts.append("Known products:")
+            for pid, details in list(self.products.items())[:5]:
+                parts.append(f"  - {pid}: {details.get('title', 'Unknown')}")
+        if self.operations_completed:
+            parts.append("\nCompleted operations:")
+            for op in self.operations_completed[-5:]:
+                parts.append(f"  - {op['operation']}: {op['details'].get('response', '')[:100]}")
+        return "\n".join(parts) if parts else "No prior context"
+    
+    def add_recent_message(self, message: Any):
+        """Add a message to recent history (keep last 3 for token efficiency)"""
+        self.recent_messages.append(message)
+        if len(self.recent_messages) > 3:
+            self.recent_messages = self.recent_messages[-3:]
+
+@dataclass
+class AgentCall:
+    """Represents a single agent call with its context"""
+    agent_name: str
+    task: str
+    context: Dict[str, Any]
+    attempt_number: int = 1
+
+class ProgressiveOrchestrator:
+    """Orchestrator that maintains control between agent calls with compressed context and message persistence"""
+    
+    def __init__(self):
+        self.agents: Dict[str, Any] = {}
+        self.conversation_memory: Dict[str, ConversationMemory] = {}  # thread_id -> memory
+        self._final_response = None  # Store orchestrator's direct response
+        
+        # Initialize compressed context manager with fast model
+        # Using gpt-4.1-mini as requested (gpt-5 models not yet supported by langextract)
+        self.context_manager = CompressedContextManager(model_id="gpt-4.1-mini")
+        
+        # Get database URL for persistence
+        self.database_url = os.getenv("DATABASE_URL")
+        
+        # Initialize model
+        from app.config.agent_model_manager import agent_model_manager
+        self.model = agent_model_manager.get_model_for_agent("orchestrator")
+        
+        # Initialize memory manager for injection and extraction
+        self.memory_manager = None
+        try:
+            from app.memory.postgres_memory_manager_v2 import SimpleMemoryManager
+            self.memory_manager = SimpleMemoryManager()
+            logger.info("Memory manager initialized for injection and extraction")
+        except Exception as e:
+            logger.warning(f"Memory manager initialization failed: {e}")
+        
+        logger.info(f"Initialized Progressive Orchestrator with compressed context and message persistence")
+        
+        # Initialize all agents
         self._initialize_agents()
-        self._build_graph()
     
     def _initialize_agents(self):
         """Initialize all specialist agents"""
-        # Use MCP-enabled agents
-        from app.agents.products_native_mcp_final import ProductsAgentNativeMCPFinal
+        # Use simple MCP agent without LangGraph to avoid async issues
+        from app.agents.products_native_mcp_simple import ProductsAgentNativeMCPSimple
         from app.agents.pricing_native_mcp import PricingAgentNativeMCP
         from app.agents.inventory_native_mcp import InventoryAgentNativeMCP
         from app.agents.sales_native_mcp import SalesAgentNativeMCP
@@ -46,738 +167,804 @@ class Orchestrator:
         from app.agents.orders_native_mcp import OrdersAgentNativeMCP
         from app.agents.google_workspace_native_mcp import GoogleWorkspaceAgentNativeMCP
         from app.agents.ga4_analytics_native_mcp import GA4AnalyticsAgentNativeMCP
-        from app.agents.general import GeneralAgent
         
-        # Initialize general agent first (for greetings and general chat)
-        try:
-            general_agent = GeneralAgent()
-            self.agents[general_agent.name] = general_agent
-            logger.info(f"Initialized General conversation agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize GeneralAgent: {e}")
+        agent_classes = [
+            ProductsAgentNativeMCPSimple,
+            PricingAgentNativeMCP,
+            InventoryAgentNativeMCP,
+            SalesAgentNativeMCP,
+            FeaturesAgentNativeMCP,
+            MediaAgentNativeMCP,
+            IntegrationsAgentNativeMCP,
+            ProductManagementAgentNativeMCP,
+            UtilityAgentNativeMCP,
+            GraphQLAgentNativeMCP,
+            OrdersAgentNativeMCP,
+            GoogleWorkspaceAgentNativeMCP,
+            GA4AnalyticsAgentNativeMCP
+        ]
         
-        # Use the native MCP version for products
-        try:
-            products_agent = ProductsAgentNativeMCPFinal()
-            self.agents[products_agent.name] = products_agent
-            logger.info(f"Initialized native MCP Products agent (final)")
-        except Exception as e:
-            logger.error(f"Failed to initialize ProductsAgentNativeMCPFinal: {e}")
-        
-        # Use the native MCP version for pricing
-        try:
-            pricing_agent = PricingAgentNativeMCP()
-            self.agents[pricing_agent.name] = pricing_agent
-            logger.info(f"Initialized native MCP Pricing agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize PricingAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for inventory
-        try:
-            inventory_agent = InventoryAgentNativeMCP()
-            self.agents[inventory_agent.name] = inventory_agent
-            logger.info(f"Initialized native MCP Inventory agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize InventoryAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for sales
-        try:
-            sales_agent = SalesAgentNativeMCP()
-            self.agents[sales_agent.name] = sales_agent
-            logger.info(f"Initialized native MCP Sales agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize SalesAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for features
-        try:
-            features_agent = FeaturesAgentNativeMCP()
-            self.agents[features_agent.name] = features_agent
-            logger.info(f"Initialized native MCP Features agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize FeaturesAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for media
-        try:
-            media_agent = MediaAgentNativeMCP()
-            self.agents[media_agent.name] = media_agent
-            logger.info(f"Initialized native MCP Media agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize MediaAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for integrations
-        try:
-            integrations_agent = IntegrationsAgentNativeMCP()
-            self.agents[integrations_agent.name] = integrations_agent
-            logger.info(f"Initialized native MCP Integrations agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize IntegrationsAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for product management
-        try:
-            product_mgmt_agent = ProductManagementAgentNativeMCP()
-            self.agents[product_mgmt_agent.name] = product_mgmt_agent
-            logger.info(f"Initialized native MCP Product Management agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize ProductManagementAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for utility
-        try:
-            utility_agent = UtilityAgentNativeMCP()
-            self.agents[utility_agent.name] = utility_agent
-            logger.info(f"Initialized native MCP Utility agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize UtilityAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for GraphQL
-        try:
-            graphql_agent = GraphQLAgentNativeMCP()
-            self.agents[graphql_agent.name] = graphql_agent
-            logger.info(f"Initialized native MCP GraphQL agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize GraphQLAgentNativeMCP: {e}")
-        
-        # Use the native MCP version for Orders
-        try:
-            orders_agent = OrdersAgentNativeMCP()
-            self.agents[orders_agent.name] = orders_agent
-            logger.info(f"Initialized native MCP Orders agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize OrdersAgentNativeMCP: {e}")
-        
-        # Use the native version for Google Workspace
-        try:
-            google_workspace_agent = GoogleWorkspaceAgentNativeMCP()
-            self.agents[google_workspace_agent.name] = google_workspace_agent
-            logger.info(f"Initialized native Google Workspace agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize GoogleWorkspaceAgentNativeMCP: {e}")
-        
-        # Use the native version for GA4 Analytics
-        try:
-            ga4_agent = GA4AnalyticsAgentNativeMCP()
-            self.agents[ga4_agent.name] = ga4_agent
-            logger.info(f"Initialized native GA4 Analytics agent")
-        except Exception as e:
-            logger.error(f"Failed to initialize GA4AnalyticsAgentNativeMCP: {e}")
-        
-        # Price Monitor will be implemented as API proxy later
-        # (Frontend already has working price monitor API)
-        
-        # Initialize the intelligent router with available agents
-        self.router = RouterAgent(self.agents)
+        for AgentClass in agent_classes:
+            try:
+                agent = AgentClass()
+                self.agents[agent.name] = agent
+                logger.info(f"Initialized {agent.name} agent")
+            except Exception as e:
+                logger.error(f"Failed to initialize {AgentClass.__name__}: {e}")
     
-    def _build_graph(self):
-        """Build the LangGraph workflow"""
-        workflow = StateGraph(GraphState)
-        
-        workflow.add_node("router", self.route_request)
-        # Relay ensures only Orchestrator speaks to the user
-        workflow.add_node("relay", self.relay_to_user)
-        
-        # Create synchronous wrappers for async agents
-        def make_sync_wrapper(agent_callable):
-            """Create a synchronous wrapper for async agent callables"""
-            import asyncio
-            import concurrent.futures
-            
-            def sync_wrapper(state):
-                # Run the async function in a new event loop in a thread pool
-                # This avoids conflicts with uvloop
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, agent_callable(state))
-                    return future.result()
-            
-            return sync_wrapper
-        
-        for agent_name, agent in self.agents.items():
-            # Wrap async agents in sync wrapper
-            workflow.add_node(agent_name, make_sync_wrapper(agent))
-        
-        workflow.add_conditional_edges(
-            "router",
-            self.determine_next_agent,
-            {
-                **{agent_name: agent_name for agent_name in self.agents.keys()},
-                "end": END
-            }
-        )
-        
-        # After any agent runs, either go back to router for another hop or relay to user
-        for agent_name in self.agents.keys():
-            workflow.add_conditional_edges(
-                agent_name,
-                self.agent_handoff_condition,
-                {
-                    "router": "router",
-                    "end": "relay"
-                }
-            )
-        
-        # Relay then ends the flow
-        workflow.add_edge("relay", END)
-        
-        workflow.set_entry_point("router")
-        
-        self.graph = workflow.compile(checkpointer=self.checkpointer)
-        logger.info("Graph compiled successfully")
+    def _get_memory(self, thread_id: str) -> ConversationMemory:
+        """Get or create conversation memory for thread"""
+        if thread_id not in self.conversation_memory:
+            logger.info(f"Creating new memory for thread {thread_id}")
+            self.conversation_memory[thread_id] = ConversationMemory()
+        else:
+            memory = self.conversation_memory[thread_id]
+            logger.info(f"Found existing memory for thread {thread_id}: {len(memory.recent_messages)} messages, compressed_context={memory.compressed_context is not None}")
+        return self.conversation_memory[thread_id]
     
-    def route_request(self, state: GraphState) -> GraphState:
-        """Route the request to the appropriate agent"""
-        try:
-            # Honor explicit next_agent handoff if provided
-            if state.get("next_agent") and state["next_agent"] in self.agents:
-                forced = state["next_agent"]
-                state["current_agent"] = forced
-                # clear next_agent so router can decide on subsequent hops unless set again
-                state["next_agent"] = None
-                # Attach handoff context for the next agent if present
-                try:
-                    from langchain_core.messages import HumanMessage
-                    reason = state.get("handoff_reason")
-                    ctx = state.get("handoff_context") or {}
-                    if reason or ctx:
-                        summary = f"[Handoff from {state.get('last_agent') or 'orchestrator'}] {reason or ''}"
-                        if ctx:
-                            import json
-                            # Keep context compact
-                            ctx_json = json.dumps(ctx)[:1000]
-                            summary += f"\nContext: {ctx_json}"
-                        state["messages"].append(HumanMessage(content=summary, metadata={"type": "handoff_context"}))
-                    # Clear after use
-                    state["handoff_reason"] = None
-                    state["handoff_context"] = None
-                except Exception:
-                    pass
-                # default to continue unless agent stops it
-                state["should_continue"] = True
-                logger.info(f"Forced routing to next_agent: {forced}")
-                return state
-            
-            # Trim message history to manage tokens
-            if state["messages"] and len(state["messages"]) > self.memory_config.max_history_length:
-                state["messages"] = self.memory_config.trim_messages(state["messages"])
-                logger.info(f"Trimmed message history to {len(state['messages'])} messages")
-            
-            # Only route on the last HumanMessage to avoid looping on our own AI outputs
-            last_message = None
-            if state.get("messages"):
-                from langchain_core.messages import HumanMessage
-                for msg in reversed(state["messages"]):
-                    if isinstance(msg, HumanMessage):
-                        last_message = msg
-                        break
-            
-            if not last_message:
-                logger.info("Router: No human message found; ending conversation hop")
-                state["should_continue"] = False
-                return state
-            
-            logger.info(f"Routing request: {last_message.content[:100]}...")
-            
-            # Use intelligent router to determine the best agent
-            routing_decision = self.router.route(last_message.content)
-            agent_name = routing_decision["agent"]
-            reason = routing_decision["reason"]
-            
-            if agent_name in self.agents:
-                state["current_agent"] = agent_name
-                logger.info(f"Intelligent routing to agent: {agent_name} - Reason: {reason}")
-                return state
-            else:
-                # Fallback to general agent if router returns invalid agent
-                if "general" in self.agents:
-                    state["current_agent"] = "general"
-                    logger.info(f"Fallback routing to general agent")
-                    return state
-            
-            # Fallback if general agent not available
-            state["messages"].append(
-                AIMessage(
-                    content="I'm here to help! How can I assist you with your coffee needs today?",
-                    metadata={"agent": "router"}
+    @traceable(name="plan_next_action")
+    async def plan_next_action(self, 
+                               user_request: str, 
+                               memory: ConversationMemory,
+                               last_agent_result: Optional[Dict[str, Any]] = None) -> Optional[AgentCall]:
+        """Decide what to do next based on current state using compressed context"""
+        
+        # Inject relevant memories from database
+        memory_context = ""
+        if self.memory_manager:
+            try:
+                # Search for memories relevant to the user request
+                search_results = await self.memory_manager.search_memories(
+                    user_id="1",  # Default user for now
+                    query=user_request,
+                    limit=3
                 )
-            )
-            state["should_continue"] = False
-            
-            return state
-            
-        except Exception as e:
-            logger.error(f"Error in router: {e}")
-            state["error"] = str(e)
-            state["should_continue"] = False
-            return state
-    
-    def determine_next_agent(self, state: GraphState) -> str:
-        """Determine the next node based on current state"""
-        
-        if state.get("error") or not state.get("should_continue", True):
-            return "end"
-        
-        current_agent = state.get("current_agent")
-        
-        if current_agent and current_agent in self.agents:
-            return current_agent
-        
-        return "end"
-
-    def agent_handoff_condition(self, state: GraphState) -> str:
-        """After an agent runs, decide whether to continue routing or end.
-        Only continue if a follow-up handoff is explicitly requested via next_agent.
-        """
-        try:
-            # Increment hop counter and guard against loops
-            try:
-                state["hop_count"] = int(state.get("hop_count", 0)) + 1
-            except Exception:
-                state["hop_count"] = 1
-            decision = self._decide_route_or_relay(state)
-            return decision
-        except Exception:
-            return "end"
-
-    def _llm_decide_handoff(self, state: GraphState) -> Optional[dict]:
-        """Use an LLM to decide whether to handoff to another agent or relay to the user.
-        Returns a dict like {"action": "handoff", "agent": "media", "reason": "..."}
-        or {"action": "relay", "reason": "..."}.
-        """
-        try:
-            # Prepare inputs
-            from langchain_core.messages import HumanMessage, AIMessage
-            from app.config.llm_factory import llm_factory
-            # Collect available agents summary
-            agent_infos = []
-            for name, agent in self.agents.items():
-                desc = getattr(agent, "description", "") or ""
-                agent_infos.append({"name": name, "description": desc})
-            # Extract last human and last agent message
-            messages = state.get("messages", []) or []
-            last_human = None
-            last_ai = None
-            for msg in reversed(messages):
-                if last_ai is None and isinstance(msg, AIMessage):
-                    last_ai = msg
-                if last_human is None and isinstance(msg, HumanMessage):
-                    last_human = msg
-                if last_ai and last_human:
-                    break
-            last_agent_name = state.get("last_agent")
-            payload = {
-                "available_agents": agent_infos,
-                "last_human_message": (last_human.content if last_human else ""),
-                "last_agent": last_agent_name,
-                "last_agent_message": (last_ai.content if last_ai else ""),
-            }
-            system_prompt = (
-                "You are the Orchestrator for a multi-agent e-commerce operations system. "
-                "Decide the best next step after a specialist agent finishes: either handoff to the most capable next agent, or relay to the user. "
-                "Use the available agent descriptions and the conversation context. If another specialist should act (has the right capabilities), choose handoff. "
-                "If the next step requires user input/confirmation or no further action is needed now, choose relay. Return STRICT JSON only."
-            )
-            user_prompt = (
-                "Decide the next step. Respond with a single JSON object only, no prose.\n\n"
-                "JSON schema:\n"
-                "{\n  \"action\": \"handoff\"|\"relay\",\n  \"agent\": <agent_name if action==handoff else omit>,\n  \"reason\": <short string>\n}\n\n"
-                f"Input:\n{payload}"
-            )
-            model = llm_factory.create_llm(model_name="gpt-5", temperature=0.0, max_tokens=512)
-            response = model.invoke([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ])
-            content = response.content
-            if isinstance(content, list):
-                content = content[0].text if content else ""
-            logger.debug(f"_llm_decide_handoff raw content: {content}")
-            import json, re
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                match = re.search(r"\{[\s\S]*\}", content)
-                if match:
-                    return json.loads(match.group(0))
-            return None
-        except Exception as e:
-            logger.debug(f"_llm_decide_handoff error: {e}")
-            return None
-
-    def _decide_route_or_relay(self, state: GraphState) -> str:
-        """Orchestrator-level decision after an agent completes.
-        Heuristic:
-        - If next_agent is set -> route to router (will force that agent).
-        - Else try an LLM-based decision to pick the best specialist or relay.
-        - Else try to suggest a better specialist based on the user + agent messages.
-        - If the last agent message appears to ask the user for info/confirmation -> relay to user.
-        - Otherwise -> relay to user (safe default).
-        """
-        try:
-            # Loop guard
-            MAX_HOPS = 5
-            if int(state.get("hop_count", 0)) >= MAX_HOPS:
-                logger.info("Hop limit reached, handing over to user")
-                return "end"
-            
-            # Agent requested an explicit handoff
-            if state.get("next_agent"):
-                return "router"
-            
-            # Inspect last AI message (agent output)
-            from langchain_core.messages import AIMessage
-            messages = state.get("messages", []) or []
-            last_ai = None
-            for msg in reversed(messages):
-                if isinstance(msg, AIMessage):
-                    last_ai = msg
-                    break
-            content = (last_ai.content or "").lower() if last_ai else ""
-            
-            # Try intelligent LLM-based handoff decision first (default enabled)
-            use_llm = os.getenv("ORCH_USE_LLM_HANDOFF", "1").lower() not in ("0", "false", "no")
-            if use_llm:
-                try:
-                    llm_decision = self._llm_decide_handoff(state)
-                    if llm_decision and isinstance(llm_decision, dict):
-                        action = llm_decision.get("action")
-                        agent = llm_decision.get("agent")
-                        reason = llm_decision.get("reason")
-                        # Normalize and alias agent names from LLM
-                        agent_norm = None
-                        if isinstance(agent, str):
-                            agent_norm = agent.strip().lower()
-                            alias_map = {
-                                "product_mgmt": "product_management",
-                                "product management": "product_management",
-                                "ga4": "ga4_analytics",
-                                "google analytics": "ga4_analytics",
-                                "analytics": "ga4_analytics",
-                                "google workspace": "google_workspace",
-                                "workspace": "google_workspace",
-                            }
-                            if agent_norm in alias_map:
-                                agent_norm = alias_map[agent_norm]
-                            if agent_norm not in self.agents:
-                                import re as _re
-                                simple = _re.sub(r"[^a-z0-9]", "", agent_norm)
-                                for name in self.agents.keys():
-                                    name_simple = _re.sub(r"[^a-z0-9]", "", name)
-                                    if simple == name_simple or simple in name_simple or name_simple in simple:
-                                        agent_norm = name
-                                        break
-                        if action == "handoff" and agent_norm and agent_norm in self.agents and agent_norm != state.get("last_agent"):
-                            logger.info(f"LLM decided handoff to '{agent_norm}' – reason: {reason}")
-                            state["next_agent"] = agent_norm
-                            state["handoff_reason"] = reason or "LLM-decided handoff"
-                            return "router"
-                        if action == "relay":
-                            # LLM requested to hand over to user
-                            logger.info(f"LLM decided to relay to user – reason: {reason}")
-                            return "end"
-                except Exception as e:
-                    logger.debug(f"LLM handoff decision failed: {e}")
-            
-            # Try to suggest a follow-up specialist based on capability/domain
-            suggested = self._suggest_handoff(state)
-            if suggested and suggested in self.agents and suggested != state.get("last_agent"):
-                logger.info(f"Heuristic suggests handoff to '{suggested}'")
-                state["next_agent"] = suggested
-                state["handoff_reason"] = state.get("handoff_reason") or f"Follow-up required by {suggested} based on task domain"
-                return "router"
-            
-            # Simple ask-user detectors
-            ask_markers = [
-                "please provide",
-                "i need",
-                "what is",
-                "could you",
-                "would you",
-                "can you",
-                "do you want",
-                "should i",
-                "please confirm",
-                "confirm",
-                "specify",
-                "let me know",
-                "provide",
-                "choose",
-                "select",
-                "send",
-                "share",
-                "tell me"
-            ]
-            if content and any(marker in content for marker in ask_markers):
-                logger.info("Detected agent asking user for input/confirmation – relaying to user")
-                return "end"  # go to relay
-            
-            # Default to handover to user
-            logger.info("Defaulting to relay to user (no handoff decided)")
-            return "end"
-        except Exception:
-            return "end"
-
-    def _suggest_handoff(self, state: GraphState) -> Optional[str]:
-        """Suggest a next agent based on the last human request and the last agent's response.
-        General-purpose heuristic using domain keywords and inability signals.
-        Returns agent name or None.
-        """
-        try:
-            from langchain_core.messages import HumanMessage, AIMessage
-            messages = state.get("messages", []) or []
-            last_human = None
-            last_ai = None
-            for msg in reversed(messages):
-                if last_ai is None and isinstance(msg, AIMessage):
-                    last_ai = msg
-                if last_human is None and isinstance(msg, HumanMessage):
-                    last_human = msg
-                if last_ai and last_human:
-                    break
-            user_text = (last_human.content or "").lower() if last_human else ""
-            agent_text = (last_ai.content or "").lower() if last_ai else ""
-            
-            # Signals that the agent couldn't act and is deferring
-            inability_markers = [
-                "i don't have a tool",
-                "i dont have a tool",
-                "i cannot",
-                "i can't",
-                "i cant",
-                "not able to",
-                "i can give steps",
-                "instructions you can run",
-                "you can run",
-                "use the shopify admin",
-                "rest admin api",
-                "graphql admin api",
-                "i don't have direct access",
-                "i do not have direct access",
-            ]
-            deferring = any(m in agent_text for m in inability_markers)
-            
-            # Domain keyword buckets -> agents (only if present in self.agents)
-            domain_map = {
-                "media": ["image", "images", "photo", "media", "thumbnail", "gallery", "alt text", "featured image", "upload"],
-                "pricing": ["price", "pricing", "cost", "margin", "discount", "map", "sale price", "promo"],
-                "inventory": ["inventory", "stock", "quantity", "restock", "availability", "in stock"],
-                "orders": ["order", "orders", "refund", "fulfillment", "shipment", "tracking"],
-                "features": ["metafield", "metafields", "feature", "features", "description", "specs", "attributes", "tags"],
-                "product_management": ["variant", "variants", "sku", "create product", "duplicate", "option", "bundle"],
-                "graphql": ["graphql", "mutation", "query", "gid://", "node"],
-                "integrations": ["integration", "webhook", "api key", "sync", "connector"],
-                "utility": ["convert", "csv", "export", "import", "format"],
-                "ga4_analytics": ["ga4", "analytics", "google analytics", "event", "conversion"],
-                "google_workspace": ["gmail", "google sheets", "drive", "docs", "calendar", "workspace"],
-                "sales": ["promotion", "sale", "campaign", "map", "deal", "coupon"],
-            }
-            # Compute scores per agent
-            text = f"{user_text}\n{agent_text}"
-            scores = {}
-            for agent, kws in domain_map.items():
-                if agent in self.agents:
-                    s = sum(1 for kw in kws if kw in text)
-                    scores[agent] = s
-            # Prefer agents with non-zero scores
-            if scores:
-                # Sort by score desc
-                ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-                best, best_score = ranked[0]
-                if best_score > 0 and best != state.get("last_agent"):
-                    # Prepare context and suggest best specialist
-                    ctx = {"basis": "keyword_match", "score": best_score}
-                    if deferring:
-                        ctx["deferring"] = True
-                    state["handoff_context"] = ctx
-                    state["handoff_reason"] = state.get("handoff_reason") or "Specialist with appropriate tools required"
-                    return best
-            return None
-        except Exception:
-            return None
-
-    def relay_to_user(self, state: GraphState) -> GraphState:
-        """Relay the latest agent message to the user in the Orchestrator voice.
-        Ensures the frontend only ever sees messages from 'Orchestrator'.
-        """
-        try:
-            from langchain_core.messages import AIMessage
-            messages = state.get("messages", []) or []
-            last_agent = state.get("last_agent")
-            # Find the last AI message (agent response)
-            last_ai = None
-            for msg in reversed(messages):
-                if isinstance(msg, AIMessage):
-                    last_ai = msg
-                    break
-            relay_content = last_ai.content if last_ai and getattr(last_ai, "content", None) else ""
-            if not relay_content:
-                relay_content = ""
-            # Wrap with Orchestrator voice so it's clear who is speaking
-            source = last_agent if last_agent else "a specialist"
-            orchestrator_prefix = f"I’m coordinating this for you (via {source})."
-            # Keep content verbatim but clearly attributed to Orchestrator
-            final_content = f"{orchestrator_prefix}\n\n{relay_content}" if relay_content else orchestrator_prefix
-            # Append Orchestrator message
-            messages.append(AIMessage(
-                content=final_content,
-                metadata={"agent": "orchestrator", "relay_from": last_agent}
-            ))
-            state["messages"] = messages
-            state["current_agent"] = "orchestrator"
-            state["last_agent"] = "orchestrator"
-            state["next_agent"] = None
-            state["should_continue"] = False
-            return state
-        except Exception as e:
-            logger.error(f"Error in relay_to_user: {e}")
-            return state
-    
-    async def run(
-        self,
-        message: str,
-        conversation_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
-        thread_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Run the orchestrator with a user message"""
-        
-        from app.state.graph_state import create_initial_state
-        from langchain_core.messages import HumanMessage
-        
-        actual_thread_id = thread_id or conversation_id or "default"
-        config = {"configurable": {"thread_id": actual_thread_id}}
-        logger.info(f"Stream: Using thread_id: {actual_thread_id}")
-        
-        # Check if there's an existing checkpoint for this thread
-        existing_state = None
-        try:
-            existing_state = self.checkpointer.get(config)
-        except Exception as e:
-            logger.debug(f"No existing checkpoint for thread {actual_thread_id}: {e}")
-        
-        if existing_state and "channel_values" in existing_state:
-            # Use existing state and append new message
-            initial_state = existing_state["channel_values"]
-            # Ensure messages is a list
-            if "messages" not in initial_state:
-                initial_state["messages"] = []
-            logger.info(f"Found existing state with {len(initial_state.get('messages', []))} messages")
-            # Append the new user message
-            initial_state["messages"].append(HumanMessage(content=message))
-            # Update context if provided
-            if context:
-                initial_state["context"] = context
-        else:
-            # No existing state, create new one
-            logger.info(f"No existing state found for thread {actual_thread_id}, creating new state")
-            initial_state = create_initial_state(
-                user_message=message,
-                conversation_id=conversation_id,
-                user_id=user_id,
-                context=context
-            )
-        
-        try:
-            result = await self.graph.ainvoke(initial_state, config)
-            
-            return {
-                "success": True,
-                "messages": result.get("messages", []),
-                "last_agent": result.get("last_agent"),
-                "metadata": result.get("metadata", {})
-            }
-        except Exception as e:
-            logger.error(f"Error running orchestrator: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "messages": []
-            }
-    
-    async def stream(
-        self,
-        message: str,
-        conversation_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
-        thread_id: Optional[str] = None
-    ):
-        """Stream the orchestrator response"""
-        
-        from app.state.graph_state import create_initial_state
-        from langchain_core.messages import HumanMessage
-        import asyncio
-        
-        actual_thread_id = thread_id or conversation_id or "default"
-        config = {"configurable": {"thread_id": actual_thread_id}}
-        logger.info(f"Stream: Using thread_id: {actual_thread_id}")
-        
-        # Check if there's an existing checkpoint for this thread
-        existing_state = None
-        try:
-            existing_state = self.checkpointer.get(config)
-        except Exception as e:
-            logger.debug(f"No existing checkpoint for thread {actual_thread_id}: {e}")
-        
-        if existing_state and "channel_values" in existing_state:
-            # Use existing state and append new message
-            initial_state = existing_state["channel_values"]
-            # Ensure messages is a list
-            if "messages" not in initial_state:
-                initial_state["messages"] = []
-            logger.info(f"Found existing state with {len(initial_state.get('messages', []))} messages")
-            # Append the new user message
-            initial_state["messages"].append(HumanMessage(content=message))
-            # Update context if provided
-            if context:
-                initial_state["context"] = context
-        else:
-            # No existing state, create new one
-            logger.info(f"No existing state found for thread {actual_thread_id}, creating new state")
-            initial_state = create_initial_state(
-                user_message=message,
-                conversation_id=conversation_id,
-                user_id=user_id,
-                context=context
-            )
-        
-        try:
-            event_count = 0
-            
-            # Use the synchronous stream method
-            for chunk in self.graph.stream(initial_state, config):
-                event_count += 1
-                logger.debug(f"Chunk {event_count}: {type(chunk)}, keys: {chunk.keys() if isinstance(chunk, dict) else 'not a dict'}")
                 
-                # LangGraph returns chunks as {node_name: state_update}
-                # Each chunk represents an update from a specific node
-                if isinstance(chunk, dict):
-                    for node_name, node_output in chunk.items():
-                        # Only relay orchestrated output to the client
-                        if node_name == "relay" and isinstance(node_output, dict) and "messages" in node_output:
-                            messages = node_output.get("messages", [])
-                            if messages:
-                                last_message = messages[-1]
-                                from langchain_core.messages import AIMessage
-                                if isinstance(last_message, AIMessage):
-                                    content = last_message.content
-                                    if content:
-                                        yield {
-                                            "type": "token",
-                                            "content": content,
-                                            "agent": "Orchestrator"
-                                        }
+                if search_results:
+                    memory_lines = []
+                    for result in search_results:
+                        mem = result.memory
+                        memory_lines.append(f"- {mem.content} (importance: {mem.importance_score:.1f})")
+                    memory_context = "Relevant memories:\n" + "\n".join(memory_lines) + "\n\n"
+                    logger.info(f"Injected {len(search_results)} relevant memories")
+            except Exception as e:
+                logger.warning(f"Failed to retrieve memories: {e}")
+        
+        # Use compressed context if available, otherwise fall back to legacy
+        if memory.compressed_context:
+            known_context = memory.get_compressed_context_string(max_tokens=500)
+            logger.info(f"Using compressed context ({len(known_context)} chars)")
+        else:
+            known_context = self._build_known_context(memory)
+        
+        # Build recent conversation history for context
+        recent_conversation = ""
+        if memory.recent_messages:
+            logger.debug(f"Building context from {len(memory.recent_messages)} recent messages")
+            # Log the actual size of messages
+            for i, msg in enumerate(memory.recent_messages):
+                if hasattr(msg, 'content'):
+                    msg_content = str(msg.content)
+                    logger.warning(f"Message {i} size: {len(msg_content)} chars")
+                    if len(msg_content) > 10000:
+                        logger.error(f"HUGE MESSAGE FOUND! First 500 chars: {msg_content[:500]}")
             
-            # Add explicit completion signal
-            logger.info(f"Stream completed with {event_count} chunks")
-            yield {
-                "type": "complete",
-                "message": "Stream completed"
-            }
+            recent_conversation = "Recent conversation:\n"
+            # Only include last 2 messages (1 exchange) to reduce tokens
+            for msg in memory.recent_messages[-2:]:
+                if hasattr(msg, 'content'):
+                    role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+                    # Truncate very long messages more aggressively
+                    content = msg.content[:300] + "..." if len(msg.content) > 300 else msg.content
+                    recent_conversation += f"{role}: {content}\n"
+                    logger.debug(f"Added {role} message to context: {content[:100]}...")
+        else:
+            logger.warning(f"No recent messages in memory for planning!")
+        
+        # Build context about last attempt if any
+        last_attempt_context = ""
+        if last_agent_result:
+            last_attempt_context = f"""
+Last agent call:
+- Agent: {last_agent_result.get('agent', 'unknown')}
+- Task: {last_agent_result.get('task', 'unknown')}
+- Result: {last_agent_result.get('result', 'No result')[:500]}
+"""
+        
+        # Log the context being used for debugging
+        logger.info(f"Planning with context - Recent messages: {len(memory.recent_messages)}, Has compressed context: {memory.compressed_context is not None}")
+        if recent_conversation:
+            logger.debug(f"Recent conversation preview: {recent_conversation[:200]}...")
+        
+        planning_prompt = f"""You are an intelligent orchestrator managing specialized agents.
+
+Current user request: {user_request}
+
+{memory_context}{recent_conversation}
+
+What we already know from this conversation:
+{known_context}
+
+{last_attempt_context}
+
+Available agents:
+- products: Product searches and information
+- pricing: Price updates and management
+- inventory: Stock levels and tracking
+- sales: Sales analytics and reports
+- orders: Order data and analytics
+- features: Product features and specifications
+- media: Product images and media
+- integrations: External systems (SkuVault, Yotpo, etc.)
+- product_mgmt: Product creation and updates
+- graphql: Direct GraphQL queries
+- google_workspace: Gmail, Calendar, Drive, Tasks
+- ga4_analytics: Website traffic and analytics
+
+IMPORTANT: Do NOT use the utility agent for memory operations. I handle memory directly.
+
+Based on the user request and what we know so far, determine the next action.
+
+CRITICAL RULES:
+1. NEVER make up or hallucinate ANY information - if you don't have it, fetch it
+2. Check what information you already have in context before calling agents
+3. Only call agents when you need information that's NOT in your context
+4. Be smart about context - use what you have, fetch what you don't
+
+SMART CONTEXT USAGE:
+- If the context already contains the exact information the user is asking for → respond directly
+- If the context has partial information → call agent for only the missing details
+- If you have no relevant information in context → call the appropriate agent
+
+For product-related questions:
+- Check if compressed_context contains the needed product details (prices, compare_at_price, inventory, etc.)
+- If yes → use that information directly (it's recent and accurate)
+- If no → call products agent with specific product IDs to get only what's missing
+- When calling products agent, be specific: "get pricing details for [product_id]" not "get all details"
+
+IMPORTANT: For simple queries like "find [product name]", if this is the FIRST action and we have no prior context:
+- Call the products agent to search for it
+- Do NOT respond directly without searching first
+
+For follow-up questions:
+- First check: Do I have this exact information in my compressed context?
+- If yes: Use it directly (saves time and tokens)
+- If no: Call the appropriate agent for ONLY the missing information
+- The context understands references like "it", "the item", "these" from conversation flow
+
+If we have all necessary information to answer the user, respond with:
+{{
+  "action": "respond",
+  "message": "The complete response to provide to the user, including all details from agent results"
+}}
+
+If we need to call an agent for more information, respond with:
+{{
+  "action": "call_agent",
+  "agent": "agent_name",
+  "task": "Specific task for the agent",
+  "context": {{
+    "key": "Any specific context the agent needs",
+    "previous_attempts": "What we tried before if relevant"
+  }}
+}}
+
+Think step by step:
+1. What does the user want? (Check if they're referring to something from the recent conversation)
+2. What information do we already have from the conversation history?
+3. What information do we still need?
+4. Can I answer the user completely with current information?
+5. If not, which agent can provide the missing information?
+
+IMPORTANT: If the user says things like "the second one", "that", "it", "the second review", etc., look at the recent conversation to understand what they're referring to.
+
+For example:
+- If you just listed emails and user says "open the second one" → Open the second email from the list
+- If you showed reviews and user says "the second review" → They mean the second item you just showed
+- If user refers to "it" or "that" → Look at what was just discussed
+- If you showed products WITH prices and user asks "do they have compare prices?" → Check context first, only call agent if compare_at_price not in context
+- If user asks "what's in stock?" → Check if inventory data is in context, if not then call products agent
+
+The user is continuing the conversation, not starting a new topic. Use the context!
+
+SMART APPROACH: Check context first → Use what you have → Fetch only what's missing
+
+Respond with JSON."""
+
+        try:
+            # DEBUG: Check prompt size
+            logger.warning(f"Planning prompt size: {len(planning_prompt)} chars")
+            if len(planning_prompt) > 50000:
+                logger.error(f"HUGE PROMPT DETECTED! First 1000 chars: {planning_prompt[:1000]}")
+            
+            # Add timeout for GPT-5 model invocation (GPT-5 is a thinking model and needs time)
+            logger.info(f"Invoking GPT-5 thinking model for planning decision...")
+            try:
+                response = await asyncio.wait_for(self.model.ainvoke(planning_prompt), timeout=60)
+                logger.info(f"GPT-5 thinking complete - responded successfully")
+            except asyncio.TimeoutError:
+                logger.error(f"GPT-5 model invocation timed out after 60 seconds")
+                # Fallback to a simple decision if model times out
+                return AgentCall(
+                    agent_name="products",
+                    task=user_request,
+                    context={"timeout": True, "fallback": True}
+                )
+            
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            # Extract JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                decision = json.loads(json_match.group())
+                
+                if decision.get("action") == "call_agent":
+                    return AgentCall(
+                        agent_name=decision.get("agent", "products"),
+                        task=decision.get("task", ""),
+                        context=decision.get("context", {})
+                    )
+                elif decision.get("action") == "respond":
+                    # Store the response message for later use
+                    self._final_response = decision.get("message", "")
+                    return None
+                else:
+                    # Unknown action, stop
+                    logger.warning(f"Unknown action: {decision.get('action')}")
+                    return None
             
         except Exception as e:
-            import traceback
-            error_msg = f"Error streaming response: {str(e)}"
-            logger.error(error_msg)
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            yield {
-                "type": "error",
-                "error": str(e)
+            logger.error(f"Error planning next action: {e}")
+        
+        # Default fallback
+        return None
+    
+    @traceable(name="call_agent")
+    async def call_agent(self, agent_call: AgentCall, memory: ConversationMemory, 
+                        user_id: str, thread_id: str) -> Dict[str, Any]:
+        """Call a single agent with specific context"""
+        
+        agent_name = agent_call.agent_name
+        if agent_name not in self.agents:
+            return {
+                "agent": agent_name,
+                "task": agent_call.task,
+                "success": False,
+                "result": f"Agent {agent_name} not found"
             }
+        
+        agent = self.agents[agent_name]
+        logger.info(f"🎯 Calling {agent_name} with task: {agent_call.task}")
+        
+        # Build state for agent with orchestrator's context
+        state = {
+            "messages": [
+                SystemMessage(content=f"""You are being called by the orchestrator with a specific task.
+
+Task: {agent_call.task}
+
+Context from orchestrator:
+{json.dumps(agent_call.context, indent=2)}
+
+Complete this specific task. Be direct and factual in your response."""),
+                HumanMessage(content=agent_call.task)
+            ],
+            "user_id": user_id,
+            "thread_id": thread_id,
+            "orchestrator_context": agent_call.context
+        }
+        
+        try:
+            # Call the agent with longer timeout for complex queries
+            logger.info(f"Calling agent {agent_name} with timeout of 60 seconds")
+            result = await asyncio.wait_for(agent(state), timeout=60)
+            
+            # Extract response
+            if isinstance(result, dict) and "messages" in result:
+                messages = result.get("messages", [])
+                logger.debug(f"Agent {agent_name} returned {len(messages)} messages")
+                for msg in reversed(messages):
+                    if hasattr(msg, '__class__') and msg.__class__.__name__ == 'AIMessage':
+                        if hasattr(msg, 'content') and msg.content:
+                            metadata = getattr(msg, 'metadata', {})
+                            logger.debug(f"Message metadata: {metadata}, looking for agent={agent_name}")
+                            if metadata.get('agent') == agent_name:
+                                agent_response = msg.content
+                                logger.info(f"✅ Got response from {agent_name}: {len(agent_response)} chars")
+                                
+                                # Track in memory
+                                if agent_name not in memory.agent_attempts:
+                                    memory.agent_attempts[agent_name] = []
+                                memory.agent_attempts[agent_name].append({
+                                    "task": agent_call.task,
+                                    "response": agent_response,
+                                    "attempt": agent_call.attempt_number
+                                })
+                                
+                                # Parse and remember important findings
+                                self._extract_findings(agent_name, agent_response, memory)
+                                
+                                return {
+                                    "agent": agent_name,
+                                    "task": agent_call.task,
+                                    "success": True,
+                                    "result": agent_response
+                                }
+            
+            logger.warning(f"❌ No proper response from {agent_name} - messages not found or metadata mismatch")
+            return {
+                "agent": agent_name,
+                "task": agent_call.task,
+                "success": False,
+                "result": "No response from agent"
+            }
+            
+        except asyncio.TimeoutError:
+            logger.error(f"Agent {agent_name} timed out after 60 seconds")
+            return {
+                "agent": agent_name,
+                "task": agent_call.task,
+                "success": False,
+                "result": "Agent timed out after 60 seconds"
+            }
+        except Exception as e:
+            logger.error(f"Error calling {agent_name}: {e}")
+            return {
+                "agent": agent_name,
+                "task": agent_call.task,
+                "success": False,
+                "result": f"Error: {str(e)}"
+            }
+    
+    def _extract_findings(self, agent_name: str, response: str, memory: ConversationMemory):
+        """Extract and remember important findings from agent response"""
+        response_lower = response.lower()
+        
+        # Extract product IDs and details
+        if "gid://shopify/product/" in response_lower:
+            import re
+            import json
+            
+            # First try to parse as JSON if it looks like JSON
+            if response.strip().startswith('[{') or response.strip().startswith('{'):
+                try:
+                    # Try to find and parse JSON data
+                    json_match = re.search(r'(\[?\{.*\}\]?)', response, re.DOTALL)
+                    if json_match:
+                        data = json.loads(json_match.group(1))
+                        # Handle both single product and array of products
+                        products = data if isinstance(data, list) else [data]
+                        for product in products[:10]:  # Limit to first 10 products
+                            if isinstance(product, dict):
+                                product_id = product.get('id', '')
+                                title = product.get('title', 'Unknown')[:100]  # Limit title length
+                                if product_id and 'shopify/Product' in product_id:
+                                    memory.remember_product(product_id, {"title": title, "found_by": agent_name})
+                        return  # Successfully parsed JSON, done
+                except (json.JSONDecodeError, TypeError):
+                    pass  # Fall back to regex extraction
+            
+            # Fallback: Extract with regex
+            product_ids = re.findall(r'gid://shopify/Product/\d+', response, re.IGNORECASE)
+            for product_id in product_ids[:10]:  # Limit to first 10
+                # Try to extract associated product name
+                lines = response.split('\n')
+                for i, line in enumerate(lines):
+                    if product_id in line:
+                        # Look for product title nearby
+                        title = "Unknown"
+                        for j in range(max(0, i-2), min(len(lines), i+3)):
+                            if 'title' in lines[j].lower() or '-' in lines[j]:
+                                # Extract title but limit length to prevent huge strings
+                                title = lines[j].strip()[:100]
+                                break
+                        memory.remember_product(product_id, {"title": title, "found_by": agent_name})
+                        break  # Only store once per product ID
+        
+        # Track searches
+        if agent_name == "products" and ("found" in response_lower or "search" in response_lower):
+            memory.remember_search(response[:100], response)
+        
+        # Track operations
+        if "success" in response_lower or "completed" in response_lower:
+            memory.remember_operation(agent_name, {"response": response[:200]})
+    
+    def _build_known_context(self, memory: ConversationMemory) -> str:
+        """Build a summary of what we know so far"""
+        parts = []
+        
+        if memory.products:
+            parts.append("Known products:")
+            for product_id, details in memory.products.items():
+                parts.append(f"  - {product_id}: {details.get('title', 'Unknown')}")
+        
+        if memory.operations_completed:
+            parts.append("\nCompleted operations:")
+            for op in memory.operations_completed[-5:]:  # Last 5 operations
+                parts.append(f"  - {op['operation']}: {op['details'].get('response', '')[:100]}")
+        
+        if memory.searches_performed:
+            parts.append("\nSearches performed:")
+            for search in memory.searches_performed[-3:]:  # Last 3 searches
+                parts.append(f"  - {search['query'][:50]}")
+        
+        return "\n".join(parts) if parts else "No prior context"
+    
+    @traceable(name="synthesize_final_response")
+    async def synthesize_final_response(self, 
+                                       user_request: str,
+                                       memory: ConversationMemory,
+                                       all_results: List[Dict[str, Any]]) -> str:
+        """Create final response from all agent results"""
+        
+        if not all_results:
+            return "I understand your request but couldn't gather the necessary information. Please try again."
+        
+        # Build summary of what was done
+        actions_summary = []
+        for result in all_results:
+            if result.get("success"):
+                actions_summary.append(f"- {result['agent']}: {result['task']}")
+        
+        synthesis_prompt = f"""Create a natural, helpful response to the user's request based on the agent results.
+
+User request: {user_request}
+
+Actions taken:
+{chr(10).join(actions_summary)}
+
+Agent results:
+{json.dumps(all_results, indent=2)[:3000]}
+
+Create a clear, concise response that:
+1. Directly addresses what the user asked for
+2. Includes specific details from the agent results
+3. Mentions any important IDs or links if relevant
+4. Is friendly and conversational
+
+Response:"""
+
+        try:
+            response = await self.model.ainvoke(synthesis_prompt)
+            return response.content if hasattr(response, 'content') else str(response)
+        except Exception as e:
+            logger.error(f"Error synthesizing response: {e}")
+            # Fallback to simple concatenation
+            parts = []
+            for result in all_results:
+                if result.get("success"):
+                    parts.append(result.get("result", ""))
+            return "\n\n".join(parts)
+    
+    async def _save_conversation_to_db(self, thread_id: str, user_message: str, assistant_response: str):
+        """Save conversation to database so it appears in sidebar"""
+        logger.debug(f"Attempting to save conversation {thread_id} to database")
+        
+        if not self.database_url:
+            logger.warning("No DATABASE_URL configured, skipping conversation save")
+            return
+            
+        try:
+            logger.debug(f"Connecting to database...")
+            conn = await asyncpg.connect(self.database_url)
+            try:
+                # Check if this is a new conversation (no existing title)
+                existing = await conn.fetchrow(
+                    "SELECT title FROM conversation_metadata WHERE thread_id = $1",
+                    thread_id
+                )
+                
+                if existing and existing['title']:
+                    # Already has a title, just update timestamp
+                    await conn.execute(
+                        """
+                        UPDATE conversation_metadata 
+                        SET updated_at = CURRENT_TIMESTAMP
+                        WHERE thread_id = $1
+                        """,
+                        thread_id
+                    )
+                else:
+                    # Generate a proper title for new conversation using TitleGenerator
+                    try:
+                        from app.api.title_generator import get_title_generator
+                        generator = get_title_generator()
+                        generated_title = await asyncio.wait_for(
+                            generator.generate_title(user_message),
+                            timeout=5.0
+                        )
+                        title = generated_title
+                        logger.info(f"📝 Generated title: {title}")
+                    except asyncio.TimeoutError:
+                        logger.warning("Title generation timed out, using fallback")
+                        title = user_message[:50] + "..." if len(user_message) > 50 else user_message
+                    except Exception as e:
+                        logger.warning(f"Title generation failed: {e}, using fallback")
+                        title = user_message[:50] + "..." if len(user_message) > 50 else user_message
+                    
+                    # Save with generated or fallback title
+                    await conn.execute(
+                        """
+                        INSERT INTO conversation_metadata (thread_id, title, auto_generated, updated_at)
+                        VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)
+                        ON CONFLICT (thread_id) 
+                        DO UPDATE SET 
+                            title = EXCLUDED.title,
+                            auto_generated = TRUE,
+                            updated_at = CURRENT_TIMESTAMP
+                        """,
+                        thread_id,
+                        title
+                    )
+                logger.info(f"✅ Successfully saved conversation {thread_id} to database")
+            finally:
+                await conn.close()
+                logger.debug(f"Database connection closed")
+        except Exception as e:
+            logger.error(f"❌ Failed to save conversation to database: {e}", exc_info=True)
+    
+    async def _save_messages_to_db(self, thread_id: str, user_message: str, assistant_response: str):
+        """Save individual messages to database for conversation history"""
+        if not self.database_url:
+            return
+            
+        try:
+            conn = await asyncpg.connect(self.database_url)
+            try:
+                # Create messages table if it doesn't exist
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS progressive_messages (
+                        id SERIAL PRIMARY KEY,
+                        thread_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        metadata JSONB DEFAULT '{}'::jsonb
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_progressive_messages_thread_id 
+                    ON progressive_messages(thread_id);
+                """)
+                
+                # Save user message
+                await conn.execute("""
+                    INSERT INTO progressive_messages (thread_id, role, content, created_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                """, thread_id, "user", user_message)
+                
+                # Save assistant response
+                await conn.execute("""
+                    INSERT INTO progressive_messages (thread_id, role, content, created_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                """, thread_id, "assistant", assistant_response)
+                
+                logger.info(f"✅ Saved messages for thread {thread_id}")
+                
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.error(f"Failed to save messages: {e}")
+    
+    async def _load_messages_from_db(self, thread_id: str) -> List[Any]:
+        """Load previous messages for a thread from database"""
+        if not self.database_url:
+            return []
+            
+        try:
+            conn = await asyncpg.connect(self.database_url)
+            try:
+                rows = await conn.fetch("""
+                    SELECT role, content, created_at 
+                    FROM progressive_messages 
+                    WHERE thread_id = $1
+                    ORDER BY created_at DESC
+                    LIMIT 6
+                """, thread_id)
+                
+                # Reverse to get chronological order (we selected DESC for most recent)
+                rows = list(reversed(rows)) if rows else []
+                
+                messages = []
+                for row in rows:
+                    if row['role'] == 'user':
+                        messages.append(HumanMessage(content=row['content']))
+                    elif row['role'] == 'assistant':
+                        messages.append(AIMessage(content=row['content']))
+                
+                if messages:
+                    logger.info(f"📚 Loaded {len(messages)} historical messages for thread {thread_id}")
+                
+                return messages
+                
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.error(f"Failed to load messages: {e}")
+            return []
+    
+    @traceable(name="orchestrate_progressive")
+    async def orchestrate(self, message: str, thread_id: str = "default", user_id: str = "1"):
+        """Main orchestration loop - progressive agent calling with compressed context and message persistence"""
+        
+        # Get or create memory for this thread
+        memory = self._get_memory(thread_id)
+        
+        # Load historical messages if this is an existing conversation
+        if not memory.recent_messages:
+            historical_messages = await self._load_messages_from_db(thread_id)
+            if historical_messages:
+                memory.recent_messages = historical_messages[-3:]  # Keep only last 3 for token efficiency
+                logger.info(f"📚 Restored conversation context with {len(memory.recent_messages)} recent messages")
+        
+        # Add user message to recent history
+        memory.add_recent_message(HumanMessage(content=message))
+        
+        # Reset final response for this orchestration
+        self._final_response = None
+        
+        # Track all results
+        all_results = []
+        max_agents = 5  # Allow up to 5 agent calls for complex tasks
+        agents_called = 0
+        agent_results_dict = {}  # For compression
+        same_agent_retries = 0  # Track consecutive retries of same agent
+        last_agent_called = None
+        
+        # Main orchestration loop
+        while agents_called < max_agents:
+            # Plan next action
+            last_result = all_results[-1] if all_results else None
+            agent_call = await self.plan_next_action(message, memory, last_result)
+            
+            if not agent_call:
+                # Orchestrator has enough info or decided to respond directly
+                logger.info("Orchestrator has sufficient information, creating response")
+                break
+            
+            # Check if we're retrying the same agent too many times
+            if agent_call.agent_name == last_agent_called:
+                same_agent_retries += 1
+                if same_agent_retries >= 4:  # Allow up to 4 retries for same agent
+                    logger.warning(f"Agent {agent_call.agent_name} failed {same_agent_retries} times, stopping retries")
+                    break
+            else:
+                same_agent_retries = 0
+                last_agent_called = agent_call.agent_name
+            
+            # Call the agent
+            result = await self.call_agent(agent_call, memory, user_id, thread_id)
+            all_results.append(result)
+            agents_called += 1
+            
+            # Track for compression
+            if result.get("success"):
+                agent_results_dict[result["agent"]] = result.get("result", "")
+            
+            # Check if the agent succeeded
+            if not result.get("success"):
+                # Agent failed, track the failure
+                logger.warning(f"Agent {agent_call.agent_name} failed: {result.get('result', 'unknown error')}")
+                # Don't retry infinitely - treat failure as a result and let orchestrator decide
+                # The orchestrator will see the failure in all_results and can decide what to do
+                if agents_called >= 3:
+                    logger.error(f"Tried {agents_called} agents, stopping to avoid infinite loop")
+                    break
+        
+        # Determine final response
+        if self._final_response:
+            # Orchestrator decided to respond directly without calling agents
+            # or after getting sufficient info from agents
+            final_response = self._final_response
+            logger.info("Using orchestrator's direct response")
+        else:
+            # Synthesize from agent results
+            final_response = await self.synthesize_final_response(message, memory, all_results)
+        
+        # Add assistant response to recent history
+        memory.add_recent_message(AIMessage(content=final_response))
+        
+        # Compress this turn's context using LangExtract
+        try:
+            logger.info(f"Compressing turn context with {len(agent_results_dict)} agent results")
+            compressed = await self.context_manager.compress_turn(
+                thread_id=thread_id,
+                messages=memory.recent_messages,
+                agent_results=agent_results_dict
+            )
+            memory.compressed_context = compressed
+            
+            # Log the compressed context for debugging
+            if compressed:
+                logger.info(f"📊 Compressed context: {compressed.extraction_count} items in {len(compressed.extraction_classes)} categories")
+                logger.debug(f"Compressed context classes: {compressed.extraction_classes}")
+                if compressed.extractions:
+                    # Show sample of what was extracted
+                    for class_name in list(compressed.extraction_classes)[:3]:
+                        items = compressed.extractions.get(class_name, [])
+                        logger.debug(f"  {class_name}: {len(items)} items")
+            else:
+                logger.warning("❌ Compressed context is None!")
+            
+            # Clear old context periodically to prevent unbounded growth
+            if agents_called > 0 and agents_called % 10 == 0:
+                self.context_manager.clear_old_context(thread_id)
+                
+        except Exception as e:
+            logger.error(f"Failed to compress context: {e}", exc_info=True)
+        
+        # Log what we learned this turn
+        if memory.compressed_context:
+            logger.info(f"Turn complete. Compressed context has {memory.compressed_context.extraction_count} extractions")
+        else:
+            logger.info(f"Turn complete. Products found: {len(memory.products)}, Operations: {len(memory.operations_completed)}")
+        
+        # Extract and save memories BEFORE returning response
+        # This ensures memory extraction happens even if response streaming fails
+        if self.memory_manager:
+            logger.info(f"Starting memory extraction for user {user_id}")
+        else:
+            logger.warning("Memory manager is None, skipping memory extraction")
+            
+        if self.memory_manager:
+            try:
+                from app.memory.memory_persistence import MemoryExtractionService
+                
+                extraction_service = MemoryExtractionService()
+                logger.info("Memory extraction service initialized")
+                
+                # Build conversation for extraction using proper message objects
+                messages_for_extraction = []
+                
+                # Add recent history if available
+                if memory.recent_messages:
+                    # Add last 2 exchanges from history
+                    messages_for_extraction.extend(memory.recent_messages[-4:])
+                
+                # Add current exchange
+                messages_for_extraction.append(HumanMessage(content=message))
+                messages_for_extraction.append(AIMessage(content=final_response))
+                
+                logger.info(f"Extracting from {len(messages_for_extraction)} messages. Latest: User: {message[:100]}... Assistant: {final_response[:100]}...")
+                
+                # Extract memories
+                logger.info(f"Extracting memories from {len(messages_for_extraction)} messages")
+                extracted_memories = await extraction_service.extract_memories_from_conversation(
+                    messages=messages_for_extraction,
+                    user_id="1"  # Default user for now
+                )
+                logger.info(f"Extracted {len(extracted_memories)} memories")
+                
+                # Save extracted memories
+                saved_count = 0
+                for mem in extracted_memories:
+                    logger.info(f"Attempting to save memory: {mem.content[:50]}...")
+                    try:
+                        memory_id = await self.memory_manager.store_memory(mem)
+                        if memory_id:
+                            saved_count += 1
+                            logger.info(f"💾 Saved memory #{memory_id}: {mem.content[:50]}...")
+                    except Exception as e:
+                        logger.warning(f"Failed to save memory: {e}")
+                
+                if saved_count > 0:
+                    logger.info(f"✅ Extracted and saved {saved_count} memories from conversation")
+                    
+            except Exception as e:
+                logger.error(f"Memory extraction failed: {e}")
+        
+        # Save conversation metadata to database (for sidebar) AFTER memory extraction
+        await self._save_conversation_to_db(thread_id, message, final_response)
+        
+        # Save individual messages for history
+        await self._save_messages_to_db(thread_id, message, final_response)
+        
+        # Return response as generator for streaming
+        for token in final_response.split():
+            yield token + " "
+
+# Singleton instance
+orchestrator = ProgressiveOrchestrator()
+
+async def get_orchestrator() -> ProgressiveOrchestrator:
+    """Get the orchestrator instance"""
+    return orchestrator
