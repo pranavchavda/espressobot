@@ -97,7 +97,7 @@ export class SearchProductsTool extends BaseTool {
   async execute(args) {
     const { query, first = 10, fields = this.metadata.inputSchema.properties.fields.default } = args;
     
-    this.log('Searching for products', { query, first, fields });
+    this.log(`Searching for products: query="${query}", limit=${first}`);
     
     const fieldSelections = this.buildFieldSelections(fields);
     

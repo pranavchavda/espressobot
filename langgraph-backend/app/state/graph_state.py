@@ -39,6 +39,19 @@ class GraphState(TypedDict):
     
     consolidated_context: bool  # Whether context was consolidated
 
+    # Orchestrator multi-hop fields
+    next_agent: Optional[str]  # Explicit next agent for forced handoff
+    hop_count: int  # Number of hops taken in this run
+    handoff_reason: Optional[str]  # Why the orchestrator/agent requested a handoff
+    handoff_context: Optional[Dict[str, Any]]  # Structured context for the next agent
+    
+    # A2A orchestration tracking
+    agents_used_this_turn: Optional[List[str]]  # Track which agents have been used in this turn
+    planned_agents: Optional[List[str]]  # Planned sequence of agents for multi-agent tasks
+    routing_reason: Optional[str]  # Reason for current routing decision
+    thread_id: Optional[str]  # Thread ID for streaming
+    agent_context: Optional[Dict[str, Any]]  # Context passed to agents
+
 def create_initial_state(
     user_message: str,
     conversation_id: Optional[str] = None,
@@ -65,5 +78,14 @@ def create_initial_state(
         prompt_fragments=None,
         context_tier="standard",
         memory_search_query=None,
-        consolidated_context=False
+        consolidated_context=False,
+        next_agent=None,
+        hop_count=0,
+        handoff_reason=None,
+        handoff_context=None,
+        agents_used_this_turn=[],
+        planned_agents=None,
+        routing_reason=None,
+        thread_id=None,
+        agent_context=None
     )

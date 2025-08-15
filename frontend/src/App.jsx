@@ -17,7 +17,7 @@ import AgentManagementPage from './pages/AgentManagementPage';
 import MemoryManagementPage from './pages/MemoryManagementPage';
 import AgentBuilder from './features/agents/AgentBuilder';
 import MCPServerManager from './features/agents/MCPServerManager';
-import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Link, Outlet, NavLink, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
 import { Loader2Icon, MessageSquarePlusIcon, XIcon, LineChartIcon, FileTextIcon } from 'lucide-react';
 import { PWAInstallPrompt } from './components/common/PWAInstallPrompt';
 import { Divider } from "@common/divider";
@@ -27,8 +27,33 @@ import TopBar from './components/common/TopBar';
 import LogDrawer from './components/LogDrawer';
 import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
 import SidebarNav from './components/common/SidebarNav';
+import logCapture from './utils/logCapture';
 
 // const FLASK_API_BASE_URL = 'http://localhost:5000'; // Not strictly needed if using relative paths and proxy/same-origin
+
+// Chat wrapper component that handles route params
+function ChatWrapper({ onTopicUpdate, onNewConversation }) {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  
+  // Handle new conversation creation
+  const handleNewConversation = (newConvId) => {
+    console.log('[ChatWrapper] New conversation created:', newConvId);
+    // Navigate to the new conversation's route
+    navigate(`/chat/${newConvId}`);
+    if (onNewConversation) {
+      onNewConversation(newConvId);
+    }
+  };
+  
+  return (
+    <StreamingChatPage
+      convId={conversationId}
+      onTopicUpdate={onTopicUpdate}
+      onNewConversation={handleNewConversation}
+    />
+  );
+}
 
 function App() {
   const navigate = useNavigate();
@@ -47,10 +72,15 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   
-  // Ensure selectedChat is null when at root path
+  // Update selectedChat based on route
   useEffect(() => {
-    if (location.pathname === '/') {
-      console.log('At root path, clearing selectedChat');
+    const pathMatch = location.pathname.match(/^\/chat\/(.+)$/);
+    if (pathMatch) {
+      const conversationId = pathMatch[1];
+      console.log('Route changed to conversation:', conversationId);
+      setSelectedChat(conversationId);
+    } else if (location.pathname === '/' || location.pathname === '/chat') {
+      console.log('At root or chat path, clearing selectedChat');
       setSelectedChat(null);
     }
   }, [location.pathname]);
@@ -67,6 +97,18 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Control log capture based on drawer state
+  useEffect(() => {
+    if (showLogDrawer) {
+      logCapture.start();
+    } else {
+      // Keep capturing if user wants it enabled
+      if (localStorage.getItem('enableLogCapture') !== 'true') {
+        logCapture.stop();
+      }
+    }
+  }, [showLogDrawer]);
 
   // Check authentication on mount
   useEffect(() => {
@@ -151,6 +193,18 @@ function App() {
       setTimeout(() => {
         setConversations(data || []);
       }, 0);
+      
+      // Check if we have a conversation ID in the URL (deep linking)
+      const pathMatch = location.pathname.match(/^\/chat\/(.+)$/);
+      if (pathMatch) {
+        const urlConvId = pathMatch[1];
+        // If the conversation exists in our list, select it
+        if (data && data.find((c) => c.id === urlConvId)) {
+          setSelectedChat(urlConvId);
+          return;
+        }
+      }
+      
       // Keep current selection if still present; otherwise optionally default to the most recent conversation
       setSelectedChat((prevSelected) => {
         if (data && data.find((c) => c.id === prevSelected)) {
@@ -182,9 +236,10 @@ function App() {
       if (response.ok) {
         // Refresh the conversations list
         fetchConversations(); 
-        // If the deleted chat was the selected one, clear selection
+        // If the deleted chat was the selected one, navigate to home
         if (selectedChat === convIdToDelete) {
           setSelectedChat(null);
+          navigate('/');
         }
       } else {
         console.error("Failed to delete conversation:", response.statusText);
@@ -327,8 +382,8 @@ function App() {
               selectedChat={selectedChat}
               loading={loading}
               onSelectConversation={(id) => {
-                setSelectedChat(id);
-                navigate("/chat");
+                // Navigate to the conversation's specific route
+                navigate(`/chat/${id}`);
               }}
               onDeleteConversation={handleDeleteConversation}
               onNewChat={() => {
@@ -348,24 +403,40 @@ function App() {
                 </SidebarLayout>
       }>
         <Route path="/" element={<HomePage />} />
+        {/* New chat route - no conversation ID */}
         <Route
           path="/chat"
           element={
             <>
               <StreamingChatPage
-                convId={selectedChat}
+                convId={null}
                 onTopicUpdate={(conversationId, topicTitle, topicDetails) => {
-                  // Instead of updating state, refetch to ensure consistency
                   fetchConversations();
                 }}
                 onNewConversation={(newConvId) => {
-                  console.log('[DEBUG] App.jsx: onNewConversation called with:', newConvId);
+                  console.log('[App] New conversation created:', newConvId);
                   if (newConvId) {
-                    setSelectedChat(newConvId);
-                    fetchConversations(); // Refresh the sidebar
-                  } else {
-                    setSelectedChat(null);
+                    // Navigate to the new conversation's route
+                    navigate(`/chat/${newConvId}`);
+                    fetchConversations();
                   }
+                }}
+              />
+              <PWAInstallPrompt />
+            </>
+          }
+        />
+        {/* Specific conversation route */}
+        <Route
+          path="/chat/:conversationId"
+          element={
+            <>
+              <ChatWrapper
+                onTopicUpdate={(conversationId, topicTitle, topicDetails) => {
+                  fetchConversations();
+                }}
+                onNewConversation={(newConvId) => {
+                  fetchConversations();
                 }}
               />
               <PWAInstallPrompt />

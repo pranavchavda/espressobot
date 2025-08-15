@@ -56,6 +56,13 @@ class A2AOrchestrator:
     
     def _create_checkpointer(self):
         """Create PostgreSQL checkpointer with proper connection handling"""
+        # Prefer in-memory checkpointer by default to avoid DB/serialization issues during A2A
+        # Set A2A_CHECKPOINT=postgres to use PostgresSaver.
+        from langgraph.checkpoint.memory import MemorySaver
+        if os.getenv("A2A_CHECKPOINT", "memory").lower() != "postgres":
+            logger.info("A2A orchestrator using in-memory checkpointer (MemorySaver)")
+            return MemorySaver()
+
         db_uri = os.getenv("DATABASE_URL", "postgresql://espressobot:localdev123@localhost:5432/espressobot_dev")
         try:
             # Create a direct connection for the checkpointer
@@ -95,7 +102,6 @@ class A2AOrchestrator:
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL checkpointer for A2A: {e}")
             # Fallback to in-memory checkpointer
-            from langgraph.checkpoint.memory import MemorySaver
             logger.warning("A2A orchestrator falling back to in-memory checkpointer")
             return MemorySaver()
     
@@ -106,6 +112,7 @@ class A2AOrchestrator:
         from app.agents.inventory_native_mcp import InventoryAgentNativeMCP
         from app.agents.sales_native_mcp import SalesAgentNativeMCP
         from app.agents.features_native_mcp import FeaturesAgentNativeMCP
+        from app.agents.media_native_mcp import MediaAgentNativeMCP
         from app.agents.general import GeneralAgent
         
         # Initialize agents
@@ -115,6 +122,7 @@ class A2AOrchestrator:
             ("inventory", InventoryAgentNativeMCP),
             ("sales", SalesAgentNativeMCP),
             ("features", FeaturesAgentNativeMCP),
+            ("media", MediaAgentNativeMCP),
             ("general", GeneralAgent)
         ]
         
@@ -241,12 +249,23 @@ Return JSON: {{"complexity": "simple|complex", "primary_agent": "...", "potentia
             "messages": state["messages"],
             "agent_responses": state.get("agent_responses", {}),
             "context": state.get("context", {}),
-            "execution_path": state.get("execution_path", [])
+            "current_agent": current
         }
         
-        # Execute agent
+        # Execute the agent (supports both sync and async agents)
         agent = self.agents[current]
-        result = await agent(agent_state)
+        try:
+            if hasattr(agent, "__call__"):
+                result = await agent(agent_state)  # type: ignore
+            else:
+                # Fallback: try an execute() method returning dict
+                result = await agent.execute(agent_state, is_a2a_request=False)  # type: ignore
+        except TypeError:
+            # If the agent is synchronous
+            if hasattr(agent, "__call__"):
+                result = agent(agent_state)  # type: ignore
+            else:
+                result = agent.execute(agent_state, is_a2a_request=False)  # type: ignore
         
         # Check if agent added a help request
         if "help_request" in result:
@@ -261,6 +280,39 @@ Return JSON: {{"complexity": "simple|complex", "primary_agent": "...", "potentia
                 last_response = result["messages"][-1]
                 state["agent_responses"][current] = last_response.content
                 state["messages"] = result["messages"]
+
+            # Heuristic handoff: If the user asked to change/replace/update an image and provided a URL,
+            # and the current agent is products (to discover identifiers), synthesize a help request to media.
+            try:
+                last_human = None
+                for msg in reversed(state["messages"]):
+                    # Find the last human message content
+                    if hasattr(msg, "type"):
+                        # langchain_core messages don't always expose type; fallback to isinstance below
+                        pass
+                    from langchain_core.messages import HumanMessage
+                    if isinstance(msg, HumanMessage):
+                        last_human = msg.content
+                        break
+                if last_human and current == "products":
+                    import re
+                    intent = re.search(r"\b(change|replace|update|set)\b.*\b(image|photo|picture|media)\b", last_human, re.I)
+                    url = re.search(r"https?://\S+", last_human, re.I)
+                    if intent and url and "media" in self.agents:
+                        help_req = {
+                            "from": "products",
+                            "to": "media",
+                            "need": "update_image",
+                            "context": {
+                                "new_image_url": url.group(0)
+                            }
+                        }
+                        state["needs_help"] = True
+                        state["help_request"] = help_req
+                        state["agent_requests"].append(help_req)
+                        logger.info("🧭 Heuristic handoff: products → media for image update with URL detected")
+            except Exception as heuristic_err:
+                logger.debug(f"Heuristic handoff skipped: {heuristic_err}")
         
         return state
     

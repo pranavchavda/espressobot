@@ -60,7 +60,7 @@ class ProductsAgentNativeMCP:
                     self.agent = create_react_agent(
                         self.model,
                         tools,
-                        state_modifier=self.system_prompt
+                        prompt=self.system_prompt
                     )
                     
                     logger.info(f"Connected to Products MCP server with {len(tools)} tools")

@@ -11,7 +11,7 @@ function ConversationItem({ chat, selected, onSelect, onDelete, pinned, onToggle
     return (
       <li className="group relative">
         <Link
-          to="/chat"
+          to={`/chat/${chat.id}`}
           onClick={(e) => {
             onSelect(chat.id);
           }}
@@ -33,7 +33,7 @@ function ConversationItem({ chat, selected, onSelect, onDelete, pinned, onToggle
   return (
     <li className="group relative">
       <Link
-        to="/chat"
+        to={`/chat/${chat.id}`}
         onClick={(e) => {
           onSelect(chat.id);
         }}

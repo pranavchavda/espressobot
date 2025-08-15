@@ -49,19 +49,38 @@ async def list_conversations(
                 )
             """)
             
-            # Query distinct thread_ids from checkpoints table with titles
+            # Query conversations from both checkpoints and conversation_metadata
+            # This ensures we show conversations from both LangGraph and Progressive orchestrators
             rows = await conn.fetch("""
-                SELECT 
-                    c.thread_id,
-                    COUNT(*) as message_count,
-                    m.title,
-                    m.created_at,
-                    m.updated_at
-                FROM checkpoints c
-                LEFT JOIN conversation_metadata m ON c.thread_id = m.thread_id
-                WHERE c.thread_id IS NOT NULL
-                GROUP BY c.thread_id, m.title, m.created_at, m.updated_at
-                ORDER BY COALESCE(m.updated_at, m.created_at, CURRENT_TIMESTAMP) DESC
+                WITH all_conversations AS (
+                    -- Get conversations from checkpoints (LangGraph)
+                    SELECT 
+                        c.thread_id,
+                        COUNT(*) as message_count,
+                        m.title,
+                        m.created_at,
+                        m.updated_at
+                    FROM checkpoints c
+                    LEFT JOIN conversation_metadata m ON c.thread_id = m.thread_id
+                    WHERE c.thread_id IS NOT NULL
+                    GROUP BY c.thread_id, m.title, m.created_at, m.updated_at
+                    
+                    UNION
+                    
+                    -- Get conversations only in metadata (Progressive orchestrator)
+                    SELECT 
+                        m.thread_id,
+                        0 as message_count,  -- No checkpoint messages
+                        m.title,
+                        m.created_at,
+                        m.updated_at
+                    FROM conversation_metadata m
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM checkpoints c WHERE c.thread_id = m.thread_id
+                    )
+                )
+                SELECT * FROM all_conversations
+                ORDER BY COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) DESC
                 LIMIT 50
             """)
             
@@ -109,13 +128,36 @@ async def delete_conversation(
         conn = await get_db_connection()
         try:
             # Delete all checkpoints for this thread
-            result = await conn.execute("""
+            checkpoint_result = await conn.execute("""
                 DELETE FROM checkpoints 
                 WHERE thread_id = $1
             """, thread_id)
             
-            # Check if any rows were deleted
-            if result.split()[-1] == '0':
+            # Also delete from conversation_metadata
+            metadata_result = await conn.execute("""
+                DELETE FROM conversation_metadata 
+                WHERE thread_id = $1
+            """, thread_id)
+            
+            # Also delete from progressive_messages if table exists
+            table_exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'progressive_messages'
+                )
+            """)
+            
+            if table_exists:
+                await conn.execute("""
+                    DELETE FROM progressive_messages 
+                    WHERE thread_id = $1
+                """, thread_id)
+            
+            # Check if any rows were deleted from either table
+            checkpoint_deleted = checkpoint_result.split()[-1] != '0'
+            metadata_deleted = metadata_result.split()[-1] != '0'
+            
+            if not checkpoint_deleted and not metadata_deleted:
                 raise HTTPException(status_code=404, detail="Conversation not found")
             
             logger.info(f"Deleted conversation {thread_id}")
@@ -135,56 +177,204 @@ async def get_conversation(
     thread_id: str,
     user_id: Optional[str] = Header(None, alias="User-ID")
 ):
-    """Get a specific conversation with messages from LangGraph checkpoints"""
+    """Get a specific conversation with messages"""
     try:
-        # Get the orchestrator with properly initialized checkpointer
-        from app.api.chat import get_orchestrator
-        orchestrator = get_orchestrator()
-        
-        # Create config for this thread
-        config = {"configurable": {"thread_id": thread_id}}
-        
-        # Get the latest checkpoint with deserialized messages
-        checkpoint = orchestrator.checkpointer.get(config)
-        
-        if not checkpoint:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        
-        messages = []
-        
-        # Extract messages from checkpoint - it's a dictionary, not an object
-        channel_values = checkpoint.get("channel_values", {})
-        if 'messages' in channel_values:
-            msg_list = channel_values['messages']
+        conn = await get_db_connection()
+        try:
+            # First check if this is a Progressive orchestrator conversation (only in metadata)
+            metadata = await conn.fetchrow("""
+                SELECT title, created_at, updated_at
+                FROM conversation_metadata
+                WHERE thread_id = $1
+            """, thread_id)
             
-            for msg in msg_list:
-                if hasattr(msg, 'content'):
-                    content = msg.content
-                    class_name = str(type(msg).__name__).lower()
-                    role = "user" if 'human' in class_name else "assistant"
+            if metadata and not await conn.fetchval("""
+                SELECT EXISTS(SELECT 1 FROM checkpoints WHERE thread_id = $1 LIMIT 1)
+            """, thread_id):
+                # This is a Progressive orchestrator conversation without checkpoints
+                # Load messages from progressive_messages table
+                messages = []
+                
+                # Check if progressive_messages table exists and has messages
+                table_exists = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = 'progressive_messages'
+                    )
+                """)
+                
+                if table_exists:
+                    rows = await conn.fetch("""
+                        SELECT role, content, created_at 
+                        FROM progressive_messages 
+                        WHERE thread_id = $1
+                        ORDER BY created_at ASC
+                    """, thread_id)
                     
-                    messages.append({
-                        "id": f"msg-{len(messages)}",
-                        "role": role,
-                        "content": content,
+                    for idx, row in enumerate(rows):
+                        messages.append({
+                            "id": f"msg-{idx}",
+                            "role": row['role'],
+                            "content": row['content'],
+                            "created_at": row['created_at'].isoformat() if row['created_at'] else datetime.utcnow().isoformat()
+                        })
+                
+                # If no messages found, return a helpful message
+                if not messages:
+                    messages = [
+                        {
+                            "id": "msg-0",
+                            "role": "system",
+                            "content": f"This conversation '{metadata['title']}' was created on {metadata['created_at'].strftime('%Y-%m-%d %H:%M')}.",
+                            "created_at": metadata['created_at'].isoformat()
+                        }
+                    ]
+                
+                return {
+                    "id": thread_id,
+                    "thread_id": thread_id,
+                    "title": metadata['title'],
+                    "created_at": metadata['created_at'],
+                    "updated_at": metadata['updated_at'],
+                    "messages": messages,
+                    "tasks": [],
+                    "taskMarkdown": None,
+                    "topic_title": metadata['title'],
+                    "topic_details": None,
+                    "currentTasks": []  # Frontend expects this field
+                }
+            
+            # Check if this thread exists in checkpoints (old LangGraph)
+            has_checkpoint = await conn.fetchval("""
+                SELECT EXISTS(
+                    SELECT 1 FROM checkpoints 
+                    WHERE thread_id = $1
+                    LIMIT 1
+                )
+            """, thread_id)
+            
+            if has_checkpoint:
+                # Load messages directly from checkpoint in database
+                try:
+                    # Get the latest checkpoint (not the init one)
+                    checkpoint_row = await conn.fetchrow("""
+                        SELECT checkpoint, metadata
+                        FROM checkpoints 
+                        WHERE thread_id = $1 
+                        AND checkpoint_id != 'init'
+                        ORDER BY checkpoint_id DESC
+                        LIMIT 1
+                    """, thread_id)
+                    
+                    # If no messages checkpoint, try the init checkpoint
+                    if not checkpoint_row:
+                        checkpoint_row = await conn.fetchrow("""
+                            SELECT checkpoint, metadata
+                            FROM checkpoints 
+                            WHERE thread_id = $1 
+                            AND checkpoint_id = 'init'
+                            LIMIT 1
+                        """, thread_id)
+                    
+                    if checkpoint_row:
+                        messages = []
+                        checkpoint_data = json.loads(checkpoint_row['checkpoint'])
+                        
+                        # Extract messages from checkpoint
+                        channel_values = checkpoint_data.get("channel_values", {})
+                        if 'messages' in channel_values:
+                            msg_list = channel_values['messages']
+                            
+                            for msg in msg_list:
+                                # Handle both dict format (from custom orchestrator) 
+                                # and object format (from old LangGraph)
+                                if isinstance(msg, dict):
+                                    content = msg.get('content', '')
+                                    role = "user" if msg.get('type') == 'human' else "assistant"
+                                else:
+                                    # Old format with objects
+                                    if hasattr(msg, 'content'):
+                                        content = msg.content
+                                        class_name = str(type(msg).__name__).lower()
+                                        role = "user" if 'human' in class_name else "assistant"
+                                    else:
+                                        continue
+                                
+                                messages.append({
+                                    "id": f"msg-{len(messages)}",
+                                    "role": role,
+                                    "content": content,
+                                    "created_at": datetime.utcnow().isoformat()
+                                })
+                        
+                        # Get title from metadata if exists
+                        title_row = await conn.fetchrow("""
+                            SELECT title, created_at, updated_at 
+                            FROM conversation_metadata 
+                            WHERE thread_id = $1
+                        """, thread_id)
+                        
+                        if title_row and title_row['title']:
+                            title = title_row['title']
+                            created_at = title_row['created_at'] or datetime.utcnow()
+                            updated_at = title_row['updated_at'] or created_at
+                        else:
+                            title = f"Chat {thread_id[:8]}..." if len(thread_id) > 8 else f"Chat {thread_id}"
+                            created_at = datetime.utcnow()
+                            updated_at = created_at
+                        
+                        return {
+                            "id": thread_id,
+                            "title": title,
+                            "created_at": created_at,
+                            "updated_at": updated_at,
+                            "messages": messages,
+                            "tasks": [],
+                            "taskMarkdown": None,
+                            "topic_title": title,
+                            "topic_details": None,
+                            "currentTasks": []  # Frontend expects this field
+                        }
+                    
+                except Exception as e:
+                    logger.warning(f"Could not load conversation {thread_id}: {e}")
+                
+                # If we couldn't load the conversation, return a message
+                return {
+                    "id": thread_id,
+                    "title": "Legacy Conversation",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "messages": [{
+                        "id": "msg-0",
+                        "role": "assistant",
+                        "content": "This conversation could not be loaded. Please start a new conversation.",
                         "created_at": datetime.utcnow().isoformat()
-                    })
-        
-        # Use current time as placeholder since LangGraph doesn't store timestamps
-        now = datetime.utcnow()
-        title = f"Chat {thread_id[:8]}..." if len(thread_id) > 8 else f"Chat {thread_id}"
-        
-        return {
-            "id": thread_id,
-            "title": title,
-            "created_at": now,
-            "updated_at": now,
-            "messages": messages,
-            "tasks": [],
-            "taskMarkdown": None,
-            "topic_title": title,
-            "topic_details": None
-        }
+                    }],
+                    "tasks": [],
+                    "taskMarkdown": None,
+                    "topic_title": "Legacy Conversation",
+                    "topic_details": None,
+                    "currentTasks": []  # Frontend expects this field
+                }
+            
+            # For new conversations (not in checkpoints), return empty structure
+            # This allows the custom orchestrator to work without persistence
+            return {
+                "id": thread_id,
+                "title": "New Conversation",
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+                "messages": [],
+                "tasks": [],
+                "taskMarkdown": None,
+                "topic_title": "New Conversation",
+                "topic_details": None,
+                "currentTasks": []
+            }
+            
+        finally:
+            await conn.close()
         
     except HTTPException:
         raise

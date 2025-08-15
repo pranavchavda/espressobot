@@ -26,6 +26,9 @@ export default function MemoryManagementPage() {
   const [editContent, setEditContent] = useState('');
   const [selectedMemories, setSelectedMemories] = useState(new Set());
   const [showStats, setShowStats] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalMemories, setTotalMemories] = useState(0);
+  const memoriesPerPage = 20;
 
   // Fetch dashboard data
   const fetchDashboard = async () => {
@@ -38,8 +41,9 @@ export default function MemoryManagementPage() {
       if (res.ok) {
         const data = await res.json();
         setStats(data.stats);
+        setTotalMemories(data.stats?.total_memories || 0);
         // Optionally set memories from dashboard
-        if (data.recent_memories) {
+        if (data.recent_memories && currentPage === 1) {
           setMemories(data.recent_memories);
         }
       }
@@ -48,8 +52,8 @@ export default function MemoryManagementPage() {
     }
   };
 
-  // Fetch memories with filters
-  const fetchMemories = async () => {
+  // Fetch memories with filters and pagination
+  const fetchMemories = async (page = currentPage) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
@@ -58,7 +62,11 @@ export default function MemoryManagementPage() {
       
       if (selectedCategory) params.append('category', selectedCategory);
       if (minImportance > 0) params.append('importance_min', minImportance);
-      params.append('limit', '100');
+      
+      // Add pagination params
+      const offset = (page - 1) * memoriesPerPage;
+      params.append('limit', memoriesPerPage.toString());
+      params.append('offset', offset.toString());
       
       const res = await fetch(`/api/memory/list/${userId}?${params}`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -67,6 +75,14 @@ export default function MemoryManagementPage() {
       if (res.ok) {
         const data = await res.json();
         setMemories(data);
+        
+        // Update total count from stats if available
+        if (stats) {
+          setTotalMemories(stats.total_memories || data.length);
+        } else {
+          // Estimate total if we got a full page
+          setTotalMemories(data.length === memoriesPerPage ? memoriesPerPage * 5 : data.length);
+        }
       }
     } catch (error) {
       console.error('Error fetching memories:', error);
@@ -78,10 +94,11 @@ export default function MemoryManagementPage() {
   // Search memories semantically
   const searchMemories = async () => {
     if (!searchQuery) {
-      fetchMemories();
+      fetchMemories(currentPage);
       return;
     }
     
+    console.log('Searching memories with query:', searchQuery);
     setLoading(true);
     try {
       const token = localStorage.getItem('authToken');
@@ -96,14 +113,29 @@ export default function MemoryManagementPage() {
         body: JSON.stringify({
           query: searchQuery,
           limit: 50,
-          similarity_threshold: 0.7,
+          similarity_threshold: 0.3,  // Lower threshold for better results
           category: selectedCategory || null
         })
       });
       
+      console.log('Search response status:', res.status);
+      
       if (res.ok) {
         const data = await res.json();
-        setMemories(data);
+        console.log('Search response data:', data);
+        console.log('Is array?', Array.isArray(data));
+        console.log('Data length:', data?.length);
+        
+        // Ensure we have an array
+        const memoriesArray = Array.isArray(data) ? data : (data.memories || data.results || []);
+        console.log('Search results:', memoriesArray.length, 'memories found');
+        
+        setMemories(memoriesArray);
+        // Hide pagination for search results since we're getting all matches
+        setTotalMemories(memoriesArray.length);
+      } else {
+        const errorText = await res.text();
+        console.error('Search failed:', res.status, errorText);
       }
     } catch (error) {
       console.error('Error searching memories:', error);
@@ -214,7 +246,7 @@ export default function MemoryManagementPage() {
     
     try {
       const token = localStorage.getItem('authToken');
-      const userId = selectedUserId || 'all';
+      const userId = selectedUserId || '1';  // Default to user ID 1, not 'all'
       
       const res = await fetch(`/api/memory/bulk/${userId}`, {
         method: 'POST',
@@ -229,8 +261,13 @@ export default function MemoryManagementPage() {
       });
       
       if (res.ok) {
+        const result = await res.json();
+        console.log('Bulk delete result:', result);
         setSelectedMemories(new Set());
         fetchMemories();
+      } else {
+        const error = await res.text();
+        console.error('Bulk delete failed:', res.status, error);
       }
     } catch (error) {
       console.error('Error bulk deleting:', error);
@@ -258,11 +295,25 @@ export default function MemoryManagementPage() {
     }
   };
 
+  // Main effect for fetching memories based on filters and pagination
+  useEffect(() => {
+    // Skip if we're in search mode
+    if (searchQuery) return;
+    
+    fetchMemories(currentPage);
+  }, [currentPage, selectedUserId, selectedCategory, minImportance]);
+
+  // Reset page when filters change (but not on initial mount)
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedUserId, selectedCategory, minImportance]);
+  
+  // Fetch dashboard data when user changes
   useEffect(() => {
     fetchDashboard();
-    fetchMemories();
-  }, [selectedUserId, selectedCategory, minImportance]);
+  }, [selectedUserId]);
 
+  // Handle search with debounce
   useEffect(() => {
     if (searchQuery) {
       const timer = setTimeout(() => {
@@ -270,7 +321,8 @@ export default function MemoryManagementPage() {
       }, 300);
       return () => clearTimeout(timer);
     } else {
-      fetchMemories();
+      // When search is cleared, fetch memories for current page
+      fetchMemories(currentPage);
     }
   }, [searchQuery]);
 
@@ -430,9 +482,32 @@ export default function MemoryManagementPage() {
               <option value="0.9">Critical (≥0.9)</option>
             </select>
 
-            <Button onClick={fetchMemories} outline>
+            <Button onClick={() => {
+              setSearchQuery(''); // Clear search
+              setCurrentPage(1); // Reset to first page
+              fetchMemories(1);
+            }} outline>
               <RefreshCw className="h-4 w-4" />
             </Button>
+
+            {memories.length > 0 && (
+              <label className="flex items-center gap-2 px-3 py-2 border border-zinc-300 dark:border-zinc-600 rounded-md bg-white dark:bg-zinc-800 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={memories.length > 0 && memories.every(m => selectedMemories.has(m.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      // Select all memories on current page
+                      setSelectedMemories(new Set(memories.map(m => m.id)));
+                    } else {
+                      // Deselect all
+                      setSelectedMemories(new Set());
+                    }
+                  }}
+                />
+                <span className="text-sm">Select all</span>
+              </label>
+            )}
 
             {selectedMemories.size > 0 && (
               <Button onClick={bulkDelete} color="red">
@@ -575,6 +650,31 @@ export default function MemoryManagementPage() {
                 )}
               </div>
             ))}
+            
+            {/* Pagination Controls */}
+            {totalMemories > memoriesPerPage && (
+              <div className="flex items-center justify-center gap-2 mt-6 pb-4">
+                <Button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  outline
+                  small
+                >
+                  Previous
+                </Button>
+                <span className="px-4 py-2 text-sm">
+                  Page {currentPage} of {Math.ceil(totalMemories / memoriesPerPage)}
+                </span>
+                <Button
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalMemories / memoriesPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(totalMemories / memoriesPerPage)}
+                  outline
+                  small
+                >
+                  Next
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

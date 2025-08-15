@@ -152,7 +152,7 @@ class DynamicAgent(BaseAgent):
                 self._react_agent = create_react_agent(
                     self.model,
                     callable_tools,
-                    state_modifier=self._get_system_prompt()
+                    prompt=self._get_system_prompt()
                 )
                 logger.info(f"Initialized ReAct agent for dynamic agent {self.name} with {len(callable_tools)} callable tools")
         except Exception as e:

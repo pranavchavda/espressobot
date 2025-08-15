@@ -57,7 +57,7 @@ class IntegrationsAgentNativeMCP(ContextAwareMixin):
                 self.agent = create_react_agent(
                     self.model,
                     self.tools,
-                    state_modifier=self.system_prompt
+                    prompt=self.system_prompt
                 )
                 
                 logger.info(f"Connected to Integrations MCP server with {len(self.tools)} tools")

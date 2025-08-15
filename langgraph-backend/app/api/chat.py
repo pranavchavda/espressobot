@@ -178,8 +178,9 @@ async def chat_stream(request: ChatRequest):
                                             metadata = getattr(last_msg, 'metadata', {})
                                             agent_name = metadata.get("agent", node_name)
                                             is_direct_response = metadata.get("direct_response", False)
-                                            # Only emit user-visible content for orchestrator messages
-                                            if content and (agent_name == "orchestrator" or is_direct_response):
+                                            is_intermediate = metadata.get("intermediate", False)
+                                            # Only emit user-visible content (orchestrator messages or non-intermediate)
+                                            if content and not is_intermediate and (agent_name == "orchestrator" or is_direct_response):
                                                 # Only synthesize deltas if no real deltas and not direct streamed
                                                 if not any_delta_emitted and not is_direct_response:
                                                     try:

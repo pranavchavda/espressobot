@@ -1,0 +1,330 @@
+"""
+Compressed Context Management using LangExtract
+Enables token-efficient context maintenance across long conversations
+"""
+import langextract as lx
+from typing import Dict, Any, List, Optional, Tuple
+from dataclasses import dataclass, field
+from datetime import datetime
+import json
+import logging
+import textwrap
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ExtractedContext:
+    """Holds extracted, compressed context from conversations"""
+    
+    # Core entities found in conversation
+    products: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    operations: List[Dict[str, Any]] = field(default_factory=list)
+    searches: List[Dict[str, Any]] = field(default_factory=list)
+    decisions: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # User intent and goals
+    user_goals: List[str] = field(default_factory=list)
+    constraints: List[str] = field(default_factory=list)
+    preferences: Dict[str, Any] = field(default_factory=dict)
+    
+    # Agent findings
+    agent_results: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    agent_failures: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # Source grounding - maps extractions to original message positions
+    source_map: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+    
+    def to_context_string(self, max_tokens: int = 1000) -> str:
+        """Convert to a concise context string for the orchestrator"""
+        parts = []
+        
+        if self.products:
+            parts.append("Products found:")
+            for pid, details in list(self.products.items())[:5]:  # Limit to 5
+                parts.append(f"  - {pid}: {details.get('title', 'Unknown')} ({details.get('sku', 'N/A')})")
+        
+        if self.operations:
+            parts.append("\nRecent operations:")
+            for op in self.operations[-5:]:  # Last 5
+                parts.append(f"  - {op.get('type', 'unknown')}: {op.get('result', 'N/A')}")
+        
+        if self.user_goals:
+            parts.append("\nUser goals:")
+            for goal in self.user_goals[:3]:  # Top 3
+                parts.append(f"  - {goal}")
+        
+        if self.agent_results:
+            parts.append("\nAgent findings:")
+            for agent, results in self.agent_results.items():
+                if results:
+                    latest = results[-1]  # Most recent
+                    parts.append(f"  - {agent}: {latest.get('summary', 'N/A')}")
+        
+        context = "\n".join(parts)
+        
+        # Truncate if too long (rough token estimate: 1 token ~= 4 chars)
+        max_chars = max_tokens * 4
+        if len(context) > max_chars:
+            context = context[:max_chars] + "... [truncated]"
+        
+        return context
+
+class CompressedContextManager:
+    """Manages context compression using LangExtract"""
+    
+    def __init__(self, model_id: str = "gpt-4.1-nano", api_key: Optional[str] = None):
+        self.model_id = model_id
+        self.api_key = api_key
+        self.contexts: Dict[str, ExtractedContext] = {}  # thread_id -> context
+        
+        # Define extraction schema with prompt and examples
+        self.extraction_prompt = textwrap.dedent("""
+            Extract key information from this conversation turn:
+            - Products: Any product mentions with IDs, SKUs, titles
+            - Operations: Actions performed (searches, updates, uploads, etc.)
+            - User Intent: What the user wants to achieve
+            - Agent Results: Key findings from each agent
+            - Decisions: Important decisions or next steps
+            
+            Use exact text where possible. Extract relationships between entities.
+        """)
+        
+        self.extraction_examples = [
+            lx.data.ExampleData(
+                text="User: Find the Breville Barista Express\nAgent: Found product gid://shopify/Product/123 - Breville Barista Express (SKU: BES870XL)",
+                extractions=[
+                    lx.data.Extraction(
+                        extraction_class="user_intent",
+                        extraction_text="Find the Breville Barista Express",
+                        attributes={"action": "search", "target": "product"}
+                    ),
+                    lx.data.Extraction(
+                        extraction_class="product",
+                        extraction_text="gid://shopify/Product/123",
+                        attributes={
+                            "title": "Breville Barista Express",
+                            "sku": "BES870XL",
+                            "found_by": "agent"
+                        }
+                    ),
+                    lx.data.Extraction(
+                        extraction_class="operation",
+                        extraction_text="Found product",
+                        attributes={
+                            "type": "search",
+                            "result": "success",
+                            "product_id": "gid://shopify/Product/123"
+                        }
+                    )
+                ]
+            ),
+            lx.data.ExampleData(
+                text="User: Upload image to product\nAgent: Uploaded image successfully to product 123",
+                extractions=[
+                    lx.data.Extraction(
+                        extraction_class="user_intent",
+                        extraction_text="Upload image to product",
+                        attributes={"action": "upload", "target": "image"}
+                    ),
+                    lx.data.Extraction(
+                        extraction_class="operation",
+                        extraction_text="Uploaded image successfully",
+                        attributes={
+                            "type": "media_upload",
+                            "result": "success",
+                            "product_id": "123"
+                        }
+                    )
+                ]
+            )
+        ]
+    
+    def get_context(self, thread_id: str) -> ExtractedContext:
+        """Get or create context for a thread"""
+        if thread_id not in self.contexts:
+            self.contexts[thread_id] = ExtractedContext()
+        return self.contexts[thread_id]
+    
+    async def compress_turn(self, 
+                           thread_id: str,
+                           messages: List[Any],
+                           agent_results: Optional[Dict[str, str]] = None) -> ExtractedContext:
+        """Compress a conversation turn into structured context"""
+        
+        context = self.get_context(thread_id)
+        
+        # Convert messages to text for extraction
+        text_parts = []
+        for msg in messages:
+            if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)):
+                role = msg.__class__.__name__.replace("Message", "")
+                text_parts.append(f"{role}: {msg.content}")
+            elif isinstance(msg, dict):
+                role = msg.get("type", "unknown")
+                text_parts.append(f"{role}: {msg.get('content', '')}")
+        
+        conversation_text = "\n".join(text_parts)
+        
+        # Add agent results if provided
+        if agent_results:
+            text_parts.append("\nAgent Results:")
+            for agent, result in agent_results.items():
+                text_parts.append(f"{agent}: {result[:500]}")  # Limit length
+            conversation_text = "\n".join(text_parts)
+        
+        try:
+            # Extract structured data using LangExtract
+            logger.info(f"Extracting context from {len(conversation_text)} chars of conversation")
+            
+            # Use OpenAI models via LangExtract
+            if self.model_id.startswith("gpt"):
+                # For OpenAI models, we need to set the API key
+                import os
+                if not self.api_key:
+                    self.api_key = os.getenv("OPENAI_API_KEY")
+                
+                result = lx.extract(
+                    text_or_documents=conversation_text,
+                    prompt_description=self.extraction_prompt,
+                    examples=self.extraction_examples,
+                    model_id=self.model_id,
+                    api_key=self.api_key
+                )
+            else:
+                # For other models (Gemini, local)
+                result = lx.extract(
+                    text_or_documents=conversation_text,
+                    prompt_description=self.extraction_prompt,
+                    examples=self.extraction_examples,
+                    model_id=self.model_id
+                )
+            
+            # Process extractions into our context structure
+            for extraction in result.extractions:
+                self._process_extraction(context, extraction)
+            
+            logger.info(f"Extracted {len(result.extractions)} items into compressed context")
+            
+        except Exception as e:
+            logger.error(f"Failed to compress turn: {e}")
+            # Fallback: Store raw agent results
+            if agent_results:
+                for agent, result in agent_results.items():
+                    if agent not in context.agent_results:
+                        context.agent_results[agent] = []
+                    context.agent_results[agent].append({
+                        "summary": result[:200],
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+        
+        return context
+    
+    def _process_extraction(self, context: ExtractedContext, extraction: lx.data.Extraction):
+        """Process a single extraction into the context structure"""
+        
+        try:
+            ext_class = extraction.extraction_class
+            ext_text = extraction.extraction_text
+            attrs = extraction.attributes or {}
+            
+            # Store source grounding
+            if extraction.char_interval:
+                source_key = f"{ext_class}:{ext_text[:50]}"
+                context.source_map[source_key] = (
+                    extraction.char_interval.start_pos,
+                    extraction.char_interval.end_pos
+                )
+            
+            # Process based on extraction class
+            if ext_class == "product":
+                product_id = ext_text
+                if product_id.startswith("gid://"):
+                    context.products[product_id] = {
+                        "title": attrs.get("title", "Unknown"),
+                        "sku": attrs.get("sku"),
+                        "found_by": attrs.get("found_by"),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+            
+            elif ext_class == "operation":
+                context.operations.append({
+                    "type": attrs.get("type", "unknown"),
+                    "result": attrs.get("result", "unknown"),
+                    "details": ext_text,
+                    "product_id": attrs.get("product_id"),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            
+            elif ext_class == "user_intent":
+                goal = ext_text
+                if goal not in context.user_goals:
+                    context.user_goals.append(goal)
+                
+                # Extract constraints if mentioned
+                if "constraint" in attrs:
+                    context.constraints.append(attrs["constraint"])
+            
+            elif ext_class == "agent_result":
+                agent_name = attrs.get("agent", "unknown")
+                if agent_name not in context.agent_results:
+                    context.agent_results[agent_name] = []
+                
+                context.agent_results[agent_name].append({
+                    "summary": ext_text[:200],
+                    "success": attrs.get("success", True),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            
+            elif ext_class == "decision":
+                context.decisions.append({
+                    "decision": ext_text,
+                    "reasoning": attrs.get("reasoning"),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            
+            elif ext_class == "search":
+                context.searches.append({
+                    "query": ext_text,
+                    "results": attrs.get("results", "unknown"),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            
+        except Exception as e:
+            logger.warning(f"Failed to process extraction {extraction.extraction_class}: {e}")
+    
+    def clear_old_context(self, thread_id: str, keep_products: bool = True):
+        """Clear old context to prevent unbounded growth"""
+        if thread_id not in self.contexts:
+            return
+        
+        context = self.contexts[thread_id]
+        
+        # Keep only recent operations
+        if len(context.operations) > 20:
+            context.operations = context.operations[-20:]
+        
+        # Keep only recent searches
+        if len(context.searches) > 10:
+            context.searches = context.searches[-10:]
+        
+        # Keep only recent decisions
+        if len(context.decisions) > 10:
+            context.decisions = context.decisions[-10:]
+        
+        # Optionally clear products (usually we want to keep these)
+        if not keep_products and len(context.products) > 50:
+            # Keep only the 50 most recently found products
+            sorted_products = sorted(
+                context.products.items(),
+                key=lambda x: x[1].get('timestamp', ''),
+                reverse=True
+            )
+            context.products = dict(sorted_products[:50])
+        
+        # Clear old agent results
+        for agent in context.agent_results:
+            if len(context.agent_results[agent]) > 5:
+                context.agent_results[agent] = context.agent_results[agent][-5:]
+        
+        logger.info(f"Cleared old context for thread {thread_id}")

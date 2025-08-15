@@ -763,7 +763,7 @@ class GoogleWorkspaceAgentNativeMCP:
                 self.agent = create_react_agent(
                     self.model,
                     self.tools,
-                    state_modifier=self.system_prompt
+                    prompt=self.system_prompt
                 )
                 
                 logger.info(f"Initialized Google Workspace agent with {len(self.tools)} tools for user {user_id}")
@@ -847,7 +847,7 @@ Always provide clear, formatted responses with relevant information and confirm 
             if not user_id:
                 state["messages"].append(AIMessage(
                     content="Google Workspace agent requires user authentication. Please provide user context.",
-                    metadata={"agent": self.name, "error": True}
+                    metadata={"agent": self.name, "intermediate": True, "error": True}
                 ))
                 return state
             
@@ -900,6 +900,23 @@ Always provide clear, formatted responses with relevant information and confirm 
                 entity_context = ""
                 logger.info(f"📋 Building context from message history")
             
+            # Extract previous operations from conversation history
+            operations_performed = []
+            for msg in messages:
+                if isinstance(msg, AIMessage) and msg.metadata.get("agent") == self.name:
+                    content = msg.content.lower()
+                    if "searched" in content or "found" in content or "emails" in content:
+                        operations_performed.append("- Already searched and retrieved emails in this conversation")
+                    if "calendar" in content or "events" in content:
+                        operations_performed.append("- Already accessed calendar events")
+                    if "sent" in content and "email" in content:
+                        operations_performed.append("- Already sent email(s)")
+            
+            operations_context = ""
+            if operations_performed:
+                operations_context = "\n## Previous Operations in This Conversation:\n" + "\n".join(set(operations_performed))
+                operations_context += "\n**Note: You have already established access and performed operations. Do not ask for permission again.**"
+            
             # Create an enhanced system prompt with conversation context
             enhanced_prompt = f"""{self.system_prompt}
 
@@ -909,8 +926,11 @@ Always provide clear, formatted responses with relevant information and confirm 
 {f'## Key Information:' if entity_context else ''}
 {entity_context}
 
+{operations_context}
+
 ## Current Request:
-Now, please help with the user's current request based on the above context."""
+Now, please help with the user's current request based on the above context.
+If you've already searched emails or performed operations, you have access - just continue with the new request."""
             
             # Use the agent to process the request with full conversation history
             # Include the enhanced prompt to ensure context awareness
@@ -936,13 +956,13 @@ Now, please help with the user's current request based on the above context."""
                     if hasattr(msg, 'content') and msg.content:
                         state["messages"].append(AIMessage(
                             content=msg.content,
-                            metadata={"agent": self.name}
+                            metadata={"agent": self.name, "intermediate": True}
                         ))
                         break
             else:
                 state["messages"].append(AIMessage(
                     content="I processed your request but couldn't generate a response.",
-                    metadata={"agent": self.name}
+                    metadata={"agent": self.name, "intermediate": True}
                 ))
             
             state["last_agent"] = self.name
@@ -952,14 +972,14 @@ Now, please help with the user's current request based on the above context."""
             logger.error(f"Google Workspace authentication error: {e}")
             state["messages"].append(AIMessage(
                 content=f"Google Workspace access error: {str(e)}. Please ensure you have authorized Google Workspace access.",
-                metadata={"agent": self.name, "error": True}
+                metadata={"agent": self.name, "intermediate": True, "error": True}
             ))
             return state
         except Exception as e:
             logger.error(f"Error in GoogleWorkspaceAgentNativeMCP: {e}")
             state["messages"].append(AIMessage(
                 content=f"Error in Google Workspace agent: {str(e)}",
-                metadata={"agent": self.name, "error": True}
+                metadata={"agent": self.name, "intermediate": True, "error": True}
             ))
             return state
     

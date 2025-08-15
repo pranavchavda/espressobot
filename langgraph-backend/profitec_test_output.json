@@ -1,0 +1,195 @@
+{
+  "test": "profitec_go_context",
+  "metadata": {
+    "extraction_count": 14,
+    "extraction_classes": [
+      "product_availability_request",
+      "product_details",
+      "available_colors",
+      "availability_confirmation",
+      "user_question",
+      "product_inquiry",
+      "color_availability",
+      "product_description",
+      "pricing_information",
+      "product_query"
+    ],
+    "timestamp": "2025-01-14T15:00:00Z"
+  },
+  "extractions": {
+    "product_availability_request": [
+      {
+        "text": "is Profitec go available in yellow?",
+        "attributes": {
+          "product_name": "Profitec GO",
+          "color": "yellow"
+        },
+        "timestamp": "2025-08-14T14:50:12.054176"
+      }
+    ],
+    "product_details": [
+      {
+        "text": "Profitec GO Espresso Machine",
+        "attributes": {
+          "product_id": "gid://shopify/Product/7823456789012",
+          "handle": "profitec-go-espresso-machine",
+          "sku": "PROF-GO-2024"
+        },
+        "timestamp": "2025-08-14T14:50:12.054194"
+      },
+      {
+        "text": "This is a limited edition color option with the same high-quality specifications as the standard colors.",
+        "attributes": {
+          "edition": "limited",
+          "specifications": [
+            "Single boiler with PID temperature control",
+            "58mm commercial portafilter",
+            "Vibration pump",
+            "2.8L water tank capacity"
+          ]
+        },
+        "timestamp": "2025-08-14T14:50:12.054209"
+      },
+      {
+        "text": "Profitec GO Espresso Machine",
+        "attributes": {
+          "product_id": "gid://shopify/Product/7823456789012",
+          "handle": "profitec-go-espresso-machine",
+          "sku": "PROF-GO-2024"
+        },
+        "timestamp": "2025-08-14T14:50:21.776016"
+      }
+    ],
+    "available_colors": [
+      {
+        "text": "[{'color': 'Black', 'stock_status': 'In stock', 'units': 4, 'variant_id': 'gid://shopify/ProductVariant/42345678901234'}, {'color': 'Stainless Steel', 'stock_status': 'In stock', 'units': 2, 'variant_id': 'gid://shopify/ProductVariant/42345678901235'}, {'color': 'White', 'stock_status': 'Out of stock', 'variant_id': 'gid://shopify/ProductVariant/42345678901236'}, {'color': 'Yellow', 'stock_status': 'In stock', 'units': 1, 'variant_id': 'gid://shopify/ProductVariant/42345678901237', 'attributes': {'limited_edition': True, 'specifications': 'Same specifications as other colors'}}]",
+        "attributes": {},
+        "timestamp": "2025-08-14T14:50:12.054200"
+      }
+    ],
+    "availability_confirmation": [
+      {
+        "text": "Yes, the Profitec GO is available in yellow!",
+        "attributes": {
+          "stock_count": 1
+        },
+        "timestamp": "2025-08-14T14:50:12.054205"
+      },
+      {
+        "text": "Yes, the Profitec GO is available in yellow!",
+        "attributes": {
+          "units_in_stock": 1
+        },
+        "timestamp": "2025-08-14T14:50:21.776024"
+      }
+    ],
+    "user_question": [
+      {
+        "text": "what's the cost of the item?",
+        "attributes": {
+          "action": "inquire",
+          "item": "limited edition color option"
+        },
+        "timestamp": "2025-08-14T14:50:12.054213"
+      },
+      {
+        "text": "is it heavier than the standard model?",
+        "attributes": {
+          "comparison_target": "standard model",
+          "subject": "weight"
+        },
+        "timestamp": "2025-08-14T14:50:21.776040"
+      }
+    ],
+    "product_inquiry": [
+      {
+        "text": "is Profitec go available in yellow?",
+        "attributes": {
+          "product_name": "Profitec GO",
+          "color": "yellow",
+          "action": "check availability"
+        },
+        "timestamp": "2025-08-14T14:50:21.776002"
+      }
+    ],
+    "color_availability": [
+      {
+        "text": "Available Colors",
+        "attributes": {
+          "colors": [
+            {
+              "color_name": "Black",
+              "stock_status": "In stock",
+              "units_available": 4,
+              "variant_id": "gid://shopify/ProductVariant/42345678901234"
+            },
+            {
+              "color_name": "Stainless Steel",
+              "stock_status": "In stock",
+              "units_available": 2,
+              "variant_id": "gid://shopify/ProductVariant/42345678901235"
+            },
+            {
+              "color_name": "White",
+              "stock_status": "Out of stock",
+              "units_available": 0,
+              "variant_id": "gid://shopify/ProductVariant/42345678901236"
+            },
+            {
+              "color_name": "Yellow",
+              "stock_status": "In stock",
+              "units_available": 1,
+              "variant_id": "gid://shopify/ProductVariant/42345678901237",
+              "special_notes": "Limited edition color",
+              "specifications": "Same specifications as other colors"
+            }
+          ]
+        },
+        "timestamp": "2025-08-14T14:50:21.776020"
+      }
+    ],
+    "product_description": [
+      {
+        "text": "This is a limited edition color option with the same high-quality specifications as the standard colors",
+        "attributes": {
+          "features": [
+            "Single boiler with PID temperature control",
+            "58mm commercial portafilter",
+            "Vibration pump",
+            "2.8L water tank capacity"
+          ],
+          "edition": "limited edition"
+        },
+        "timestamp": "2025-08-14T14:50:21.776028"
+      }
+    ],
+    "pricing_information": [
+      {
+        "text": "The Profitec GO pricing details",
+        "attributes": {
+          "price": "$1,695.00",
+          "compare_at_price": "$1,895.00",
+          "savings": "$200",
+          "savings_percentage": "10.5%",
+          "shipping_info": "Free shipping (orders over $500)",
+          "warranty": "2-year manufacturer warranty",
+          "extended_warranty": {
+            "availability": "optional",
+            "price": "$149"
+          }
+        },
+        "timestamp": "2025-08-14T14:50:21.776032"
+      }
+    ],
+    "product_query": [
+      {
+        "text": "Would you like me to add the yellow Profitec GO to your cart?",
+        "attributes": {
+          "product_name": "yellow Profitec GO",
+          "action": "add to cart"
+        },
+        "timestamp": "2025-08-14T14:50:21.776036"
+      }
+    ]
+  }
+}

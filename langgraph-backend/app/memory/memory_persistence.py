@@ -4,8 +4,11 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from dataclasses import dataclass
+from enum import Enum
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+import langextract as lx
 
 from ..state.graph_state import GraphState
 from .postgres_memory_manager_v2 import SimpleMemoryManager, Memory
@@ -14,6 +17,26 @@ from .embedding_service import get_embedding_service
 from .memory_decay_service import get_decay_service
 
 logger = logging.getLogger(__name__)
+
+# Memory extraction schema for langextract
+class MemoryCategory(str, Enum):
+    PREFERENCES = "preferences"
+    FACTS = "facts"
+    PROBLEMS = "problems"
+    SOLUTIONS = "solutions"
+    RELATIONSHIPS = "relationships"
+    EXPERTISE = "expertise"
+    GENERAL = "general"
+
+@dataclass
+class ExtractedMemory:
+    """Structured memory extraction using langextract"""
+    content: str  # The specific memory content
+    category: MemoryCategory  # Category of memory
+    importance: float  # Importance score 0.1-1.0
+    confidence: float  # Extraction confidence 0.1-1.0
+    reasoning: str  # Why this memory has long-term value
+    is_ephemeral: bool = False  # Whether this is temporary/task-specific
 
 class MemoryExtractionService:
     """Service for extracting memories from conversations"""
@@ -35,9 +58,6 @@ class MemoryExtractionService:
                                                user_id: str) -> List[Memory]:
         """Extract meaningful memories from conversation messages"""
         
-        if not self.openai_client:
-            return []
-        
         # Get recent messages for extraction
         recent_messages = messages[-10:] if len(messages) > 10 else messages
         
@@ -47,6 +67,230 @@ class MemoryExtractionService:
         if not conversation_text.strip():
             return []
         
+        # Try langextract first, fall back to GPT if it fails
+        try:
+            logger.info("Attempting memory extraction with langextract...")
+            memories = await self._extract_memories_langextract(conversation_text, user_id)
+            if memories:
+                logger.info(f"Successfully extracted {len(memories)} memories with langextract")
+                return memories
+            else:
+                logger.warning("Langextract returned no memories, falling back to GPT")
+        except Exception as e:
+            logger.warning(f"Langextract extraction failed: {e}, falling back to GPT")
+        
+        # Fallback to direct GPT extraction
+        return await self._extract_memories_gpt(conversation_text, user_id)
+    
+    async def _extract_memories_langextract(self, conversation_text: str, user_id: str) -> List[Memory]:
+        """Experimental langextract-based extraction (kept for future improvement)"""
+        # Use langextract for structured extraction
+        try:
+            # Define extraction examples using lx.data.Extraction format
+            examples = [
+                lx.data.ExampleData(
+                    text="User: My name is John and I love Italian coffee\nAssistant: Nice to meet you John! Italian coffee is excellent.",
+                    extractions=[
+                        lx.data.Extraction(
+                            extraction_class="user_fact",
+                            extraction_text="My name is John",
+                            attributes={
+                                "content": "User's name is John",
+                                "category": "facts",
+                                "importance": 0.8,
+                                "confidence": 1.0,
+                                "reasoning": "Core identity information needed for personalization",
+                                "is_ephemeral": False
+                            }
+                        ),
+                        lx.data.Extraction(
+                            extraction_class="user_preference",
+                            extraction_text="I love Italian coffee",
+                            attributes={
+                                "content": "User loves Italian coffee",
+                                "category": "preferences",
+                                "importance": 0.9,
+                                "confidence": 1.0,
+                                "reasoning": "Specific preference that guides recommendations",
+                                "is_ephemeral": False
+                            }
+                        )
+                    ]
+                ),
+                lx.data.ExampleData(
+                    text="User: Can you check today's sales report?\nAssistant: I'll check today's sales for you.",
+                    extractions=[
+                        lx.data.Extraction(
+                            extraction_class="ephemeral_task",
+                            extraction_text="check today's sales report",
+                            attributes={
+                                "content": "User requested today's sales report",
+                                "category": "general",
+                                "importance": 0.2,
+                                "confidence": 0.8,
+                                "reasoning": "One-time task request",
+                                "is_ephemeral": True
+                            }
+                        )
+                    ]
+                ),
+                lx.data.ExampleData(
+                    text="User: I work at Google as a senior backend engineer. We use Python and Go exclusively.\nAssistant: That's great experience!",
+                    extractions=[
+                        lx.data.Extraction(
+                            extraction_class="user_fact",
+                            extraction_text="I work at Google as a senior backend engineer",
+                            attributes={
+                                "content": "User is a senior backend engineer at Google",
+                                "category": "facts",
+                                "importance": 0.95,
+                                "confidence": 0.95,
+                                "reasoning": "Professional identity affects all technical discussions",
+                                "is_ephemeral": False
+                            }
+                        ),
+                        lx.data.Extraction(
+                            extraction_class="user_expertise",
+                            extraction_text="We use Python and Go exclusively",
+                            attributes={
+                                "content": "User's team uses Python and Go exclusively",
+                                "category": "expertise",
+                                "importance": 0.85,
+                                "confidence": 0.9,
+                                "reasoning": "Technology stack preference for solutions",
+                                "is_ephemeral": False
+                            }
+                        )
+                    ]
+                )
+            ]
+            
+            # Extract memories using langextract with proper parameters
+            prompt_description = """Extract ONLY high-value, long-term memories that will be useful in future interactions.
+                
+                Focus on:
+                - Personal preferences that persist
+                - Important facts about the user
+                - Recurring problems or pain points  
+                - Business relationships and context
+                - User's expertise areas
+                
+                Skip ephemeral items like:
+                - One-time tasks or requests
+                - Temporary states
+                - Time-specific data
+                - Conversation mechanics
+                
+                Mark is_ephemeral=True for temporary items (they will be filtered out).
+                Each memory should be self-contained and specific."""
+            
+            # Call langextract with OpenAI model
+            import os
+            from langextract.inference import OpenAILanguageModel
+            
+            result = lx.extract(
+                text_or_documents=conversation_text,
+                prompt_description=prompt_description,
+                examples=examples,
+                model_id="gpt-4.1-mini",  # Use gpt-4.1-mini which works in context compression
+                api_key=os.getenv("OPENAI_API_KEY"),
+                language_model_type=OpenAILanguageModel,
+                use_schema_constraints=True,
+                temperature=0.3,  # Lower temperature for more consistent extraction
+                debug=False  # Disable debug for cleaner logs
+            )
+            
+            # Handle case where result might be wrapped in markdown code blocks
+            if isinstance(result, str):
+                # Strip markdown code blocks if present
+                import re
+                import json
+                
+                # Remove markdown code block wrapper
+                clean_json = re.sub(r'^```json\s*', '', result, flags=re.MULTILINE)
+                clean_json = re.sub(r'\s*```$', '', clean_json, flags=re.MULTILINE)
+                
+                try:
+                    result_data = json.loads(clean_json)
+                    # Create a mock result object with extractions
+                    class MockResult:
+                        def __init__(self, data):
+                            self.extractions = []
+                            if 'extractions' in data:
+                                for ext in data['extractions']:
+                                    extraction = lx.data.Extraction(
+                                        extraction_class=list(ext.keys())[0] if ext else "unknown",
+                                        extraction_text=ext.get(list(ext.keys())[0], "") if ext else "",
+                                        attributes=ext.get(f"{list(ext.keys())[0]}_attributes", {}) if ext else {}
+                                    )
+                                    self.extractions.append(extraction)
+                    
+                    result = MockResult(result_data)
+                    logger.debug(f"Parsed markdown-wrapped JSON result with {len(result.extractions)} extractions")
+                except Exception as e:
+                    logger.warning(f"Failed to parse markdown-wrapped result: {e}")
+                    # Continue with original result
+            
+            # Convert to Memory objects with quality filtering
+            memories = []
+            filtered_count = 0
+            
+            # Result is an AnnotatedDocument with extractions
+            if result and hasattr(result, 'extractions') and result.extractions:
+                for extraction in result.extractions:
+                    attrs = extraction.attributes or {}
+                    
+                    # Skip ephemeral memories
+                    if attrs.get("is_ephemeral", False):
+                        filtered_count += 1
+                        logger.debug(f"Filtered ephemeral memory: {attrs.get('content', '')[:50]}...")
+                        continue
+                    
+                    # Skip low confidence memories
+                    confidence = float(attrs.get("confidence", 0.5))
+                    if confidence < 0.3:
+                        filtered_count += 1
+                        logger.debug(f"Filtered low confidence ({confidence}) memory: {attrs.get('content', '')[:50]}...")
+                        continue
+                    
+                    # Build metadata
+                    metadata = {
+                        "confidence": confidence,
+                        "reasoning": attrs.get("reasoning", ""),
+                        "extraction_version": "v3_langextract",
+                        "extraction_method": "langextract",
+                        "extraction_class": extraction.extraction_class,
+                        "source_text": extraction.extraction_text[:100] if extraction.extraction_text else ""
+                    }
+                    
+                    memory = Memory(
+                        user_id=user_id,
+                        content=attrs.get("content", ""),
+                        category=attrs.get("category", "general"),
+                        importance_score=float(attrs.get("importance", 0.5)),
+                        metadata=metadata
+                    )
+                    memories.append(memory)
+                    logger.info(f"📝 Extracted memory: '{memory.content}' (category: {memory.category}, importance: {memory.importance_score}, confidence: {confidence})")
+            
+            logger.info(f"Extracted {len(memories)} high-quality memories from conversation (filtered {filtered_count} ephemeral/low-confidence)")
+            if filtered_count > 0:
+                logger.info(f"Memory quality filter: {len(memories)} kept, {filtered_count} filtered ({filtered_count/(len(memories)+filtered_count)*100:.1f}% filtered)")
+            
+            return memories
+            
+        except Exception as e:
+            logger.error(f"Langextract memory extraction failed: {e}, falling back to GPT-4.1-nano")
+            # Fall back to original extraction method
+            return await self._extract_memories_gpt(conversation_text, user_id)
+    
+    async def _extract_memories_gpt(self, conversation_text: str, user_id: str) -> List[Memory]:
+        """GPT-4.1-nano extraction method (primary method)"""
+        
+        if not self.openai_client:
+            return []
+        
+        # ORIGINAL EXTRACTION CODE - KEPT AS FALLBACK
         extraction_prompt = f"""
 Analyze this conversation and extract ONLY high-value, long-term memories that will be useful in future interactions.
 

@@ -8,7 +8,7 @@ import json
 import logging
 import asyncio
 import time
-from app.orchestrator import Orchestrator
+from app.orchestrator_progressive import ProgressiveOrchestrator
 from app.orchestrator_a2a import A2AOrchestrator
 from pydantic import BaseModel
 import os
@@ -16,15 +16,16 @@ import os
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_orchestrator: Optional[Orchestrator] = None
+_orchestrator: Optional[ProgressiveOrchestrator] = None
 _a2a_orchestrator: Optional[A2AOrchestrator] = None
 _complexity_analyzer = None
 
-def get_orchestrator() -> Orchestrator:
+def get_orchestrator() -> ProgressiveOrchestrator:
     """Get or create the global orchestrator instance"""
     global _orchestrator
     if _orchestrator is None:
-        _orchestrator = Orchestrator()
+        from app.orchestrator_progressive import orchestrator as progressive_orchestrator
+        _orchestrator = progressive_orchestrator
     return _orchestrator
 
 def get_a2a_orchestrator() -> A2AOrchestrator:
@@ -41,7 +42,7 @@ def get_complexity_analyzer():
         # Use LLM factory for complexity analysis
         from app.config.llm_factory import llm_factory
         _complexity_analyzer = llm_factory.create_llm(
-            model_name="gpt-5-mini",  # Mini model for complexity analysis
+            model_name="gpt-5",  # Use full GPT-5 for complexity analysis
             temperature=0.0,
             max_tokens=1024
         )

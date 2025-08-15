@@ -120,7 +120,14 @@ export class BaseTool {
       // Execute the tool
       const result = await this.execute(args);
       
-      this.log('Execution successful:', result);
+      // Truncate large results for logging
+      const resultStr = JSON.stringify(result);
+      if (resultStr.length > 500) {
+        this.log(`Execution successful (${resultStr.length} chars, truncated):`, 
+                 JSON.parse(resultStr.substring(0, 400) + '"}'));
+      } else {
+        this.log('Execution successful:', result);
+      }
       return this.formatSuccess(result);
       
     } catch (error) {

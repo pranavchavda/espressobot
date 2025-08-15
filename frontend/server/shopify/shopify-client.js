@@ -68,7 +68,17 @@ export class ShopifyClient {
       const result = await response.json();
       
       if (this.debug) {
-        console.log('GraphQL Response:', JSON.stringify(result, null, 2));
+        // Truncate large responses for readability
+        const resultStr = JSON.stringify(result, null, 2);
+        if (resultStr.length > 1000) {
+          // Only show first 500 chars and last 100 chars
+          const truncated = resultStr.substring(0, 500) + 
+                           '\n... [TRUNCATED ' + (resultStr.length - 600) + ' chars] ...\n' + 
+                           resultStr.substring(resultStr.length - 100);
+          console.log('GraphQL Response (truncated):', truncated);
+        } else {
+          console.log('GraphQL Response:', resultStr);
+        }
       }
       
       // Check for GraphQL errors

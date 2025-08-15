@@ -796,7 +796,7 @@ class GA4AnalyticsAgentNativeMCP(ContextAwareMixin):
                 self.agent = create_react_agent(
                     self.model,
                     self.tools,
-                    state_modifier=self.system_prompt
+                    prompt=self.system_prompt
                 )
                 
                 logger.info(f"Initialized GA4 Analytics agent with {len(self.tools)} tools for user {user_id}")
@@ -885,13 +885,15 @@ Always provide clear, formatted responses with relevant analytics insights and a
     
     async def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Process the state and return updated state"""
+        logger.info(f"📊 GA4 AGENT CALLED with state keys: {state.keys()}")
+        logger.info(f"📊 GA4 AGENT: last_agent={state.get('last_agent')}, current_agent={state.get('current_agent')}")
         try:
             # Extract user_id from state
             user_id = state.get("user_id")
             if not user_id:
                 state["messages"].append(AIMessage(
                     content="GA4 Analytics agent requires user authentication. Please provide user context.",
-                    metadata={"agent": self.name, "error": True}
+                    metadata={"agent": self.name, "intermediate": True, "error": True}
                 ))
                 return state
             
@@ -930,13 +932,13 @@ Always provide clear, formatted responses with relevant analytics insights and a
                     if hasattr(msg, 'content') and msg.content:
                         state["messages"].append(AIMessage(
                             content=msg.content,
-                            metadata={"agent": self.name}
+                            metadata={"agent": self.name, "intermediate": True}
                         ))
                         break
             else:
                 state["messages"].append(AIMessage(
                     content="I processed your request but couldn't generate a response.",
-                    metadata={"agent": self.name}
+                    metadata={"agent": self.name, "intermediate": True}
                 ))
             
             state["last_agent"] = self.name
@@ -946,14 +948,14 @@ Always provide clear, formatted responses with relevant analytics insights and a
             logger.error(f"GA4 Analytics authentication error: {e}")
             state["messages"].append(AIMessage(
                 content=f"GA4 Analytics access error: {str(e)}. Please ensure you have authorized Google Analytics access and configured your GA4 property ID.",
-                metadata={"agent": self.name, "error": True}
+                metadata={"agent": self.name, "intermediate": True, "error": True}
             ))
             return state
         except Exception as e:
             logger.error(f"Error in GA4AnalyticsAgentNativeMCP: {e}")
             state["messages"].append(AIMessage(
                 content=f"Error in GA4 Analytics agent: {str(e)}",
-                metadata={"agent": self.name, "error": True}
+                metadata={"agent": self.name, "intermediate": True, "error": True}
             ))
             return state
     

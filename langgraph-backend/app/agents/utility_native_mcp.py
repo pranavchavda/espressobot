@@ -57,7 +57,7 @@ class UtilityAgentNativeMCP(ContextAwareMixin):
                 self.agent = create_react_agent(
                     self.model,
                     self.tools,
-                    state_modifier=self.system_prompt
+                    prompt=self.system_prompt
                 )
                 
                 logger.info(f"Connected to Utility MCP server with {len(self.tools)} tools")
@@ -151,13 +151,13 @@ Always provide clear, formatted responses with relevant information from memorie
                     if hasattr(msg, 'content') and msg.content:
                         state["messages"].append(AIMessage(
                             content=msg.content,
-                            metadata={"agent": self.name}
+                            metadata={"agent": self.name, "intermediate": True}
                         ))
                         break
             else:
                 state["messages"].append(AIMessage(
                     content="I processed your request but couldn't generate a response.",
-                    metadata={"agent": self.name}
+                    metadata={"agent": self.name, "intermediate": True}
                 ))
             
             state["last_agent"] = self.name
@@ -167,7 +167,7 @@ Always provide clear, formatted responses with relevant information from memorie
             logger.error(f"Error in UtilityAgentNativeMCP: {e}")
             state["messages"].append(AIMessage(
                 content=f"Error in utility agent: {str(e)}",
-                metadata={"agent": self.name, "error": True}
+                metadata={"agent": self.name, "intermediate": True, "error": True}
             ))
             return state
     

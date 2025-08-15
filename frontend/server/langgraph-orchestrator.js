@@ -12,6 +12,36 @@ const LANGGRAPH_BACKEND = process.env.LANGGRAPH_BACKEND_URL || 'http://localhost
 
 console.log(`🔗 LangGraph Orchestrator: Routing to backend at ${LANGGRAPH_BACKEND}`);
 
+// Non-streaming endpoint - simpler and more reliable
+router.post('/message', async (req, res) => {
+  try {
+    console.log('[LangGraph Proxy] Non-streaming request to backend...');
+    
+    // Add user_id from authenticated user to the request body
+    const requestBody = {
+      ...req.body,
+      user_id: req.user?.id?.toString() || "1"
+    };
+    
+    // Forward to the non-streaming endpoint
+    const response = await fetch(`${LANGGRAPH_BACKEND}/api/agent/message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const result = await response.json();
+    
+    // Return the result directly
+    res.json(result);
+  } catch (error) {
+    console.error('[LangGraph Proxy] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Main chat endpoint - proxy to LangGraph backend with NDJSON to SSE conversion
 router.post('/run', async (req, res) => {
   try {

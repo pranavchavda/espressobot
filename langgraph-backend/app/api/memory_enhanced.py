@@ -28,16 +28,16 @@ class MemoryCategory(str, Enum):
 
 class MemoryResponse(BaseModel):
     """Memory response model"""
-    id: str  # Changed from int to str to match UUID database schema
+    id: str  # UUID string from database
     user_id: str
     content: str
     category: Optional[str]
     importance_score: float
     access_count: int
     metadata: Dict[str, Any]
-    created_at: datetime
-    updated_at: datetime
-    last_accessed_at: Optional[datetime] = None  # Can be None for new memories
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_accessed_at: Optional[datetime] = None
     similarity_score: Optional[float] = None
 
 class MemoryCreateRequest(BaseModel):
@@ -57,7 +57,7 @@ class MemoryUpdateRequest(BaseModel):
 class MemoryBulkOperation(BaseModel):
     """Bulk memory operation"""
     operation: str = Field(..., pattern="^(delete|update|export)$")
-    memory_ids: List[str]  # Changed from List[int] to List[str] for UUID IDs
+    memory_ids: List[str]  # UUID strings
     updates: Optional[MemoryUpdateRequest] = None
 
 class MemorySearchRequest(BaseModel):
@@ -403,6 +403,15 @@ async def bulk_memory_operation(
         manager = await get_memory_manager()
         
         if request.operation == "delete":
+            # IDs are already strings (UUIDs), no conversion needed
+            if not request.memory_ids:
+                return {
+                    "success": False,
+                    "operation": "delete",
+                    "affected_count": 0,
+                    "error": "No memory IDs provided"
+                }
+            
             # Bulk delete
             delete_query = """
             DELETE FROM memories 
@@ -410,7 +419,7 @@ async def bulk_memory_operation(
             """
             result = await manager._execute_command(
                 delete_query, 
-                request.memory_ids, 
+                request.memory_ids,  # Use string array directly (UUIDs)
                 user_id
             )
             
@@ -643,16 +652,16 @@ def _row_to_memory(row) -> MemoryResponse:
 def _memory_to_dict(memory) -> dict:
     """Convert Memory object to dictionary"""
     return {
-        "id": memory.id,
+        "id": str(memory.id) if memory.id else None,
         "user_id": memory.user_id,
         "content": memory.content,
-        "category": memory.category,
-        "importance_score": memory.importance_score,
-        "access_count": memory.access_count,
-        "metadata": memory.metadata,
-        "created_at": memory.created_at,
-        "updated_at": memory.updated_at,
-        "last_accessed_at": memory.last_accessed_at if hasattr(memory, 'last_accessed_at') else None
+        "category": getattr(memory, 'category', None),
+        "importance_score": getattr(memory, 'importance_score', 1.0),
+        "access_count": getattr(memory, 'access_count', 0),
+        "metadata": getattr(memory, 'metadata', {}) or {},
+        "created_at": getattr(memory, 'created_at', None),
+        "updated_at": getattr(memory, 'updated_at', None),
+        "last_accessed_at": getattr(memory, 'last_accessed_at', None)
     }
 
 def _row_to_dict(row) -> dict:

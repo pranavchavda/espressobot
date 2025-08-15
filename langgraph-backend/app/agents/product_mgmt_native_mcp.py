@@ -57,7 +57,7 @@ class ProductManagementAgentNativeMCP(ContextAwareMixin):
                 self.agent = create_react_agent(
                     self.model,
                     self.tools,
-                    state_modifier=self.system_prompt
+                    prompt=self.system_prompt
                 )
                 
                 logger.info(f"Connected to Product Management MCP server with {len(self.tools)} tools")
@@ -160,13 +160,13 @@ Always provide clear, formatted responses with product information and confirm c
                     if hasattr(msg, 'content') and msg.content:
                         state["messages"].append(AIMessage(
                             content=msg.content,
-                            metadata={"agent": self.name}
+                            metadata={"agent": self.name, "intermediate": True}
                         ))
                         break
             else:
                 state["messages"].append(AIMessage(
                     content="I processed your request but couldn't generate a response.",
-                    metadata={"agent": self.name}
+                    metadata={"agent": self.name, "intermediate": True}
                 ))
             
             state["last_agent"] = self.name
@@ -176,7 +176,7 @@ Always provide clear, formatted responses with product information and confirm c
             logger.error(f"Error in ProductManagementAgentNativeMCP: {e}")
             state["messages"].append(AIMessage(
                 content=f"Error in product management agent: {str(e)}",
-                metadata={"agent": self.name, "error": True}
+                metadata={"agent": self.name, "intermediate": True, "error": True}
             ))
             return state
     

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { flushSync } from "react-dom";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
 import { format } from "date-fns";
@@ -65,7 +66,14 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const [suggestions, setSuggestions] = useState([]);
   const [streamingMessage, setStreamingMessageState] = useState(null);
   const streamingMessageRef = useRef(null); // Track streaming message in a ref
+  const messageFinalizedRef = useRef(false); // Track if message was already finalized
   const pendingServerHistoryRef = useRef(null); // buffer server history while streaming
+  const lastFinalizedContentRef = useRef(null); // Track last finalized content to prevent duplicates
+  const messageIdsRef = useRef(new Set()); // Track all message IDs to prevent duplicates
+  const processingResponseRef = useRef(false); // Track if we're processing a response
+  const lastProcessedMessageRef = useRef(null); // Track the last processed message
+  const messageQueueRef = useRef([]); // Queue for messages to be added
+  const isProcessingQueueRef = useRef(false); // Track if we're processing the queue
   
   // Custom setter that updates both state and ref
   const setStreamingMessage = (value) => {
@@ -79,6 +87,45 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       streamingMessageRef.current = value;
       setStreamingMessageState(value);
     }
+  };
+  
+  // Process message queue to ensure messages are added sequentially
+  const processMessageQueue = () => {
+    if (isProcessingQueueRef.current || messageQueueRef.current.length === 0) {
+      return;
+    }
+    
+    isProcessingQueueRef.current = true;
+    const message = messageQueueRef.current.shift();
+    
+    setMessages(prev => {
+      // Check for duplicates
+      const isDuplicate = prev.some(m => 
+        m.id === message.id || 
+        (m.role === 'assistant' && message.role === 'assistant' && 
+         (m.content || '').trim() === (message.content || '').trim())
+      );
+      
+      if (isDuplicate) {
+        console.log('[DEBUG] Queue: Duplicate message detected, skipping');
+        isProcessingQueueRef.current = false;
+        // Process next message in queue
+        setTimeout(processMessageQueue, 0);
+        return prev;
+      }
+      
+      console.log('[DEBUG] Queue: Adding message to state');
+      isProcessingQueueRef.current = false;
+      // Process next message in queue
+      setTimeout(processMessageQueue, 0);
+      return [...prev, message];
+    });
+  };
+  
+  // Helper to add message to queue
+  const queueMessage = (message) => {
+    messageQueueRef.current.push(message);
+    processMessageQueue();
   };
   
   const [toolCallStatus, setToolCallStatus] = useState(""); // Can be repurposed or used for general status
@@ -126,6 +173,12 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   // Fetch messages for selected conversation
   useEffect(() => {
     if (!convId) {
+      // Don't clear messages if we have an active conversation
+      // This happens when we create a new conversation and the parent hasn't updated yet
+      if (activeConv) {
+        console.log('FRONTEND: convId is null but activeConv exists, not clearing. activeConv:', activeConv);
+        return;
+      }
       setMessages([]);
       setSuggestions([]);
       console.warn('FRONTEND: convId is null in useEffect[convId]. Clearing messages/suggestions. convId:', convId);
@@ -746,18 +799,21 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       shouldInject: streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
     });
 
-    // If agent is running, inject message instead
+    // If agent is running, prevent sending (custom orchestrator doesn't support injection)
     if (streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete) {
-      console.log('[DEBUG] Routing to handleInjectMessage');
-      return handleInjectMessage(messageContent);
+      console.log('[DEBUG] Message blocked - agent is still streaming');
+      // Optionally, you could queue the message for later
+      return;
     }
 
     if ((!textToSend && !imageAttachment && !fileAttachment) || isSending) return;
 
     // Safety: if previous assistant draft exists and is NOT streaming (e.g. backend didn't emit 'done'),
     // finalize it into messages before starting a new send so it doesn't disappear.
+    // BUT skip if it's just the thinking message
     const prevDraft = streamingMessageRef.current;
-    if (prevDraft && prevDraft.content && !prevDraft.isStreaming) {
+    const isThinkingMessage = prevDraft?.content?.includes('GPT-5 is thinking');
+    if (prevDraft && prevDraft.content && !prevDraft.isStreaming && !isThinkingMessage) {
       const messageId = `msg-${Date.now()}`;
       const timestamp = prevDraft.timestamp || new Date().toISOString();
       const currentTaskMarkdownRef = taskMarkdown && 
@@ -793,11 +849,15 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     setShowImageUrlInput(false);
     setAgentProcessingStatus(""); // Clear previous agent status
     setTaskMarkdown(null); // Clear previous task markdown
+    messageFinalizedRef.current = false; // Reset finalization flag for new message
+    lastFinalizedContentRef.current = null; // Reset last finalized content
+    lastProcessedMessageRef.current = null; // Reset last processed message
+    processingResponseRef.current = false; // Reset processing flag
 
-    // Initialize streaming message for all modes
+    // Show a loading indicator for non-streaming mode
     setStreamingMessage({
       role: "assistant",
-      content: "",
+      content: "",  // Empty content will show the animated dots
       timestamp: new Date().toISOString(),
       isStreaming: true,
       isComplete: false,
@@ -808,9 +868,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     }
 
     try {
-      // Use master agent orchestrator v2 endpoint by default
-      const fetchUrl = "/api/agent/run";
-      console.log("Using master agent orchestrator endpoint");
+      // Use non-streaming endpoint for simplicity
+      const fetchUrl = "/api/agent/message";
+      console.log("Using non-streaming master agent orchestrator endpoint");
 
       if (useBasicAgent) {
         setPlannerStatus("Initializing...");
@@ -821,9 +881,10 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       }
 
       const conversationId = convId || activeConv || undefined;
-      console.log('[DEBUG] Sending message with conv_id:', conversationId, 'convId:', convId, 'activeConv:', activeConv);
+      console.log('[DEBUG] Sending message with conversation_id:', conversationId, 'convId:', convId, 'activeConv:', activeConv);
       const requestData = {
-        conv_id: conversationId,
+        conversation_id: conversationId,  // Changed from conv_id to conversation_id
+        thread_id: conversationId,  // Also send as thread_id for compatibility
         message: textToSend,
       };
 
@@ -857,6 +918,23 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       }
 
       const token = localStorage.getItem('authToken');
+      
+      console.log('[DEBUG] About to fetch from:', fetchUrl, 'with conversation_id:', conversationId);
+      
+      // Show thinking indicator for GPT-5 with isStreaming flag
+      setStreamingMessage({
+        role: "assistant",
+        content: "🤔 GPT-5 is thinking... This may take 30-60 seconds for complex queries.",
+        timestamp: new Date().toISOString(),
+        agent: "orchestrator",
+        isStreaming: true,  // Important: This makes the message visible
+        isComplete: false
+      });
+      
+      // Create AbortController for timeout (600 seconds / 10 minutes for complex operations)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minutes timeout
+      
       const response = await fetch(fetchUrl, {
         method: "POST",
         headers: { 
@@ -864,13 +942,133 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
           "Authorization": token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify(requestData),
-      });
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
 
       if (!response.ok) {
         const errorBody = await response.text();
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
       }
 
+      // Handle non-streaming response
+      const result = await response.json();
+      console.log('[DEBUG] Non-streaming response received at:', new Date().toISOString());
+      console.log('[DEBUG] Response content:', result.response?.substring(0, 100) || result.message?.substring(0, 100) || 'No content');
+      
+      // Set the conversation ID if returned
+      if (result.conversation_id) {
+        const newConvId = result.conversation_id;
+        console.log('[DEBUG] Setting activeConv to:', newConvId);
+        setActiveConv(newConvId);
+        
+        // If this is a new conversation, notify parent
+        if (onNewConversation && !convId) {
+          console.log('[DEBUG] Notifying parent of new conversation:', newConvId);
+          onNewConversation(newConvId);
+        }
+      }
+      
+      // Add the assistant message with a truly unique ID
+      const uniqueId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const assistantMessage = {
+        id: uniqueId,
+        role: "assistant",
+        content: result.response || result.message || result.content || "",
+        timestamp: new Date().toISOString(),
+        agent: result.agent || "orchestrator"
+      };
+      
+      // Clear the streaming message state AND ref FIRST to prevent duplicates
+      setStreamingMessage(null);
+      streamingMessageRef.current = null; // Important: clear the ref too
+      
+      // Then add the message to the list (check for duplicates first)
+      console.log('[DEBUG] About to add message. Current messages count:', messages.length);
+      console.log('[DEBUG] Last finalized content:', lastFinalizedContentRef.current);
+      
+      // Check if we already finalized this content
+      const normalizedContent = (assistantMessage.content || '').trim();
+      if (lastFinalizedContentRef.current === normalizedContent) {
+        console.log('[DEBUG] BLOCKING DUPLICATE - Already finalized this exact content');
+        setIsSending(false);
+        return; // Don't add the message
+      }
+      
+      // Use a unique message ID to prevent duplicates
+      const messageId = assistantMessage.id;
+      
+      // CRITICAL FIX: Use flushSync to ensure state updates happen synchronously
+      // This prevents React StrictMode from running the function twice with the same state
+      
+      // Check if message ID is already processed
+      if (messageIdsRef.current.has(messageId)) {
+        console.log('[DEBUG] Message ID already processed, skipping:', messageId);
+        return;
+      }
+      
+      // Add to set immediately
+      messageIdsRef.current.add(messageId);
+      console.log('[DEBUG] Added message ID to tracking set:', messageId);
+      
+      // Mark content as finalized
+      lastFinalizedContentRef.current = normalizedContent;
+      
+      // Use flushSync to force synchronous state update
+      // This ensures the first invocation completes before the second one runs
+      try {
+        flushSync(() => {
+          setMessages(prev => {
+            console.log('[DEBUG] Inside setMessages. Prev length:', prev.length, 'MessageID:', messageId);
+            
+            // Final safety check inside setMessages
+            const idExists = prev.some(msg => msg.id === messageId);
+            if (idExists) {
+              console.log('[DEBUG] Message already in state, skipping');
+              return prev;
+            }
+            
+            const contentExists = prev.some(msg => 
+              msg.role === 'assistant' && 
+              (msg.content || '').trim() === normalizedContent
+            );
+            if (contentExists) {
+              console.log('[DEBUG] Duplicate content detected, skipping');
+              return prev;
+            }
+            
+            console.log('[DEBUG] Adding assistant message with ID:', messageId);
+            return [...prev, assistantMessage];
+          });
+        });
+      } catch (e) {
+        // If flushSync fails (not available or other issue), fall back to regular setState
+        console.log('[DEBUG] flushSync failed, using regular setState');
+        setMessages(prev => {
+          const idExists = prev.some(msg => msg.id === messageId);
+          if (idExists) return prev;
+          
+          const contentExists = prev.some(msg => 
+            msg.role === 'assistant' && 
+            (msg.content || '').trim() === normalizedContent
+          );
+          if (contentExists) return prev;
+          
+          return [...prev, assistantMessage];
+        });
+      }
+      
+      setIsSending(false);
+      
+      // Clear all status indicators
+      setSynthesizerStatus("");
+      setAgentProcessingStatus("");
+      setPlannerStatus("");
+      setDispatcherStatus("");
+      setToolCallStatus("");
+      
+      // STREAMING CODE REMOVED - The code below is for streaming which we're not using
+      return;
+      
       const reader = response.body.getReader();
       readerRef.current = reader;
       const decoder = new TextDecoder();
@@ -924,15 +1122,23 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               // Debug: Log parsed event
               console.log("FRONTEND: Parsed NDJSON event:", eventName, "Payload:", actualEventPayload);
 
-              // Handle 'done' event regardless of agent mode
+              // Handle 'done' event for basic agent mode ONLY
               if (eventName === 'done') {
-                console.log("FRONTEND: Received explicit 'done' event");
-                // IMPORTANT: Only handle here for basic agent mode.
-                // For multi-agent mode, let the later switch('done') handle it to avoid double-append.
-                if (useBasicAgent) {
-                  // If this is a NEW conversation (no convId yet), skip local append and rely on
-                  // the upcoming fetch(/api/conversations/:id) to hydrate messages to prevent duplicates.
-                  if (!convId) {
+                console.log("FRONTEND: Done event detected. useBasicAgent:", useBasicAgent, "messageFinalizedRef:", messageFinalizedRef.current);
+                if (!useBasicAgent) {
+                  console.log("FRONTEND: Skipping done - not basic agent mode");
+                  // Let multi-agent handler deal with it
+                } else if (messageFinalizedRef.current) {
+                  console.log("FRONTEND: SKIPPING DONE - ALREADY FINALIZED!");
+                  setStreamingMessage(null);
+                  setIsSending(false);
+                  shouldStop = true;
+                  break;
+                } else {
+                  console.log("FRONTEND: Processing done event for basic agent");
+                // If this is a NEW conversation (no convId yet), skip local append and rely on
+                // the upcoming fetch(/api/conversations/:id) to hydrate messages to prevent duplicates.
+                if (!convId) {
                     setStreamingMessage(null);
                     setIsSending(false);
                     shouldStop = true;
@@ -953,11 +1159,45 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   const messageId = `msg-${Date.now()}`;
                   const timestamp = new Date().toISOString();
                   const streamingContent = streamingMessageRef.current?.content;
-                  if (streamingContent) {
+                  if (streamingContent && !messageFinalizedRef.current) {
+                    const normalizedContent = (streamingContent || '').trim();
+                    
+                    // Check if this exact content was already finalized
+                    if (lastFinalizedContentRef.current === normalizedContent) {
+                      console.log('FRONTEND: DUPLICATE BLOCKED - already finalized this content:', normalizedContent.substring(0, 50));
+                      setStreamingMessage(null);
+                      setIsSending(false);
+                      shouldStop = true;
+                      break; // Exit immediately
+                    }
+                    
+                    console.log('FRONTEND: FINALIZING MESSAGE (basic agent):', normalizedContent.substring(0, 50));
+                    messageFinalizedRef.current = true; // Mark as finalized
+                    lastFinalizedContentRef.current = normalizedContent; // Store finalized content
                     setStreamingMessage(null);
+                    
                     setMessages(prev => {
-                      const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
-                      if (alreadyExists) return prev; // Prevent duplicate append anywhere in list
+                      // More aggressive duplicate check - normalize and compare
+                      const normalizedNew = normalizedContent.replace(/\s+/g, ' ');
+                      
+                      // Check if ANY recent assistant message matches
+                      for (let i = prev.length - 1; i >= Math.max(0, prev.length - 5); i--) {
+                        if (prev[i].role === 'assistant') {
+                          const normalizedExisting = (prev[i].content || '').trim().replace(/\s+/g, ' ');
+                          if (normalizedExisting === normalizedNew || 
+                              normalizedExisting.includes(normalizedNew) || 
+                              normalizedNew.includes(normalizedExisting)) {
+                            console.log('FRONTEND: Prevented duplicate - content already exists');
+                            return prev;
+                          }
+                        }
+                      }
+                      
+                      if (!normalizedContent) {
+                        console.log('FRONTEND: Prevented empty message');
+                        return prev;
+                      }
+                      
                       return [...prev, {
                         id: messageId,
                         role: "assistant",
@@ -979,9 +1219,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                       console.error("Error cancelling reader:", e);
                     }
                   }
-                  break;
+                  console.log("FRONTEND: Basic agent done handled, breaking loop");
+                  break; // Exit the while loop completely
                 }
-                // Not basic agent: do nothing here; the multi-agent switch will handle 'done'
               }
             
               // Handle conversation ID events regardless of agent mode
@@ -1497,7 +1737,13 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     const newContent = (prev?.content || "") + actualEventPayload.delta;
                     console.log("FRONTEND: Updating streamingMessage, new content length:", newContent.length);
                     console.log("FRONTEND: streamingMessage state before update:", prev);
-                    const newState = { ...prev, content: newContent, isStreaming: true, isComplete: false };
+                    const newState = { 
+                      ...prev, 
+                      content: newContent, 
+                      isStreaming: true, 
+                      isComplete: false,
+                      id: prev?.id || `streaming-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                    };
                     console.log("FRONTEND: streamingMessage state after update:", newState);
                     return newState;
                   });
@@ -1595,7 +1841,13 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   break;
                   
                 case 'done':
-                  console.log("FRONTEND: Received 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
+                  console.log("FRONTEND: Multi-agent 'done' event", JSON.stringify(actualEventPayload)); // DEBUG
+                  
+                  // Skip if we're in basic agent mode (already handled above)
+                  if (useBasicAgent) {
+                    console.log("FRONTEND: Skipping multi-agent done handler (basic agent mode)");
+                    break;
+                  }
                   
                   // Move streaming message to messages array and clear streaming state in one batch
                   const currentTaskMarkdownRef = taskMarkdown && 
@@ -1612,20 +1864,50 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   
                   // Always finalize local streaming message; server history merge below prevents duplicates
 
-                  if (streamingContent) {
+                  if (streamingContent && !messageFinalizedRef.current) {
                     // Clear streaming first, then add to messages (dedup if identical content already exists)
+                    messageFinalizedRef.current = true; // Mark as finalized
+                    
+                    // Store the finalized content for duplicate prevention
+                    const normalizedContent = (streamingContent || '').trim();
+                    
+                    // Clear streaming message immediately
                     setStreamingMessage(null);
-                    setMessages(prev => {
-                      const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
-                      if (alreadyExists) return prev;
-                      return [...prev, {
-                        id: messageId,
-                        role: "assistant",
-                        content: streamingContent,
-                        timestamp: timestamp,
-                        taskMarkdown: currentTaskMarkdownRef
-                      }];
-                    });
+                    
+                    // Use setTimeout to break out of StrictMode's double invocation
+                    setTimeout(() => {
+                      // Check if we already have this exact content in lastProcessedMessageRef
+                      if (lastProcessedMessageRef.current === normalizedContent) {
+                        console.log('FRONTEND: Duplicate message detected via lastProcessedMessageRef, skipping');
+                        return;
+                      }
+                      
+                      // Update last processed message
+                      lastProcessedMessageRef.current = normalizedContent;
+                      
+                      setMessages(prev => {
+                        // Enhanced duplicate check - check last few assistant messages
+                        const lastFewMessages = prev.slice(-3);
+                        const alreadyExists = lastFewMessages.some(m => 
+                          m.role === 'assistant' && 
+                          (m.content || '').trim() === normalizedContent
+                        );
+                        
+                        if (alreadyExists) {
+                          console.log('FRONTEND: Prevented duplicate message (multi-agent done)');
+                          return prev;
+                        }
+                        
+                        console.log('FRONTEND: Adding finalized streaming message');
+                        return [...prev, {
+                          id: messageId,
+                          role: "assistant",
+                          content: streamingContent,
+                          timestamp: timestamp,
+                          taskMarkdown: currentTaskMarkdownRef
+                        }];
+                      });
+                    }, 0);
                   } else {
                     // No content, just clear streaming
                     setStreamingMessage(null);
@@ -1699,8 +1981,19 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                 if (streamingContent) {
                   setStreamingMessage(null);
                   setMessages(prev => {
-                    const alreadyExists = prev.some(m => m.role === 'assistant' && String(m.content || '') === String(streamingContent || ''));
-                    if (alreadyExists) return prev; // Prevent duplicate append anywhere in list
+                    // Enhanced duplicate check - check last few assistant messages
+                    const lastFewMessages = prev.slice(-3);
+                    const normalizedContent = (streamingContent || '').trim();
+                    const alreadyExists = lastFewMessages.some(m => 
+                      m.role === 'assistant' && 
+                      (m.content || '').trim() === normalizedContent
+                    );
+                    
+                    if (alreadyExists) {
+                      console.log('FRONTEND: Prevented duplicate message (legacy done)');
+                      return prev;
+                    }
+                    
                     return [...prev, {
                       id: messageId,
                       role: "assistant",
@@ -1726,7 +2019,25 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         }
       }
     } catch (e) {
-      console.error("Failed to send message or process stream:", e);
+      // Handle timeout specifically for complex operations
+      if (e.name === 'AbortError') {
+        console.error("Request timed out after 10 minutes");
+        
+        // Clear the thinking message
+        setStreamingMessage(null);
+        
+        // Add a timeout error message
+        const errorMessage = {
+          id: `msg-${Date.now()}`,
+          role: "assistant",
+          content: "⏱️ Request timed out after 10 minutes. The operation may still be processing in the background. Please check back later or try a simpler request.",
+          timestamp: new Date().toISOString(),
+          agent: "system"
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      } else {
+        console.error("Failed to send message or process stream:", e);
+      }
       
       // Remove the user message that was added optimistically since the request failed
       setMessages(prev => {
@@ -1838,8 +2149,10 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               
               {/* Render all messages */}
               {messages.map((msg, i) => {
+                // Ensure unique key even if IDs are duplicated
+                const uniqueKey = msg.id ? `${msg.id}-${i}` : `msg-${i}`;
                 return (
-                  <React.Fragment key={msg.id || i}>
+                  <React.Fragment key={uniqueKey}>
                     <div
                       className={`group flex items-start gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                     >
@@ -2051,7 +2364,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         {/* Suggestions Area */}
         {((taskMarkdown && taskMarkdown.markdown && 
                 String(taskMarkdown.conversation_id) === String(activeConv || convId)) || 
-                currentTasks.length > 0) && (
+                (currentTasks && currentTasks.length > 0)) && (
                 <UnifiedTaskDisplay
                   taskMarkdown={taskMarkdown}
                   liveTasks={currentTasks}

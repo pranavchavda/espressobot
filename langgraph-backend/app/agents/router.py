@@ -15,10 +15,10 @@ class RouterAgent:
         self.name = "router"
         self.description = "Intelligently routes requests to the most appropriate specialist agent"
         self.available_agents = available_agents
-        # Use LLM factory to get GPT-5-mini for routing
+        # Use LLM factory to get full GPT-5 for routing
         from app.config.llm_factory import llm_factory
         self.model = llm_factory.create_llm(
-            model_name="gpt-5-mini",
+            model_name="gpt-5",
             temperature=0.0,
             max_tokens=1024
         )
