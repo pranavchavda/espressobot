@@ -28,6 +28,18 @@ DEBUG_LANGEXTRACT_LOGS = True
 # Quality thresholds to reduce empty/low-value memories
 MIN_MEMORY_CONTENT_CHARS = 20  # Skip memories shorter than this after normalization
 MIN_MEMORY_CONFIDENCE = 0.5    # Stricter than previous 0.3
+MIN_MEMORY_CONTENT_CHARS_SHORT = 12  # For durable instrumentation policies
+
+# Domain signal lists to preserve durable instrumentation/tracking policies
+INSTRUMENTATION_KEYWORDS = [
+    "tracking script", "analytics", "ga4", "google analytics", "gtm", "google tag manager",
+    "tag manager", "pixel", "meta pixel", "facebook pixel", "tiktok pixel", "hotjar",
+    "klaviyo", "segment", "rudderstack", "measurement id", "conversion tracking",
+    "server-side tracking", "consent mode", "cookie consent", "data layer"
+]
+LONGTERM_QUALIFIERS = [
+    "always", "sitewide", "across the site", "policy", "standard", "default", "every page"
+]
 
 # Memory extraction schema for langextract
 class MemoryCategory(str, Enum):
@@ -119,6 +131,23 @@ class MemoryExtractionService:
         s = re.sub(r"\s+", " ", s)
         return s.strip()
 
+    def _is_longterm_instrumentation(self, text_normalized: str) -> bool:
+        """Detect durable sitewide instrumentation/tracking policies.
+        Requires at least one instrumentation keyword and one long-term qualifier.
+        """
+        t = text_normalized.lower()
+        if not t:
+            return False
+        has_kw = any(k in t for k in INSTRUMENTATION_KEYWORDS)
+        has_q = any(q in t for q in LONGTERM_QUALIFIERS)
+        return has_kw and has_q
+
+    def _maybe_adjust_category(self, text_normalized: str, category: str) -> str:
+        """Adjust memory category based on content signals."""
+        if self._is_longterm_instrumentation(text_normalized) and (not category or category == "general"):
+            return "preferences"
+        return category or "general"
+
     async def _extract_memories_langextract(self, conversation_text: str, user_id: str) -> List[Memory]:
         """Experimental langextract-based extraction (kept for future improvement)"""
         # Use langextract for structured extraction
@@ -149,6 +178,34 @@ class MemoryExtractionService:
                                 "importance": 0.9,
                                 "confidence": 1.0,
                                 "reasoning": "Specific preference that guides recommendations",
+                                "is_ephemeral": False
+                            }
+                        )
+                    ]
+                ),
+                # Durable instrumentation/tracking policy (should be extracted)
+                lx.data.ExampleData(
+                    text=(
+                        "User: We always load GA4 via Google Tag Manager across the site. "
+                        "Do not embed GA scripts directly. Use Consent Mode v2 and keep ad_storage denied until consent.\n"
+                        "Assistant: Got it, that will be our standard tracking policy."
+                    ),
+                    extractions=[
+                        lx.data.Extraction(
+                            extraction_class="instrumentation_policy",
+                            extraction_text=(
+                                "always load GA4 via GTM across the site; do not embed GA directly; "
+                                "use Consent Mode v2; ad_storage denied until consent"
+                            ),
+                            attributes={
+                                "content": (
+                                    "Sitewide tracking policy: Always load GA4 via Google Tag Manager; "
+                                    "never embed GA scripts directly; use Consent Mode v2; default ad_storage denied until consent"
+                                ),
+                                "category": "preferences",
+                                "importance": 0.85,
+                                "confidence": 0.95,
+                                "reasoning": "Long-term sitewide analytics policy that impacts many future tasks",
                                 "is_ephemeral": False
                             }
                         )
@@ -209,6 +266,16 @@ class MemoryExtractionService:
                         # - Price updates and metafields are specific technical tasks
                     ]
                 ),
+                # One-off tracking task (should NOT be extracted)
+                lx.data.ExampleData(
+                    text=(
+                        "User: Please add the tracking script to the back-to-school landing page today and test conversions.\n"
+                        "Assistant: I'll add it to that page and run tests."
+                    ),
+                    extractions=[
+                        # No extractions – this is a one-off, page-specific task, not a durable policy
+                    ]
+                ),
                 lx.data.ExampleData(
                     text="User: For ClearSale fraud review, I need order details from last 3 days - order IDs, customer names, amounts and risk levels. Limit to 5 orders for analysis.\nAssistant: I'll fetch the detailed order information.",
                     extractions=[
@@ -258,12 +325,14 @@ class MemoryExtractionService:
                 2. Reveals consistent preferences or patterns that affect multiple conversations
                 3. Establishes context about their business or industry (not specific tasks)
                 4. Shows expertise areas that inform how to help them
+                5. Defines sitewide analytics/instrumentation policies or durable tracking preferences (e.g., GA4 via GTM, Consent Mode)
                 
                 EXAMPLES OF GOOD EXTRACTIONS:
                 - "User is a senior backend engineer specializing in Python"
                 - "User prefers command-line tools over GUI applications"
                 - "User manages an e-commerce platform with 100+ daily orders"
                 - "User works with payment systems and fraud prevention"
+                - "Sitewide tracking policy: Always load GA4 via GTM; no direct GA; Consent Mode v2 with default denied until consent"
                 
                 ALWAYS EXCLUDE (mark is_ephemeral=True):
                 - ANY specific task, request, or one-time activity
@@ -274,6 +343,7 @@ class MemoryExtractionService:
                 - Assistant responses, suggestions, or conversational content
                 - System configurations or technical setup for specific projects
                 - Any information that starts with "User needs", "User wants", "User requires"
+                - One-off tracking changes for a specific page/campaign/date (e.g., "add tracking script to this page today")
                 
                 CRITICAL RULE: If uncertain whether something has long-term value, DON'T extract it.
                 Most conversations should extract 0-1 memories. Only extract if genuinely essential."""
@@ -317,7 +387,6 @@ class MemoryExtractionService:
             # Handle case where result might be wrapped in markdown code blocks
             if isinstance(result, str):
                 # Strip markdown code blocks if present
-                import re
                 import json
                 
                 # Remove markdown code block wrapper
@@ -364,13 +433,22 @@ class MemoryExtractionService:
                         preview = attrs.get('content', '')[:80]
                         logger.debug(f"LX extraction candidate: class={extraction.extraction_class}, confidence={attrs.get('confidence')}, ephemeral={attrs.get('is_ephemeral')}, preview='{preview}'")
                     
-                    # Skip ephemeral memories
-                    if attrs.get("is_ephemeral", False):
+                    # Prefer attribute content; fallback to extraction_text
+                    raw_content = attrs.get("content") or extraction.extraction_text or ""
+                    normalized = self._normalize_memory_content(raw_content)
+                    content = normalized.lower()
+
+                    longterm_inst = self._is_longterm_instrumentation(normalized)
+
+                    # Skip ephemeral memories unless it's a durable instrumentation policy
+                    if attrs.get("is_ephemeral", False) and not longterm_inst:
                         filtered_count += 1
                         if DEBUG_LANGEXTRACT_LOGS:
                             logger.debug(f"Filtered[E] ephemeral: {attrs.get('content', '')[:50]}...")
                         continue
-                    
+                    elif attrs.get("is_ephemeral", False) and longterm_inst and DEBUG_LANGEXTRACT_LOGS:
+                        logger.debug(f"Override[E] keeping durable instrumentation policy despite ephemeral flag: '{normalized[:80]}'")
+
                     # Skip low confidence memories
                     confidence = float(attrs.get("confidence", 0.5))
                     if confidence < MIN_MEMORY_CONFIDENCE:
@@ -378,11 +456,8 @@ class MemoryExtractionService:
                         if DEBUG_LANGEXTRACT_LOGS:
                             logger.debug(f"Filtered[C] low confidence ({confidence} < {MIN_MEMORY_CONFIDENCE}): {attrs.get('content', '')[:50]}...")
                         continue
-                    
-                    # Additional filtering for task-specific content
-                    raw_content = attrs.get("content") or extraction.extraction_text or ""
-                    normalized = self._normalize_memory_content(raw_content)
-                    content = normalized.lower()
+
+                    # Additional filtering for task-specific content (allow if durable instrumentation)
                     
                     task_indicators = [
                         # Specific task patterns
@@ -408,32 +483,20 @@ class MemoryExtractionService:
                         "access to systems", "with access", "systems that handle"
                     ]
                     
-                    if any(indicator in content for indicator in task_indicators):
+                    if any(indicator in content for indicator in task_indicators) and not longterm_inst:
                         filtered_count += 1
                         if DEBUG_LANGEXTRACT_LOGS:
                             logger.debug(f"Filtered[T] task-specific: {content[:50]}...")
                         continue
-                    
-                    # Check for task-specific opening patterns
-                    content_start = content[:30]
-                    bad_starts = [
-                        "user is involved in", "user requires", "user needs",
-                        "user specifically", "user analyzes", "user focuses",
-                        "user works on", "user handles", "user coordinates",
-                        "user reviews", "user requests", "user wants"
-                    ]
-                    
-                    if any(content_start.startswith(start) for start in bad_starts):
-                        filtered_count += 1
-                        if DEBUG_LANGEXTRACT_LOGS:
-                            logger.debug(f"Filtered[S] start-pattern: {content[:50]}...")
-                        continue
-                    
+                    elif any(indicator in content for indicator in task_indicators) and longterm_inst and DEBUG_LANGEXTRACT_LOGS:
+                        logger.debug(f"Override[T] keeping durable instrumentation policy: '{normalized[:80]}'")
+
                     # Skip empty/short/placeholder content
-                    if not normalized or len(normalized) < MIN_MEMORY_CONTENT_CHARS:
+                    min_len = MIN_MEMORY_CONTENT_CHARS_SHORT if longterm_inst else MIN_MEMORY_CONTENT_CHARS
+                    if not normalized or len(normalized) < min_len:
                         filtered_count += 1
                         if DEBUG_LANGEXTRACT_LOGS:
-                            logger.debug(f"Filtered[N] empty/short (<{MIN_MEMORY_CONTENT_CHARS} chars): '{normalized}'")
+                            logger.debug(f"Filtered[N] empty/short (<{min_len} chars): '{normalized}'")
                         continue
                     
                     # Skip if content contains too few alphabetic characters
@@ -465,7 +528,7 @@ class MemoryExtractionService:
                     memory = Memory(
                         user_id=user_id,
                         content=normalized,
-                        category=attrs.get("category", "general"),
+                        category=self._maybe_adjust_category(normalized, attrs.get("category", "general")),
                         importance_score=float(attrs.get("importance", 0.5)),
                         metadata=metadata
                     )
@@ -615,6 +678,7 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                 raw_content = item.get("content", "")
                 normalized = self._normalize_memory_content(raw_content)
                 content = normalized.lower()
+                longterm_inst = self._is_longterm_instrumentation(normalized)
                 
                 task_indicators = [
                     # Specific task patterns
@@ -640,10 +704,12 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                     "access to systems", "with access", "systems that handle"
                 ]
                 
-                if any(indicator in content for indicator in task_indicators):
+                if any(indicator in content for indicator in task_indicators) and not longterm_inst:
                     filtered_count += 1
                     logger.debug(f"Filtered task-specific memory: {content[:50]}...")
                     continue
+                elif any(indicator in content for indicator in task_indicators) and longterm_inst:
+                    logger.debug(f"Override task-specific for durable instrumentation: '{normalized[:80]}'")
                 
                 # Check for task-specific opening patterns
                 content_start = content[:30]
@@ -654,15 +720,18 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                     "user reviews", "user requests", "user wants"
                 ]
                 
-                if any(content_start.startswith(start) for start in bad_starts):
+                if any(content_start.startswith(start) for start in bad_starts) and not longterm_inst:
                     filtered_count += 1
                     logger.debug(f"Filtered task-oriented start pattern: {content[:50]}...")
                     continue
+                elif any(content_start.startswith(start) for start in bad_starts) and longterm_inst:
+                    logger.debug(f"Override start-pattern for durable instrumentation: '{normalized[:80]}'")
                 
                 # Skip empty/short/placeholder content
-                if not normalized or len(normalized) < MIN_MEMORY_CONTENT_CHARS:
+                min_len = MIN_MEMORY_CONTENT_CHARS_SHORT if longterm_inst else MIN_MEMORY_CONTENT_CHARS
+                if not normalized or len(normalized) < min_len:
                     filtered_count += 1
-                    logger.debug(f"Filtered empty/short memory (<{MIN_MEMORY_CONTENT_CHARS} chars): '{normalized}'")
+                    logger.debug(f"Filtered empty/short memory (<{min_len} chars): '{normalized}'")
                     continue
                 
                 if not re.search(r"[A-Za-z]{3,}", normalized):
@@ -687,7 +756,7 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                 memory = Memory(
                     user_id=user_id,
                     content=normalized,
-                    category=item.get("category", "general"),
+                    category=self._maybe_adjust_category(normalized, item.get("category", "general")),
                     importance_score=item.get("importance", 0.5),
                     metadata=metadata
                 )
