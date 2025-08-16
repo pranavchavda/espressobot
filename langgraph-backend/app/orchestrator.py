@@ -278,6 +278,10 @@ Last agent call:
         
         planning_prompt = f"""You are an intelligent orchestrator managing specialized agents.
 
+SYSTEM CONTEXT:
+- Current date: 2025-08-15
+- Default timezone: Eastern Time (when user specifies "Eastern Time", acknowledge and use it)
+
 Current user request: {user_request}
 
 {memory_context}{recent_conversation}
@@ -326,11 +330,18 @@ IMPORTANT: For simple queries like "find [product name]", if this is the FIRST a
 - Call the products agent to search for it
 - Do NOT respond directly without searching first
 
-For follow-up questions:
+For follow-up questions and conversational interactions:
 - First check: Do I have this exact information in my compressed context?
 - If yes: Use it directly (saves time and tokens)
 - If no: Call the appropriate agent for ONLY the missing information
 - The context understands references like "it", "the item", "these" from conversation flow
+
+CONVERSATIONAL PATTERNS to handle directly (respond without calling agents):
+- User pointing out errors in previous responses: Acknowledge the error and explain/correct
+- User providing clarifying information (timezone, preferences): Acknowledge and note for future use
+- User asking for clarification about previous responses: Explain using context
+- User giving feedback or corrections: Thank them and incorporate the feedback
+- Simple acknowledgments, questions about what just happened: Respond directly using conversation context
 
 If we have all necessary information to answer the user, respond with:
 {{
@@ -599,7 +610,53 @@ Complete this specific task. Be direct and factual in your response."""),
         """Create final response from all agent results"""
         
         if not all_results:
-            return "I understand your request but couldn't gather the necessary information. Please try again."
+            # No agent results; synthesize a helpful response using available context
+            try:
+                # Build recent conversation snippets
+                recent_snippets: List[str] = []
+                if getattr(memory, "recent_messages", None):
+                    for msg in memory.recent_messages[-4:]:
+                        try:
+                            role = msg.__class__.__name__.replace("Message", "")
+                            recent_snippets.append(f"{role}: {getattr(msg, 'content', '')}")
+                        except Exception:
+                            pass
+                recent_context = "\n".join(recent_snippets)
+
+                # Build compressed context string or legacy known context
+                if memory.compressed_context:
+                    context_str = memory.compressed_context.to_context_string(max_tokens=800)
+                else:
+                    context_str = self._build_known_context(memory)
+
+                fallback_prompt = f"""Create a helpful, concise conversational reply for the user using the available context.
+
+User request:
+{user_request}
+
+Recent conversation:
+{recent_context}
+
+Compressed context:
+{context_str}
+
+Guidelines:
+- Answer directly using the context above when possible.
+- If key information is missing, ask 1-2 specific clarifying questions.
+- Keep it friendly, actionable, and avoid generic apologies.
+
+Response:"""
+
+                logger.info("Synthesizing response without agent results using compressed/recent context")
+                response = await self.model.ainvoke(fallback_prompt)
+                return response.content if hasattr(response, 'content') else str(response)
+            except Exception as e:
+                logger.error(f"Error synthesizing fallback response without agent results: {e}")
+                # Last-resort concise clarifying response
+                return (
+                    "I want to help, but I need a bit more detail. Could you clarify what you'd like me to do next "
+                    "(e.g., search products, check inventory, analyze pricing, or summarize the last steps)?"
+                )
         
         # Build summary of what was done
         actions_summary = []

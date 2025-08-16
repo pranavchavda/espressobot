@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
+import re
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import langextract as lx
@@ -17,6 +18,16 @@ from .embedding_service import get_embedding_service
 from .memory_decay_service import get_decay_service
 
 logger = logging.getLogger(__name__)
+
+# Feature flag: when True, use LangExtract-only (no GPT fallback). Keep fallback code intact.
+FORCE_LANGEXTRACT_ONLY = True
+
+# Debug flag: when True, emit detailed logs for LangExtract pipeline
+DEBUG_LANGEXTRACT_LOGS = True
+
+# Quality thresholds to reduce empty/low-value memories
+MIN_MEMORY_CONTENT_CHARS = 20  # Skip memories shorter than this after normalization
+MIN_MEMORY_CONFIDENCE = 0.5    # Stricter than previous 0.3
 
 # Memory extraction schema for langextract
 class MemoryCategory(str, Enum):
@@ -69,19 +80,45 @@ class MemoryExtractionService:
         
         # Try langextract first, fall back to GPT if it fails
         try:
-            logger.info("Attempting memory extraction with langextract...")
+            if DEBUG_LANGEXTRACT_LOGS:
+                logger.info(f"Attempting memory extraction with langextract... FORCE_LANGEXTRACT_ONLY={FORCE_LANGEXTRACT_ONLY}")
+            else:
+                logger.info("Attempting memory extraction with langextract...")
             memories = await self._extract_memories_langextract(conversation_text, user_id)
             if memories:
                 logger.info(f"Successfully extracted {len(memories)} memories with langextract")
                 return memories
             else:
+                if FORCE_LANGEXTRACT_ONLY:
+                    logger.info("Langextract returned no memories; FORCE_LANGEXTRACT_ONLY=True, skipping GPT fallback.")
+                    return []
                 logger.warning("Langextract returned no memories, falling back to GPT")
         except Exception as e:
+            if FORCE_LANGEXTRACT_ONLY:
+                logger.error(f"Langextract extraction failed: {e}; FORCE_LANGEXTRACT_ONLY=True, skipping GPT fallback.")
+                return []
             logger.warning(f"Langextract extraction failed: {e}, falling back to GPT")
         
         # Fallback to direct GPT extraction
         return await self._extract_memories_gpt(conversation_text, user_id)
     
+    def _normalize_memory_content(self, text: str) -> str:
+        """Normalize and sanitize memory content string.
+        - Strips code fences, quotes, and excess whitespace
+        - Collapses spaces/newlines
+        """
+        if not text:
+            return ""
+        s = str(text)
+        # Remove markdown code fences
+        s = re.sub(r"^```[a-zA-Z0-9]*\n", "", s.strip())
+        s = re.sub(r"\n```$", "", s)
+        # Strip surrounding quotes
+        s = s.strip().strip('"').strip("'")
+        # Collapse whitespace
+        s = re.sub(r"\s+", " ", s)
+        return s.strip()
+
     async def _extract_memories_langextract(self, conversation_text: str, user_id: str) -> List[Memory]:
         """Experimental langextract-based extraction (kept for future improvement)"""
         # Use langextract for structured extraction
@@ -245,17 +282,37 @@ class MemoryExtractionService:
             import os
             from langextract.inference import OpenAILanguageModel
             
-            result = lx.extract(
-                text_or_documents=conversation_text,
-                prompt_description=prompt_description,
-                examples=examples,
-                model_id="gpt-4.1-mini",  # Use gpt-4.1-mini which works in context compression
-                api_key=os.getenv("OPENAI_API_KEY"),
-                language_model_type=OpenAILanguageModel,
-                use_schema_constraints=True,
-                temperature=0.3,  # Lower temperature for more consistent extraction
-                debug=False  # Disable debug for cleaner logs
-            )
+            if DEBUG_LANGEXTRACT_LOGS:
+                logger.debug("LangExtract call parameters prepared: model_id=gpt-4.1-mini, use_schema_constraints=True, temperature=0.3")
+                logger.debug(f"OPENAI_API_KEY present={bool(os.getenv('OPENAI_API_KEY'))}")
+            # First attempt: strict schema constraints, with debug enabled for visibility
+            try:
+                result = lx.extract(
+                    text_or_documents=conversation_text,
+                    prompt_description=prompt_description,
+                    examples=examples,
+                    model_id="gpt-4.1-mini",  # Use gpt-4.1-mini which works in context compression
+                    api_key=os.getenv("OPENAI_API_KEY"),
+                    language_model_type=OpenAILanguageModel,
+                    use_schema_constraints=True,
+                    temperature=0.3,  # Lower temperature for more consistent extraction
+                    debug=True  # Enable debug to observe marker/parse issues
+                )
+            except Exception as parse_err:
+                # Retry with relaxed constraints to avoid marker parsing failures
+                if DEBUG_LANGEXTRACT_LOGS:
+                    logger.warning(f"LangExtract strict parse failed: {parse_err}. Retrying with use_schema_constraints=False...")
+                result = lx.extract(
+                    text_or_documents=conversation_text,
+                    prompt_description=prompt_description,
+                    examples=examples,
+                    model_id="gpt-4.1-mini",
+                    api_key=os.getenv("OPENAI_API_KEY"),
+                    language_model_type=OpenAILanguageModel,
+                    use_schema_constraints=False,
+                    temperature=0.3,
+                    debug=True
+                )
             
             # Handle case where result might be wrapped in markdown code blocks
             if isinstance(result, str):
@@ -291,27 +348,42 @@ class MemoryExtractionService:
             # Convert to Memory objects with quality filtering
             memories = []
             filtered_count = 0
+            seen_keys = set()  # dedupe within this extraction batch
             
             # Result is an AnnotatedDocument with extractions
+            if DEBUG_LANGEXTRACT_LOGS:
+                try:
+                    ext_count = len(result.extractions) if (result and hasattr(result, 'extractions') and result.extractions is not None) else 0
+                    logger.debug(f"LangExtract result type={type(result).__name__}, has_extractions={hasattr(result, 'extractions')}, extractions_count={ext_count}")
+                except Exception as _e:
+                    logger.debug(f"LangExtract result inspection failed: {_e}")
             if result and hasattr(result, 'extractions') and result.extractions:
                 for extraction in result.extractions:
                     attrs = extraction.attributes or {}
+                    if DEBUG_LANGEXTRACT_LOGS:
+                        preview = attrs.get('content', '')[:80]
+                        logger.debug(f"LX extraction candidate: class={extraction.extraction_class}, confidence={attrs.get('confidence')}, ephemeral={attrs.get('is_ephemeral')}, preview='{preview}'")
                     
                     # Skip ephemeral memories
                     if attrs.get("is_ephemeral", False):
                         filtered_count += 1
-                        logger.debug(f"Filtered ephemeral memory: {attrs.get('content', '')[:50]}...")
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[E] ephemeral: {attrs.get('content', '')[:50]}...")
                         continue
                     
                     # Skip low confidence memories
                     confidence = float(attrs.get("confidence", 0.5))
-                    if confidence < 0.3:
+                    if confidence < MIN_MEMORY_CONFIDENCE:
                         filtered_count += 1
-                        logger.debug(f"Filtered low confidence ({confidence}) memory: {attrs.get('content', '')[:50]}...")
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[C] low confidence ({confidence} < {MIN_MEMORY_CONFIDENCE}): {attrs.get('content', '')[:50]}...")
                         continue
                     
                     # Additional filtering for task-specific content
-                    content = attrs.get("content", "").lower()
+                    raw_content = attrs.get("content") or extraction.extraction_text or ""
+                    normalized = self._normalize_memory_content(raw_content)
+                    content = normalized.lower()
+                    
                     task_indicators = [
                         # Specific task patterns
                         "needs to", "wants to", "requires", "requesting", "asked for",
@@ -338,7 +410,8 @@ class MemoryExtractionService:
                     
                     if any(indicator in content for indicator in task_indicators):
                         filtered_count += 1
-                        logger.debug(f"Filtered task-specific memory: {content[:50]}...")
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[T] task-specific: {content[:50]}...")
                         continue
                     
                     # Check for task-specific opening patterns
@@ -352,8 +425,32 @@ class MemoryExtractionService:
                     
                     if any(content_start.startswith(start) for start in bad_starts):
                         filtered_count += 1
-                        logger.debug(f"Filtered task-oriented start pattern: {content[:50]}...")
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[S] start-pattern: {content[:50]}...")
                         continue
+                    
+                    # Skip empty/short/placeholder content
+                    if not normalized or len(normalized) < MIN_MEMORY_CONTENT_CHARS:
+                        filtered_count += 1
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[N] empty/short (<{MIN_MEMORY_CONTENT_CHARS} chars): '{normalized}'")
+                        continue
+                    
+                    # Skip if content contains too few alphabetic characters
+                    if not re.search(r"[A-Za-z]{3,}", normalized):
+                        filtered_count += 1
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[A] non-informative content: '{normalized}'")
+                        continue
+                    
+                    # Deduplicate within batch
+                    dedupe_key = " ".join(normalized.lower().split())
+                    if dedupe_key in seen_keys:
+                        filtered_count += 1
+                        if DEBUG_LANGEXTRACT_LOGS:
+                            logger.debug(f"Filtered[D] duplicate content: '{normalized[:60]}'")
+                        continue
+                    seen_keys.add(dedupe_key)
                     
                     # Build metadata
                     metadata = {
@@ -367,7 +464,7 @@ class MemoryExtractionService:
                     
                     memory = Memory(
                         user_id=user_id,
-                        content=attrs.get("content", ""),
+                        content=normalized,
                         category=attrs.get("category", "general"),
                         importance_score=float(attrs.get("importance", 0.5)),
                         metadata=metadata
@@ -382,6 +479,9 @@ class MemoryExtractionService:
             return memories
             
         except Exception as e:
+            if FORCE_LANGEXTRACT_ONLY:
+                logger.error(f"Langextract memory extraction failed: {e}; FORCE_LANGEXTRACT_ONLY=True, skipping GPT fallback.")
+                return []
             logger.error(f"Langextract memory extraction failed: {e}, falling back to GPT-4.1-nano")
             # Fall back to original extraction method
             return await self._extract_memories_gpt(conversation_text, user_id)
@@ -493,6 +593,7 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
             # Convert to Memory objects with quality filtering
             memories = []
             filtered_count = 0
+            seen_keys = set()
             for item in extracted_data:
                 if not isinstance(item, dict):
                     continue
@@ -505,13 +606,16 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                 
                 # Skip low confidence memories
                 confidence = item.get("confidence", 0.5)
-                if confidence < 0.3:
+                if confidence < MIN_MEMORY_CONFIDENCE:
                     filtered_count += 1
-                    logger.debug(f"Filtered low confidence ({confidence}) memory: {item.get('content', '')[:50]}...")
+                    logger.debug(f"Filtered low confidence ({confidence} < {MIN_MEMORY_CONFIDENCE}) memory: {item.get('content', '')[:50]}...")
                     continue
                 
                 # Additional filtering for task-specific content (same as langextract)
-                content = item.get("content", "").lower()
+                raw_content = item.get("content", "")
+                normalized = self._normalize_memory_content(raw_content)
+                content = normalized.lower()
+                
                 task_indicators = [
                     # Specific task patterns
                     "needs to", "wants to", "requires", "requesting", "asked for",
@@ -555,6 +659,25 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                     logger.debug(f"Filtered task-oriented start pattern: {content[:50]}...")
                     continue
                 
+                # Skip empty/short/placeholder content
+                if not normalized or len(normalized) < MIN_MEMORY_CONTENT_CHARS:
+                    filtered_count += 1
+                    logger.debug(f"Filtered empty/short memory (<{MIN_MEMORY_CONTENT_CHARS} chars): '{normalized}'")
+                    continue
+                
+                if not re.search(r"[A-Za-z]{3,}", normalized):
+                    filtered_count += 1
+                    logger.debug(f"Filtered non-informative memory: '{normalized}'")
+                    continue
+                
+                # Deduplicate within batch
+                dedupe_key = " ".join(normalized.lower().split())
+                if dedupe_key in seen_keys:
+                    filtered_count += 1
+                    logger.debug(f"Filtered duplicate memory: '{normalized[:60]}'")
+                    continue
+                seen_keys.add(dedupe_key)
+                
                 # Build metadata including new fields
                 metadata = item.get("metadata", {})
                 metadata["confidence"] = confidence
@@ -563,7 +686,7 @@ Return {{"memories": []}} if no high-value, long-term memories are found.
                 
                 memory = Memory(
                     user_id=user_id,
-                    content=item.get("content", ""),
+                    content=normalized,
                     category=item.get("category", "general"),
                     importance_score=item.get("importance", 0.5),
                     metadata=metadata
