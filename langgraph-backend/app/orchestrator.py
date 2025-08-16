@@ -167,6 +167,7 @@ class ProgressiveOrchestrator:
         from app.agents.orders_native_mcp import OrdersAgentNativeMCP
         from app.agents.google_workspace_native_mcp import GoogleWorkspaceAgentNativeMCP
         from app.agents.ga4_analytics_native_mcp import GA4AnalyticsAgentNativeMCP
+        from app.agents.bash_agent import BashAgent
         
         agent_classes = [
             ProductsAgentNativeMCPSimple,
@@ -181,7 +182,8 @@ class ProgressiveOrchestrator:
             GraphQLAgentNativeMCP,
             OrdersAgentNativeMCP,
             GoogleWorkspaceAgentNativeMCP,
-            GA4AnalyticsAgentNativeMCP
+            GA4AnalyticsAgentNativeMCP,
+            BashAgent
         ]
         
         for AgentClass in agent_classes:
@@ -304,8 +306,8 @@ Available agents:
 - graphql: Direct GraphQL queries
 - google_workspace: Gmail, Calendar, Drive, Tasks
 - ga4_analytics: Website traffic and analytics
-
-IMPORTANT: Do NOT use the utility agent for memory operations. I handle memory directly.
+- bash: Execute shell commands, scripts, downloads, and system operations in secure sandbox
+- utility: Web scraping, data extraction, and research using LangExtract and BeautifulSoup
 
 Based on the user request and what we know so far, determine the next action.
 

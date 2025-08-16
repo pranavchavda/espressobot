@@ -1,15 +1,10 @@
 """
-Utility Agent using native LangChain MCP support with MultiServerMCPClient
+Utility Agent with web scraping and research capabilities
 """
 from typing import List, Dict, Any, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_anthropic import ChatAnthropic
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 import logging
-import os
-from pathlib import Path
-import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -19,109 +14,69 @@ from app.config.agent_model_manager import agent_model_manager
 # Import context mixin for A2A context handling
 from app.agents.base_context_mixin import ContextAwareMixin
 
+# Import the web scraper tool
+from app.tools.web_scraper_tool import web_scraper_tool
+
 class UtilityAgentNativeMCP(ContextAwareMixin):
-    """Utility agent using native LangChain MCP integration with MultiServerMCPClient"""
+    """Utility agent with web scraping and research capabilities"""
     
     def __init__(self):
         self.name = "utility"
-        self.description = "Handles utility functions, memory, and research tasks"
+        self.description = "Handles web scraping, research, and utility functions"
         self.model = agent_model_manager.get_model_for_agent(self.name)
         logger.info(f"{self.name} agent initialized with model: {type(self.model).__name__}")
-
-        self.client = None
-        self.tools = None
-        self.agent = None
         self.system_prompt = self._get_system_prompt()
-        
-    async def _ensure_mcp_connected(self):
-        """Ensure MCP client and agent are initialized"""
-        if not self.agent:
-            try:
-                # Initialize MultiServerMCPClient with utility server
-                self.client = MultiServerMCPClient({
-                    "utility": {
-                        "command": "python3",
-                        "args": [str(Path("/home/pranav/espressobot/frontend/python-tools/mcp-utility-server.py"))],
-                        "transport": "stdio",
-                        "env": {
-                            **os.environ,
-                            "PYTHONPATH": "/home/pranav/espressobot/frontend/python-tools"
-                        }
-                    }
-                })
-                
-                # Get tools from client
-                self.tools = await self.client.get_tools()
-                
-                # Create react agent with tools
-                self.agent = create_react_agent(
-                    self.model,
-                    self.tools,
-                    prompt=self.system_prompt
-                )
-                
-                logger.info(f"Connected to Utility MCP server with {len(self.tools)} tools")
-                
-            except Exception as e:
-                logger.error(f"Failed to initialize MCP client: {e}")
-                raise
     
     def _get_system_prompt(self) -> str:
-        return """You are a Utility specialist agent with expertise in memory management, research, and helper functions.
+        return """You are a Utility specialist agent with expertise in web scraping, research, and data extraction.
 
-You have access to utility tools through the MCP server. Use these tools for memory operations, 
-research tasks, and various helper functions.
+You have access to advanced web scraping capabilities using LLM and BeautifulSoup. 
+Use these tools to extract structured data from any website.
 
-Available tools include:
-- memory_operations: Search, add, manage memories in local memory system
-- perplexity_research: Research products, competitors, and industry information
+## Your Capabilities:
+- **Web Scraping**: Extract content from any publicly accessible website
+- **Structured Data Extraction**: Use AI-powered extraction to identify specific information
+- **Research**: Analyze websites for competitive intelligence and market research
+- **Data Processing**: Clean and format extracted data for analysis
 
-## Your Expertise:
-- Memory system management
-- Semantic search in memories
-- Research and information gathering
-- Competitive analysis
-- Industry trends and insights
+## Web Scraping Features:
+- Fetch and parse HTML content using BeautifulSoup
+- Extract structured data using OpenRouter with anthropic/claude-3-5-sonnet-20241022 model
+- Support for custom extraction prompts and examples
+- Clean text processing and data formatting
+- Error handling and retry mechanisms
 
-## Memory System:
-- Operations: search, add, list, delete
-- User-isolated memories
-- Semantic search via embeddings
-- Automatic deduplication
-- SQLite local storage
+## Available Extraction Templates:
+- **Product Information**: Names, prices, features, specifications
+- **Company Information**: Industry, executives, financial data
+- **News Analysis**: People, organizations, locations, events
+- **Contact Information**: Addresses, phone numbers, emails
+- **Custom Extraction**: User-defined prompts and examples
 
-## Memory Use Cases:
-- Store important facts about products/customers
-- Remember past conversations and decisions
-- Build context for future interactions
-- Track business rules and patterns
-
-## Research Capabilities:
-- Product specifications and reviews
-- Competitor pricing and features
-- Industry trends and news
-- Technical specifications
-- Market analysis
-- Real-time web data with citations
-
-## Research Models:
-- sonar: Fast, efficient searches
-- sonar-pro: Detailed, comprehensive research
+## Web Scraping Process:
+1. Fetch webpage content with proper headers
+2. Parse HTML and extract clean text
+3. Apply AI-powered structured extraction
+4. Return formatted, searchable data
 
 ## Best Practices:
-- Add memories for important decisions
-- Search memories before making recommendations
-- Use research for competitive pricing
-- Verify information with multiple sources
-- Include citations when sharing research
+- Always respect robots.txt and rate limits
+- Use descriptive extraction prompts
+- Provide examples when possible for better accuracy
+- Handle errors gracefully
+- Return structured, actionable data
 
-Always provide clear, formatted responses with relevant information from memories or research."""
+## Example Usage:
+- "Extract product pricing from [website]"
+- "Scrape company information from [company website]"
+- "Get contact details from [business directory]"
+- "Extract news articles about [topic] from [news site]"
+
+When users request web scraping or data extraction, use the web scraper tool with appropriate extraction prompts and examples. Always provide clear, structured results with source URLs and extraction metadata."""
     
     async def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Process the state and return updated state"""
         try:
-            await self._ensure_mcp_connected()
-            
             messages = state.get("messages", [])
             
             if not messages:
@@ -132,44 +87,135 @@ Always provide clear, formatted responses with relevant information from memorie
             if not isinstance(last_message, HumanMessage):
                 return state
             
-            # Use context-aware messages from the mixin
-            context_aware_messages = self.build_context_aware_messages(state, self.system_prompt)
+            user_query = last_message.content
+            logger.info(f"🚀 Utility agent processing query: {user_query[:100]}...")
             
-            # Use the agent to process the request with context
-            agent_state = {"messages": context_aware_messages}
+            # Check if this is a web scraping request
+            scraping_keywords = ["scrape", "extract", "website", "web", "url", "http", "parse", "data from"]
+            is_scraping_request = any(keyword in user_query.lower() for keyword in scraping_keywords)
             
-            # Run the agent
-            logger.info(f"🚀 Running Utility agent with context-aware prompt with message: {last_message.content[:100]}...")
-            result = await self.agent.ainvoke(agent_state)
-            logger.info(f"✅ Utility agent completed")
-            
-            # Extract the response
-            if result.get("messages"):
-                # Get the last AI message from the agent's response
-                agent_messages = result["messages"]
-                for msg in reversed(agent_messages):
-                    if hasattr(msg, 'content') and msg.content:
-                        state["messages"].append(AIMessage(
-                            content=msg.content,
-                            metadata={"agent": self.name, "intermediate": True}
-                        ))
-                        break
+            if is_scraping_request:
+                # Handle web scraping request
+                response = await self._handle_web_scraping(user_query)
             else:
-                state["messages"].append(AIMessage(
-                    content="I processed your request but couldn't generate a response.",
-                    metadata={"agent": self.name, "intermediate": True}
-                ))
+                # Handle general utility request with LLM
+                response = await self._handle_general_request(user_query)
+            
+            # Add response to state
+            state["messages"].append(AIMessage(
+                content=response,
+                metadata={"agent": self.name}
+            ))
             
             state["last_agent"] = self.name
+            logger.info(f"✅ Utility agent completed")
             return state
             
         except Exception as e:
-            logger.error(f"Error in UtilityAgentNativeMCP: {e}")
+            logger.error(f"Error in UtilityAgent: {e}")
             state["messages"].append(AIMessage(
-                content=f"Error in utility agent: {str(e)}",
-                metadata={"agent": self.name, "intermediate": True, "error": True}
+                content=f"I encountered an error: {str(e)}",
+                metadata={"agent": self.name, "error": True}
             ))
             return state
+    
+    async def _handle_web_scraping(self, query: str) -> str:
+        """Handle web scraping requests"""
+        try:
+            # Extract URL from query
+            import re
+            url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+            urls = re.findall(url_pattern, query)
+            
+            if not urls:
+                return "I'd be happy to help with web scraping! Please provide a URL to scrape. For example: 'Scrape product information from https://example.com'"
+            
+            url = urls[0]  # Use first URL found
+            
+            # Determine extraction type based on query
+            extraction_examples = web_scraper_tool.get_example_prompts()
+            
+            if any(word in query.lower() for word in ["product", "price", "feature", "specification"]):
+                prompt_info = extraction_examples["product_info"]
+            elif any(word in query.lower() for word in ["company", "business", "executive", "financial"]):
+                prompt_info = extraction_examples["company_info"]
+            elif any(word in query.lower() for word in ["news", "article", "event", "people"]):
+                prompt_info = extraction_examples["news_analysis"]
+            else:
+                # Default: extract general entities
+                prompt_info = {
+                    "prompt": "Extract key information, names, numbers, and important details from the webpage.",
+                    "examples": []
+                }
+            
+            # Perform web scraping
+            result = await web_scraper_tool.scrape_and_extract(
+                url=url,
+                extraction_prompt=prompt_info["prompt"],
+                extraction_examples=prompt_info.get("examples", [])
+            )
+            
+            if not result["success"]:
+                return f"Failed to scrape {url}: {result.get('error', 'Unknown error')}"
+            
+            # Format response
+            response_parts = [
+                f"**Web Scraping Results for {url}**",
+                f"**Title:** {result['title']}",
+                f"**Extracted {result['extraction_count']} entities:**\n"
+            ]
+            
+            if result["extracted_data"]:
+                for i, item in enumerate(result["extracted_data"][:10], 1):  # Show first 10
+                    attrs_str = ", ".join([f"{k}: {v}" for k, v in item["attributes"].items()]) if item["attributes"] else "No attributes"
+                    response_parts.append(f"{i}. **{item['class'].title()}**: {item['text']}")
+                    if attrs_str != "No attributes":
+                        response_parts.append(f"   - {attrs_str}")
+                
+                if len(result["extracted_data"]) > 10:
+                    response_parts.append(f"\n... and {len(result['extracted_data']) - 10} more entities")
+            else:
+                response_parts.append("No structured data could be extracted.")
+            
+            response_parts.extend([
+                f"\n**Content Preview:**",
+                result["text"][:500] + "..." if len(result["text"]) > 500 else result["text"],
+                f"\n**Metadata:**",
+                f"- Content length: {result['metadata']['content_length']} characters",
+                f"- Model used: {result['metadata']['model_used']}",
+                f"- LLM available: {result['metadata']['has_llm']}"
+            ])
+            
+            return "\n".join(response_parts)
+            
+        except Exception as e:
+            logger.error(f"Web scraping error: {e}")
+            return f"Error during web scraping: {str(e)}"
+    
+    async def _handle_general_request(self, query: str) -> str:
+        """Handle general utility requests using LLM"""
+        try:
+            # Use context-aware messages from the mixin  
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=f"""I need help with this utility request: {query}
+
+I can help with:
+- Web scraping and data extraction from websites
+- Research and competitive analysis  
+- General utility functions and calculations
+- Data processing and formatting
+
+Please let me know specifically what you'd like me to do. If you need web scraping, provide a URL to scrape.""")
+            ]
+            
+            # Get LLM response
+            response = await self.model.ainvoke(messages)
+            return response.content
+            
+        except Exception as e:
+            logger.error(f"General request error: {e}")
+            return f"I encountered an error processing your request: {str(e)}"
     
     def should_handle(self, state: Dict[str, Any]) -> bool:
         """Determine if this agent should handle the request"""
@@ -178,9 +224,10 @@ Always provide clear, formatted responses with relevant information from memorie
         if not last_message:
             return False
         
-        keywords = ["memory", "remember", "recall", "research", "perplexity", 
-                   "competitor", "industry", "trend", "analysis", "search memory",
-                   "add memory", "what do you know", "competitive analysis"]
+        keywords = ["scrape", "extract", "website", "web", "url", "http", "https", 
+                   "parse", "data from", "research", "competitor", "industry", 
+                   "trend", "analysis", "competitive analysis", "utility", 
+                   "crawl", "fetch", "download", "content from"]
         
         content = last_message.content.lower()
         return any(keyword in content for keyword in keywords)
