@@ -19,6 +19,9 @@ class ExtractedContext:
     # Key is extraction_class, value is list of extractions with that class
     extractions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     
+    # Chronological conversation record - preserves full exchange sequence
+    conversation_chain: List[Dict[str, Any]] = field(default_factory=list)
+    
     # Metadata about what was extracted
     extraction_classes: List[str] = field(default_factory=list)  # List of all extraction classes found
     extraction_count: int = 0  # Total number of extractions
@@ -34,7 +37,31 @@ class ExtractedContext:
         if self.extraction_count > 0:
             parts.append(f"📊 Context: {self.extraction_count} items in {len(self.extraction_classes)} categories\n")
         
-        # Dynamically show all extraction classes and their content
+        # Add chronological conversation record FIRST (most important for continuity)
+        if self.conversation_chain:
+            parts.append("🔗 Conversation Chain:")
+            # Show recent exchanges (last 10 to keep it manageable)
+            recent_exchanges = self.conversation_chain[-10:] if len(self.conversation_chain) > 10 else self.conversation_chain
+            for i, exchange in enumerate(recent_exchanges, 1):
+                role = exchange.get('role', 'unknown')
+                content = exchange.get('content', '')[:150]  # Truncate long messages
+                timestamp = exchange.get('timestamp', '')
+                
+                # Format exchange with clear role indicators
+                if role.lower() in ['user', 'human']:
+                    parts.append(f"  {i}. 👤 User: {content}")
+                elif role.lower() in ['assistant', 'ai']:
+                    parts.append(f"  {i}. 🤖 Assistant: {content}")
+                else:
+                    parts.append(f"  {i}. {role}: {content}")
+                    
+                # Add any agent actions if available
+                if exchange.get('agent_actions'):
+                    actions = exchange['agent_actions']
+                    parts.append(f"      → Actions: {', '.join(actions)}")
+            parts.append("")  # Empty line after conversation chain
+        
+        # Then show extracted entities and facts
         for extraction_class in self.extraction_classes:
             if extraction_class not in self.extractions:
                 continue
@@ -48,23 +75,25 @@ class ExtractedContext:
             parts.append(f"【{class_title}】")
             
             # Show items with their key attributes
-            for item in items[:10]:  # Show more items since we want comprehensive context
+            for item in items[:8]:  # Reduced from 10 to make room for conversation chain
                 if isinstance(item, dict):
-                    text = item.get('text', '')[:200]
+                    text = item.get('text', '')[:150]  # Reduced from 200
                     attrs = item.get('attributes', {})
                     
                     # Build a comprehensive line with all important attributes
                     line = f"  • {text}"
                     if attrs:
-                        # Show ALL attributes, not just first 3
+                        # Show key attributes
                         attr_parts = []
-                        for k, v in attrs.items():
+                        for k, v in list(attrs.items())[:5]:  # Limit to 5 most important
                             if v and str(v).strip():
                                 # Format the value nicely
                                 if isinstance(v, list):
                                     v = f"[{len(v)} items]"
                                 elif isinstance(v, dict):
                                     v = f"[{len(v)} fields]"
+                                elif len(str(v)) > 30:
+                                    v = str(v)[:30] + "..."
                                 attr_parts.append(f"{k}={v}")
                         if attr_parts:
                             line += f"\n    → {', '.join(attr_parts)}"
@@ -179,14 +208,17 @@ class CompressedContextManager:
                            thread_id: str, 
                            messages: List[Any],
                            agent_results: Optional[Dict[str, str]] = None) -> ExtractedContext:
-        """Compress a conversation turn into structured extractions"""
+        """Compress a conversation turn into structured extractions AND record conversation chain"""
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"Starting compression for thread {thread_id} with {len(messages)} messages")
         
         context = self.get_context(thread_id)
         
-        # Convert messages to text for extraction
+        # Record chronological conversation exchanges
+        self._record_conversation_chain(context, messages, agent_results)
+        
+        # Convert messages to text for entity extraction
         text_parts = []
         for msg in messages:
             if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)):
@@ -239,6 +271,53 @@ class CompressedContextManager:
             logger.error(f"Extraction failed: {e}", exc_info=True)
         
         return context
+    
+    def _record_conversation_chain(self, context: ExtractedContext, messages: List[Any], agent_results: Optional[Dict[str, str]] = None):
+        """Record chronological conversation exchanges for context continuity"""
+        from datetime import datetime
+        
+        # Process each message in chronological order
+        for msg in messages:
+            if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)):
+                role = msg.__class__.__name__.replace("Message", "").lower()
+                content = msg.content
+                
+                # Skip system messages from conversation chain (they're not exchanges)
+                if role == "system":
+                    continue
+                
+                # Create exchange record
+                exchange = {
+                    'role': role,
+                    'content': content,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'type': 'message'
+                }
+                
+                # Add agent actions if this is an assistant message and we have agent results
+                if role == 'ai' and agent_results:
+                    exchange['agent_actions'] = list(agent_results.keys())
+                
+                context.conversation_chain.append(exchange)
+                
+            elif isinstance(msg, dict):
+                role = msg.get("type", "unknown").lower()
+                content = msg.get('content', '')
+                
+                if role != "system":  # Skip system messages
+                    exchange = {
+                        'role': role,
+                        'content': content,
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'type': 'message'
+                    }
+                    context.conversation_chain.append(exchange)
+        
+        # Trim conversation chain to prevent unbounded growth (keep last 50 exchanges)
+        if len(context.conversation_chain) > 50:
+            context.conversation_chain = context.conversation_chain[-50:]
+        
+        logger.debug(f"Recorded {len(messages)} messages in conversation chain (total: {len(context.conversation_chain)} exchanges)")
     
     def _store_extraction(self, context: ExtractedContext, extraction: lx.data.Extraction):
         """Store an extraction in the context"""

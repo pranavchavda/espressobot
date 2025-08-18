@@ -6,6 +6,7 @@ import 'highlight.js/styles/atom-one-dark.css';
 import attrs from 'markdown-it-attrs';
 import footnote from 'markdown-it-footnote';
 import multimdTable from 'markdown-it-multimd-table';
+import './MarkdownRenderer.css';
 
 // Create MarkdownIt instance with plugins
 const md = new MarkdownIt({
@@ -15,41 +16,42 @@ const md = new MarkdownIt({
 }).use(attrs).use(footnote).use(multimdTable, { multiline: true, rowspan: true, headerless: true });
 
 // Custom plugin to add Tailwind classes to lists and tables
-md.core.ruler.push('add_tailwind_classes', (state) => {
-  state.tokens.forEach((token) => {
-    switch (token.type) {
-      case 'bullet_list_open':
-        token.attrJoin('class', 'list-disc pl-6 my-4 space-y-2');
-        break;
-      case 'ordered_list_open':
-        token.attrJoin('class', 'list-decimal pl-6 my-4 space-y-2');
-        break;
-      case 'list_item_open':
-        token.attrJoin('class', 'ml-1');
-        break;
-      case 'table_open':
-        token.attrJoin('class', 'min-w-full divide-y divide-zinc-200 dark:divide-zinc-700 border border-zinc-200 dark:border-zinc-700 rounded-lg');
-        break;
-      case 'thead_open':
-        token.attrJoin('class', 'bg-zinc-100 dark:bg-zinc-800');
-        break;
-      case 'tbody_open':
-        token.attrJoin('class', 'divide-y divide-zinc-200 dark:divide-zinc-700');
-        break;
-      case 'tr_open':
-        token.attrJoin('class', 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70');
-        break;
-      case 'th_open':
-        token.attrJoin('class', 'px-4 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider');
-        break;
-      case 'td_open':
-        token.attrJoin('class', 'px-4 py-3 text-sm text-zinc-800 dark:text-zinc-200');
-        break;
-      default:
-        break;
-    }
-  });
-});
+// DISABLED: This was causing styling issues as complex Tailwind classes weren't applying properly on first render
+// md.core.ruler.push('add_tailwind_classes', (state) => {
+//   state.tokens.forEach((token) => {
+//     switch (token.type) {
+//       case 'bullet_list_open':
+//         token.attrJoin('class', 'list-disc pl-6 my-4 space-y-2');
+//         break;
+//       case 'ordered_list_open':
+//         token.attrJoin('class', 'list-decimal pl-6 my-4 space-y-2');
+//         break;
+//       case 'list_item_open':
+//         token.attrJoin('class', 'ml-1');
+//         break;
+//       case 'table_open':
+//         token.attrJoin('class', 'min-w-full divide-y divide-zinc-200 dark:divide-zinc-700 border border-zinc-200 dark:border-zinc-700 rounded-lg');
+//         break;
+//       case 'thead_open':
+//         token.attrJoin('class', 'bg-zinc-100 dark:bg-zinc-800');
+//         break;
+//       case 'tbody_open':
+//         token.attrJoin('class', 'divide-y divide-zinc-200 dark:divide-zinc-700');
+//         break;
+//       case 'tr_open':
+//         token.attrJoin('class', 'hover:bg-zinc-50 dark:hover:bg-zinc-800/70');
+//         break;
+//       case 'th_open':
+//         token.attrJoin('class', 'px-4 py-3 text-left text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider');
+//         break;
+//       case 'td_open':
+//         token.attrJoin('class', 'px-4 py-3 text-sm text-zinc-800 dark:text-zinc-200');
+//         break;
+//       default:
+//         break;
+//     }
+//   });
+// });
 
 const copyIconSvg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clipboard"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
@@ -86,17 +88,43 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   `;
 };
 
-export const MarkdownRenderer = React.memo(function MarkdownRenderer({
+export const MarkdownRenderer = function MarkdownRenderer({
   children: rawMarkdownContent,
-  className = "prose dark:prose-invert max-w-none prose-sm",
+  className = "max-w-none not-prose",
 }) {
+  console.log('[MarkdownRenderer] Component called with content length:', rawMarkdownContent?.length);
   const containerRef = useRef(null);
 
   const processedMarkdown = useMemo(() => {
     if (typeof rawMarkdownContent !== "string") {
+      console.log('[MarkdownRenderer] Content is not a string:', typeof rawMarkdownContent, rawMarkdownContent);
       return "";
     }
-    return rawMarkdownContent
+    console.log('[MarkdownRenderer] Processing markdown, length:', rawMarkdownContent.length);
+    // Normalize newlines to help markdown-it close block constructs (tables, lists, fences)
+    let normalized = rawMarkdownContent.replace(/\r\n?/g, "\n");
+
+    // If content has no real newlines but has escaped \n sequences, decode them
+    if (normalized.indexOf('\n') === -1 && normalized.includes('\\n')) {
+      normalized = normalized.replace(/\\n/g, '\n');
+    }
+
+    // Heuristic repair: if a markdown table is run-on in one line, insert newlines between rows
+    // Trigger only when there are no real newlines and the string looks like a table
+    if (
+      normalized.indexOf('\n') === -1 &&
+      /^\s*\|/.test(normalized) &&
+      /\|\s*\|\s*/.test(normalized)
+    ) {
+      normalized = normalized.replace(/\|\s*\|\s*/g, '|\n|');
+    }
+
+    // Ensure a trailing newline so final blocks are recognized at end-of-input during streaming
+    if (!/\n\s*$/.test(normalized)) {
+      normalized += "\n";
+    }
+
+    return normalized
       .replace(
         /<THINKING>/g,
         '<div class="mb-2 bg-zinc-200 dark:bg-zinc-800 p-2 rounded-lg shadow-sm"><span class="text-xs text-zinc-500 dark:text-zinc-400" data-custom-tag="thinking-block-start">🤔</span>',
@@ -104,10 +132,25 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       .replace(/<\/THINKING>/g, "</div>");
   }, [rawMarkdownContent]);
 
-  const renderedHtml = useMemo(
-    () => md.render(processedMarkdown),
-    [processedMarkdown],
-  );
+  // Compute HTML directly from latest markdown to avoid memoization issues
+  const renderedHtml = md.render(processedMarkdown);
+
+  // Debug: Check what's actually in the DOM after rendering
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    console.log('[MarkdownRenderer] DOM after render - innerHTML length:', container.innerHTML.length);
+    console.log('[MarkdownRenderer] DOM after render - first 200 chars:', container.innerHTML.substring(0, 200));
+    console.log('[MarkdownRenderer] DOM className:', container.className);
+    
+    // Check if we have proper HTML elements
+    const paragraphs = container.querySelectorAll('p');
+    const tables = container.querySelectorAll('table');
+    const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    console.log('[MarkdownRenderer] Elements found - paragraphs:', paragraphs.length, 'tables:', tables.length, 'headings:', headings.length);
+    
+  }, [renderedHtml]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -142,11 +185,12 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   return (
     <div
       ref={containerRef}
-      // Using prose classes from @tailwindcss/typography for styling
-      // https://tailwindcss.com/docs/typography-plugin
-      // `max-w-none` is to override the max-width of prose.
-      className={`prose dark:prose-invert max-w-none ${className}`}
+      className={`markdown-content ${className}`}
+      style={{
+        lineHeight: '1.6',
+        fontSize: '14px'
+      }}
       dangerouslySetInnerHTML={{ __html: renderedHtml }}
     />
   );
-});
+};

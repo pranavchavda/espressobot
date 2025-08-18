@@ -19,8 +19,8 @@ from .memory_decay_service import get_decay_service
 
 logger = logging.getLogger(__name__)
 
-# Feature flag: when True, use LangExtract-only (no GPT fallback). Keep fallback code intact.
-FORCE_LANGEXTRACT_ONLY = True
+# Feature flag: when True, use LangExtract exclusively (no GPT fallback)
+FORCE_LANGEXTRACT_ONLY = True  # Use langextract exclusively with proper configuration
 
 # Debug flag: when True, emit detailed logs for LangExtract pipeline
 DEBUG_LANGEXTRACT_LOGS = True
@@ -90,29 +90,9 @@ class MemoryExtractionService:
         if not conversation_text.strip():
             return []
         
-        # Try langextract first, fall back to GPT if it fails
-        try:
-            if DEBUG_LANGEXTRACT_LOGS:
-                logger.info(f"Attempting memory extraction with langextract... FORCE_LANGEXTRACT_ONLY={FORCE_LANGEXTRACT_ONLY}")
-            else:
-                logger.info("Attempting memory extraction with langextract...")
-            memories = await self._extract_memories_langextract(conversation_text, user_id)
-            if memories:
-                logger.info(f"Successfully extracted {len(memories)} memories with langextract")
-                return memories
-            else:
-                if FORCE_LANGEXTRACT_ONLY:
-                    logger.info("Langextract returned no memories; FORCE_LANGEXTRACT_ONLY=True, skipping GPT fallback.")
-                    return []
-                logger.warning("Langextract returned no memories, falling back to GPT")
-        except Exception as e:
-            if FORCE_LANGEXTRACT_ONLY:
-                logger.error(f"Langextract extraction failed: {e}; FORCE_LANGEXTRACT_ONLY=True, skipping GPT fallback.")
-                return []
-            logger.warning(f"Langextract extraction failed: {e}, falling back to GPT")
-        
-        # Fallback to direct GPT extraction
-        return await self._extract_memories_gpt(conversation_text, user_id)
+        # Use langextract exclusively with proper configuration
+        logger.info("Extracting memories using langextract (langextract-only mode)")
+        return await self._extract_memories_langextract(conversation_text, user_id)
     
     def _normalize_memory_content(self, text: str) -> str:
         """Normalize and sanitize memory content string.
@@ -348,41 +328,30 @@ class MemoryExtractionService:
                 CRITICAL RULE: If uncertain whether something has long-term value, DON'T extract it.
                 Most conversations should extract 0-1 memories. Only extract if genuinely essential."""
             
-            # Call langextract with OpenAI model
+            # Call langextract using EXACT same configuration as working context compression
             import os
-            from langextract.inference import OpenAILanguageModel
+            
+            model_id = "gpt-4.1-mini"
+            api_key = os.getenv("OPENAI_API_KEY")
+            
+            # Use same configuration logic as context compression for consistency
+            is_openai = model_id.startswith("gpt") or "gpt-" in model_id
             
             if DEBUG_LANGEXTRACT_LOGS:
-                logger.debug("LangExtract call parameters prepared: model_id=gpt-4.1-mini, use_schema_constraints=True, temperature=0.3")
-                logger.debug(f"OPENAI_API_KEY present={bool(os.getenv('OPENAI_API_KEY'))}")
-            # First attempt: strict schema constraints, with debug enabled for visibility
-            try:
-                result = lx.extract(
-                    text_or_documents=conversation_text,
-                    prompt_description=prompt_description,
-                    examples=examples,
-                    model_id="gpt-4.1-mini",  # Use gpt-4.1-mini which works in context compression
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    language_model_type=OpenAILanguageModel,
-                    use_schema_constraints=True,
-                    temperature=0.3,  # Lower temperature for more consistent extraction
-                    debug=True  # Enable debug to observe marker/parse issues
-                )
-            except Exception as parse_err:
-                # Retry with relaxed constraints to avoid marker parsing failures
-                if DEBUG_LANGEXTRACT_LOGS:
-                    logger.warning(f"LangExtract strict parse failed: {parse_err}. Retrying with use_schema_constraints=False...")
-                result = lx.extract(
-                    text_or_documents=conversation_text,
-                    prompt_description=prompt_description,
-                    examples=examples,
-                    model_id="gpt-4.1-mini",
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    language_model_type=OpenAILanguageModel,
-                    use_schema_constraints=False,
-                    temperature=0.3,
-                    debug=True
-                )
+                logger.debug(f"LangExtract call parameters: model_id={model_id}, is_openai={is_openai}")
+                logger.debug(f"fence_output={is_openai}, use_schema_constraints={not is_openai}")
+                logger.debug(f"OPENAI_API_KEY present={bool(api_key)}")
+            
+            # Use EXACT same parameters as working context compression - no language_model_type!
+            result = lx.extract(
+                text_or_documents=conversation_text,
+                prompt_description=prompt_description,
+                examples=examples,
+                model_id=model_id,
+                api_key=api_key if is_openai else None,
+                fence_output=is_openai,  # Must be True for OpenAI models
+                use_schema_constraints=not is_openai  # Must be False for OpenAI models
+            )
             
             # Handle case where result might be wrapped in markdown code blocks
             if isinstance(result, str):
@@ -542,12 +511,8 @@ class MemoryExtractionService:
             return memories
             
         except Exception as e:
-            if FORCE_LANGEXTRACT_ONLY:
-                logger.error(f"Langextract memory extraction failed: {e}; FORCE_LANGEXTRACT_ONLY=True, skipping GPT fallback.")
-                return []
-            logger.error(f"Langextract memory extraction failed: {e}, falling back to GPT-4.1-nano")
-            # Fall back to original extraction method
-            return await self._extract_memories_gpt(conversation_text, user_id)
+            logger.error(f"Langextract memory extraction failed: {e}")
+            return []  # Return empty list instead of crashing
     
     async def _extract_memories_gpt(self, conversation_text: str, user_id: str) -> List[Memory]:
         """GPT-4.1-nano extraction method (primary method)"""

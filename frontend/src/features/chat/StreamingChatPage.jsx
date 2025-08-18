@@ -204,13 +204,51 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     hasProcessedInitialMessage.current = false; // Reset flag for new conversations
     setLoading(true);
     const token = localStorage.getItem('authToken');
-    fetch(`/api/conversations/${convId}`, {
-      headers: {
-        'Authorization': token ? `Bearer ${token}` : ''
+    
+    const fetchConversationWithRetry = async (retryCount = 0) => {
+      try {
+        const res = await fetch(`/api/conversations/${convId}`, {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'User-ID': '1'  // TODO: Get from authenticated user
+          }
+        });
+        console.log('[DEBUG] Conversation fetch response status:', res.status, 'retry:', retryCount);
+        const data = await res.json();
+        const { messages: fetchedMessages, tasks: persistedTasks, taskMarkdown: fetchedTaskMarkdown } = data;
+        console.log('[DEBUG] Conversation data received. Messages:', fetchedMessages?.length || 0, 'Tasks:', persistedTasks?.length || 0);
+        
+        // If conversation exists but has no messages and this is a retry, wait and try again
+        if (res.ok && (!fetchedMessages || fetchedMessages.length === 0) && retryCount < 2) {
+          console.log('[DEBUG] Empty conversation detected, retrying in 300ms... attempt:', retryCount + 1);
+          return new Promise(resolve => {
+            setTimeout(() => {
+              fetchConversationWithRetry(retryCount + 1).then(resolve);
+            }, 300);
+          });
+        }
+        
+        return { fetchedMessages, persistedTasks, fetchedTaskMarkdown };
+      } catch (error) {
+        if (retryCount < 2) {
+          console.log('[DEBUG] Fetch error, retrying in 300ms... attempt:', retryCount + 1, 'error:', error.message);
+          return new Promise(resolve => {
+            setTimeout(() => {
+              fetchConversationWithRetry(retryCount + 1).then(resolve);
+            }, 300);
+          });
+        }
+        throw error;
       }
-    })
-      .then((res) => res.json())
-      .then(({ messages: fetchedMessages, tasks: persistedTasks, taskMarkdown: fetchedTaskMarkdown }) => {
+    };
+    
+    fetchConversationWithRetry()
+      .then((result) => {
+        if (!result) {
+          return; // Retry in progress
+        }
+        const { fetchedMessages, persistedTasks, fetchedTaskMarkdown } = result;
+        console.log('[DEBUG] Using conversation data. Messages:', fetchedMessages?.length || 0, 'Tasks:', persistedTasks?.length || 0);
         // If we are in the middle of streaming, stash the server history for merge after 'done'
         const isCurrentlyStreaming = !!streamingMessageRef.current?.isStreaming;
         if (isCurrentlyStreaming) {
@@ -883,7 +921,8 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       const conversationId = convId || activeConv || undefined;
       console.log('[DEBUG] Sending message with conversation_id:', conversationId, 'convId:', convId, 'activeConv:', activeConv);
       const requestData = {
-        conv_id: conversationId,  // Backend expects conv_id
+        conversation_id: conversationId,  // Changed from conv_id to conversation_id
+        thread_id: conversationId,  // Also send as thread_id for compatibility
         message: textToSend,
       };
 
@@ -960,10 +999,16 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         console.log('[DEBUG] Setting activeConv to:', newConvId);
         setActiveConv(newConvId);
         
-        // If this is a new conversation, notify parent
-        if (onNewConversation && !convId) {
-          console.log('[DEBUG] Notifying parent of new conversation:', newConvId);
-          onNewConversation(newConvId);
+        // If this is a new conversation, notify parent with delay to allow backend to save
+        // TEMPORARY: Disable auto-navigation for debugging
+        const DISABLE_AUTO_NAVIGATION = true;
+        if (onNewConversation && !convId && !DISABLE_AUTO_NAVIGATION) {
+          console.log('[DEBUG] Scheduling navigation to new conversation:', newConvId);
+          setTimeout(() => {
+            onNewConversation(newConvId);
+          }, 500);
+        } else {
+          console.log('[DEBUG] Auto-navigation disabled for debugging');
         }
       }
       
@@ -2178,7 +2223,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                             : "bg-zinc-50/90 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700 rounded-tl-none"
                         }`}
                       >
-                        <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
+                        <div className="w-full break-words max-w-none">
                           {msg.imageAttachment && (
                             <div className="mb-3">
                               {msg.imageAttachment.dataUrl && (
@@ -2251,7 +2296,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                               </div>
                             </div>
                           ) : (
-                            <MarkdownRenderer isAgent={msg.role === "assistant"}>
+                            <MarkdownRenderer 
+                              isAgent={msg.role === "assistant"}
+                            >
                               {String(msg.content || "")}
                             </MarkdownRenderer>
                           )}
@@ -2321,8 +2368,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                     className="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-sm border bg-zinc-50/90 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-100 rounded-tl-none border-zinc-200 dark:border-zinc-700"
                     data-state={streamingMessage.isComplete ? "complete" : "streaming"}
                   >
-                    <div className="w-full break-words prose dark:prose-invert prose-sm max-w-none">
-                      <MarkdownRenderer isAgent={true}>
+                    <div className="w-full break-words max-w-none">
+                      <MarkdownRenderer 
+                        isAgent={true}
+                        key={`stream-${(streamingMessage.content || "").length}`}
+                      >
                         {streamingMessage.content || ""}
                       </MarkdownRenderer>
                       {streamingMessage.isStreaming && !streamingMessage.isError && (

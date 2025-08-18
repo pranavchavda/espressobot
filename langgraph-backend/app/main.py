@@ -44,7 +44,7 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox
+from app.api import chat, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad
 
 # Main chat endpoint using the orchestrator
 app.include_router(chat.router, prefix="/api/agent")
@@ -68,6 +68,7 @@ app.include_router(dynamic_agents.router)  # Dynamic agent management
 app.include_router(user_mcp_servers.router)  # User MCP server management
 app.include_router(orchestrator_admin.router)  # Orchestrator admin endpoints
 app.include_router(sandbox.router, prefix="/api")  # Sandbox file serving
+app.include_router(scratchpad.router, prefix="/api")  # Scratchpad functionality
 
 # Temporarily disable other routers that depend on SQLAlchemy
 # app.include_router(auth.router, prefix="/api/auth")

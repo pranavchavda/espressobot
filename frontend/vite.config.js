@@ -126,7 +126,12 @@ export default defineConfig({
           
           // Apply proxy - use middleware that matches full paths and forwards them intact
           server.middlewares.use((req, res, next) => {
-            if (req.url.startsWith('/api/agent') || req.url.startsWith('/api/memory') || req.url.startsWith('/api/conversations')) {
+            if (req.url.startsWith('/api/agent') || 
+                req.url.startsWith('/api/memory') || 
+                req.url.startsWith('/api/conversations') ||
+                req.url.startsWith('/api/dashboard') ||
+                req.url.startsWith('/api/price-monitor') ||
+                req.url.startsWith('/api/scratchpad')) {
               langGraphProxy(req, res, next);
             } else {
               next();

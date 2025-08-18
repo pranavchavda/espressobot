@@ -211,55 +211,19 @@ class ProgressiveOrchestrator:
                                last_agent_result: Optional[Dict[str, Any]] = None) -> Optional[AgentCall]:
         """Decide what to do next based on current state using compressed context"""
         
-        # Inject relevant memories from database
-        memory_context = ""
-        if self.memory_manager:
-            try:
-                # Search for memories relevant to the user request
-                search_results = await self.memory_manager.search_memories(
-                    user_id="1",  # Default user for now
-                    query=user_request,
-                    limit=3
-                )
-                
-                if search_results:
-                    memory_lines = []
-                    for result in search_results:
-                        mem = result.memory
-                        memory_lines.append(f"- {mem.content} (importance: {mem.importance_score:.1f})")
-                    memory_context = "Relevant memories:\n" + "\n".join(memory_lines) + "\n\n"
-                    logger.info(f"Injected {len(search_results)} relevant memories")
-            except Exception as e:
-                logger.warning(f"Failed to retrieve memories: {e}")
+        # Build complete context using centralized method
+        context = await self._build_full_context(user_request, memory)
+        memory_context = context["memory_context"]
+        known_context = context["known_context"]
+        recent_conversation = context["recent_conversation"]
         
-        # Use compressed context if available, otherwise fall back to legacy
+        # Log context info for debugging
+        if memory_context:
+            logger.info(f"Injected memories for planning")
         if memory.compressed_context:
-            known_context = memory.get_compressed_context_string(max_tokens=500)
             logger.info(f"Using compressed context ({len(known_context)} chars)")
-        else:
-            known_context = self._build_known_context(memory)
-        
-        # Build recent conversation history for context
-        recent_conversation = ""
-        if memory.recent_messages:
-            logger.debug(f"Building context from {len(memory.recent_messages)} recent messages")
-            # Log the actual size of messages
-            for i, msg in enumerate(memory.recent_messages):
-                if hasattr(msg, 'content'):
-                    msg_content = str(msg.content)
-                    logger.warning(f"Message {i} size: {len(msg_content)} chars")
-                    if len(msg_content) > 10000:
-                        logger.error(f"HUGE MESSAGE FOUND! First 500 chars: {msg_content[:500]}")
-            
-            recent_conversation = "Recent conversation:\n"
-            # Only include last 2 messages (1 exchange) to reduce tokens
-            for msg in memory.recent_messages[-2:]:
-                if hasattr(msg, 'content'):
-                    role = "User" if isinstance(msg, HumanMessage) else "Assistant"
-                    # Truncate very long messages more aggressively
-                    content = msg.content[:300] + "..." if len(msg.content) > 300 else msg.content
-                    recent_conversation += f"{role}: {content}\n"
-                    logger.debug(f"Added {role} message to context: {content[:100]}...")
+        if recent_conversation:
+            logger.debug(f"Recent conversation preview: {recent_conversation[:200]}...")
         else:
             logger.warning(f"No recent messages in memory for planning!")
         
@@ -344,6 +308,7 @@ CONVERSATIONAL PATTERNS to handle directly (respond without calling agents):
 - User asking for clarification about previous responses: Explain using context
 - User giving feedback or corrections: Thank them and incorporate the feedback
 - Simple acknowledgments, questions about what just happened: Respond directly using conversation context
+- User agreeing to previous suggestions: "yes", "let's do that", "do it", "go ahead" → Execute what was offered in the previous assistant response
 
 If we have all necessary information to answer the user, respond with:
 {{
@@ -369,10 +334,13 @@ Think step by step:
 4. Can I answer the user completely with current information?
 5. If not, which agent can provide the missing information?
 
-IMPORTANT: If the user says things like "the second one", "that", "it", "the second review", etc., look at the recent conversation to understand what they're referring to.
+IMPORTANT: If the user says things like "the second one", "that", "it", "the second review", "let's do that", "yes", etc., look at the recent conversation to understand what they're referring to.
 
 For example:
 - If you just listed emails and user says "open the second one" → Open the second email from the list
+- If you offered to open test.txt and user says "let's do that" → Call bash agent to open test.txt
+- If you suggested running ls and user says "yes" → Call bash agent to run ls
+- If you offered multiple actions and user says "do it" → Execute the main action you suggested
 - If you showed reviews and user says "the second review" → They mean the second item you just showed
 - If user refers to "it" or "that" → Look at what was just discussed
 - If you showed products WITH prices and user asks "do they have compare prices?" → Check context first, only call agent if compare_at_price not in context
@@ -583,6 +551,54 @@ Complete this specific task. Be direct and factual in your response."""),
         if "success" in response_lower or "completed" in response_lower:
             memory.remember_operation(agent_name, {"response": response[:200]})
     
+    async def _build_full_context(self, user_request: str, memory: ConversationMemory) -> Dict[str, str]:
+        """Build complete context for both planning and synthesis to ensure consistency"""
+        
+        # 1. Inject relevant memories from database
+        memory_context = ""
+        if self.memory_manager:
+            try:
+                search_results = await self.memory_manager.search_memories(
+                    user_id="1",
+                    query=user_request,
+                    limit=3
+                )
+                
+                if search_results:
+                    memory_lines = []
+                    for result in search_results:
+                        mem = result.memory
+                        memory_lines.append(f"- {mem.content} (importance: {mem.importance_score:.1f})")
+                    memory_context = "Relevant memories:\n" + "\n".join(memory_lines) + "\n\n"
+            except Exception as e:
+                logger.warning(f"Failed to retrieve memories: {e}")
+        
+        # 2. Use compressed context if available, otherwise fall back to legacy
+        if memory.compressed_context:
+            known_context = memory.get_compressed_context_string(max_tokens=500)
+        else:
+            known_context = self._build_known_context(memory)
+        
+        # 3. Build recent conversation history with better context tracking
+        recent_conversation = ""
+        if memory.recent_messages:
+            recent_conversation = "Recent conversation:\n"
+            # Use last 4 messages for better reference tracking (2 exchanges)
+            for msg in memory.recent_messages[-4:]:
+                if hasattr(msg, 'content'):
+                    role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+                    content = msg.content[:400] + "..." if len(msg.content) > 400 else msg.content
+                    recent_conversation += f"{role}: {content}\n"
+            
+            # Add explicit reference tracking hint
+            recent_conversation += "\nIMPORTANT: Pay attention to offers, suggestions, or actions mentioned in the Assistant's previous responses. When the user says 'let's do that', 'yes', or 'do it', they are referring to something specific from the conversation above.\n"
+        
+        return {
+            "memory_context": memory_context,
+            "known_context": known_context,
+            "recent_conversation": recent_conversation
+        }
+    
     def _build_known_context(self, memory: ConversationMemory) -> str:
         """Build a summary of what we know so far"""
         parts = []
@@ -666,9 +682,21 @@ Response:"""
             if result.get("success"):
                 actions_summary.append(f"- {result['agent']}: {result['task']}")
         
+        # Build the SAME context that was used for planning
+        # This ensures synthesizer has identical context to planner
+        context = await self._build_full_context(user_request, memory)
+        memory_context = context["memory_context"]
+        known_context = context["known_context"]
+        recent_conversation = context["recent_conversation"]
+
         synthesis_prompt = f"""Create a natural, helpful response to the user's request based on the agent results.
 
 User request: {user_request}
+
+{memory_context}{recent_conversation}
+
+What we already know from this conversation:
+{known_context}
 
 Actions taken:
 {chr(10).join(actions_summary)}
@@ -677,10 +705,14 @@ Agent results:
 {json.dumps(all_results, indent=2)[:3000]}
 
 Create a clear, concise response that:
-1. Directly addresses what the user asked for
-2. Includes specific details from the agent results
-3. Mentions any important IDs or links if relevant
-4. Is friendly and conversational
+1. Directly addresses what the user asked for using the FULL conversation context
+2. Understands references like "that", "it", "let's do that" from the recent conversation
+3. Includes specific details from the agent results
+4. Mentions any important IDs or links if relevant
+5. Is friendly and conversational
+
+IMPORTANT: Use the recent conversation context to understand what the user is referring to.
+If they say "let's do that" or "yes, do it", look at the previous assistant message to see what was offered.
 
 Response:"""
 
@@ -841,6 +873,110 @@ Response:"""
             logger.error(f"Failed to load messages: {e}")
             return []
     
+    async def _async_post_processing(self, thread_id: str, user_id: str, message: str, 
+                                   final_response: str, memory: ConversationMemory,
+                                   agent_results_dict: Dict[str, str], agents_called: int):
+        """Handle memory extraction, context compression, and DB saves asynchronously"""
+        
+        try:
+            logger.info(f"🚀 Starting async post-processing for thread {thread_id}")
+            
+            # 1. Compress this turn's context using LangExtract
+            try:
+                logger.info(f"Compressing turn context with {len(agent_results_dict)} agent results")
+                compressed = await self.context_manager.compress_turn(
+                    thread_id=thread_id,
+                    messages=memory.recent_messages,
+                    agent_results=agent_results_dict
+                )
+                memory.compressed_context = compressed
+                
+                # Log the compressed context for debugging
+                if compressed:
+                    logger.info(f"📊 Compressed context: {compressed.extraction_count} items in {len(compressed.extraction_classes)} categories")
+                    logger.debug(f"Compressed context classes: {compressed.extraction_classes}")
+                    if compressed.extractions:
+                        # Show sample of what was extracted
+                        for class_name in list(compressed.extraction_classes)[:3]:
+                            items = compressed.extractions.get(class_name, [])
+                            logger.debug(f"  {class_name}: {len(items)} items")
+                else:
+                    logger.warning("❌ Compressed context is None!")
+                
+                # Clear old context periodically to prevent unbounded growth
+                if agents_called > 0 and agents_called % 10 == 0:
+                    self.context_manager.clear_old_context(thread_id)
+                    
+            except Exception as e:
+                logger.error(f"Failed to compress context: {e}", exc_info=True)
+            
+            # 2. Extract and save memories
+            if self.memory_manager:
+                try:
+                    from app.memory.memory_persistence import MemoryExtractionService
+                    
+                    extraction_service = MemoryExtractionService()
+                    logger.info("Memory extraction service initialized")
+                    
+                    # Build conversation for extraction using proper message objects
+                    messages_for_extraction = []
+                    
+                    # Add recent history if available
+                    if memory.recent_messages:
+                        # Add last 2 exchanges from history
+                        messages_for_extraction.extend(memory.recent_messages[-4:])
+                    
+                    # Add current exchange
+                    messages_for_extraction.append(HumanMessage(content=message))
+                    messages_for_extraction.append(AIMessage(content=final_response))
+                    
+                    logger.info(f"Extracting from {len(messages_for_extraction)} messages. Latest: User: {message[:100]}... Assistant: {final_response[:100]}...")
+                    
+                    # Extract memories
+                    logger.info(f"Extracting memories from {len(messages_for_extraction)} messages")
+                    extracted_memories = await extraction_service.extract_memories_from_conversation(
+                        messages=messages_for_extraction,
+                        user_id="1"  # Default user for now
+                    )
+                    logger.info(f"Extracted {len(extracted_memories)} memories")
+                    
+                    # Save extracted memories
+                    saved_count = 0
+                    for mem in extracted_memories:
+                        logger.info(f"Attempting to save memory: {mem.content[:50]}...")
+                        try:
+                            memory_id = await self.memory_manager.store_memory(mem)
+                            if memory_id:
+                                saved_count += 1
+                                logger.info(f"💾 Saved memory #{memory_id}: {mem.content[:50]}...")
+                        except Exception as e:
+                            logger.warning(f"Failed to save memory: {e}")
+                    
+                    if saved_count > 0:
+                        logger.info(f"✅ Extracted and saved {saved_count} memories from conversation")
+                        
+                except Exception as e:
+                    logger.error(f"Memory extraction failed: {e}")
+            else:
+                logger.warning("Memory manager is None, skipping memory extraction")
+            
+            # 3. Save conversation metadata to database (for sidebar)
+            await self._save_conversation_to_db(thread_id, message, final_response)
+            
+            # 4. Save individual messages for history
+            await self._save_messages_to_db(thread_id, message, final_response)
+            
+            # Log what we learned this turn
+            if memory.compressed_context:
+                logger.info(f"Turn complete. Compressed context has {memory.compressed_context.extraction_count} extractions")
+            else:
+                logger.info(f"Turn complete. Products found: {len(memory.products)}, Operations: {len(memory.operations_completed)}")
+            
+            logger.info(f"✅ Async post-processing completed for thread {thread_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Async post-processing failed for thread {thread_id}: {e}", exc_info=True)
+    
     @traceable(name="orchestrate_progressive")
     async def orchestrate(self, message: str, thread_id: str = "default", user_id: str = "1"):
         """Main orchestration loop - progressive agent calling with compressed context and message persistence"""
@@ -922,102 +1058,19 @@ Response:"""
         # Add assistant response to recent history
         memory.add_recent_message(AIMessage(content=final_response))
         
-        # Compress this turn's context using LangExtract
-        try:
-            logger.info(f"Compressing turn context with {len(agent_results_dict)} agent results")
-            compressed = await self.context_manager.compress_turn(
-                thread_id=thread_id,
-                messages=memory.recent_messages,
-                agent_results=agent_results_dict
-            )
-            memory.compressed_context = compressed
-            
-            # Log the compressed context for debugging
-            if compressed:
-                logger.info(f"📊 Compressed context: {compressed.extraction_count} items in {len(compressed.extraction_classes)} categories")
-                logger.debug(f"Compressed context classes: {compressed.extraction_classes}")
-                if compressed.extractions:
-                    # Show sample of what was extracted
-                    for class_name in list(compressed.extraction_classes)[:3]:
-                        items = compressed.extractions.get(class_name, [])
-                        logger.debug(f"  {class_name}: {len(items)} items")
-            else:
-                logger.warning("❌ Compressed context is None!")
-            
-            # Clear old context periodically to prevent unbounded growth
-            if agents_called > 0 and agents_called % 10 == 0:
-                self.context_manager.clear_old_context(thread_id)
-                
-        except Exception as e:
-            logger.error(f"Failed to compress context: {e}", exc_info=True)
+        # Fire off asynchronous post-processing (memory extraction, context compression, DB saves)
+        # This happens in the background and doesn't block the response to the user
+        asyncio.create_task(self._async_post_processing(
+            thread_id=thread_id,
+            user_id=user_id,
+            message=message,
+            final_response=final_response,
+            memory=memory,
+            agent_results_dict=agent_results_dict,
+            agents_called=agents_called
+        ))
         
-        # Log what we learned this turn
-        if memory.compressed_context:
-            logger.info(f"Turn complete. Compressed context has {memory.compressed_context.extraction_count} extractions")
-        else:
-            logger.info(f"Turn complete. Products found: {len(memory.products)}, Operations: {len(memory.operations_completed)}")
-        
-        # Extract and save memories BEFORE returning response
-        # This ensures memory extraction happens even if response streaming fails
-        if self.memory_manager:
-            logger.info(f"Starting memory extraction for user {user_id}")
-        else:
-            logger.warning("Memory manager is None, skipping memory extraction")
-            
-        if self.memory_manager:
-            try:
-                from app.memory.memory_persistence import MemoryExtractionService
-                
-                extraction_service = MemoryExtractionService()
-                logger.info("Memory extraction service initialized")
-                
-                # Build conversation for extraction using proper message objects
-                messages_for_extraction = []
-                
-                # Add recent history if available
-                if memory.recent_messages:
-                    # Add last 2 exchanges from history
-                    messages_for_extraction.extend(memory.recent_messages[-4:])
-                
-                # Add current exchange
-                messages_for_extraction.append(HumanMessage(content=message))
-                messages_for_extraction.append(AIMessage(content=final_response))
-                
-                logger.info(f"Extracting from {len(messages_for_extraction)} messages. Latest: User: {message[:100]}... Assistant: {final_response[:100]}...")
-                
-                # Extract memories
-                logger.info(f"Extracting memories from {len(messages_for_extraction)} messages")
-                extracted_memories = await extraction_service.extract_memories_from_conversation(
-                    messages=messages_for_extraction,
-                    user_id="1"  # Default user for now
-                )
-                logger.info(f"Extracted {len(extracted_memories)} memories")
-                
-                # Save extracted memories
-                saved_count = 0
-                for mem in extracted_memories:
-                    logger.info(f"Attempting to save memory: {mem.content[:50]}...")
-                    try:
-                        memory_id = await self.memory_manager.store_memory(mem)
-                        if memory_id:
-                            saved_count += 1
-                            logger.info(f"💾 Saved memory #{memory_id}: {mem.content[:50]}...")
-                    except Exception as e:
-                        logger.warning(f"Failed to save memory: {e}")
-                
-                if saved_count > 0:
-                    logger.info(f"✅ Extracted and saved {saved_count} memories from conversation")
-                    
-            except Exception as e:
-                logger.error(f"Memory extraction failed: {e}")
-        
-        # Save conversation metadata to database (for sidebar) AFTER memory extraction
-        await self._save_conversation_to_db(thread_id, message, final_response)
-        
-        # Save individual messages for history
-        await self._save_messages_to_db(thread_id, message, final_response)
-        
-        # Return response as generator for streaming
+        # Return response immediately without waiting for post-processing
         for token in final_response.split():
             yield token + " "
 

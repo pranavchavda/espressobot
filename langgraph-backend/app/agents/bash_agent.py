@@ -35,35 +35,23 @@ class BashAgent:
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for bash agent."""
-        return """You are a bash execution agent. You can execute shell commands, scripts, and system operations in a secure sandbox environment.
+        return """You are a bash execution agent. You execute shell commands in a secure sandbox environment.
 
-Your capabilities include:
-- Running shell commands safely (pwd, ls, echo, cat, etc.)
-- Downloading files from the internet (curl, wget)
-- Creating and executing scripts (Python, Node.js, bash)
-- Installing packages (pip, npm, apt - within sandbox)
-- Processing data files (CSV, JSON, text analysis)
-- Generating reports and analysis
-- File operations (create, modify, compress)
+Your capabilities:
+- Execute shell commands (pwd, ls, cat, echo, etc.)
+- Create and manipulate files
+- Download files (curl, wget)
+- Run scripts (Python, Node.js, bash)
+- Process data files
 
-All operations are contained within a secure sandbox directory at: /home/pranav/espressobot/langgraph-backend/app/agent_sandbox
-Files created are accessible via web URLs: /api/sandbox/{filename}
+Sandbox location: /home/pranav/espressobot/langgraph-backend/app/agent_sandbox
+Created files are accessible at: /api/sandbox/{filename}
 
-IMPORTANT INSTRUCTIONS:
-1. When asked to execute a command, first understand what the user wants
-2. Execute the appropriate bash command using your tools
-3. Explain the results clearly and provide context
-4. If files are created, mention their web URLs
-5. For complex tasks, break them down into steps
-6. Always be helpful and explain what each command does
-
-RESPONSE FORMAT:
-- First execute the command
-- Then provide a clear explanation of what happened
-- Include any relevant output or file information
-- Suggest next steps if appropriate
-
-You have access to a bash execution tool that runs commands in the sandbox."""
+EXECUTION PROCESS:
+1. Generate clean bash command (no explanations in command)
+2. Execute the command
+3. Provide clear explanation of results
+4. Mention file URLs if files were created"""
         
     async def process_request(self, request: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Process a bash execution request using LLM reasoning."""
@@ -72,21 +60,24 @@ You have access to a bash execution tool that runs commands in the sandbox."""
             
             # Build messages for LLM - simple approach
             messages = [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=f"""I need you to help with this bash/shell request: {request}
+                SystemMessage(content="""You are a bash command generator. Your job is to convert natural language requests into exact bash commands.
 
-Please:
-1. Understand what the user wants to accomplish
-2. Determine the appropriate bash command to run
-3. Respond with the command in this format: EXECUTE: <command>
-4. I will then execute it and provide you the results
+CRITICAL RULES:
+1. Respond ONLY with "EXECUTE: <command>" - nothing else
+2. The command must be a single, clean bash command with no explanations
+3. Do not include parentheses, descriptions, or commentary in the command
+4. Do not include multiple commands unless using && or ;
 
-For example:
-- If asked for current directory: respond with "EXECUTE: pwd"
-- If asked to list files: respond with "EXECUTE: ls -la" 
-- If asked to create a file: respond with "EXECUTE: echo 'content' > filename.txt"
+Examples:
+Request: "show current directory" → Response: "EXECUTE: pwd"
+Request: "list files" → Response: "EXECUTE: ls -la"
+Request: "create test file" → Response: "EXECUTE: echo 'test content' > test.txt"
+Request: "show file contents" → Response: "EXECUTE: cat filename.txt"
 
-Start your response with EXECUTE: followed by the exact command to run.""")
+Your response must start with "EXECUTE: " followed by ONLY the command."""),
+                HumanMessage(content=f"""Convert this request to a bash command: {request}
+
+Remember: Respond with ONLY "EXECUTE: <command>" - no explanations, no parentheses, no additional text.""")
             ]
             
             # Get LLM response
@@ -97,6 +88,9 @@ Start your response with EXECUTE: followed by the exact command to run.""")
                 # Check if LLM wants to execute a command
                 if response_text.startswith("EXECUTE:"):
                     command = response_text[8:].strip()  # Remove "EXECUTE: " prefix
+                    
+                    # Clean the command - remove any explanatory text in parentheses or after #
+                    command = self._clean_command(command)
                     
                     # Execute the bash command
                     bash_result = await bash_tool.execute_command(command)
@@ -196,6 +190,27 @@ Please provide a helpful explanation of these results to the user. Be conversati
             "working_directory": result.get("working_directory", ""),
             "response": response_text
         }
+    
+    def _clean_command(self, command: str) -> str:
+        """Clean bash command by removing explanatory text and comments."""
+        import re
+        
+        # Remove text in parentheses (explanations)
+        command = re.sub(r'\s*\([^)]*\)', '', command)
+        
+        # Remove comments (text after #)
+        command = re.sub(r'\s*#.*$', '', command)
+        
+        # Remove extra whitespace and quotes around the entire command
+        command = command.strip().strip('"').strip("'")
+        
+        # Log the cleaning
+        if len(command) > 100:
+            logger.warning(f"Command seems too long after cleaning: {command[:100]}...")
+        else:
+            logger.info(f"Cleaned command: {command}")
+        
+        return command
 
     async def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Process the state and return updated state"""
