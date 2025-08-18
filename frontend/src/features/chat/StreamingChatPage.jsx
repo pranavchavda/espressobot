@@ -44,9 +44,14 @@ import { ApprovalRequest } from "@components/chat/ApprovalRequest";
       }
 
       // Avoid duplicating assistant messages by same content (common during streaming vs persisted)
+      // Respect debug flag via URL/localStorage to disable dedup when investigating rendering issues
       if (m && m.role === 'assistant') {
-        const dupAssistant = result.some(x => x.role === 'assistant' && String(x.content || '') === String(m.content || ''));
-        if (dupAssistant) continue;
+        const noDedup = (typeof window !== 'undefined' && (new URLSearchParams(window.location.search)).get('noDedup') === '1') ||
+                        (typeof localStorage !== 'undefined' && localStorage.getItem('noDedup') === '1');
+        if (!noDedup) {
+          const dupAssistant = result.some(x => x.role === 'assistant' && String(x.content || '') === String(m.content || ''));
+          if (dupAssistant) continue;
+        }
       }
 
       // Fallback: add message
@@ -58,6 +63,8 @@ import { ApprovalRequest } from "@components/chat/ApprovalRequest";
 
 function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const location = useLocation();
+  // Debug flag: disable deduplication via ?noDedup=1 or localStorage.setItem('noDedup','1')
+  const debugNoDedup = (new URLSearchParams(location.search)).get('noDedup') === '1' || localStorage.getItem('noDedup') === '1';
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -100,7 +107,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     
     setMessages(prev => {
       // Check for duplicates
-      const isDuplicate = prev.some(m => 
+      const isDuplicate = !debugNoDedup && prev.some(m => 
         m.id === message.id || 
         (m.role === 'assistant' && message.role === 'assistant' && 
          (m.content || '').trim() === (message.content || '').trim())
@@ -1032,7 +1039,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       
       // Check if we already finalized this content
       const normalizedContent = (assistantMessage.content || '').trim();
-      if (lastFinalizedContentRef.current === normalizedContent) {
+      if (!debugNoDedup && lastFinalizedContentRef.current === normalizedContent) {
         console.log('[DEBUG] BLOCKING DUPLICATE - Already finalized this exact content');
         setIsSending(false);
         return; // Don't add the message
@@ -1045,7 +1052,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       // This prevents React StrictMode from running the function twice with the same state
       
       // Check if message ID is already processed
-      if (messageIdsRef.current.has(messageId)) {
+      if (!debugNoDedup && messageIdsRef.current.has(messageId)) {
         console.log('[DEBUG] Message ID already processed, skipping:', messageId);
         return;
       }
@@ -1066,7 +1073,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
             
             // Final safety check inside setMessages
             const idExists = prev.some(msg => msg.id === messageId);
-            if (idExists) {
+            if (!debugNoDedup && idExists) {
               console.log('[DEBUG] Message already in state, skipping');
               return prev;
             }
@@ -1075,7 +1082,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               msg.role === 'assistant' && 
               (msg.content || '').trim() === normalizedContent
             );
-            if (contentExists) {
+            if (!debugNoDedup && contentExists) {
               console.log('[DEBUG] Duplicate content detected, skipping');
               return prev;
             }
@@ -1089,13 +1096,13 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         console.log('[DEBUG] flushSync failed, using regular setState');
         setMessages(prev => {
           const idExists = prev.some(msg => msg.id === messageId);
-          if (idExists) return prev;
+          if (!debugNoDedup && idExists) return prev;
           
           const contentExists = prev.some(msg => 
             msg.role === 'assistant' && 
             (msg.content || '').trim() === normalizedContent
           );
-          if (contentExists) return prev;
+          if (!debugNoDedup && contentExists) return prev;
           
           return [...prev, assistantMessage];
         });
@@ -2298,6 +2305,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                           ) : (
                             <MarkdownRenderer 
                               isAgent={msg.role === "assistant"}
+                              key={`final-${msg.id || i}-${(String(msg.content || "")).length}`}
                             >
                               {String(msg.content || "")}
                             </MarkdownRenderer>
@@ -2349,11 +2357,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
               })}
 
 
-              {/* Render streaming message ONLY while actively streaming and not identical to last finalized assistant message */}
+              {/* Render streaming message ONLY while actively streaming; allow override via debugNoDedup */}
               {(() => {
                 const lastMsg = messages[messages.length - 1];
                 const isDuplicateOfLast = !!(streamingMessage && lastMsg && lastMsg.role === 'assistant' && lastMsg.content === streamingMessage.content);
-                return streamingMessage && streamingMessage.isStreaming && !isDuplicateOfLast;
+                return streamingMessage && streamingMessage.isStreaming && (debugNoDedup || !isDuplicateOfLast);
               })() && (
                 <div className="flex items-start gap-2">
                   <div className="flex-shrink-0">
