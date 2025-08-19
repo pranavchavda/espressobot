@@ -55,8 +55,8 @@ class AsyncOrchestrator:
     @property 
     def memory_manager(self):
         if self._memory_manager is None:
-            from app.memory.postgres_memory_manager_v2 import PostgresMemoryManager
-            self._memory_manager = PostgresMemoryManager()
+            from app.memory.postgres_memory_manager_v2 import SimpleMemoryManager
+            self._memory_manager = SimpleMemoryManager()
         return self._memory_manager
     
     async def start_task(self, message: str, thread_id: str = None, user_id: str = "1") -> str:
@@ -201,12 +201,43 @@ class AsyncOrchestrator:
         try:
             # This runs in background and doesn't block the main response
             if self.memory_manager:
-                await self.memory_manager.extract_and_store_memories(
-                    user_message=message,
-                    assistant_response=response,
-                    user_id=user_id
+                from app.memory.memory_persistence import MemoryExtractionService
+                from langchain_core.messages import HumanMessage, AIMessage
+                
+                extraction_service = MemoryExtractionService()
+                logger.info("Memory extraction service initialized")
+                
+                # Build conversation for extraction using proper message objects
+                messages_for_extraction = [
+                    HumanMessage(content=message),
+                    AIMessage(content=response)
+                ]
+                
+                logger.info(f"Extracting memories from conversation: User: {message[:100]}... Assistant: {response[:100]}...")
+                
+                # Extract memories
+                extracted_memories = await extraction_service.extract_memories_from_conversation(
+                    messages_for_extraction, user_id
                 )
-                logger.info("Memory extraction completed in background")
+                
+                logger.info(f"Extracted {len(extracted_memories)} memories")
+                
+                # Save extracted memories
+                saved_count = 0
+                for mem in extracted_memories:
+                    try:
+                        memory_id = await self.memory_manager.store_memory(mem)
+                        if memory_id:
+                            saved_count += 1
+                            logger.info(f"💾 Saved memory #{memory_id}: {mem.content[:50]}...")
+                    except Exception as e:
+                        logger.warning(f"Failed to save memory: {e}")
+                
+                if saved_count > 0:
+                    logger.info(f"✅ Extracted and saved {saved_count} memories from conversation")
+                else:
+                    logger.info("No memories extracted or saved")
+                    
         except Exception as e:
             logger.warning(f"Background memory processing failed: {e}")
     

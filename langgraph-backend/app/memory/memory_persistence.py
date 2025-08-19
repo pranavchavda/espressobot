@@ -343,15 +343,21 @@ class MemoryExtractionService:
                 logger.debug(f"OPENAI_API_KEY present={bool(api_key)}")
             
             # Use EXACT same parameters as working context compression - no language_model_type!
-            result = lx.extract(
-                text_or_documents=conversation_text,
-                prompt_description=prompt_description,
-                examples=examples,
-                model_id=model_id,
-                api_key=api_key if is_openai else None,
-                fence_output=is_openai,  # Must be True for OpenAI models
-                use_schema_constraints=not is_openai  # Must be False for OpenAI models
-            )
+            try:
+                result = lx.extract(
+                    text_or_documents=conversation_text,
+                    prompt_description=prompt_description,
+                    examples=examples,
+                    model_id=model_id,
+                    api_key=api_key if is_openai else None,
+                    fence_output=True,  # Always True for proper parsing
+                    use_schema_constraints=False,  # Always False for OpenAI compatibility
+                    temperature=0.1  # Low temperature for consistent output
+                )
+            except Exception as lx_error:
+                logger.error(f"LangExtract extraction failed: {lx_error}, falling back to GPT-4.1-nano")
+                # Fall back to GPT extraction method
+                return await self._extract_memories_gpt(conversation_text, user_id)
             
             # Handle case where result might be wrapped in markdown code blocks
             if isinstance(result, str):
@@ -512,7 +518,13 @@ class MemoryExtractionService:
             
         except Exception as e:
             logger.error(f"Langextract memory extraction failed: {e}")
-            return []  # Return empty list instead of crashing
+            # Try GPT fallback if langextract fails completely
+            logger.info("Attempting GPT-4.1-nano fallback for memory extraction")
+            try:
+                return await self._extract_memories_gpt(conversation_text, user_id)
+            except Exception as fallback_error:
+                logger.error(f"GPT fallback also failed: {fallback_error}")
+                return []  # Return empty list if both methods fail
     
     async def _extract_memories_gpt(self, conversation_text: str, user_id: str) -> List[Memory]:
         """GPT-4.1-nano extraction method (primary method)"""

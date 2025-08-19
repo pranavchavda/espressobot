@@ -1,5 +1,5 @@
 {
-  "timestamp": 1755383257.7037835,
+  "timestamp": 1755618490.8656127,
   "models": [
     {
       "id": "mistralai/mistral-medium-3.1",
@@ -105,10 +105,10 @@
       "id": "openai/gpt-oss-120b",
       "name": "OpenAI: gpt-oss-120b",
       "provider": "openrouter",
-      "context_length": 131072,
+      "context_length": 131000,
       "pricing": {
-        "prompt": "0.00000007256312",
-        "completion": "0.0000002903936",
+        "prompt": "0.000000072",
+        "completion": "0.00000028",
         "request": "0",
         "image": "0",
         "audio": "0",
@@ -137,10 +137,10 @@
       "id": "openai/gpt-oss-20b",
       "name": "OpenAI: gpt-oss-20b",
       "provider": "openrouter",
-      "context_length": 131072,
+      "context_length": 131000,
       "pricing": {
         "prompt": "0.00000004",
-        "completion": "0.00000016",
+        "completion": "0.00000015",
         "request": "0",
         "image": "0",
         "audio": "0",
@@ -446,10 +446,10 @@
       "id": "mistralai/mistral-small-3.2-24b-instruct",
       "name": "Mistral: Mistral Small 3.2 24B",
       "provider": "openrouter",
-      "context_length": 131072,
+      "context_length": 128000,
       "pricing": {
-        "prompt": "0.00000001999188",
-        "completion": "0.0000000800064",
+        "prompt": "0.00000005",
+        "completion": "0.0000001",
         "request": "0",
         "image": "0",
         "audio": "0",

@@ -249,15 +249,21 @@ class CompressedContextManager:
             # OpenAI models need fence_output=True and use_schema_constraints=False
             is_openai = self.model_id.startswith("gpt") or "gpt-" in self.model_id
             
-            result = lx.extract(
-                text_or_documents=conversation_text,
-                prompt_description=self.extraction_prompt,
-                examples=self.extraction_examples,
-                model_id=self.model_id,
-                api_key=self.api_key if is_openai else None,
-                fence_output=is_openai,  # Must be True for OpenAI models
-                use_schema_constraints=not is_openai  # Must be False for OpenAI models
-            )
+            try:
+                result = lx.extract(
+                    text_or_documents=conversation_text,
+                    prompt_description=self.extraction_prompt,
+                    examples=self.extraction_examples,
+                    model_id=self.model_id,
+                    api_key=self.api_key if is_openai else None,
+                    fence_output=True,  # Always True for proper parsing
+                    use_schema_constraints=False,  # Always False for OpenAI compatibility
+                    temperature=0.1  # Low temperature for consistent output
+                )
+            except Exception as lx_error:
+                logger.error(f"LangExtract extraction failed: {lx_error}")
+                # Return empty context on failure rather than crashing
+                return context
             
             logger.info(f"LangExtract found {len(result.extractions)} extractions")
             
@@ -269,6 +275,8 @@ class CompressedContextManager:
             
         except Exception as e:
             logger.error(f"Extraction failed: {e}", exc_info=True)
+            # Continue with just conversation chain recording if LangExtract fails
+            logger.info("Context compression failed, but conversation chain was recorded")
         
         return context
     
