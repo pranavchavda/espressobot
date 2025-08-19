@@ -65,6 +65,8 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const location = useLocation();
   // Debug flag: disable deduplication via ?noDedup=1 or localStorage.setItem('noDedup','1')
   const debugNoDedup = (new URLSearchParams(location.search)).get('noDedup') === '1' || localStorage.getItem('noDedup') === '1';
+  // Feature flag: orchestrator SSE
+  const orchestratorEnabled = (new URLSearchParams(location.search)).get('orchestrator') === '1' || localStorage.getItem('orchestrator') === '1';
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -829,6 +831,124 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     }
   };
 
+  // Async task polling function
+  const pollAsyncTask = async (taskId, conversationId) => {
+    try {
+      // Set conversation ID if this is a new conversation
+      if (conversationId && (!convId && !activeConv)) {
+        console.log('[DEBUG] Setting activeConv from async response:', conversationId);
+        setActiveConv(conversationId);
+        
+        // Notify parent component immediately to navigate to new conversation
+        if (onNewConversation && !convId) {
+          console.log('[DEBUG] Calling onNewConversation with:', conversationId);
+          // Don't navigate immediately - let the polling complete first
+          // onNewConversation(conversationId);
+        }
+      }
+
+      // Update status message
+      setStreamingMessage({
+        role: "assistant",
+        content: "⚡ Processing with async agents... Getting real-time updates",
+        timestamp: new Date().toISOString(),
+        agent: "async-orchestrator",
+        isStreaming: true,
+        isComplete: false,
+      });
+
+      // Poll for task completion
+      let completed = false;
+      let attempts = 0;
+      const maxAttempts = 120; // 2 minutes max
+      
+      while (!completed && attempts < maxAttempts) {
+        try {
+          const response = await fetch(`/api/agent/async/task/${taskId}`);
+          if (response.status === 404) {
+            // Task not found - probably backend restarted
+            throw new Error('Task not found - it may have been lost due to server restart');
+          }
+          if (!response.ok) throw new Error(`Task polling failed: ${response.status}`);
+          
+          const taskData = await response.json();
+          
+          // Update progress
+          if (taskData.status === 'running') {
+            const progress = Math.round((taskData.progress || 0) * 100);
+            setStreamingMessage({
+              role: "assistant",
+              content: `⚡ Processing: ${taskData.message || 'Working...'} (${progress}%)`,
+              timestamp: new Date().toISOString(),
+              agent: "async-orchestrator",
+              isStreaming: true,
+              isComplete: false,
+            });
+          } else if (taskData.status === 'completed') {
+            completed = true;
+            
+            // Add final response as message
+            const uniqueId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const assistantMessage = {
+              id: uniqueId,
+              role: "assistant",
+              content: taskData.response || "Task completed successfully",
+              timestamp: new Date().toISOString(),
+              agent: "async-orchestrator"
+            };
+            
+            // Clear streaming message and add final response
+            setStreamingMessage(null);
+            setMessages(prev => [...prev, assistantMessage]);
+            
+            console.log('[DEBUG] Async task completed, added final message');
+            
+            // Now navigate to the new conversation if needed
+            if (conversationId && !convId && onNewConversation) {
+              console.log('[DEBUG] Navigation after completion to:', conversationId);
+              setTimeout(() => {
+                onNewConversation(conversationId);
+              }, 500);
+            }
+            break;
+          } else if (taskData.status === 'failed') {
+            throw new Error(taskData.error || 'Task failed');
+          }
+          
+          attempts++;
+          if (!completed) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+          }
+        } catch (error) {
+          console.error('[DEBUG] Polling error:', error);
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds on error
+        }
+      }
+      
+      if (!completed) {
+        throw new Error('Task polling timeout');
+      }
+      
+    } catch (error) {
+      console.error('[DEBUG] Async task error:', error);
+      
+      // Show error message
+      const errorMessage = {
+        id: `error-${Date.now()}`,
+        role: "assistant",
+        content: `❌ Error: ${error.message}`,
+        timestamp: new Date().toISOString(),
+        agent: "system"
+      };
+      
+      setStreamingMessage(null);
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   // Handle sending a message with streaming response
   const handleSend = async (messageContent = input) => {
     const textToSend =
@@ -913,9 +1033,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     }
 
     try {
-      // Use non-streaming endpoint for simplicity
-      const fetchUrl = "/api/agent/message";
-      console.log("Using non-streaming master agent orchestrator endpoint");
+      // Use async orchestrator by default, with fallback options
+      const useAsync = true; // Always use async for better performance
+      const useSSE = orchestratorEnabled === true;
+      const fetchUrl = useAsync ? "/api/agent/async/message" : (useSSE ? "/api/agent/sse" : "/api/agent/message");
+      console.log(useAsync ? "Using async orchestrator endpoint" : useSSE ? "Using SSE orchestrator endpoint" : "Using non-streaming master agent orchestrator endpoint");
 
       if (useBasicAgent) {
         setPlannerStatus("Initializing...");
@@ -927,8 +1049,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
       const conversationId = convId || activeConv || undefined;
       console.log('[DEBUG] Sending message with conversation_id:', conversationId, 'convId:', convId, 'activeConv:', activeConv);
-      const requestData = {
-        conversation_id: conversationId,  // Changed from conv_id to conversation_id
+      const requestData = useAsync ? {
+        message: textToSend,
+        conv_id: conversationId,  // Async endpoint uses conv_id
+      } : {
+        conversation_id: conversationId,  // Sync endpoint uses conversation_id
         thread_id: conversationId,  // Also send as thread_id for compatibility
         message: textToSend,
       };
@@ -984,6 +1109,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
+          "Accept": useSSE ? "text/event-stream" : "application/json",
           "Authorization": token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify(requestData),
@@ -995,130 +1121,143 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
       }
 
-      // Handle non-streaming response
-      const result = await response.json();
-      console.log('[DEBUG] Non-streaming response received at:', new Date().toISOString());
-      console.log('[DEBUG] Response content:', result.response?.substring(0, 100) || result.message?.substring(0, 100) || 'No content');
-      
-      // Set the conversation ID if returned
-      if (result.conversation_id) {
-        const newConvId = result.conversation_id;
-        console.log('[DEBUG] Setting activeConv to:', newConvId);
-        setActiveConv(newConvId);
+      // Handle async endpoint response
+      if (useAsync) {
+        const result = await response.json();
+        console.log('[DEBUG] Async response received:', result);
         
-        // If this is a new conversation, notify parent with delay to allow backend to save
-        // TEMPORARY: Disable auto-navigation for debugging
-        const DISABLE_AUTO_NAVIGATION = true;
-        if (onNewConversation && !convId && !DISABLE_AUTO_NAVIGATION) {
-          console.log('[DEBUG] Scheduling navigation to new conversation:', newConvId);
-          setTimeout(() => {
-            onNewConversation(newConvId);
-          }, 500);
-        } else {
-          console.log('[DEBUG] Auto-navigation disabled for debugging');
+        // Start polling for task completion
+        if (result.task_id) {
+          await pollAsyncTask(result.task_id, result.conversation_id);
         }
-      }
-      
-      // Add the assistant message with a truly unique ID
-      const uniqueId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const assistantMessage = {
-        id: uniqueId,
-        role: "assistant",
-        content: result.response || result.message || result.content || "",
-        timestamp: new Date().toISOString(),
-        agent: result.agent || "orchestrator"
-      };
-      
-      // Clear the streaming message state AND ref FIRST to prevent duplicates
-      setStreamingMessage(null);
-      streamingMessageRef.current = null; // Important: clear the ref too
-      
-      // Then add the message to the list (check for duplicates first)
-      console.log('[DEBUG] About to add message. Current messages count:', messages.length);
-      console.log('[DEBUG] Last finalized content:', lastFinalizedContentRef.current);
-      
-      // Check if we already finalized this content
-      const normalizedContent = (assistantMessage.content || '').trim();
-      if (!debugNoDedup && lastFinalizedContentRef.current === normalizedContent) {
-        console.log('[DEBUG] BLOCKING DUPLICATE - Already finalized this exact content');
-        setIsSending(false);
-        return; // Don't add the message
-      }
-      
-      // Use a unique message ID to prevent duplicates
-      const messageId = assistantMessage.id;
-      
-      // CRITICAL FIX: Use flushSync to ensure state updates happen synchronously
-      // This prevents React StrictMode from running the function twice with the same state
-      
-      // Check if message ID is already processed
-      if (!debugNoDedup && messageIdsRef.current.has(messageId)) {
-        console.log('[DEBUG] Message ID already processed, skipping:', messageId);
         return;
       }
-      
-      // Add to set immediately
-      messageIdsRef.current.add(messageId);
-      console.log('[DEBUG] Added message ID to tracking set:', messageId);
-      
-      // Mark content as finalized
-      lastFinalizedContentRef.current = normalizedContent;
-      
-      // Use flushSync to force synchronous state update
-      // This ensures the first invocation completes before the second one runs
-      try {
-        flushSync(() => {
+
+      // Non-streaming path (legacy)
+      if (!useSSE) {
+        const result = await response.json();
+        console.log('[DEBUG] Non-streaming response received at:', new Date().toISOString());
+        console.log('[DEBUG] Response content:', result.response?.substring(0, 100) || result.message?.substring(0, 100) || 'No content');
+        
+        // Set the conversation ID if returned
+        if (result.conversation_id) {
+          const newConvId = result.conversation_id;
+          console.log('[DEBUG] Setting activeConv to:', newConvId);
+          setActiveConv(newConvId);
+          
+          // If this is a new conversation, notify parent with delay to allow backend to save
+          // TEMPORARY: Disable auto-navigation for debugging
+          const DISABLE_AUTO_NAVIGATION = true;
+          if (onNewConversation && !convId && !DISABLE_AUTO_NAVIGATION) {
+            console.log('[DEBUG] Scheduling navigation to new conversation:', newConvId);
+            setTimeout(() => {
+              onNewConversation(newConvId);
+            }, 500);
+          } else {
+            console.log('[DEBUG] Auto-navigation disabled for debugging');
+          }
+        }
+        
+        // Add the assistant message with a truly unique ID
+        const uniqueId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const assistantMessage = {
+          id: uniqueId,
+          role: "assistant",
+          content: result.response || result.message || result.content || "",
+          timestamp: new Date().toISOString(),
+          agent: result.agent || "orchestrator"
+        };
+        
+        // Clear the streaming message state AND ref FIRST to prevent duplicates
+        setStreamingMessage(null);
+        streamingMessageRef.current = null; // Important: clear the ref too
+        
+        // Then add the message to the list (check for duplicates first)
+        console.log('[DEBUG] About to add message. Current messages count:', messages.length);
+        console.log('[DEBUG] Last finalized content:', lastFinalizedContentRef.current);
+        
+        // Check if we already finalized this content
+        const normalizedContent = (assistantMessage.content || '').trim();
+        if (!debugNoDedup && lastFinalizedContentRef.current === normalizedContent) {
+          console.log('[DEBUG] BLOCKING DUPLICATE - Already finalized this exact content');
+          setIsSending(false);
+          return; // Don't add the message
+        }
+        
+        // Use a unique message ID to prevent duplicates
+        const messageId = assistantMessage.id;
+        
+        // CRITICAL FIX: Use flushSync to ensure state updates happen synchronously
+        // This prevents React StrictMode from running the function twice with the same state
+        
+        // Check if message ID is already processed
+        if (!debugNoDedup && messageIdsRef.current.has(messageId)) {
+          console.log('[DEBUG] Message ID already processed, skipping:', messageId);
+          return;
+        }
+        
+        // Add to set immediately
+        messageIdsRef.current.add(messageId);
+        console.log('[DEBUG] Added message ID to tracking set:', messageId);
+        
+        // Mark content as finalized
+        lastFinalizedContentRef.current = normalizedContent;
+        
+        // Use flushSync to force synchronous state update
+        // This ensures the first invocation completes before the second one runs
+        try {
+          flushSync(() => {
+            setMessages(prev => {
+              console.log('[DEBUG] Inside setMessages. Prev length:', prev.length, 'MessageID:', messageId);
+              
+              // Final safety check inside setMessages
+              const idExists = prev.some(msg => msg.id === messageId);
+              if (!debugNoDedup && idExists) {
+                console.log('[DEBUG] Message already in state, skipping');
+                return prev;
+              }
+              
+              const contentExists = prev.some(msg => 
+                msg.role === 'assistant' && 
+                (msg.content || '').trim() === normalizedContent
+              );
+              if (!debugNoDedup && contentExists) {
+                console.log('[DEBUG] Duplicate content detected, skipping');
+                return prev;
+              }
+              
+              console.log('[DEBUG] Adding assistant message with ID:', messageId);
+              return [...prev, assistantMessage];
+            });
+          });
+        } catch (e) {
+          // If flushSync fails (not available or other issue), fall back to regular setState
+          console.log('[DEBUG] flushSync failed, using regular setState');
           setMessages(prev => {
-            console.log('[DEBUG] Inside setMessages. Prev length:', prev.length, 'MessageID:', messageId);
-            
-            // Final safety check inside setMessages
             const idExists = prev.some(msg => msg.id === messageId);
-            if (!debugNoDedup && idExists) {
-              console.log('[DEBUG] Message already in state, skipping');
-              return prev;
-            }
+            if (!debugNoDedup && idExists) return prev;
             
             const contentExists = prev.some(msg => 
               msg.role === 'assistant' && 
               (msg.content || '').trim() === normalizedContent
             );
-            if (!debugNoDedup && contentExists) {
-              console.log('[DEBUG] Duplicate content detected, skipping');
-              return prev;
-            }
+            if (!debugNoDedup && contentExists) return prev;
             
-            console.log('[DEBUG] Adding assistant message with ID:', messageId);
             return [...prev, assistantMessage];
           });
-        });
-      } catch (e) {
-        // If flushSync fails (not available or other issue), fall back to regular setState
-        console.log('[DEBUG] flushSync failed, using regular setState');
-        setMessages(prev => {
-          const idExists = prev.some(msg => msg.id === messageId);
-          if (!debugNoDedup && idExists) return prev;
-          
-          const contentExists = prev.some(msg => 
-            msg.role === 'assistant' && 
-            (msg.content || '').trim() === normalizedContent
-          );
-          if (!debugNoDedup && contentExists) return prev;
-          
-          return [...prev, assistantMessage];
-        });
+        }
+        
+        setIsSending(false);
+        
+        // Clear all status indicators
+        setSynthesizerStatus("");
+        setAgentProcessingStatus("");
+        setPlannerStatus("");
+        setDispatcherStatus("");
+        setToolCallStatus("");
+        
+        return; // End non-streaming path
       }
-      
-      setIsSending(false);
-      
-      // Clear all status indicators
-      setSynthesizerStatus("");
-      setAgentProcessingStatus("");
-      setPlannerStatus("");
-      setDispatcherStatus("");
-      setToolCallStatus("");
-      
-      // STREAMING CODE REMOVED - The code below is for streaming which we're not using
-      return;
       
       const reader = response.body.getReader();
       readerRef.current = reader;

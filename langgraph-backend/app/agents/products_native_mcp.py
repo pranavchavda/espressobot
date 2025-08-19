@@ -157,6 +157,44 @@ Always provide clear, formatted responses with relevant product information."""
         message_content = last_message.content.lower()
         return any(keyword in message_content for keyword in keywords)
     
+    async def process_async(self, message: str) -> Dict[str, Any]:
+        """
+        Process a message asynchronously for the async orchestrator
+        """
+        try:
+            # Create a state dict with the message
+            state = {
+                "messages": [HumanMessage(content=message)]
+            }
+            
+            # Call the agent
+            result_state = await self(state)
+            
+            # Extract the response from the last AI message
+            messages = result_state.get("messages", [])
+            response_content = ""
+            
+            # Find the last AI message
+            for msg in reversed(messages):
+                if isinstance(msg, AIMessage):
+                    response_content = msg.content
+                    break
+            
+            return {
+                "content": response_content,
+                "agent": self.name,
+                "success": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in {self.__class__.__name__}.process_async: {e}")
+            return {
+                "content": f"Error in {self.name} agent: {str(e)}",
+                "agent": self.name,
+                "success": False,
+                "error": str(e)
+            }
+    
     async def cleanup(self):
         """Clean up MCP connection"""
         if self.toolkit:

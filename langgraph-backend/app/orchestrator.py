@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langsmith.run_helpers import traceable
 import asyncpg
 from app.context_manager.compressed_context_simple import CompressedContextManager, ExtractedContext
+from app.db.connection_pool import get_database_pool
 
 logger = logging.getLogger(__name__)
 # Set logging level to DEBUG for testing
@@ -738,8 +739,8 @@ Response:"""
             
         try:
             logger.debug(f"Connecting to database...")
-            conn = await asyncpg.connect(self.database_url)
-            try:
+            db_pool = get_database_pool()
+            async with db_pool.acquire() as conn:
                 # Check if this is a new conversation (no existing title)
                 existing = await conn.fetchrow(
                     "SELECT title FROM conversation_metadata WHERE thread_id = $1",
@@ -789,8 +790,6 @@ Response:"""
                         title
                     )
                 logger.info(f"✅ Successfully saved conversation {thread_id} to database")
-            finally:
-                await conn.close()
                 logger.debug(f"Database connection closed")
         except Exception as e:
             logger.error(f"❌ Failed to save conversation to database: {e}", exc_info=True)
@@ -801,8 +800,8 @@ Response:"""
             return
             
         try:
-            conn = await asyncpg.connect(self.database_url)
-            try:
+            db_pool = get_database_pool()
+            async with db_pool.acquire() as conn:
                 # Create messages table if it doesn't exist
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS progressive_messages (
@@ -831,8 +830,6 @@ Response:"""
                 
                 logger.info(f"✅ Saved messages for thread {thread_id}")
                 
-            finally:
-                await conn.close()
         except Exception as e:
             logger.error(f"Failed to save messages: {e}")
     
@@ -842,8 +839,8 @@ Response:"""
             return []
             
         try:
-            conn = await asyncpg.connect(self.database_url)
-            try:
+            db_pool = get_database_pool()
+            async with db_pool.acquire() as conn:
                 rows = await conn.fetch("""
                     SELECT role, content, created_at 
                     FROM progressive_messages 
@@ -867,8 +864,6 @@ Response:"""
                 
                 return messages
                 
-            finally:
-                await conn.close()
         except Exception as e:
             logger.error(f"Failed to load messages: {e}")
             return []

@@ -30,6 +30,7 @@ except ImportError:
     Credentials = None
 
 import asyncpg
+from app.db.connection_pool import get_database_pool
 import aiosqlite
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,8 @@ async def get_user_google_credentials(user_id: int) -> Optional['Credentials']:
             if database_url.startswith("postgresql+asyncpg://"):
                 database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
             
-            conn = await asyncpg.connect(database_url)
-            try:
+            db_pool = get_database_pool()
+            async with db_pool.acquire() as conn:
                 row = await conn.fetchrow(
                     "SELECT google_access_token, google_refresh_token, google_token_expiry FROM users WHERE id = $1",
                     user_id
@@ -140,8 +141,6 @@ async def get_user_google_credentials(user_id: int) -> Optional['Credentials']:
                         return None
                 
                 return credentials
-            finally:
-                await conn.close()
                 
     except Exception as e:
         logger.error(f"Failed to get Google credentials for user {user_id}: {e}")

@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta
 import os
 import asyncpg
+from app.db.connection_pool import get_database_pool
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -120,9 +121,8 @@ async def store_tokens(
         if database_url.startswith("postgresql://"):
             database_url = database_url.replace("postgresql://", "postgresql+asyncpg://").replace("+asyncpg://", "://")
         
-        conn = await asyncpg.connect(database_url)
-        
-        try:
+        db_pool = get_database_pool()
+        async with db_pool.acquire() as conn:
             # Validate user exists
             user = await conn.fetchrow(
                 "SELECT id, email FROM users WHERE id = $1",
@@ -149,8 +149,6 @@ async def store_tokens(
                 request.user_id
             )
             logger.info(f"Updated database tokens for user {request.user_id}")
-        finally:
-            await conn.close()
         
         # Store in Redis cache for fast access
         cache_key = await store_tokens_in_cache(
@@ -206,9 +204,8 @@ async def get_tokens(
         if database_url.startswith("postgresql://"):
             database_url = database_url.replace("postgresql://", "postgresql+asyncpg://").replace("+asyncpg://", "://")
         
-        conn = await asyncpg.connect(database_url)
-        
-        try:
+        db_pool = get_database_pool()
+        async with db_pool.acquire() as conn:
             user = await conn.fetchrow(
                 "SELECT google_access_token, google_refresh_token, google_token_expiry FROM users WHERE id = $1",
                 user_id
@@ -237,8 +234,6 @@ async def get_tokens(
                     "scopes": []  # Scopes not stored in current database schema
                 }
             }
-        finally:
-            await conn.close()
         
     except HTTPException:
         raise
@@ -270,9 +265,8 @@ async def revoke_tokens(
         if database_url.startswith("postgresql://"):
             database_url = database_url.replace("postgresql://", "postgresql+asyncpg://").replace("+asyncpg://", "://")
         
-        conn = await asyncpg.connect(database_url)
-        
-        try:
+        db_pool = get_database_pool()
+        async with db_pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE users 
@@ -284,8 +278,6 @@ async def revoke_tokens(
                 user_id
             )
             logger.info(f"Cleared database tokens for user {user_id}")
-        finally:
-            await conn.close()
         
         return AuthProxyResponse(
             success=True,

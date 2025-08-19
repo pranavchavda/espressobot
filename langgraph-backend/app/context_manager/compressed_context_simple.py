@@ -323,7 +323,23 @@ class CompressedContextManager:
         """Store an extraction in the context"""
         ext_class = extraction.extraction_class
         ext_text = extraction.extraction_text
-        attrs = extraction.attributes or {}
+        
+        # Safely handle attributes - ensure it's a dict or None
+        attrs = extraction.attributes
+        if attrs is not None and not isinstance(attrs, dict):
+            logger.warning(f"Invalid attributes type {type(attrs)} for extraction, converting to dict")
+            try:
+                # Try to convert to dict if it's a string (might be JSON)
+                if isinstance(attrs, str):
+                    import json
+                    attrs = json.loads(attrs)
+                else:
+                    # Convert other types to string representation
+                    attrs = {"value": str(attrs)}
+            except:
+                # Fallback to empty dict
+                attrs = {}
+        attrs = attrs or {}
         
         # Track extraction class
         if ext_class not in context.extraction_classes:

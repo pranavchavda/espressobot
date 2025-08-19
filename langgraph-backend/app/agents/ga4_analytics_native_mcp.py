@@ -16,6 +16,7 @@ import json
 import aiohttp
 import asyncpg
 import aiosqlite
+from app.db.connection_pool import get_database_pool
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +70,8 @@ async def get_user_ga4_credentials(user_id: int) -> tuple[Optional[str], Optiona
             if database_url.startswith("postgresql+asyncpg://"):
                 database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
             
-            conn = await asyncpg.connect(database_url)
-            try:
+            db_pool = get_database_pool()
+            async with db_pool.acquire() as conn:
                 row = await conn.fetchrow(
                     "SELECT google_access_token, google_refresh_token, google_token_expiry, ga4_property_id FROM users WHERE id = $1",
                     user_id
@@ -95,8 +96,6 @@ async def get_user_ga4_credentials(user_id: int) -> tuple[Optional[str], Optiona
                         return None, None
                 
                 return access_token, property_id
-            finally:
-                await conn.close()
                 
     except Exception as e:
         logger.error(f"Failed to get GA4 credentials for user {user_id}: {e}")
@@ -978,6 +977,44 @@ Always provide clear, formatted responses with relevant analytics insights and a
         
         message_content = last_message.content.lower()
         return any(keyword in message_content for keyword in keywords)
+    
+    async def process_async(self, message: str) -> Dict[str, Any]:
+        """
+        Process a message asynchronously for the async orchestrator
+        """
+        try:
+            # Create a state dict with the message
+            state = {
+                "messages": [HumanMessage(content=message)]
+            }
+            
+            # Call the agent
+            result_state = await self(state)
+            
+            # Extract the response from the last AI message
+            messages = result_state.get("messages", [])
+            response_content = ""
+            
+            # Find the last AI message
+            for msg in reversed(messages):
+                if isinstance(msg, AIMessage):
+                    response_content = msg.content
+                    break
+            
+            return {
+                "content": response_content,
+                "agent": self.name,
+                "success": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in {self.__class__.__name__}.process_async: {e}")
+            return {
+                "content": f"Error in {self.name} agent: {str(e)}",
+                "agent": self.name,
+                "success": False,
+                "error": str(e)
+            }
     
     async def cleanup(self):
         """Clean up resources"""

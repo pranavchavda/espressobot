@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
 
-from .simple_db_pool import get_db_connection
+from app.db.connection_pool import get_database_pool
 from .embedding_service import get_embedding_service
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class SimpleMemoryManager:
         if hasattr(self, '_initialized'):
             return
             
-        self.db = get_db_connection()
+        self.db = get_database_pool()
         self.embedding_service = get_embedding_service()
         
         # Performance tracking

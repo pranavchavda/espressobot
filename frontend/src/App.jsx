@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { SidebarLayout } from "@common/sidebar-layout";
 import { Button } from "@common/button";
 import StreamingChatPage from "./features/chat/StreamingChatPage";
+import AsyncStreamingChatPage from "./features/chat/AsyncStreamingChatPage";
 import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
 import RestrictedPage from './pages/RestrictedPage';
@@ -12,6 +13,7 @@ import TasksPage from './pages/TasksPage';
 import PromptLibraryManager from './features/prompt-library/PromptLibraryManager';
 import DashboardPage from './pages/DashboardPage';
 import HomePage from './pages/HomePage';
+import AsyncDemoPage from './pages/AsyncDemoPage';
 import PriceMonitorLayout from './pages/price-monitor/PriceMonitorLayout';
 import AgentManagementPage from './pages/AgentManagementPage';
 import MemoryManagementPage from './pages/MemoryManagementPage';
@@ -41,6 +43,30 @@ function ChatWrapper({ onTopicUpdate, onNewConversation }) {
     console.log('[ChatWrapper] New conversation created:', newConvId);
     // Navigate to the new conversation's route
     navigate(`/chat/${newConvId}`);
+    if (onNewConversation) {
+      onNewConversation(newConvId);
+    }
+  };
+  
+  return (
+    <StreamingChatPage
+      convId={conversationId}
+      onTopicUpdate={onTopicUpdate}
+      onNewConversation={handleNewConversation}
+    />
+  );
+}
+
+// Sync chat wrapper for legacy support
+function SyncChatWrapper({ onTopicUpdate, onNewConversation }) {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  
+  // Handle new conversation creation
+  const handleNewConversation = (newConvId) => {
+    console.log('[SyncChatWrapper] New conversation created:', newConvId);
+    // Navigate to the new conversation's route
+    navigate(`/chat-sync/${newConvId}`);
     if (onNewConversation) {
       onNewConversation(newConvId);
     }
@@ -447,6 +473,39 @@ function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/async-demo" element={<AsyncDemoPage />} />
+        {/* Legacy sync chat for fallback */}
+        <Route path="/chat-sync" element={
+          <>
+            <StreamingChatPage
+              convId={null}
+              onTopicUpdate={(conversationId, topicTitle, topicDetails) => {
+                fetchConversations();
+              }}
+              onNewConversation={(newConvId) => {
+                console.log('[App] New conversation created:', newConvId);
+                if (newConvId) {
+                  navigate(`/chat-sync/${newConvId}`);
+                  fetchConversations();
+                }
+              }}
+            />
+            <PWAInstallPrompt />
+          </>
+        } />
+        <Route path="/chat-sync/:conversationId" element={
+          <>
+            <SyncChatWrapper
+              onTopicUpdate={(conversationId, topicTitle, topicDetails) => {
+                fetchConversations();
+              }}
+              onNewConversation={(newConvId) => {
+                fetchConversations();
+              }}
+            />
+            <PWAInstallPrompt />
+          </>
+        } />
         <Route path="/price-monitor/*" element={<PriceMonitorLayout />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/prompt-library" element={<PromptLibraryManager />} />

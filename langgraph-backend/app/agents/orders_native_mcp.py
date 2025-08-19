@@ -173,6 +173,44 @@ Always provide clear, formatted reports with actionable insights and performance
             ))
             return state
     
+    async def process_async(self, message: str) -> Dict[str, Any]:
+        """
+        Process a message asynchronously for the async orchestrator
+        """
+        try:
+            # Create a state dict with the message
+            state = {
+                "messages": [HumanMessage(content=message)]
+            }
+            
+            # Call the agent
+            result_state = await self(state)
+            
+            # Extract the response from the last AI message
+            messages = result_state.get("messages", [])
+            response_content = ""
+            
+            # Find the last AI message
+            for msg in reversed(messages):
+                if isinstance(msg, AIMessage):
+                    response_content = msg.content
+                    break
+            
+            return {
+                "content": response_content,
+                "agent": self.name,
+                "success": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in OrdersAgentNativeMCP.process_async: {e}")
+            return {
+                "content": f"Error in {self.name} agent: {str(e)}",
+                "agent": self.name,
+                "success": False,
+                "error": str(e)
+            }
+    
     def should_handle(self, state: Dict[str, Any]) -> bool:
         """Determine if this agent should handle the request"""
         last_message = state.get("messages", [])[-1] if state.get("messages") else None

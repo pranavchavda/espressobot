@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 from dotenv import load_dotenv
+from app.db.connection_pool import get_database_pool
 
 load_dotenv()
 
@@ -13,8 +14,25 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting EspressoBot LangGraph Backend...")
+    
+    # Initialize database connection pool
+    db_pool = get_database_pool()
+    try:
+        await db_pool.initialize()
+        logger.info("Database connection pool initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database pool: {e}")
+        raise
+    
     yield
+    
+    # Clean shutdown - close database pool
     logger.info("Shutting down EspressoBot LangGraph Backend...")
+    try:
+        await db_pool.close()
+        logger.info("Database connection pool closed successfully")
+    except Exception as e:
+        logger.warning(f"Error closing database pool: {e}")
 
 app = FastAPI(
     title="EspressoBot LangGraph Backend",
@@ -44,10 +62,16 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad
+from app.api import chat, chat_async, websocket, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad
 
 # Main chat endpoint using the orchestrator
 app.include_router(chat.router, prefix="/api/agent")
+
+# Async chat endpoints with background processing
+app.include_router(chat_async.router, prefix="/api/agent")
+
+# WebSocket endpoints for real-time updates
+app.include_router(websocket.router, prefix="/api")
 
 # Add logs streaming for live console
 app.include_router(logs_stream.router, prefix="/api/agent")

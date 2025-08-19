@@ -10,6 +10,7 @@ import logging
 import uuid
 import json
 import time
+import asyncio
 
 from app.orchestrator import get_orchestrator
 
@@ -137,6 +138,70 @@ async def stream_message(chat_message: ChatMessage):
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no"  # Disable Nginx buffering
+        }
+    )
+
+@router.post("/sse")
+async def sse_message(chat_message: ChatMessage):
+    """
+    SSE endpoint that emits well-formed Server-Sent Events for chat streaming.
+    Events:
+      - conversation_id: { conv_id, thread_id }
+      - start: {}
+      - agent_message: { agent, tokens: [token] }
+      - agent_complete: { message, agent }
+      - done: {}
+      - error: { error }
+    """
+    # Determine thread id
+    thread_id = chat_message.conv_id or chat_message.thread_id or chat_message.conversation_id
+    if not thread_id:
+        thread_id = f"chat-{int(time.time())}"
+        logger.info(f"[SSE] Generated new thread_id: {thread_id}")
+    else:
+        logger.info(f"[SSE] Using thread_id: {thread_id}")
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        try:
+            # Immediately send conversation id so client can bind UI state
+            yield f"event: conversation_id\n" \
+                  f"data: {json.dumps({'conv_id': thread_id, 'thread_id': thread_id})}\n\n"
+
+            # Optional start signal
+            yield "event: start\ndata: {}\n\n"
+
+            orchestrator = await get_orchestrator()
+
+            all_tokens = []
+
+            # Stream token-by-token as agent_message events with tokens array
+            async for token in orchestrator.orchestrate(
+                message=chat_message.message,
+                thread_id=thread_id,
+                user_id=chat_message.user_id
+            ):
+                all_tokens.append(token)
+                payload = {"agent": "orchestrator", "tokens": [token]}
+                yield f"event: agent_message\ndata: {json.dumps(payload)}\n\n"
+
+            final_message = "".join(all_tokens)
+
+            # Signal completion with final message
+            yield f"event: agent_complete\ndata: {json.dumps({'message': final_message, 'agent': 'orchestrator'})}\n\n"
+
+            # Final done event
+            yield "event: done\ndata: {}\n\n"
+
+        except Exception as e:
+            logger.error(f"[SSE] Error in streaming: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
         }
     )
 
