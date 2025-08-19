@@ -1,6 +1,7 @@
 """
-Async Background Task Orchestrator
-Implements: User → Immediate Response → Background Processing → WebSocket Updates
+Async Background Task Manager
+Wraps the main orchestrator with background task management:
+User → Immediate Task ID → Background Processing → WebSocket Progress Updates
 """
 import asyncio
 import uuid
@@ -32,11 +33,15 @@ class TaskProgress:
     updated_at: datetime = field(default_factory=datetime.utcnow)
     agent_results: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+    thread_id: Optional[str] = None
 
 class AsyncOrchestrator:
     """
-    Async orchestrator that processes requests in background tasks
-    and provides real-time updates via WebSockets
+    Background task manager that wraps the main orchestrator with:
+    - Async task execution and progress tracking
+    - WebSocket broadcasting for real-time updates
+    - Task cancellation and interruption support
+    - Memory processing in background
     """
     
     def __init__(self):
@@ -44,17 +49,9 @@ class AsyncOrchestrator:
         self.websockets: Dict[str, List[WebSocket]] = {}  # thread_id -> websockets
         self.background_tasks: Dict[str, asyncio.Task] = {}
         
-        # Import agents lazily to avoid circular imports
-        self._agents = None
+        # Import memory manager lazily to avoid circular imports
         self._memory_manager = None
         
-    @property
-    def agents(self):
-        if self._agents is None:
-            from app.agents.registry import get_all_agents
-            self._agents = get_all_agents()
-        return self._agents
-    
     @property 
     def memory_manager(self):
         if self._memory_manager is None:
@@ -65,16 +62,21 @@ class AsyncOrchestrator:
     async def start_task(self, message: str, thread_id: str = None, user_id: str = "1") -> str:
         """
         Start a background task and return task ID immediately
+        Auto-cancels any existing running tasks for the same thread
         """
         task_id = str(uuid.uuid4())
         if not thread_id:
             thread_id = f"chat-{task_id}"
+        
+        # Cancel any existing running tasks for this thread
+        await self._cancel_thread_tasks(thread_id, reason="New task started")
             
         # Create task progress tracker
         task_progress = TaskProgress(
             task_id=task_id,
             status=TaskStatus.PENDING,
-            message=f"Starting to process: {message[:50]}..."
+            message=f"Starting to process: {message[:50]}...",
+            thread_id=thread_id  # Store thread_id for cancellation
         )
         self.tasks[task_id] = task_progress
         
@@ -94,14 +96,14 @@ class AsyncOrchestrator:
         try:
             task_progress = self.tasks[task_id]
             task_progress.status = TaskStatus.RUNNING
-            task_progress.message = "Analyzing request and planning agents..."
+            task_progress.message = "Starting main orchestrator..."
             task_progress.updated_at = datetime.utcnow()
             
             await self._broadcast_update(thread_id, task_progress)
             
-            # Use the main orchestrator for processing (it handles agent routing internally)
+            # Use the main orchestrator for processing (it handles all routing and agent calls)
             task_progress.progress = 0.2
-            task_progress.message = "Processing with orchestrator..."
+            task_progress.message = "Processing with main orchestrator..."
             await self._broadcast_update(thread_id, task_progress)
             
             # Import and use the main orchestrator
@@ -109,13 +111,31 @@ class AsyncOrchestrator:
             
             # The orchestrator returns a generator, so we need to consume it
             response_parts = []
-            async for token in orchestrator.orchestrate(message, thread_id, user_id):
-                response_parts.append(token)
-                # Update progress as we get tokens
-                current_progress = 0.2 + (len(response_parts) / 100) * 0.7  # Progress from 0.2 to 0.9
-                task_progress.progress = min(current_progress, 0.9)
-                if len(response_parts) % 10 == 0:  # Update every 10 tokens to avoid spam
-                    await self._broadcast_update(thread_id, task_progress)
+            try:
+                async for token in orchestrator.orchestrate(message, thread_id, user_id):
+                    # Check if task was cancelled during processing
+                    if task_progress.status == TaskStatus.CANCELLED:
+                        logger.info(f"Task {task_id} was cancelled during orchestrator streaming")
+                        # Return partial response if we have any
+                        task_progress.response = "".join(response_parts).strip() if response_parts else ""
+                        task_progress.message = "Task was interrupted"
+                        await self._broadcast_update(thread_id, task_progress)
+                        return
+                    
+                    response_parts.append(token)
+                    # Update progress as we get tokens
+                    current_progress = 0.2 + (len(response_parts) / 100) * 0.7  # Progress from 0.2 to 0.9
+                    task_progress.progress = min(current_progress, 0.9)
+                    if len(response_parts) % 10 == 0:  # Update every 10 tokens to avoid spam
+                        await self._broadcast_update(thread_id, task_progress)
+            except asyncio.CancelledError:
+                logger.info(f"Task {task_id} was cancelled via asyncio.CancelledError")
+                # Save partial response
+                task_progress.response = "".join(response_parts).strip() if response_parts else ""
+                task_progress.message = "Task was interrupted"
+                task_progress.status = TaskStatus.CANCELLED
+                await self._broadcast_update(thread_id, task_progress)
+                raise  # Re-raise to properly handle cancellation
             
             final_response = "".join(response_parts).strip()
             
@@ -146,135 +166,6 @@ class AsyncOrchestrator:
             # Clean up background task reference
             if task_id in self.background_tasks:
                 del self.background_tasks[task_id]
-    
-    async def _plan_agents(self, message: str) -> List[str]:
-        """
-        Use LLM intelligence to determine which agents to use
-        """
-        from app.config.agent_model_manager import agent_model_manager
-        from langchain_core.messages import SystemMessage, HumanMessage
-        
-        # Get a fast model for routing decisions
-        routing_model = agent_model_manager.get_model_for_agent("utility")  # Use any available model
-        
-        routing_prompt = """You are an intelligent agent router for EspressoBot, an e-commerce management system.
-
-Based on the user's message, determine which specialized agents should handle the request. Return ONLY a JSON array of agent names.
-
-Available agents:
-- "orders": Sales analytics, revenue reports, order tracking, daily sales
-- "products": Product search, details, inventory status, stock levels  
-- "pricing": Price updates, discounts, MAP sales, cost management
-- "ga4_analytics": Website traffic, user behavior, GA4 analytics
-- "utility": Web scraping, research, general utilities, calculations
-
-Examples:
-User: "check today sales" → ["orders"]
-User: "what's the price of espresso machine" → ["products"]
-User: "update price to $199" → ["pricing"] 
-User: "website traffic today" → ["ga4_analytics"]
-User: "sales and traffic today" → ["orders", "ga4_analytics"]
-User: "scrape competitor pricing" → ["utility"]
-
-Return only the JSON array, nothing else."""
-
-        try:
-            messages = [
-                SystemMessage(content=routing_prompt),
-                HumanMessage(content=f"User message: {message}")
-            ]
-            
-            response = await routing_model.ainvoke(messages)
-            
-            # Parse the JSON response
-            import json
-            agents_to_call = json.loads(response.content.strip())
-            
-            # Validate agent names
-            valid_agents = []
-            for agent in agents_to_call:
-                if agent in self.agents:
-                    valid_agents.append(agent)
-            
-            # Fallback to utility if no valid agents
-            if not valid_agents:
-                valid_agents = ['utility']
-                
-            logger.info(f"LLM routing selected agents: {valid_agents} for message: {message[:50]}...")
-            return valid_agents
-            
-        except Exception as e:
-            logger.error(f"LLM routing failed, falling back to utility: {e}")
-            return ['utility']
-    
-    async def _execute_agents_parallel(self, agent_names: List[str], message: str, task_progress: TaskProgress, thread_id: str) -> Dict[str, Any]:
-        """
-        Execute agents in parallel for maximum speed
-        """
-        agent_results = {}
-        
-        # Create agent tasks
-        agent_tasks = []
-        for agent_name in agent_names:
-            if agent_name in self.agents:
-                agent_task = asyncio.create_task(
-                    self._call_agent_async(agent_name, message, task_progress, thread_id)
-                )
-                agent_tasks.append((agent_name, agent_task))
-        
-        # Wait for all agents to complete
-        for agent_name, agent_task in agent_tasks:
-            try:
-                result = await agent_task
-                agent_results[agent_name] = result
-                logger.info(f"Agent {agent_name} completed successfully")
-            except Exception as e:
-                logger.error(f"Agent {agent_name} failed: {e}")
-                agent_results[agent_name] = {"error": str(e)}
-        
-        return agent_results
-    
-    async def _call_agent_async(self, agent_name: str, message: str, task_progress: TaskProgress, thread_id: str) -> Dict[str, Any]:
-        """
-        Call a single agent asynchronously
-        """
-        agent = self.agents[agent_name]
-        
-        # Update progress
-        task_progress.message = f"Calling {agent_name} agent..."
-        await self._broadcast_update(thread_id, task_progress)
-        
-        # Call agent
-        result = await agent.process_async(message)
-        
-        # Update progress
-        task_progress.agent_results[agent_name] = result
-        task_progress.message = f"Completed {agent_name} agent"
-        await self._broadcast_update(thread_id, task_progress)
-        
-        return result
-    
-    async def _synthesize_response(self, message: str, agent_results: Dict[str, Any]) -> str:
-        """
-        Synthesize final response from agent results
-        """
-        if not agent_results:
-            return "I wasn't able to process your request with any agents."
-        
-        # Simple synthesis for now - can be enhanced with LLM
-        response_parts = []
-        
-        for agent_name, result in agent_results.items():
-            if isinstance(result, dict) and "error" not in result:
-                if "content" in result:
-                    response_parts.append(f"**{agent_name.title()} Agent:**\n{result['content']}")
-                elif "response" in result:
-                    response_parts.append(f"**{agent_name.title()} Agent:**\n{result['response']}")
-        
-        if response_parts:
-            return "\n\n".join(response_parts)
-        else:
-            return "I processed your request but didn't get usable results from the agents."
     
     async def _broadcast_update(self, thread_id: str, task_progress: TaskProgress):
         """
@@ -334,6 +225,58 @@ Return only the JSON array, nothing else."""
                     self.tasks[task_id].message = "Task cancelled by user"
                 return True
         return False
+    
+    async def _cancel_thread_tasks(self, thread_id: str, reason: str = "Thread interrupted") -> int:
+        """
+        Cancel all running tasks for a specific thread
+        Returns number of tasks cancelled
+        """
+        cancelled_count = 0
+        
+        # Find all tasks for this thread
+        thread_tasks = []
+        for task_id, task_progress in self.tasks.items():
+            if task_progress.thread_id == thread_id and task_progress.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
+                thread_tasks.append((task_id, task_progress))
+        
+        # Cancel each task
+        for task_id, task_progress in thread_tasks:
+            if await self.cancel_task(task_id):
+                task_progress.message = f"Interrupted: {reason}"
+                task_progress.updated_at = datetime.utcnow()
+                cancelled_count += 1
+                logger.info(f"Cancelled task {task_id} for thread {thread_id}: {reason}")
+        
+        if cancelled_count > 0:
+            logger.info(f"Cancelled {cancelled_count} running tasks for thread {thread_id}")
+        
+        return cancelled_count
+    
+    async def interrupt_thread(self, thread_id: str) -> Dict[str, Any]:
+        """
+        Interrupt all running tasks for a thread and return their partial results
+        """
+        cancelled_count = await self._cancel_thread_tasks(thread_id, "User interrupt")
+        
+        # Collect any partial results from cancelled tasks
+        partial_results = []
+        for task_id, task_progress in self.tasks.items():
+            if (task_progress.thread_id == thread_id and 
+                task_progress.status == TaskStatus.CANCELLED and 
+                (task_progress.agent_results or task_progress.response)):
+                
+                partial_results.append({
+                    "task_id": task_id,
+                    "partial_response": task_progress.response,
+                    "agent_results": task_progress.agent_results,
+                    "progress": task_progress.progress
+                })
+        
+        return {
+            "cancelled_tasks": cancelled_count,
+            "partial_results": partial_results,
+            "message": f"Interrupted {cancelled_count} running task(s)" if cancelled_count > 0 else "No running tasks to interrupt"
+        }
     
     async def add_websocket(self, thread_id: str, websocket: WebSocket):
         """Add WebSocket for real-time updates"""

@@ -831,6 +831,59 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     }
   };
 
+  // Interrupt running tasks in the current conversation
+  const interruptCurrentTasks = async () => {
+    try {
+      const threadId = convId || activeConv;
+      if (!threadId) {
+        console.log('[DEBUG] No thread ID available for interruption');
+        return { cancelled_tasks: 0 };
+      }
+
+      console.log('[DEBUG] Interrupting tasks for thread:', threadId);
+      const response = await fetch(`/api/agent/async/interrupt/${threadId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to interrupt tasks: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('[DEBUG] Interrupt result:', result);
+
+      // If there were partial results, add them to the conversation
+      if (result.partial_results && result.partial_results.length > 0) {
+        for (const partialResult of result.partial_results) {
+          if (partialResult.partial_response) {
+            const interruptedMessage = {
+              id: `interrupted-${Date.now()}`,
+              role: "assistant", 
+              content: `⚠️ **Task Interrupted** (${Math.round(partialResult.progress * 100)}% complete)\n\n${partialResult.partial_response}`,
+              timestamp: new Date().toISOString(),
+              agent: "interrupted",
+              isInterrupted: true
+            };
+            setMessages(prev => [...prev, interruptedMessage]);
+          }
+        }
+      }
+
+      // Clear any streaming message and reset sending state
+      setStreamingMessage(null);
+      setIsSending(false);
+
+      return result;
+    } catch (error) {
+      console.error('[DEBUG] Failed to interrupt tasks:', error);
+      // Still reset the sending state even if interruption failed
+      setStreamingMessage(null);
+      setIsSending(false);
+      return { cancelled_tasks: 0 };
+    }
+  };
+
   // Async task polling function
   const pollAsyncTask = async (taskId, conversationId) => {
     try {
@@ -964,11 +1017,22 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       shouldInject: streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
     });
 
-    // If agent is running, prevent sending (custom orchestrator doesn't support injection)
+    // If agent is running, interrupt it and continue with new message
     if (streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete) {
-      console.log('[DEBUG] Message blocked - agent is still streaming');
-      // Optionally, you could queue the message for later
-      return;
+      console.log('[DEBUG] Agent is running - interrupting before sending new message');
+      const interruptResult = await interruptCurrentTasks();
+      
+      // Add a brief message about the interruption
+      if (interruptResult.cancelled_tasks > 0) {
+        const interruptNotice = {
+          id: `interrupt-notice-${Date.now()}`,
+          role: "system",
+          content: `🛑 Interrupted ${interruptResult.cancelled_tasks} running task(s) to process your new request.`,
+          timestamp: new Date().toISOString(),
+          isInterruptNotice: true
+        };
+        setMessages(prev => [...prev, interruptNotice]);
+      }
     }
 
     if ((!textToSend && !imageAttachment && !fileAttachment) || isSending) return;
@@ -2738,18 +2802,32 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   <FileIcon />
                 </Button>
               </div>
+              {/* Show interrupt button when streaming */}
+              {streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete && (
+                <Button
+                  type="button"
+                  onClick={interruptCurrentTasks}
+                  className="h-9 px-3.5 py-2 flex items-center justify-center self-center my-auto mr-2"
+                  color="orange"
+                  size="sm"
+                  title="Interrupt current task"
+                >
+                  <Square className="h-4 w-4" />
+                  <span className="ml-2 hidden sm:inline">Stop</span>
+                </Button>
+              )}
+              
               <Button
                 type="submit"
                 className="h-9 px-3.5 py-2 flex items-center justify-center self-center my-auto"
                 disabled={
-                  (!input.trim() && !imageAttachment && !fileAttachment) || 
-                  (isSending && !(streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete))
+                  (!input.trim() && !imageAttachment && !fileAttachment) || isSending
                 }
               >
                 <Send className="h-5 w-5" />
                 <span className="ml-2 hidden sm:inline">
                   {streamingMessage && streamingMessage.isStreaming && !streamingMessage.isComplete
-                    ? "Queue"
+                    ? "Interrupt & Send"
                     : "Send"}
                 </span>
               </Button>

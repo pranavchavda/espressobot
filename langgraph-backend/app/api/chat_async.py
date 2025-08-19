@@ -145,6 +145,26 @@ async def get_thread_tasks(thread_id: str):
         logger.error(f"Error getting thread tasks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/async/interrupt/{thread_id}")
+async def interrupt_thread(thread_id: str):
+    """
+    Interrupt all running tasks for a conversation thread
+    Returns any partial results from cancelled tasks
+    """
+    try:
+        orchestrator = await get_async_orchestrator()
+        result = await orchestrator.interrupt_thread(thread_id)
+        
+        return {
+            "thread_id": thread_id,
+            "interrupted": True,
+            **result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error interrupting thread {thread_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/async/test")
 async def test_async_endpoint():
     """

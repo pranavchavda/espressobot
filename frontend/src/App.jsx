@@ -28,6 +28,7 @@ import TopNavDropdown from './components/common/TopNavDropdown';
 import TopBar from './components/common/TopBar';
 import LogDrawer from './components/LogDrawer';
 import { ScratchpadDialog } from './components/scratchpad/ScratchpadDialog';
+import cacheBuster from './utils/cache-buster';
 import SidebarNav from './components/common/SidebarNav';
 import logCapture from './utils/logCapture';
 
@@ -180,6 +181,8 @@ function App() {
             const userData = await res.json();
             console.log('[App] Auth check successful, user data:', userData);
             setUser(userData);
+            // Clear cache on successful login to ensure fresh data
+            cacheBuster.clearCacheOnLogin();
             // Don't auto-select last chat on login - let user start from homepage
             fetchConversations(storedToken, false);
           } else {

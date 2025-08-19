@@ -90,12 +90,12 @@ async def stream_message(chat_message: ChatMessage):
                 "thread_id": thread_id
             }) + "\n"
             
-            # Initial UI message
+            # Initial processing status (temporary, not persisted)
             yield json.dumps({
-                "event": "agent_message",
-                "agent": "Orchestrator",
+                "event": "status",
+                "agent": "Orchestrator", 
                 "message": "Processing your request...",
-                "tokens": []
+                "type": "processing"
             }) + "\n"
             
             # Get the orchestrator
@@ -167,8 +167,9 @@ async def sse_message(chat_message: ChatMessage):
             yield f"event: conversation_id\n" \
                   f"data: {json.dumps({'conv_id': thread_id, 'thread_id': thread_id})}\n\n"
 
-            # Optional start signal
-            yield "event: start\ndata: {}\n\n"
+            # Send initial processing status (not persisted as part of response)
+            yield f"event: status\n" \
+                  f"data: {json.dumps({'message': 'Processing your request...', 'type': 'processing'})}\n\n"
 
             orchestrator = await get_orchestrator()
 

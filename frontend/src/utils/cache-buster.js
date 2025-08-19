@@ -290,6 +290,60 @@ class CacheBuster {
     console.log('[CacheBuster] Manual refresh requested');
     this.forceRefresh();
   }
+
+  // Login-specific cache clearing (preserves auth but clears everything else)
+  clearCacheOnLogin() {
+    console.log('[CacheBuster] Clearing cache on new login...');
+    
+    try {
+      // Backup auth tokens before clearing
+      const authToken = localStorage.getItem('authToken');
+      const userInfo = localStorage.getItem('userInfo');
+      const googleTokens = localStorage.getItem('googleTokens');
+      
+      // Clear most localStorage but preserve auth
+      Object.keys(localStorage).forEach(key => {
+        if (!['authToken', 'userInfo', 'googleTokens'].includes(key)) {
+          localStorage.removeItem(key);
+          console.log('[CacheBuster] Cleared localStorage key:', key);
+        }
+      });
+      
+      // Clear sessionStorage completely
+      const sessionKeys = Object.keys(sessionStorage);
+      sessionStorage.clear();
+      console.log(`[CacheBuster] Cleared ${sessionKeys.length} sessionStorage keys`);
+      
+      // Clear specific cache items that might be stale
+      const cacheItemsToDelete = [
+        'conversations-cache',
+        'user-preferences',
+        'last-selected-chat',
+        'memory-cache',
+        'agent-cache',
+        'model-cache',
+        'settings-cache',
+        'sidebar-state',
+        'ui-preferences'
+      ];
+      
+      cacheItemsToDelete.forEach(key => {
+        if (localStorage.getItem(key)) {
+          localStorage.removeItem(key);
+          console.log('[CacheBuster] Cleared cache item:', key);
+        }
+      });
+      
+      // Set a flag to indicate cache was cleared on this login
+      localStorage.setItem('cache-cleared-on-login', Date.now().toString());
+      
+      console.log('[CacheBuster] Cache cleared successfully on login, auth tokens preserved');
+      return true;
+    } catch (error) {
+      console.error('[CacheBuster] Error clearing cache on login:', error);
+      return false;
+    }
+  }
 }
 
 // Create singleton instance
@@ -308,7 +362,8 @@ cacheBuster.addCacheBustingToRequests();
 window.espressoBotCacheBuster = {
   refresh: () => cacheBuster.manualRefresh(),
   version: () => cacheBuster.getCurrentVersion(),
-  shouldRefresh: () => cacheBuster.shouldRefresh()
+  shouldRefresh: () => cacheBuster.shouldRefresh(),
+  clearOnLogin: () => cacheBuster.clearCacheOnLogin()
 };
 
 export default cacheBuster;

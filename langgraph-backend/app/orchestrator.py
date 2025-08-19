@@ -863,10 +863,19 @@ Response:"""
                     logger.info(f"📚 Loaded {len(messages)} historical messages for thread {thread_id}")
                 
                 return messages
-                
         except Exception as e:
-            logger.error(f"Failed to load messages: {e}")
+            logger.error(f"Error loading historical messages for thread {thread_id}: {e}")
             return []
+    
+    async def _load_messages_async(self, thread_id: str, memory: ConversationMemory):
+        """Load historical messages asynchronously without blocking response"""
+        try:
+            historical_messages = await self._load_messages_from_db(thread_id)
+            if historical_messages:
+                memory.recent_messages = historical_messages[-3:]  # Keep only last 3 for token efficiency
+                logger.info(f"📚 [ASYNC] Restored conversation context with {len(memory.recent_messages)} recent messages")
+        except Exception as e:
+            logger.error(f"Background message loading failed for thread {thread_id}: {e}")
     
     async def _async_post_processing(self, thread_id: str, user_id: str, message: str, 
                                    final_response: str, memory: ConversationMemory,
@@ -979,12 +988,10 @@ Response:"""
         # Get or create memory for this thread
         memory = self._get_memory(thread_id)
         
-        # Load historical messages if this is an existing conversation
+        # Load historical messages if this is an existing conversation (async in background)
         if not memory.recent_messages:
-            historical_messages = await self._load_messages_from_db(thread_id)
-            if historical_messages:
-                memory.recent_messages = historical_messages[-3:]  # Keep only last 3 for token efficiency
-                logger.info(f"📚 Restored conversation context with {len(memory.recent_messages)} recent messages")
+            # Start background task to load messages - don't block the response
+            asyncio.create_task(self._load_messages_async(thread_id, memory))
         
         # Add user message to recent history
         memory.add_recent_message(HumanMessage(content=message))
