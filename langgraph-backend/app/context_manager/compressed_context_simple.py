@@ -126,7 +126,7 @@ class ExtractedContext:
 class CompressedContextManager:
     """Manages compressed context extraction using LangExtract with dynamic extraction"""
     
-    def __init__(self, model_id: str = "gpt-4o-mini", api_key: Optional[str] = None):
+    def __init__(self, model_id: str = "gpt-5-nano", api_key: Optional[str] = None):
         self.model_id = model_id
         self.api_key = api_key
         self.contexts: Dict[str, ExtractedContext] = {}  # thread_id -> context

@@ -1,4 +1,4 @@
-"""Intelligent Prompt Assembly with GPT-4o-mini for context consolidation"""
+"""Intelligent Prompt Assembly with GPT-5 for context consolidation"""
 
 import os
 import logging
@@ -32,7 +32,7 @@ class AssembledPrompt:
     consolidation_applied: bool = False
 
 class PromptAssembler:
-    """Intelligent prompt assembly using GPT-4o-mini for consolidation"""
+    """Intelligent prompt assembly using GPT-5 for consolidation"""
     
     def __init__(self, memory_manager):
         self.memory_manager = memory_manager
@@ -80,7 +80,7 @@ class PromptAssembler:
         
         consolidation_applied = False
         if estimated_tokens > tier_limit:
-            # Apply GPT-4.1-nano consolidation
+            # Apply GPT-5 consolidation
             relevant_memories, prompt_fragments = await self._consolidate_context(
                 relevant_memories, prompt_fragments, user_query, tier_limit
             )

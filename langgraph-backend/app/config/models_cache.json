@@ -1,5 +1,5 @@
 {
-  "timestamp": 1755639523.4406989,
+  "timestamp": 1755661010.9870415,
   "models": [
     {
       "id": "openai/gpt-4o-audio-preview",
@@ -1285,6 +1285,36 @@
       "name": "Claude Opus 3",
       "provider": "anthropic",
       "description": "Anthropic Direct"
+    },
+    {
+      "id": "perplexity/sonar-pro",
+      "name": "Sonar Pro",
+      "provider": "perplexity",
+      "description": "Advanced model for search, reasoning, and long-form content with up-to-date citations. Supports 200k context and is optimized for complex questions and exhaustive research."
+    },
+    {
+      "id": "perplexity/sonar",
+      "name": "Sonar",
+      "provider": "perplexity",
+      "description": "Lightweight, fast, and cost-effective model best for quick answers and straightforward queries. Real-time web search and citations are supported."
+    },
+    {
+      "id": "perplexity/sonar-reasoning-pro",
+      "name": "Sonar Reasoning Pro",
+      "provider": "perplexity",
+      "description": "Premier reasoning model using chain-of-thought (CoT). Designed for complex analyses and multi-step problem solving."
+    },
+    {
+      "id": "perplexity/sonar-reasoning",
+      "name": "Sonar Reasoning",
+      "provider": "perplexity",
+      "description": "Fast real-time model for general reasoning and live web search tasks."
+    },
+    {
+      "id": "perplexity/sonar-deep-research",
+      "name": "Sonar Deep Research",
+      "provider": "perplexity",
+      "description": "Specialized for very deep, comprehensive research queries that require thorough analysis and multi-source synthesis."
     }
   ]
 }

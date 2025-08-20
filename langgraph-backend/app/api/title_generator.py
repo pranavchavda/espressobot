@@ -30,11 +30,11 @@ class TitleGenerator:
                 timeout=30,
                 max_retries=1
             )
-            logger.info("TitleGenerator initialized with OpenAI GPT-4o-mini (fallback)")
+            logger.info("TitleGenerator initialized with OpenAI GPT-4.1-nano (fallback)")
         else:
             # Use OpenRouter
             self.model = ChatOpenAI(
-                model="openai/gpt-4o-mini",  # OpenRouter format
+                model="openai/gpt-4.1-nano",  # OpenRouter format
                 max_completion_tokens=100,
                 api_key=api_key,
                 base_url="https://openrouter.ai/api/v1",
@@ -45,7 +45,7 @@ class TitleGenerator:
                     "X-Title": "EspressoBot"
                 }
             )
-            logger.info("TitleGenerator initialized with OpenRouter GPT-4o-mini")
+            logger.info("TitleGenerator initialized with OpenRouter GPT-4.1-nano")
     
     async def generate_title(self, first_message: str) -> str:
         """Generate a title with emoji prefix from the first message"""

@@ -24,6 +24,7 @@ class Provider(Enum):
     OPENROUTER = "openrouter"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    PERPLEXITY = "perplexity"
 
 class LLMFactory:
     """Factory for creating LLM instances with fallback support"""
@@ -77,6 +78,7 @@ class LLMFactory:
         self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        self.perplexity_key = os.getenv("PERPLEXITY_API_KEY")
         
         # Initialize LangSmith if configured
         self.langsmith_enabled = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
@@ -108,6 +110,9 @@ class LLMFactory:
         if self.anthropic_key and ANTHROPIC_AVAILABLE:
             self.available_providers.append(Provider.ANTHROPIC)
             logger.info("✅ Anthropic API configured")
+        if self.perplexity_key:
+            self.available_providers.append(Provider.PERPLEXITY)
+            logger.info("✅ Perplexity API configured")
         elif self.anthropic_key and not ANTHROPIC_AVAILABLE:
             logger.warning("⚠️ Anthropic API key provided but langchain_anthropic not installed")
     
@@ -358,6 +363,26 @@ class LLMFactory:
                 max_tokens=max_tokens,
                 api_key=self.anthropic_key
             )
+        
+        elif provider == Provider.PERPLEXITY and self.perplexity_key:
+            # Strip provider prefix if present
+            clean_model = model_name.replace("perplexity/", "")
+            # Perplexity exposes an OpenAI-compatible API
+            # Some models (e.g., sonar-deep-research) may ignore token params
+            kwargs = {
+                "model": clean_model,
+                "api_key": self.perplexity_key,
+                "base_url": "https://api.perplexity.ai",
+                "timeout": 600,
+                "max_retries": 1,
+            }
+            # Only set temperature/max_tokens if provided (None-safe)
+            if temperature is not None:
+                kwargs["temperature"] = temperature
+            if max_tokens is not None:
+                # ChatOpenAI supports max_tokens; some models ignore it
+                kwargs["max_tokens"] = max_tokens
+            return ChatOpenAI(**kwargs)
         
         # Fallback to any available provider
         logger.warning(f"Could not create {model_name} with {provider}, trying fallbacks")

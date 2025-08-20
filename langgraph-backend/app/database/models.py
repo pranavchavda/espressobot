@@ -317,7 +317,7 @@ class DynamicAgent(Base):
     
     # Model configuration
     model_provider = Column(String(50), default='openai')
-    model_name = Column(String(100), default='gpt-4o-mini')
+    model_name = Column(String(100), default='gpt-5-nano')
     temperature = Column(JSON, nullable=True)
     max_tokens = Column(Integer, nullable=True)
     max_completion_tokens = Column(Integer, nullable=True)

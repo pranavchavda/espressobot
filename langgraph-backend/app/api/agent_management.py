@@ -282,6 +282,7 @@ async def get_agents(db: AsyncSession = Depends(get_db)):
                     "agent_name": da.name,
                     "agent_type": da.agent_type or "dynamic",
                     "model_slug": model_name,
+                    "model_provider": provider,
                     "description": da.description or "Dynamic agent",
                     "source": "dynamic",
                     "configurable": True,
@@ -306,15 +307,25 @@ async def get_agents(db: AsyncSession = Depends(get_db)):
         }
 
 @router.get("/models")
-async def get_models():
-    """Get available models"""
+async def get_models(refresh: bool = False):
+    """Get available models. Set refresh=true to bypass cache."""
     try:
-        models = get_available_models()
+        from app.config.fetch_available_models import get_all_available_models
+        models = [
+            ModelInfo(
+                id=m["id"],
+                name=m["name"],
+                provider=m["provider"],
+                description=m.get("description", "")
+            ) for m in get_all_available_models(use_cache=not refresh)
+        ]
         
         # Determine current provider based on env vars
-        provider = "openrouter"  # Default since we're using OpenRouter primarily
+        provider = "openrouter"  # default
         if os.getenv("OPENROUTER_API_KEY"):
             provider = "openrouter"
+        elif os.getenv("PERPLEXITY_API_KEY"):
+            provider = "perplexity"
         elif os.getenv("ANTHROPIC_API_KEY"):
             provider = "anthropic"
         

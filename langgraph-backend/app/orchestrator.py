@@ -552,8 +552,8 @@ Complete this specific task. Be direct and factual in your response."""),
         
         try:
             # Call the agent with longer timeout for complex queries
-            logger.info(f"Calling agent {agent_name} with timeout of 60 seconds")
-            result = await asyncio.wait_for(agent(state), timeout=60)
+            logger.info(f"Calling agent {agent_name} with timeout of 9 minutes")
+            result = await asyncio.wait_for(agent(state), timeout=540)
             
             # Extract response
             if isinstance(result, dict) and "messages" in result:

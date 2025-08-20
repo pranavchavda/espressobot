@@ -1,5 +1,5 @@
 """
-Fetch available models from OpenRouter, OpenAI, and Anthropic APIs
+Fetch available models from OpenRouter, OpenAI, Anthropic, and Perplexity APIs
 """
 import os
 import logging
@@ -53,6 +53,45 @@ def fetch_openrouter_models() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error fetching OpenRouter models: {e}")
         return []
+
+def fetch_perplexity_models() -> List[Dict[str, Any]]:
+    """Return a hardcoded list of Perplexity models (API endpoint deprecated)."""
+    if not os.getenv("PERPLEXITY_API_KEY"):
+        logger.warning("No Perplexity API key found; hiding Perplexity models from list")
+        return []
+    logger.info("Using hardcoded Perplexity models list (endpoint deprecated)")
+    return [
+        {
+            "id": "perplexity/sonar-pro",
+            "name": "Sonar Pro",
+            "provider": "perplexity",
+            "description": "Advanced model for search, reasoning, and long-form content with up-to-date citations. Supports 200k context and is optimized for complex questions and exhaustive research."
+        },
+        {
+            "id": "perplexity/sonar",
+            "name": "Sonar",
+            "provider": "perplexity",
+            "description": "Lightweight, fast, and cost-effective model best for quick answers and straightforward queries. Real-time web search and citations are supported."
+        },
+        {
+            "id": "perplexity/sonar-reasoning-pro",
+            "name": "Sonar Reasoning Pro",
+            "provider": "perplexity",
+            "description": "Premier reasoning model using chain-of-thought (CoT). Designed for complex analyses and multi-step problem solving."
+        },
+        {
+            "id": "perplexity/sonar-reasoning",
+            "name": "Sonar Reasoning",
+            "provider": "perplexity",
+            "description": "Fast real-time model for general reasoning and live web search tasks."
+        },
+        {
+            "id": "perplexity/sonar-deep-research",
+            "name": "Sonar Deep Research",
+            "provider": "perplexity",
+            "description": "Specialized for very deep, comprehensive research queries that require thorough analysis and multi-source synthesis."
+        },
+    ]
 
 def fetch_openai_models() -> List[Dict[str, Any]]:
     """Fetch available models from OpenAI"""
@@ -185,8 +224,18 @@ def get_all_available_models(use_cache: bool = True) -> List[Dict[str, Any]]:
                 # Check if cache is recent (less than 1 hour old)
                 import time
                 if time.time() - cache_data.get("timestamp", 0) < 3600:
-                    logger.info("Using cached models list")
-                    return cache_data.get("models", [])
+                    models = cache_data.get("models", [])
+                    # If Perplexity key is present but cache has no Perplexity models, bypass cache
+                    if os.getenv("PERPLEXITY_API_KEY"):
+                        has_pplx = any((m.get("provider") == "perplexity") or (str(m.get("id", "")).startswith("perplexity/")) for m in models)
+                        if not has_pplx:
+                            logger.info("Cache missing Perplexity models while PERPLEXITY_API_KEY is set; bypassing cache")
+                        else:
+                            logger.info("Using cached models list")
+                            return models
+                    else:
+                        logger.info("Using cached models list")
+                        return models
         except Exception as e:
             logger.warning(f"Could not read cache: {e}")
     
@@ -197,6 +246,7 @@ def get_all_available_models(use_cache: bool = True) -> List[Dict[str, Any]]:
     all_models.extend(fetch_openrouter_models())
     all_models.extend(fetch_openai_models())
     all_models.extend(fetch_anthropic_models())
+    all_models.extend(fetch_perplexity_models())
     
     # Save to cache
     try:

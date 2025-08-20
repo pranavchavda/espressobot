@@ -37,7 +37,8 @@ class AgentModelManager:
             provider_map = {
                 "openrouter": Provider.OPENROUTER,
                 "openai": Provider.OPENAI,
-                "anthropic": Provider.ANTHROPIC
+                "anthropic": Provider.ANTHROPIC,
+                "perplexity": Provider.PERPLEXITY
             }
             
             preferred_provider = provider_map.get(config.get("model_provider"))

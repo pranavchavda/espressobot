@@ -73,10 +73,32 @@ class DynamicAgent(BaseAgent):
             provider_map = {
                 "openrouter": Provider.OPENROUTER,
                 "openai": Provider.OPENAI,
-                "anthropic": Provider.ANTHROPIC
+                "anthropic": Provider.ANTHROPIC,
+                "perplexity": Provider.PERPLEXITY
             }
             
             preferred_provider = provider_map.get(self.model_provider, Provider.OPENROUTER)
+
+            # Heuristic: if model_name is a provider-qualified slug, infer provider from prefix
+            # This fixes cases where admins enter OpenRouter slugs but provider defaulted to OpenAI
+            if isinstance(self.model_name, str) and "/" in self.model_name:
+                lower = self.model_name.lower()
+                inferred_provider = None
+                if lower.startswith("openai/"):
+                    inferred_provider = Provider.OPENAI
+                elif lower.startswith("anthropic/"):
+                    inferred_provider = Provider.ANTHROPIC
+                elif lower.startswith("perplexity/"):
+                    inferred_provider = Provider.PERPLEXITY
+                else:
+                    # Any other slug defaults to OpenRouter
+                    inferred_provider = Provider.OPENROUTER
+                if inferred_provider != preferred_provider:
+                    logger.info(
+                        f"Overriding configured provider '{self.model_provider}' with inferred provider "
+                        f"'{inferred_provider.value}' for model slug '{self.model_name}'"
+                    )
+                    preferred_provider = inferred_provider
             
             # Create agent model manager instance and get proper parameters
             agent_model_manager = AgentModelManager()
@@ -365,7 +387,17 @@ class DynamicAgent(BaseAgent):
     async def __call__(self, state: Dict[str, Any], **kwargs) -> Any:
         """Execute the agent with async MCP loading. Expects full state dict."""
         msg_count = len(state.get("messages", [])) if isinstance(state, dict) else 0
-        logger.info(f"🚀 Dynamic agent {self.name} called with {msg_count} messages")
+        # Attempt to extract an identifiable model string
+        model_id = None
+        try:
+            # langchain ChatOpenAI/ChatAnthropic expose `.model` attribute
+            model_id = getattr(self.model, "model", None)
+        except Exception:
+            model_id = None
+        logger.info(
+            f"🚀 Dynamic agent {self.name} called with {msg_count} messages | model="
+            f"{model_id or type(self.model).__name__}"
+        )
 
         # Ensure MCP tools are loaded (built-ins)
         if not self._mcp_tools_loaded and self.mcp_servers:

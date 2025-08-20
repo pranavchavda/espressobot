@@ -25,8 +25,8 @@ class CreateAgentRequest(BaseModel):
     description: str
     agent_type: str = "specialist"
     system_prompt: str
-    model_provider: str = "openai"
-    model_name: str = "gpt-4o-mini"
+    model_provider: str = "openrouter"
+    model_name: str = "gpt-5-nano"
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     max_completion_tokens: Optional[int] = None
@@ -35,6 +35,24 @@ class CreateAgentRequest(BaseModel):
     capabilities: List[str] = []
     routing_keywords: List[str] = []
     example_queries: List[str] = []
+
+
+# Infer provider from a model name/slug
+def _infer_provider(model_name: Optional[str]) -> Optional[str]:
+    if not model_name:
+        return None
+    lower = model_name.lower()
+    if lower.startswith("openai/"):
+        return "openai"
+    if lower.startswith("anthropic/"):
+        return "anthropic"
+    if lower.startswith("perplexity/"):
+        return "perplexity"
+    # Heuristic: presence of a slash indicates OpenRouter or other router
+    if "/" in lower:
+        return "openrouter"
+    # If it's a short name, leave as-is and let defaults apply
+    return None
 
 
 class UpdateAgentRequest(BaseModel):
@@ -144,6 +162,10 @@ async def create_agent(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"Agent {request.name} already exists")
     
+    # Infer provider from model_name if a slug is used or if unset
+    inferred = _infer_provider(request.model_name)
+    model_provider = inferred or request.model_provider or "openrouter"
+
     # Create new agent
     agent = DynamicAgent(
         name=request.name,
@@ -151,7 +173,7 @@ async def create_agent(
         description=request.description,
         agent_type=request.agent_type,
         system_prompt=request.system_prompt,
-        model_provider=request.model_provider,
+        model_provider=model_provider,
         model_name=request.model_name,
         temperature={"value": request.temperature} if request.temperature is not None else None,
         max_tokens=request.max_tokens,
@@ -200,6 +222,19 @@ async def update_agent(
     
     # Update fields
     update_data = request.dict(exclude_unset=True)
+    # If model_name changes or is provided, infer provider unless explicitly set
+    incoming_model_name = update_data.get("model_name")
+    incoming_provider = update_data.get("model_provider")
+    if incoming_model_name and not incoming_provider:
+        inf = _infer_provider(incoming_model_name)
+        if inf:
+            update_data["model_provider"] = inf
+    elif incoming_model_name and incoming_provider:
+        # If both provided but mismatch with slug prefix, align to slug
+        inf = _infer_provider(incoming_model_name)
+        if inf and inf != incoming_provider:
+            update_data["model_provider"] = inf
+
     for field, value in update_data.items():
         if field == "temperature" and value is not None:
             setattr(agent, field, {"value": value})
@@ -372,13 +407,21 @@ async def create_from_template(
     
     # Create agent from template
     config = template.config
+    # Infer provider from template model_name if needed
+    tmpl_model_name = config.get('model_name')
+    tmpl_provider = config.get('model_provider')
+    inferred = _infer_provider(tmpl_model_name)
+    if inferred and tmpl_provider != inferred:
+        tmpl_provider = inferred
+    if not tmpl_provider:
+        tmpl_provider = "openrouter"
     agent = DynamicAgent(
         name=new_name,
         display_name=config.get('display_name', new_name),
         description=config.get('description', ''),
         system_prompt=config.get('system_prompt', ''),
-        model_provider=config.get('model_provider', 'openai'),
-        model_name=config.get('model_name', 'gpt-4o-mini'),
+        model_provider=tmpl_provider,
+        model_name=tmpl_model_name or 'gpt-5-nano',
         temperature=config.get('temperature', {"value": 0.0}),
         max_tokens=config.get('max_tokens', 2048),
         tools=config.get('tools', []),

@@ -215,6 +215,7 @@ const AgentManagementPage = () => {
     if (p.includes('openai') || p === 'openai') return 'green';
     if (p.includes('anthropic') || p === 'anthropic') return 'purple';
     if (p.includes('openrouter') || p === 'openrouter') return 'blue';
+    if (p.includes('perplexity') || p === 'perplexity') return 'pink';
     if (p.includes('free')) return 'orange';
     return 'gray';
   };
@@ -383,6 +384,7 @@ const AgentManagementPage = () => {
                     >
                       <option value="openai">OpenAI (Direct)</option>
                       <option value="anthropic">Anthropic (Direct)</option>
+                      <option value="perplexity">Perplexity (Direct)</option>
                       <option value="openrouter">OpenRouter (Proxy)</option>
                     </Select>
                     
@@ -400,6 +402,10 @@ const AgentManagementPage = () => {
                             return model.id.startsWith('gpt') || model.id.startsWith('o1');
                           } else if (provider === 'anthropic') {
                             return model.id.includes('claude');
+                          } else if (provider === 'perplexity') {
+                            // Show only Perplexity models
+                            return (model.provider && model.provider.toLowerCase() === 'perplexity') ||
+                                   (typeof model.id === 'string' && model.id.startsWith('perplexity/'));
                           } else {
                             // OpenRouter - show all
                             return true;
