@@ -784,56 +784,56 @@ class EspressoBotCLI:
             console.print(Panel(content, title="[bold blue]You[/bold blue]", border_style="blue"))
         else:
             title = f"[bold green]{agent or 'Assistant'}[/bold green]"
-            # Improve markdown rendering and newline handling
-            try:
-                # Pre-process content for better formatting
-                processed_content = self._process_message_content(content)
-                formatted = Markdown(processed_content, code_theme="monokai")
-                console.print(Panel(formatted, title=title, border_style="green", padding=(1, 2)))
-            except Exception as e:
-                # Fallback: just process newlines and display as plain text
-                processed_content = self._process_message_content(content)
+            
+            # Check if content looks like markdown (has markdown indicators)
+            markdown_indicators = ['#', '**', '*', '```', '- ', '* ', '[', '](']
+            has_markdown = any(indicator in content for indicator in markdown_indicators)
+            
+            if has_markdown:
+                try:
+                    # Pre-process content for better formatting
+                    processed_content = self._process_message_content(content)
+                    formatted = Markdown(processed_content, code_theme="monokai")
+                    console.print(Panel(formatted, title=title, border_style="green", padding=(1, 2)))
+                except Exception as e:
+                    # Fallback: display as plain text with basic formatting
+                    processed_content = self._process_message_content(content)
+                    console.print(Panel(processed_content, title=title, border_style="green", padding=(1, 2)))
+            else:
+                # For non-markdown content, just display as plain text with newline processing
+                processed_content = content.replace('\\n', '\n').replace('\r\n', '\n')
                 console.print(Panel(processed_content, title=title, border_style="green", padding=(1, 2)))
     
     def _process_message_content(self, content: str) -> str:
-        """Process message content for better formatting"""
+        """Process message content for better markdown formatting"""
         # Handle various newline patterns
         content = content.replace('\\n', '\n')  # Convert literal \n to actual newlines
         content = content.replace('\r\n', '\n')  # Normalize Windows line endings
         
-        # Improve list formatting
-        lines = content.split('\n')
-        processed_lines = []
+        # Fix markdown that's been compressed into a single line
+        # Add newlines before markdown elements
+        import re
         
-        for line in lines:
-            # Add proper spacing around headers
-            if line.strip().startswith('#'):
-                if processed_lines and processed_lines[-1].strip():
-                    processed_lines.append('')  # Add blank line before headers
-                processed_lines.append(line)
-                processed_lines.append('')  # Add blank line after headers
-            # Improve bullet point formatting
-            elif line.strip().startswith(('- ', '* ', '+ ')):
-                processed_lines.append(line)
-            # Improve numbered list formatting
-            elif line.strip() and line.strip().split('.')[0].isdigit():
-                processed_lines.append(line)
-            else:
-                processed_lines.append(line)
+        # Add newlines before headers (but not if already at start of line)
+        content = re.sub(r'(?<!\n)(#{1,6}\s)', r'\n\1', content)
         
-        # Remove excessive blank lines (more than 2 consecutive)
-        result_lines = []
-        blank_count = 0
-        for line in processed_lines:
-            if line.strip() == '':
-                blank_count += 1
-                if blank_count <= 2:
-                    result_lines.append(line)
-            else:
-                blank_count = 0
-                result_lines.append(line)
+        # Add newlines before list items
+        content = re.sub(r'(?<!\n)([*-]\s)', r'\n\1', content)
+        content = re.sub(r'(?<!\n)(\d+\.\s)', r'\n\1', content)
         
-        return '\n'.join(result_lines)
+        # Add newlines before code blocks
+        content = re.sub(r'(?<!\n)(```)', r'\n\1', content)
+        
+        # Add newlines after code blocks
+        content = re.sub(r'(```[^`]*```)', r'\1\n', content)
+        
+        # Clean up multiple consecutive newlines (max 2)
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        
+        # Remove leading/trailing whitespace
+        content = content.strip()
+        
+        return content
     
     def display_help(self):
         """Display help information"""
