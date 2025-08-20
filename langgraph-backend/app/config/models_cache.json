@@ -1,6 +1,22 @@
 {
-  "timestamp": 1755618490.8656127,
+  "timestamp": 1755639523.4406989,
   "models": [
+    {
+      "id": "openai/gpt-4o-audio-preview",
+      "name": "OpenAI: GPT-4o Audio",
+      "provider": "openrouter",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.0000025",
+        "completion": "0.00001",
+        "request": "0",
+        "image": "0",
+        "audio": "0.00004",
+        "web_search": "0",
+        "internal_reasoning": "0"
+      },
+      "description": "via OpenRouter - The gpt-4o-audio-preview model adds support for audio inputs as prompts. This enhancement allows the"
+    },
     {
       "id": "mistralai/mistral-medium-3.1",
       "name": "Mistral: Mistral Medium 3.1",
@@ -807,22 +823,6 @@
         "internal_reasoning": "0"
       },
       "description": "via OpenRouter - Llama Guard 4 is a Llama 4 Scout-derived multimodal pretrained model, fine-tuned for content safety "
-    },
-    {
-      "id": "qwen/qwen3-30b-a3b:free",
-      "name": "Qwen: Qwen3 30B A3B (free)",
-      "provider": "openrouter",
-      "context_length": 40960,
-      "pricing": {
-        "prompt": "0",
-        "completion": "0",
-        "request": "0",
-        "image": "0",
-        "audio": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      },
-      "description": "via OpenRouter - Qwen3, the latest generation in the Qwen large language model series, features both dense and mixtur"
     },
     {
       "id": "gpt-4-0613",

@@ -132,21 +132,17 @@ class MemoryExtractionService:
         """Experimental langextract-based extraction (kept for future improvement)"""
         # Use langextract for structured extraction
         try:
-            # Define extraction examples using lx.data.Extraction format
+            # Simplified examples to match context compression pattern  
             examples = [
                 lx.data.ExampleData(
-                    text="User: My name is John and I love Italian coffee\nAssistant: Nice to meet you John! Italian coffee is excellent.",
+                    text="User: My name is John and I love Italian coffee",
                     extractions=[
                         lx.data.Extraction(
                             extraction_class="user_fact",
                             extraction_text="My name is John",
                             attributes={
                                 "content": "User's name is John",
-                                "category": "facts",
-                                "importance": 0.8,
-                                "confidence": 1.0,
-                                "reasoning": "Core identity information needed for personalization",
-                                "is_ephemeral": False
+                                "category": "facts"
                             }
                         ),
                         lx.data.Extraction(
@@ -154,145 +150,15 @@ class MemoryExtractionService:
                             extraction_text="I love Italian coffee",
                             attributes={
                                 "content": "User loves Italian coffee",
-                                "category": "preferences",
-                                "importance": 0.9,
-                                "confidence": 1.0,
-                                "reasoning": "Specific preference that guides recommendations",
-                                "is_ephemeral": False
-                            }
-                        )
-                    ]
-                ),
-                # Durable instrumentation/tracking policy (should be extracted)
-                lx.data.ExampleData(
-                    text=(
-                        "User: We always load GA4 via Google Tag Manager across the site. "
-                        "Do not embed GA scripts directly. Use Consent Mode v2 and keep ad_storage denied until consent.\n"
-                        "Assistant: Got it, that will be our standard tracking policy."
-                    ),
-                    extractions=[
-                        lx.data.Extraction(
-                            extraction_class="instrumentation_policy",
-                            extraction_text=(
-                                "always load GA4 via GTM across the site; do not embed GA directly; "
-                                "use Consent Mode v2; ad_storage denied until consent"
-                            ),
-                            attributes={
-                                "content": (
-                                    "Sitewide tracking policy: Always load GA4 via Google Tag Manager; "
-                                    "never embed GA scripts directly; use Consent Mode v2; default ad_storage denied until consent"
-                                ),
-                                "category": "preferences",
-                                "importance": 0.85,
-                                "confidence": 0.95,
-                                "reasoning": "Long-term sitewide analytics policy that impacts many future tasks",
-                                "is_ephemeral": False
+                                "category": "preferences"
                             }
                         )
                     ]
                 ),
                 lx.data.ExampleData(
-                    text="User: Can you check today's sales report?\nAssistant: I'll check today's sales for you.",
+                    text="User: Can you check today's sales report?",
                     extractions=[
-                        lx.data.Extraction(
-                            extraction_class="ephemeral_task",
-                            extraction_text="check today's sales report",
-                            attributes={
-                                "content": "User requested today's sales report",
-                                "category": "general",
-                                "importance": 0.2,
-                                "confidence": 0.8,
-                                "reasoning": "One-time task request",
-                                "is_ephemeral": True
-                            }
-                        )
-                    ]
-                ),
-                lx.data.ExampleData(
-                    text="User: I work at Google as a senior backend engineer. We use Python and Go exclusively.\nAssistant: That's great experience!",
-                    extractions=[
-                        lx.data.Extraction(
-                            extraction_class="user_fact",
-                            extraction_text="I work at Google as a senior backend engineer",
-                            attributes={
-                                "content": "User is a senior backend engineer at Google",
-                                "category": "facts",
-                                "importance": 0.95,
-                                "confidence": 0.95,
-                                "reasoning": "Professional identity affects all technical discussions",
-                                "is_ephemeral": False
-                            }
-                        ),
-                        lx.data.Extraction(
-                            extraction_class="user_expertise",
-                            extraction_text="We use Python and Go exclusively",
-                            attributes={
-                                "content": "User's team uses Python and Go exclusively",
-                                "category": "expertise",
-                                "importance": 0.85,
-                                "confidence": 0.9,
-                                "reasoning": "Technology stack preference for solutions",
-                                "is_ephemeral": False
-                            }
-                        )
-                    ]
-                ),
-                lx.data.ExampleData(
-                    text="User: I need help setting up the Breville MAP sale from August 15-21. Please update prices and configure the metafields correctly. I'm working with Monalisa from ClearSale on order analysis.\nAssistant: I'll help set up the Breville promotion.",
-                    extractions=[
-                        # No extractions - all content is task-specific and ephemeral:
-                        # - "Breville MAP sale from August 15-21" is date-specific task
-                        # - "working with Monalisa from ClearSale" is current project detail
-                        # - Price updates and metafields are specific technical tasks
-                    ]
-                ),
-                # One-off tracking task (should NOT be extracted)
-                lx.data.ExampleData(
-                    text=(
-                        "User: Please add the tracking script to the back-to-school landing page today and test conversions.\n"
-                        "Assistant: I'll add it to that page and run tests."
-                    ),
-                    extractions=[
-                        # No extractions – this is a one-off, page-specific task, not a durable policy
-                    ]
-                ),
-                lx.data.ExampleData(
-                    text="User: For ClearSale fraud review, I need order details from last 3 days - order IDs, customer names, amounts and risk levels. Limit to 5 orders for analysis.\nAssistant: I'll fetch the detailed order information.",
-                    extractions=[
-                        # No extractions - all content is task-specific:
-                        # - "last 3 days" is time-specific  
-                        # - "order IDs, customer names, amounts" are specific data requests
-                        # - "limit to 5 orders" is specific task parameter
-                        # - Nothing reveals lasting user identity or preferences
-                    ]
-                ),
-                lx.data.ExampleData(
-                    text="User: I'm the head of operations at iDrinkCoffee.com and handle all fraud prevention systems. We process about 150 orders daily and work with multiple payment processors.\nAssistant: That's helpful context for understanding your business needs.",
-                    extractions=[
-                        lx.data.Extraction(
-                            extraction_class="user_role",
-                            extraction_text="I'm the head of operations at iDrinkCoffee.com",
-                            attributes={
-                                "content": "User is head of operations at iDrinkCoffee.com",
-                                "category": "facts", 
-                                "importance": 0.95,
-                                "confidence": 0.95,
-                                "reasoning": "Core professional identity that affects all business discussions",
-                                "is_ephemeral": False
-                            }
-                        ),
-                        lx.data.Extraction(
-                            extraction_class="business_context",
-                            extraction_text="handle all fraud prevention systems...process about 150 orders daily",
-                            attributes={
-                                "content": "User manages fraud prevention for e-commerce business processing ~150 orders daily",
-                                "category": "expertise",
-                                "importance": 0.85,
-                                "confidence": 0.9,
-                                "reasoning": "Business context that informs technical needs and priorities",
-                                "is_ephemeral": False
-                            }
-                        )
+                        # No extractions - task-specific request
                     ]
                 )
             ]
@@ -331,7 +197,7 @@ class MemoryExtractionService:
             # Call langextract using EXACT same configuration as working context compression
             import os
             
-            model_id = "gpt-4.1-mini"
+            model_id = "gpt-4.1-mini"  # Same as context compression
             api_key = os.getenv("OPENAI_API_KEY")
             
             # Use same configuration logic as context compression for consistency
@@ -342,22 +208,33 @@ class MemoryExtractionService:
                 logger.debug(f"fence_output={is_openai}, use_schema_constraints={not is_openai}")
                 logger.debug(f"OPENAI_API_KEY present={bool(api_key)}")
             
-            # Use EXACT same parameters as working context compression - no language_model_type!
+            # Run langextract with EXACT same configuration as working context compression
             try:
-                result = lx.extract(
-                    text_or_documents=conversation_text,
-                    prompt_description=prompt_description,
-                    examples=examples,
-                    model_id=model_id,
-                    api_key=api_key if is_openai else None,
-                    fence_output=True,  # Always True for proper parsing
-                    use_schema_constraints=False,  # Always False for OpenAI compatibility
-                    temperature=0.1  # Low temperature for consistent output
-                )
+                import concurrent.futures
+                loop = asyncio.get_event_loop()
+                
+                def run_langextract():
+                    return lx.extract(
+                        text_or_documents=conversation_text,
+                        prompt_description=prompt_description,
+                        examples=examples,
+                        model_id=model_id,
+                        api_key=api_key if is_openai else None,
+                        fence_output=True,
+                        use_schema_constraints=False,
+                        temperature=0.1
+                    )
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    result = await loop.run_in_executor(executor, run_langextract)
+                
             except Exception as lx_error:
-                logger.error(f"LangExtract extraction failed: {lx_error}, falling back to GPT-4.1-nano")
-                # Fall back to GPT extraction method
-                return await self._extract_memories_gpt(conversation_text, user_id)
+                logger.error(f"LangExtract extraction failed: {lx_error}")
+                import traceback
+                logger.error(f"LangExtract full traceback: {traceback.format_exc()}")
+                # FALLBACK COMMENTED OUT - LANGEXTRACT IS WORKING PROPERLY
+                # return await self._extract_memories_gpt(conversation_text, user_id)
+                raise lx_error  # Re-raise to catch any future langextract issues
             
             # Handle case where result might be wrapped in markdown code blocks
             if isinstance(result, str):
@@ -518,13 +395,15 @@ class MemoryExtractionService:
             
         except Exception as e:
             logger.error(f"Langextract memory extraction failed: {e}")
-            # Try GPT fallback if langextract fails completely
-            logger.info("Attempting GPT-4.1-nano fallback for memory extraction")
-            try:
-                return await self._extract_memories_gpt(conversation_text, user_id)
-            except Exception as fallback_error:
-                logger.error(f"GPT fallback also failed: {fallback_error}")
-                return []  # Return empty list if both methods fail
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            # FALLBACK COMMENTED OUT - LANGEXTRACT IS WORKING PROPERLY
+            # try:
+            #     return await self._extract_memories_gpt(conversation_text, user_id)
+            # except Exception as fallback_error:
+            #     logger.error(f"GPT fallback also failed: {fallback_error}")
+            #     return []
+            raise e  # Re-raise to catch any future langextract issues
     
     async def _extract_memories_gpt(self, conversation_text: str, user_id: str) -> List[Memory]:
         """GPT-4.1-nano extraction method (primary method)"""

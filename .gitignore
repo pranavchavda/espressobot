@@ -58,6 +58,9 @@ shopify_agent.db
 .DS_Store
 Thumbs.db
 
+ # Frontend archive
+ frontend/archive/
+ 
 # Storage directory
 storage/*
 !storage/.gitkeep

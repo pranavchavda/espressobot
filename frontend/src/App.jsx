@@ -445,8 +445,8 @@ function App() {
                 onNewConversation={(newConvId) => {
                   console.log('[App] New conversation created:', newConvId);
                   if (newConvId) {
-                    // Navigate to the new conversation's route
-                    navigate(`/chat/${newConvId}`);
+                    // DISABLED: Navigation is handled internally by StreamingChatPage
+                    // navigate(`/chat/${newConvId}`);
                     fetchConversations();
                   }
                 }}
@@ -488,7 +488,8 @@ function App() {
               onNewConversation={(newConvId) => {
                 console.log('[App] New conversation created:', newConvId);
                 if (newConvId) {
-                  navigate(`/chat-sync/${newConvId}`);
+                  // DISABLED: Navigation causes reload issues
+                  // navigate(`/chat-sync/${newConvId}`);
                   fetchConversations();
                 }
               }}

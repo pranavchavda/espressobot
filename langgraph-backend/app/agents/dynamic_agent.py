@@ -87,11 +87,16 @@ class DynamicAgent(BaseAgent):
                 preferred_provider
             )
             
+            # Convert max_completion_tokens to max_tokens for create_llm()
+            create_params = model_params.copy()
+            if 'max_completion_tokens' in create_params:
+                create_params['max_tokens'] = create_params.pop('max_completion_tokens')
+            
             # Create model using factory with proper parameters
             self.model = llm_factory.create_llm(
                 model_name=self.model_name,
                 preferred_provider=preferred_provider,
-                **model_params
+                **create_params
             )
             
             logger.info(f"Dynamic agent {self.name} created model {self.model_name} with params: {model_params}")
@@ -511,7 +516,9 @@ class DynamicAgentFactory:
             except Exception as preload_err:
                 logger.warning(f"Preloading user MCP tools failed for {agent_name}: {preload_err}")
             
-            # Update usage count
+            # Update usage count (initialize to 0 if None)
+            if agent_model.usage_count is None:
+                agent_model.usage_count = 0
             agent_model.usage_count += 1
             await db_session.commit()
             

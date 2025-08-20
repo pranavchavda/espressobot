@@ -54,6 +54,9 @@ const AgentBuilder = () => {
     example_queries: []
   });
 
+  // State for custom model input (OpenRouter)
+  const [useCustomModel, setUseCustomModel] = useState(false);
+
   // Dynamic model options from API
   const [models, setModels] = useState([]);
   const modelProviders = ['openai', 'anthropic', 'openrouter'];
@@ -104,6 +107,11 @@ const AgentBuilder = () => {
           routing_keywords: data.routing_keywords || [],
           example_queries: data.example_queries || []
         });
+        
+        // Check if we should show custom model input
+        const isCustomModel = data.model_provider === 'openrouter' && 
+          !models.some(model => model.id === data.model_name);
+        setUseCustomModel(isCustomModel);
       } else {
         const errorText = await response.text();
         console.error('Failed to load agent:', response.status, errorText);
@@ -378,7 +386,13 @@ const AgentBuilder = () => {
                   <label className="block text-sm font-medium mb-1">Model Provider</label>
                   <Select
                     value={agent.model_provider}
-                    onChange={(e) => handleInputChange('model_provider', e.target.value)}
+                    onChange={(e) => {
+                      handleInputChange('model_provider', e.target.value);
+                      // Reset custom model state when provider changes
+                      if (e.target.value !== 'openrouter') {
+                        setUseCustomModel(false);
+                      }
+                    }}
                   >
                     {modelProviders.map(provider => (
                       <option key={provider} value={provider}>{provider}</option>
@@ -386,30 +400,54 @@ const AgentBuilder = () => {
                   </Select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Model Name</label>
-                  <Select
-                    value={agent.model_name}
-                    onChange={(e) => handleInputChange('model_name', e.target.value)}
-                  >
-                    {models
-                      .filter(model => {
-                        // Filter models based on selected provider
-                        const provider = agent.model_provider || 'openrouter';
-                        if (provider === 'openai') {
-                          return model.id.startsWith('gpt') || model.id.startsWith('o1');
-                        } else if (provider === 'anthropic') {
-                          return model.id.includes('claude');
-                        } else {
-                          // OpenRouter - show all
-                          return true;
-                        }
-                      })
-                      .map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} {model.id.includes('free') ? ' - Free' : ''}
-                        </option>
-                      ))}
-                  </Select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium">Model Name</label>
+                    {agent.model_provider === 'openrouter' && (
+                      <button
+                        type="button"
+                        onClick={() => setUseCustomModel(!useCustomModel)}
+                        className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                      >
+                        {useCustomModel ? 'Use Dropdown' : 'Enter Custom Model'}
+                      </button>
+                    )}
+                  </div>
+                  {agent.model_provider === 'openrouter' && useCustomModel ? (
+                    <Input
+                      value={agent.model_name}
+                      onChange={(e) => handleInputChange('model_name', e.target.value)}
+                      placeholder="e.g., meta-llama/llama-3.2-3b-instruct:free"
+                    />
+                  ) : (
+                    <Select
+                      value={agent.model_name}
+                      onChange={(e) => handleInputChange('model_name', e.target.value)}
+                    >
+                      {models
+                        .filter(model => {
+                          // Filter models based on selected provider
+                          const provider = agent.model_provider || 'openrouter';
+                          if (provider === 'openai') {
+                            return model.id.startsWith('gpt') || model.id.startsWith('o1');
+                          } else if (provider === 'anthropic') {
+                            return model.id.includes('claude');
+                          } else {
+                            // OpenRouter - show all
+                            return true;
+                          }
+                        })
+                        .map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name} {model.id.includes('free') ? ' - Free' : ''}
+                          </option>
+                        ))}
+                    </Select>
+                  )}
+                  {agent.model_provider === 'openrouter' && useCustomModel && (
+                    <Text className="text-xs text-zinc-500 mt-1">
+                      Enter any OpenRouter model slug (e.g., meta-llama/llama-3.2-3b-instruct:free)
+                    </Text>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">
@@ -653,23 +691,26 @@ const AgentBuilder = () => {
       <div className="mt-6 flex gap-3 justify-end">
         <Button
           outline
-          onClick={() => setAgent({
-            name: '',
-            display_name: '',
-            description: '',
-            agent_type: 'specialist',
-            system_prompt: '',
-            model_provider: 'openai',
-            model_name: 'gpt-4o-mini',
-            temperature: null,
-            max_tokens: null,
-            max_completion_tokens: null,
-            tools: [],
-            mcp_servers: [],
-            capabilities: [],
-            routing_keywords: [],
-            example_queries: []
-          })}
+          onClick={() => {
+            setAgent({
+              name: '',
+              display_name: '',
+              description: '',
+              agent_type: 'specialist',
+              system_prompt: '',
+              model_provider: 'openai',
+              model_name: 'gpt-4o-mini',
+              temperature: null,
+              max_tokens: null,
+              max_completion_tokens: null,
+              tools: [],
+              mcp_servers: [],
+              capabilities: [],
+              routing_keywords: [],
+              example_queries: []
+            });
+            setUseCustomModel(false);
+          }}
         >
           Clear
         </Button>

@@ -147,13 +147,22 @@ class ProgressiveOrchestrator:
         except Exception as e:
             logger.warning(f"❌ Memory manager initialization failed: {e}")
         
-        logger.info(f"Initialized Progressive Orchestrator with compressed context and message persistence")
+        logger.info(f"🚀 Initialized Progressive Orchestrator with compressed context and message persistence")
         
         # Initialize all agents
         self._initialize_agents()
     
     def _initialize_agents(self):
-        """Initialize all specialist agents"""
+        """Initialize all specialist agents (both static and dynamic)"""
+        # Initialize static agents first
+        self._initialize_static_agents()
+        
+        # Initialize dynamic agents from database (fire and forget to avoid blocking startup)
+        import asyncio
+        asyncio.create_task(self._initialize_dynamic_agents_async())
+    
+    def _initialize_static_agents(self):
+        """Initialize hardcoded static agents"""
         # Use simple MCP agent without LangGraph to avoid async issues
         from app.agents.products_native_mcp_simple import ProductsAgentNativeMCPSimple
         from app.agents.pricing_native_mcp import PricingAgentNativeMCP
@@ -170,7 +179,7 @@ class ProgressiveOrchestrator:
         from app.agents.ga4_analytics_native_mcp import GA4AnalyticsAgentNativeMCP
         from app.agents.bash_agent import BashAgent
         
-        agent_classes = [
+        static_agent_classes = [
             ProductsAgentNativeMCPSimple,
             PricingAgentNativeMCP,
             InventoryAgentNativeMCP,
@@ -187,13 +196,127 @@ class ProgressiveOrchestrator:
             BashAgent
         ]
         
-        for AgentClass in agent_classes:
+        for AgentClass in static_agent_classes:
             try:
                 agent = AgentClass()
                 self.agents[agent.name] = agent
-                logger.info(f"Initialized {agent.name} agent")
+                logger.info(f"✅ Initialized static agent: {agent.name}")
             except Exception as e:
-                logger.error(f"Failed to initialize {AgentClass.__name__}: {e}")
+                logger.error(f"❌ Failed to initialize {AgentClass.__name__}: {e}")
+    
+    async def _initialize_dynamic_agents_async(self):
+        """Initialize dynamic agents from database (runs in background)"""
+        try:
+            logger.info("🔄 Loading dynamic agents from database...")
+            
+            from app.database.session import AsyncSessionLocal
+            from app.agents.dynamic_agent import DynamicAgentFactory
+            
+            async with AsyncSessionLocal() as db:
+                # Get all active dynamic agents
+                available_agents = await DynamicAgentFactory.list_available_agents(db)
+                logger.info(f"Found {len(available_agents)} dynamic agents in database")
+                
+                # Load each dynamic agent
+                for agent_info in available_agents:
+                    agent_name = agent_info['name']
+                    try:
+                        logger.info(f"🔧 Creating dynamic agent: {agent_name}")
+                        agent = await DynamicAgentFactory.create_from_database(db, agent_name)
+                        
+                        if agent:
+                            # Add to orchestrator's agent registry
+                            self.agents[agent.name] = agent
+                            logger.info(f"✅ Registered dynamic agent: {agent.name} ({agent_info.get('description', 'No description')})")
+                        else:
+                            logger.warning(f"❌ Failed to create dynamic agent: {agent_name}")
+                    
+                    except Exception as e:
+                        logger.error(f"❌ Error loading dynamic agent {agent_name}: {e}")
+                        continue
+            
+            total_agents = len(self.agents)
+            static_count = len([a for a in self.agents.values() if not hasattr(a, 'config')])
+            dynamic_count = total_agents - static_count
+            logger.info(f"🎯 Agent registration complete: {static_count} static + {dynamic_count} dynamic = {total_agents} total agents")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize dynamic agents: {e}")
+            import traceback
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+    
+    async def reload_dynamic_agents(self):
+        """Manually reload dynamic agents from database"""
+        logger.info("🔄 Manually reloading dynamic agents...")
+        
+        # Remove existing dynamic agents (keep static ones)
+        dynamic_agent_names = []
+        for name, agent in list(self.agents.items()):
+            if hasattr(agent, 'config'):  # Dynamic agents have config attribute
+                dynamic_agent_names.append(name)
+                del self.agents[name]
+        
+        if dynamic_agent_names:
+            logger.info(f"📤 Removed {len(dynamic_agent_names)} existing dynamic agents: {dynamic_agent_names}")
+        
+        # Reload from database
+        await self._initialize_dynamic_agents_async()
+        
+        return {"reloaded": True, "removed_agents": dynamic_agent_names, "total_agents": len(self.agents)}
+    
+    def get_agent_info(self) -> Dict[str, Any]:
+        """Get information about all registered agents"""
+        static_agents = []
+        dynamic_agents = []
+        
+        for name, agent in self.agents.items():
+            agent_info = {
+                "name": name,
+                "description": getattr(agent, 'description', 'No description'),
+                "type": "dynamic" if hasattr(agent, 'config') else "static"
+            }
+            
+            # Add dynamic agent specific info
+            if hasattr(agent, 'config'):
+                config = agent.config
+                agent_info.update({
+                    "capabilities": config.get('capabilities', []),
+                    "routing_keywords": config.get('routing_keywords', []),
+                    "model_provider": config.get('model_provider', 'unknown'),
+                    "model_name": config.get('model_name', 'unknown'),
+                    "mcp_servers": config.get('mcp_servers', [])
+                })
+                dynamic_agents.append(agent_info)
+            else:
+                static_agents.append(agent_info)
+        
+        return {
+            "total_agents": len(self.agents),
+            "static_agents": len(static_agents),
+            "dynamic_agents": len(dynamic_agents),
+            "agents": {
+                "static": static_agents,
+                "dynamic": dynamic_agents
+            }
+        }
+    
+    def _get_available_agents_description(self) -> str:
+        """Generate description of all available agents for planning prompt"""
+        # Use the exact descriptions that were working in previous commits
+        return """- products: Product searches and information
+- pricing: Price updates and management
+- inventory: Stock levels and tracking
+- sales: Sales analytics and reports
+- orders: Order data and analytics
+- features: Product features and specifications
+- media: Product images and media
+- integrations: External systems (SkuVault, Yotpo, etc.)
+- product_mgmt: Product creation and updates
+- graphql: Direct GraphQL queries
+- google_workspace: Gmail, Calendar, Drive, Tasks
+- ga4_analytics: Website traffic and analytics
+- bash: Execute shell commands, scripts, downloads, and system operations in secure sandbox
+- utility: Web scraping, data extraction, and research using LangExtract and BeautifulSoup"""
     
     def _get_memory(self, thread_id: str) -> ConversationMemory:
         """Get or create conversation memory for thread"""
@@ -258,21 +381,10 @@ What we already know from this conversation:
 
 {last_attempt_context}
 
-Available agents:
-- products: Product searches and information
-- pricing: Price updates and management
-- inventory: Stock levels and tracking
-- sales: Sales analytics and reports
-- orders: Order data and analytics
-- features: Product features and specifications
-- media: Product images and media
-- integrations: External systems (SkuVault, Yotpo, etc.)
-- product_mgmt: Product creation and updates
-- graphql: Direct GraphQL queries
-- google_workspace: Gmail, Calendar, Drive, Tasks
-- ga4_analytics: Website traffic and analytics
-- bash: Execute shell commands, scripts, downloads, and system operations in secure sandbox
-- utility: Web scraping, data extraction, and research using LangExtract and BeautifulSoup
+Available agents (use this EXACT list when user asks for agent list):
+{self._get_available_agents_description()}
+
+IMPORTANT: When user asks to "list agents" or "show available agents", respond with the EXACT agent list above.
 
 Based on the user request and what we know so far, determine the next action.
 
@@ -310,6 +422,7 @@ CONVERSATIONAL PATTERNS to handle directly (respond without calling agents):
 - User giving feedback or corrections: Thank them and incorporate the feedback
 - Simple acknowledgments, questions about what just happened: Respond directly using conversation context
 - User agreeing to previous suggestions: "yes", "let's do that", "do it", "go ahead" → Execute what was offered in the previous assistant response
+- User asking for list of agents: Respond directly with the COMPLETE available agents list shown above - use ALL agents listed, not a subset
 
 If we have all necessary information to answer the user, respond with:
 {{
@@ -1133,3 +1246,11 @@ orchestrator = ProgressiveOrchestrator()
 async def get_orchestrator() -> ProgressiveOrchestrator:
     """Get the orchestrator instance"""
     return orchestrator
+
+async def reload_orchestrator_agents():
+    """Reload dynamic agents in the orchestrator"""
+    return await orchestrator.reload_dynamic_agents()
+
+def get_orchestrator_agent_info():
+    """Get information about registered agents"""
+    return orchestrator.get_agent_info()

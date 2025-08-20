@@ -8,7 +8,7 @@ import { Dialog } from '@common/dialog';
 import { Textarea } from '@common/textarea';
 import { Select } from '@common/select';
 import { Badge } from '@common/badge';
-import { Settings, Edit, Eye, BarChart3, RotateCcw, Save, ChevronLeft, Bot } from 'lucide-react';
+import { Settings, Edit, Eye, BarChart3, RotateCcw, Save, ChevronLeft, Bot, Trash2 } from 'lucide-react';
 
 const AgentManagementPage = () => {
   const navigate = useNavigate();
@@ -181,6 +181,34 @@ const AgentManagementPage = () => {
     }
   };
 
+  const deleteAgent = async (agent) => {
+    if (!agent.is_dynamic) {
+      alert('Cannot delete built-in agents');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete the "${agent.agent_name}" agent? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${PYTHON_BACKEND_URL}/api/dynamic-agents/${agent.agent_name}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        alert(`Agent "${agent.agent_name}" deleted successfully`);
+        loadData(); // Refresh data
+      } else {
+        const result = await response.json();
+        alert('Failed to delete agent: ' + (result.error || result.detail || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error deleting agent:', error);
+      alert('Error deleting agent: ' + error.message);
+    }
+  };
+
   const getProviderBadgeColor = (provider) => {
     if (!provider) return 'gray';
     const p = provider.toLowerCase();
@@ -304,6 +332,15 @@ const AgentManagementPage = () => {
                         title="Edit in Agent Builder"
                       >
                         <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        outline
+                        onClick={() => deleteAgent(agent)}
+                        title="Delete Agent"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   ) : (

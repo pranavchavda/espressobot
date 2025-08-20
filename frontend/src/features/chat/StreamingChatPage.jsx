@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { flushSync } from "react-dom";
 import { Textarea } from "@common/textarea";
 import { Button } from "@common/button";
@@ -63,6 +63,7 @@ import { ApprovalRequest } from "@components/chat/ApprovalRequest";
 
 function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
   const location = useLocation();
+  const navigate = useNavigate();
   // Debug flag: disable deduplication via ?noDedup=1 or localStorage.setItem('noDedup','1')
   const debugNoDedup = (new URLSearchParams(location.search)).get('noDedup') === '1' || localStorage.getItem('noDedup') === '1';
   // Feature flag: orchestrator SSE
@@ -892,11 +893,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         console.log('[DEBUG] Setting activeConv from async response:', conversationId);
         setActiveConv(conversationId);
         
-        // Notify parent component immediately to navigate to new conversation
+        // Navigate immediately to new conversation to prevent blank chat page
         if (onNewConversation && !convId) {
-          console.log('[DEBUG] Calling onNewConversation with:', conversationId);
-          // Don't navigate immediately - let the polling complete first
-          // onNewConversation(conversationId);
+          console.log('[DEBUG] Navigating immediately to new conversation:', conversationId);
+          navigate(`/chat/${conversationId}`, { replace: true });
+          onNewConversation(conversationId);
         }
       }
 
@@ -956,12 +957,10 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
             
             console.log('[DEBUG] Async task completed, added final message');
             
-            // Now navigate to the new conversation if needed
+            // Navigation already happened at start of polling, just notify parent for conversation list updates
             if (conversationId && !convId && onNewConversation) {
-              console.log('[DEBUG] Navigation after completion to:', conversationId);
-              setTimeout(() => {
-                onNewConversation(conversationId);
-              }, 500);
+              console.log('[DEBUG] Notifying parent of completed conversation');
+              // Note: Navigation already happened at start of polling to prevent blank page
             }
             break;
           } else if (taskData.status === 'failed') {
@@ -1209,16 +1208,16 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
           console.log('[DEBUG] Setting activeConv to:', newConvId);
           setActiveConv(newConvId);
           
-          // If this is a new conversation, notify parent with delay to allow backend to save
-          // TEMPORARY: Disable auto-navigation for debugging
-          const DISABLE_AUTO_NAVIGATION = true;
-          if (onNewConversation && !convId && !DISABLE_AUTO_NAVIGATION) {
-            console.log('[DEBUG] Scheduling navigation to new conversation:', newConvId);
-            setTimeout(() => {
+          // Navigate to new conversation URL directly (no page reload)
+          if (!convId) {
+            console.log('[DEBUG] Navigating to new conversation:', newConvId);
+            // Use replace to avoid creating history entries for new conversations
+            navigate(`/chat/${newConvId}`, { replace: true });
+            
+            // Still notify parent for conversation list updates
+            if (onNewConversation) {
               onNewConversation(newConvId);
-            }, 500);
-          } else {
-            console.log('[DEBUG] Auto-navigation disabled for debugging');
+            }
           }
         }
         
@@ -1488,9 +1487,16 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                 if (actualEventPayload.conv_id) {
                   console.log('[DEBUG] Setting activeConv to:', actualEventPayload.conv_id);
                   setActiveConv(actualEventPayload.conv_id);
-                  // Also update onNewConversation callback if provided
-                  if (onNewConversation && !convId) {
-                    onNewConversation(actualEventPayload.conv_id);
+                  
+                  // Navigate to new conversation URL if needed
+                  if (!convId) {
+                    console.log('[DEBUG] Navigating to conversation from event:', actualEventPayload.conv_id);
+                    navigate(`/chat/${actualEventPayload.conv_id}`, { replace: true });
+                    
+                    // Notify parent for conversation list updates
+                    if (onNewConversation) {
+                      onNewConversation(actualEventPayload.conv_id);
+                    }
                   }
                   
                   // Auto-generate title after first message

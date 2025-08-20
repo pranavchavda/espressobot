@@ -131,7 +131,11 @@ export default defineConfig({
                 req.url.startsWith('/api/conversations') ||
                 req.url.startsWith('/api/dashboard') ||
                 req.url.startsWith('/api/price-monitor') ||
-                req.url.startsWith('/api/scratchpad')) {
+                req.url.startsWith('/api/scratchpad') ||
+                req.url.startsWith('/api/dynamic-agents') ||
+                req.url.startsWith('/api/user-mcp-servers') ||
+                req.url.startsWith('/api/agent-management') ||
+                req.url.startsWith('/api/orchestrator')) {
               langGraphProxy(req, res, next);
             } else {
               next();

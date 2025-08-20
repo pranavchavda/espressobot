@@ -108,6 +108,9 @@ class DynamicAgentService:
         agent = result.scalar_one_or_none()
         
         if agent:
+            # Initialize usage_count if None
+            if agent.usage_count is None:
+                agent.usage_count = 0
             agent.usage_count += 1
             
             # Update success rate
