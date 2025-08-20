@@ -82,13 +82,25 @@ const mdDebugLog = (...args) => {
   } catch {}
 };
 
-// Decode escaped newlines (\n) outside of fenced code blocks only.
+// Decode escaped newlines (\n) and handle markdown two-space line breaks
 // Many backends occasionally send mixed real and escaped newlines mid-stream.
-// Decoding them improves immediate rendering while preserving code fences.
-function decodeEscapedNewlinesOutsideCode(input) {
+// This is the most fundamental fix for compressed markdown.
+function decodeEscapedNewlinesAndSpaces(input) {
   try {
-    const lines = input.split('\n');
+    // First, handle the most basic case: convert literal \n strings to actual newlines
+    let processed = input.replace(/\\n/g, '\n');
+    
+    // Handle Windows line endings
+    processed = processed.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    // Handle markdown two-space line breaks (convert to actual newlines)
+    processed = processed.replace(/  +\n/g, '\n');
+    processed = processed.replace(/  +$/gm, '\n');
+    
+    // Now process line by line, being careful about code fences
+    const lines = processed.split('\n');
     let inFence = false;
+    
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const fenceMatch = line.match(/^\s*(```|~~~)/);
@@ -97,17 +109,30 @@ function decodeEscapedNewlinesOutsideCode(input) {
         continue;
       }
       if (!inFence) {
-        // Replace escaped CRLF/CR/NL and tabs outside fences
-        lines[i] = line
-          .replace(/\\r\\n/g, '\n')
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '')
-          .replace(/\\t/g, '\t');
+        // For very long lines (potential compressed markdown), try to split intelligently
+        if (line.length > 200) {
+          // Add newlines before common markdown patterns
+          let longLine = line;
+          longLine = longLine.replace(/(\S)\s+(#{1,6}\s)/g, '$1\n$2');  // Before headers
+          longLine = longLine.replace(/(\S)\s+([*-]\s)/g, '$1\n$2');    // Before bullets
+          longLine = longLine.replace(/(\S)\s+(\d+\.\s)/g, '$1\n$2');   // Before numbers
+          longLine = longLine.replace(/(\S)\s+(```)/g, '$1\n$2');       // Before code
+          
+          // If still very long, split on sentence boundaries
+          if (longLine.length > 400) {
+            longLine = longLine.replace(/([.!?])\s+([A-Z])/g, '$1\n$2');
+          }
+          
+          lines[i] = longLine;
+        }
+        
+        // Handle escaped characters outside code fences
+        lines[i] = lines[i].replace(/\\t/g, '\t');
       }
     }
     return lines.join('\n');
   } catch (e) {
-    console.warn('[MarkdownRenderer] decodeEscapedNewlinesOutsideCode failed', e);
+    console.warn('[MarkdownRenderer] decodeEscapedNewlinesAndSpaces failed', e);
     return input;
   }
 }
@@ -284,6 +309,16 @@ function insertNewlineBeforeBlocksOutsideCode(input) {
 
         // Also split when a heading token (#{1,6}) appears mid-line after any non-space char
         line = line.replace(/(\S)\s+(?=(#{1,6}\s+))/g, '$1\n');
+        
+        // Add newlines before headers that directly follow other content (no whitespace requirement)
+        line = line.replace(/(\S)(#{1,6}\s)/g, '$1\n$2');
+        
+        // Add newlines before list items that directly follow other content
+        line = line.replace(/(\S)([*-]\s)/g, '$1\n$2');
+        line = line.replace(/(\S)(\d+\.\s)/g, '$1\n$2');
+        
+        // Add newlines before code blocks that directly follow other content
+        line = line.replace(/(\S)(```)/g, '$1\n$2');
 
         // If a heading line contains a list starter after the heading text, split there too
         line = line.replace(/(#{1,6}\s+[^\n]+?)\s+((?:[-+*]\s+\S|\d+\.\s+\S))/g, '$1\n$2');
@@ -342,8 +377,8 @@ export const MarkdownRenderer = function MarkdownRenderer({
     mdDebugLog('[MarkdownRenderer] Processing markdown, length:', rawMarkdownContent.length);
     // Normalize newlines to help markdown-it close block constructs (tables, lists, fences)
     let normalized = rawMarkdownContent.replace(/\r\n?/g, "\n");
-    // Always decode escaped newlines outside of code blocks (safe for markdown and tables)
-    normalized = decodeEscapedNewlinesOutsideCode(normalized);
+    // Always decode escaped newlines and two-space breaks (safe for markdown and tables)
+    normalized = decodeEscapedNewlinesAndSpaces(normalized);
 
     // Insert newline before inline block starters so markdown can parse immediately
     normalized = insertNewlineBeforeBlocksOutsideCode(normalized);

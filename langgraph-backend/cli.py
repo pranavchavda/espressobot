@@ -806,26 +806,38 @@ class EspressoBotCLI:
     
     def _process_message_content(self, content: str) -> str:
         """Process message content for better markdown formatting"""
-        # Handle various newline patterns
-        content = content.replace('\\n', '\n')  # Convert literal \n to actual newlines
-        content = content.replace('\r\n', '\n')  # Normalize Windows line endings
-        
-        # Fix markdown that's been compressed into a single line
-        # Add newlines before markdown elements
         import re
         
-        # Add newlines before headers (but not if already at start of line)
-        content = re.sub(r'(?<!\n)(#{1,6}\s)', r'\n\1', content)
+        # First, handle the most basic case: convert literal \n strings to actual newlines
+        content = content.replace('\\n', '\n')
         
-        # Add newlines before list items
-        content = re.sub(r'(?<!\n)([*-]\s)', r'\n\1', content)
-        content = re.sub(r'(?<!\n)(\d+\.\s)', r'\n\1', content)
+        # Handle Windows line endings
+        content = content.replace('\r\n', '\n')
+        content = content.replace('\r', '\n')
         
-        # Add newlines before code blocks
-        content = re.sub(r'(?<!\n)(```)', r'\n\1', content)
+        # Handle markdown two-space line breaks (convert to actual newlines)
+        content = re.sub(r'  +\n', '\n', content)
+        content = re.sub(r'  +$', '\n', content, flags=re.MULTILINE)
         
-        # Add newlines after code blocks
-        content = re.sub(r'(```[^`]*```)', r'\1\n', content)
+        # If we still have very long lines without newlines, try to split them intelligently
+        lines = content.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            if len(line) > 200:  # Long line, might need splitting
+                # Add newlines before common markdown patterns that appear mid-line
+                line = re.sub(r'(\S)\s+(#{1,6}\s)', r'\1\n\2', line)  # Before headers
+                line = re.sub(r'(\S)\s+([*-]\s)', r'\1\n\2', line)    # Before bullet lists
+                line = re.sub(r'(\S)\s+(\d+\.\s)', r'\1\n\2', line)   # Before numbered lists
+                line = re.sub(r'(\S)\s+(```)', r'\1\n\2', line)       # Before code blocks
+                
+                # If line is still very long, split on sentence boundaries
+                if len(line) > 400:
+                    line = re.sub(r'([.!?])\s+([A-Z])', r'\1\n\2', line)
+            
+            processed_lines.append(line)
+        
+        content = '\n'.join(processed_lines)
         
         # Clean up multiple consecutive newlines (max 2)
         content = re.sub(r'\n{3,}', '\n\n', content)
