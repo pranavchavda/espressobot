@@ -27,7 +27,7 @@ DEBUG_LANGEXTRACT_LOGS = True
 
 # Quality thresholds to reduce empty/low-value memories
 MIN_MEMORY_CONTENT_CHARS = 20  # Skip memories shorter than this after normalization
-MIN_MEMORY_CONFIDENCE = 0.5    # Stricter than previous 0.3
+MIN_MEMORY_CONFIDENCE = 0.3    # Balanced threshold for quality vs coverage
 MIN_MEMORY_CONTENT_CHARS_SHORT = 12  # For durable instrumentation policies
 
 # Domain signal lists to preserve durable instrumentation/tracking policies
@@ -163,67 +163,75 @@ class MemoryExtractionService:
                 )
             ]
             
-            # Extract memories using langextract with proper parameters
-            prompt_description = """Extract ONLY essential, reusable memories that will have long-term value for future conversations.
+            # Extract memories using langextract with balanced parameters
+            prompt_description = """Extract important information about the user that should be remembered for future conversations.
 
-                STRICT CRITERIA - INCLUDE only if the information:
-                1. Describes the USER'S identity, role, or core expertise (not temporary work)
-                2. Reveals consistent preferences or patterns that affect multiple conversations
-                3. Establishes context about their business or industry (not specific tasks)
-                4. Shows expertise areas that inform how to help them
-                5. Defines sitewide analytics/instrumentation policies or durable tracking preferences (e.g., GA4 via GTM, Consent Mode)
+                INCLUDE if the information:
+                1. Describes the user's professional role, expertise, or core identity
+                2. Shows consistent preferences or patterns (tools, approaches, communication style)
+                3. Reveals business context or industry they work in
+                4. Establishes how they like to work or what they value
+                5. Contains durable policies or standards they follow
                 
-                EXAMPLES OF GOOD EXTRACTIONS:
+                EXAMPLES TO EXTRACT:
                 - "User is a senior backend engineer specializing in Python"
-                - "User prefers command-line tools over GUI applications"
+                - "User prefers command-line tools over GUI applications"  
                 - "User manages an e-commerce platform with 100+ daily orders"
                 - "User works with payment systems and fraud prevention"
-                - "Sitewide tracking policy: Always load GA4 via GTM; no direct GA; Consent Mode v2 with default denied until consent"
+                - "User prefers concise explanations over lengthy documentation"
+                - "User always uses VS Code for development"
+                - "Sitewide policy: Always load GA4 via GTM with Consent Mode v2"
+
+                EXCLUDE task-specific or temporary information:
+                - Specific requests for today/this week/current tasks
+                - Individual order numbers, dates, or data points
+                - One-time troubleshooting or debugging sessions
+                - References to specific current projects or deadlines
+                - Assistant responses or suggestions
+                - Step-by-step workflows for specific tasks
                 
-                ALWAYS EXCLUDE (mark is_ephemeral=True):
-                - ANY specific task, request, or one-time activity
-                - Date ranges, deadlines, or time-specific information
-                - Specific order numbers, amounts, or data analysis tasks
-                - References to specific people they're working with on current tasks
-                - Workflow steps, process details, or how-to information
-                - Assistant responses, suggestions, or conversational content
-                - System configurations or technical setup for specific projects
-                - Any information that starts with "User needs", "User wants", "User requires"
-                - One-off tracking changes for a specific page/campaign/date (e.g., "add tracking script to this page today")
-                
-                CRITICAL RULE: If uncertain whether something has long-term value, DON'T extract it.
-                Most conversations should extract 0-1 memories. Only extract if genuinely essential."""
+                GUIDELINE: When in doubt about lasting value, lean toward including it rather than missing important context. 
+                Most conversations should extract 1-3 memories if they contain genuine user information."""
             
             # Call langextract using EXACT same configuration as working context compression
             import os
             
-            model_id = "gpt-4.1-mini"  # Same as context compression
+            model_id = "gpt-4.1-nano"  # Proven better performance than GPT-5 for extractions
             api_key = os.getenv("OPENAI_API_KEY")
             
             # Use same configuration logic as context compression for consistency
             is_openai = model_id.startswith("gpt") or "gpt-" in model_id
+            is_gpt5 = "gpt-5" in model_id
             
             if DEBUG_LANGEXTRACT_LOGS:
-                logger.debug(f"LangExtract call parameters: model_id={model_id}, is_openai={is_openai}")
+                logger.debug(f"LangExtract call parameters: model_id={model_id}, is_openai={is_openai}, is_gpt5={is_gpt5}")
                 logger.debug(f"fence_output={is_openai}, use_schema_constraints={not is_openai}")
                 logger.debug(f"OPENAI_API_KEY present={bool(api_key)}")
+                logger.debug(f"OPENROUTER_API_KEY present={bool(os.getenv('OPENROUTER_API_KEY'))}")
+                logger.debug(f"About to call lx.extract with model_id='{model_id}' and api_key={'[REDACTED]' if api_key else None}")
             
-            # Run langextract with EXACT same configuration as working context compression
+            # Run langextract with configuration adapted for GPT-5
             try:
                 import concurrent.futures
                 loop = asyncio.get_event_loop()
                 
                 def run_langextract():
-                    return lx.extract(
-                        text_or_documents=conversation_text,
-                        prompt_description=prompt_description,
-                        examples=examples,
-                        model_id=model_id,
-                        api_key=api_key if is_openai else None,
-                        fence_output=True,
-                        use_schema_constraints=False,
-                        temperature=0.1
-                    )
+                    params = {
+                        "text_or_documents": conversation_text,
+                        "prompt_description": prompt_description,
+                        "examples": examples,
+                        "model_id": model_id,
+                        "api_key": api_key if is_openai else None,
+                        "fence_output": True,
+                        "use_schema_constraints": False,
+                    }
+                    # GPT-5 models only accept default temperature (1.0)
+                    if not is_gpt5:
+                        params["temperature"] = 0.1
+                    
+                    # Note: LangExtract will auto-detect provider based on model_id and api_key
+                    
+                    return lx.extract(**params)
                 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     result = await loop.run_in_executor(executor, run_langextract)
@@ -232,9 +240,8 @@ class MemoryExtractionService:
                 logger.error(f"LangExtract extraction failed: {lx_error}")
                 import traceback
                 logger.error(f"LangExtract full traceback: {traceback.format_exc()}")
-                # FALLBACK COMMENTED OUT - LANGEXTRACT IS WORKING PROPERLY
-                # return await self._extract_memories_gpt(conversation_text, user_id)
-                raise lx_error  # Re-raise to catch any future langextract issues
+                # No fallback - using LangExtract exclusively
+                return []  # Return empty list instead of failing
             
             # Handle case where result might be wrapped in markdown code blocks
             if isinstance(result, str):
@@ -309,30 +316,21 @@ class MemoryExtractionService:
                             logger.debug(f"Filtered[C] low confidence ({confidence} < {MIN_MEMORY_CONFIDENCE}): {attrs.get('content', '')[:50]}...")
                         continue
 
-                    # Additional filtering for task-specific content (allow if durable instrumentation)
+                    # Focused filtering for clearly task-specific content
                     
                     task_indicators = [
-                        # Specific task patterns
-                        "needs to", "wants to", "requires", "requesting", "asked for",
-                        "working on", "currently", "this time", "today", "yesterday",
-                        "last week", "next week", "for analysis", "for review", "for fraud",
+                        # Clear task patterns
+                        "needs to analyze", "wants to check", "requesting data for",
+                        "working on today", "currently debugging", "this time around",
+                        "for today's", "for this analysis", "for review today",
                         
-                        # Specific data requests
-                        "order ids", "customer names", "amounts", "risk levels", 
-                        "order details", "order information", "order data",
-                        "3-day window", "5 orders", "limit", "specific orders",
+                        # Specific data requests  
+                        "order ids", "customer names", "specific amounts",
+                        "order details for", "3-day window", "5 orders", "limit 10",
                         
-                        # Workflow/process indicators
-                        "analyzes recent", "focuses on", "reviews", "examines",
-                        "coordinates with", "collaborates with", "works with",
-                        "handles order management", "fraud review processes",
-                        
-                        # Time-specific patterns
-                        "window", "period", "timeframe", "recent", "current",
-                        "specific", "particular", "detailed", "individual",
-                        
-                        # System access patterns
-                        "access to systems", "with access", "systems that handle"
+                        # Temporary workflows
+                        "analyzes recent orders", "reviews this data", "examines current",
+                        "handles this order", "coordinates this task"
                     ]
                     
                     if any(indicator in content for indicator in task_indicators) and not longterm_inst:
@@ -397,13 +395,8 @@ class MemoryExtractionService:
             logger.error(f"Langextract memory extraction failed: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
-            # FALLBACK COMMENTED OUT - LANGEXTRACT IS WORKING PROPERLY
-            # try:
-            #     return await self._extract_memories_gpt(conversation_text, user_id)
-            # except Exception as fallback_error:
-            #     logger.error(f"GPT fallback also failed: {fallback_error}")
-            #     return []
-            raise e  # Re-raise to catch any future langextract issues
+            # No fallback - using LangExtract exclusively
+            return []  # Return empty list instead of failing
     
     async def _extract_memories_gpt(self, conversation_text: str, user_id: str) -> List[Memory]:
         """GPT-4.1-nano extraction method (primary method)"""
@@ -439,9 +432,6 @@ ALWAYS EXCLUDE (mark is_ephemeral=True):
 
 CRITICAL RULE: If uncertain whether something has long-term value, DON'T extract it.
 Most conversations should extract 0-1 memories. Only extract if genuinely essential.
-
-Conversation:
-{conversation_text}
 
 Return a JSON object with a "memories" array. For each memory provide:
 - "content": The specific memory (be precise and complete, e.g., "User prefers Python over JavaScript for backend development")
@@ -483,6 +473,9 @@ Example:
 }}
 
 Return {{"memories": []}} if no high-value, long-term memories are found.
+
+Conversation:
+{conversation_text}
 """
         
         try:

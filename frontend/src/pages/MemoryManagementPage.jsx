@@ -28,7 +28,7 @@ export default function MemoryManagementPage() {
   const [showStats, setShowStats] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalMemories, setTotalMemories] = useState(0);
-  const memoriesPerPage = 20;
+  const memoriesPerPage = 100;
 
   // Fetch dashboard data
   const fetchDashboard = async () => {

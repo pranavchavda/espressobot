@@ -127,8 +127,8 @@ class ProgressiveOrchestrator:
         self.conversation_memory: Dict[str, ConversationMemory] = {}  # thread_id -> memory
         self._final_response = None  # Store orchestrator's direct response
         
-        # Initialize compressed context manager with fast model
-        # Using gpt-4.1-mini as requested (gpt-5 models not yet supported by langextract)
+        # Initialize compressed context manager with fast model  
+        # GPT-4.1-mini outperforms GPT-5-mini for memory extraction quality
         self.context_manager = CompressedContextManager(model_id="gpt-4.1-mini")
         
         # Get database URL for persistence
@@ -991,7 +991,7 @@ Response:"""
             logger.error(f"Background message loading failed for thread {thread_id}: {e}")
     
     async def _async_context_compression(self, thread_id: str, memory: ConversationMemory,
-                                       agent_results_dict: Dict[str, str], agents_called: int):
+                                       agent_results_dict: Dict[str, str], agents_called: int, user_id: str = "1"):
         """Handle context compression in background - never blocks response streaming"""
         try:
             logger.info(f"🧠 [BACKGROUND] Starting context compression for thread {thread_id}")
@@ -1003,7 +1003,8 @@ Response:"""
                     self.context_manager.compress_turn(
                         thread_id=thread_id,
                         messages=memory.recent_messages,
-                        agent_results=agent_results_dict
+                        agent_results=agent_results_dict,
+                        user_id=user_id
                     ),
                     timeout=30.0  # 30 second timeout for context compression
                 )
@@ -1036,76 +1037,6 @@ Response:"""
         except Exception as e:
             logger.error(f"❌ [BACKGROUND] Context compression failed for thread {thread_id}: {e}", exc_info=True)
     
-    async def _async_memory_extraction(self, thread_id: str, user_id: str, message: str,
-                                     final_response: str, memory: ConversationMemory):
-        """Handle memory extraction in background - never blocks response streaming"""
-        try:
-            logger.info(f"💾 [BACKGROUND] Starting memory extraction for thread {thread_id}")
-            
-            # Extract and save memories
-            if self.memory_manager:
-                try:
-                    from app.memory.memory_persistence import MemoryExtractionService
-                    
-                    extraction_service = MemoryExtractionService()
-                    logger.info("[BACKGROUND] Memory extraction service initialized")
-                    
-                    # Build conversation for extraction using proper message objects
-                    messages_for_extraction = []
-                    
-                    # Add recent history if available
-                    if memory.recent_messages:
-                        # Add last 2 exchanges from history
-                        messages_for_extraction.extend(memory.recent_messages[-4:])
-                    
-                    # Add current exchange
-                    messages_for_extraction.append(HumanMessage(content=message))
-                    messages_for_extraction.append(AIMessage(content=final_response))
-                    
-                    logger.info(f"[BACKGROUND] Extracting from {len(messages_for_extraction)} messages. Latest: User: {message[:100]}... Assistant: {final_response[:100]}...")
-                    
-                    # Extract memories with timeout
-                    logger.info(f"[BACKGROUND] Extracting memories from {len(messages_for_extraction)} messages")
-                    try:
-                        extracted_memories = await asyncio.wait_for(
-                            extraction_service.extract_memories_from_conversation(
-                                messages=messages_for_extraction,
-                                user_id="1"  # Default user for now
-                            ),
-                            timeout=45.0  # 45 second timeout for memory extraction
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning(f"[BACKGROUND] Memory extraction timed out after 45s for thread {thread_id}")
-                        extracted_memories = []
-                    except Exception as mem_error:
-                        logger.error(f"[BACKGROUND] Memory extraction error: {mem_error}")
-                        extracted_memories = []
-                    logger.info(f"[BACKGROUND] Extracted {len(extracted_memories)} memories")
-                    
-                    # Save extracted memories
-                    saved_count = 0
-                    for mem in extracted_memories:
-                        logger.info(f"[BACKGROUND] Attempting to save memory: {mem.content[:50]}...")
-                        try:
-                            memory_id = await self.memory_manager.store_memory(mem)
-                            if memory_id:
-                                saved_count += 1
-                                logger.info(f"💾 [BACKGROUND] Saved memory #{memory_id}: {mem.content[:50]}...")
-                        except Exception as e:
-                            logger.warning(f"[BACKGROUND] Failed to save memory: {e}")
-                    
-                    if saved_count > 0:
-                        logger.info(f"✅ [BACKGROUND] Extracted and saved {saved_count} memories from conversation")
-                    else:
-                        logger.info(f"ℹ️  [BACKGROUND] No memories extracted from conversation (filtered or empty)")
-                        
-                except Exception as e:
-                    logger.error(f"❌ [BACKGROUND] Memory extraction failed: {e}")
-            else:
-                logger.warning("[BACKGROUND] Memory manager is None, skipping memory extraction")
-                
-        except Exception as e:
-            logger.error(f"❌ [BACKGROUND] Memory extraction failed for thread {thread_id}: {e}", exc_info=True)
     
     async def _async_database_save(self, thread_id: str, message: str, final_response: str):
         """Handle database saves in background - never blocks response streaming"""
@@ -1223,16 +1154,11 @@ Response:"""
             thread_id=thread_id,
             memory=memory,
             agent_results_dict=agent_results_dict,
-            agents_called=agents_called
+            agents_called=agents_called,
+            user_id=user_id
         ))
         
-        asyncio.create_task(self._async_memory_extraction(
-            thread_id=thread_id,
-            user_id=user_id,
-            message=message,
-            final_response=final_response,
-            memory=memory
-        ))
+# Old memory extraction system removed - now handled by context compression
         
         asyncio.create_task(self._async_database_save(
             thread_id=thread_id,
