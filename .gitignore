@@ -61,3 +61,4 @@ Thumbs.db
 # Storage directory
 storage/*
 !storage/.gitkeep
+espressobot-cli/bundle/
