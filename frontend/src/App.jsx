@@ -6,6 +6,7 @@ import StreamingChatPage from "./features/chat/StreamingChatPage";
 import AsyncStreamingChatPage from "./features/chat/AsyncStreamingChatPage";
 import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
+import CLIAuthPage from './pages/CLIAuthPage';
 import RestrictedPage from './pages/RestrictedPage';
 import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
@@ -42,8 +43,8 @@ function ChatWrapper({ onTopicUpdate, onNewConversation }) {
   // Handle new conversation creation
   const handleNewConversation = (newConvId) => {
     console.log('[ChatWrapper] New conversation created:', newConvId);
-    // Navigate to the new conversation's route
-    navigate(`/chat/${newConvId}`);
+    // Don't navigate immediately, let StreamingChatPage handle navigation when ready
+    // navigate(`/chat/${newConvId}`);
     if (onNewConversation) {
       onNewConversation(newConvId);
     }
@@ -177,31 +178,34 @@ function App() {
           
           console.log('[App] /api/auth/me response:', res.status, res.statusText);
           
-          if (res.ok) {
-            const userData = await res.json();
-            console.log('[App] Auth check successful, user data:', userData);
-            setUser(userData);
-            // Clear cache on successful login to ensure fresh data
-            cacheBuster.clearCacheOnLogin();
-            // Don't auto-select last chat on login - let user start from homepage
-            fetchConversations(storedToken, false);
-          } else {
-            // Invalid token, remove it
-            console.error('[App] Auth check failed - invalid token:', res.status, res.statusText);
-            const errorText = await res.text().catch(() => 'Unable to read error');
-            console.error('[App] Error response body:', errorText);
-            localStorage.removeItem('authToken');
-          }
-        } catch (error) {
-          console.error('[App] Auth check network error:', error);
-          localStorage.removeItem('authToken');
-        }
+      if (res.ok) {
+        const userData = await res.json();
+        console.log('[App] Auth check successful, user data:', userData);
+        setUser(userData);
+        // Clear cache on successful login to ensure fresh data
+        cacheBuster.clearCacheOnLogin();
+        // Don't auto-select last chat on login - let user start from homepage
+        fetchConversations(storedToken, false);
+        console.log('Auth check complete, user:', userData);
       } else {
-        console.log('[App] No stored token found, user not authenticated');
+        // Invalid token, remove it
+        console.error('[App] Auth check failed - invalid token:', res.status, res.statusText);
+        const errorText = await res.text().catch(() => 'Unable to read error');
+        console.error('[App] Error response body:', errorText);
+        localStorage.removeItem('authToken');
+        console.log('Auth check complete, user: null');
       }
-      
-      console.log('Auth check complete, user:', user);
-      setAuthLoading(false);
+    } catch (error) {
+      console.error('[App] Auth check network error:', error);
+      localStorage.removeItem('authToken');
+      console.log('Auth check complete, user: null');
+    }
+  } else {
+    console.log('[App] No stored token found, user not authenticated');
+    console.log('Auth check complete, user: null');
+  }
+  
+  setAuthLoading(false);
     };
     
     checkAuth();
@@ -313,6 +317,7 @@ function App() {
   const Unauthenticated = (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/login" element={<CLIAuthPage />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
@@ -521,6 +526,7 @@ function App() {
           path="/agent-management" 
           element={<AgentManagementPage />}
         />
+        <Route path="/auth/login" element={<CLIAuthPage />} />
       </Route>
     </Routes>
         </>

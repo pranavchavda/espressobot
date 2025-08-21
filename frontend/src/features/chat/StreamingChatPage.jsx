@@ -187,6 +187,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       // This happens when we create a new conversation and the parent hasn't updated yet
       if (activeConv) {
         console.log('FRONTEND: convId is null but activeConv exists, not clearing. activeConv:', activeConv);
+        // If we have an active conversation but convId is null, we should still ensure loading is false
+        // after the conversation data has been loaded
+        if (!loading && messages.length > 0) {
+          setLoading(false);
+        }
         return;
       }
       setMessages([]);
@@ -196,6 +201,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       setHasShownTasks(false);
       setTaskMarkdown(null);
       setActiveConv(null);
+      // Decide loading state based on whether we're bootstrapping a new conversation
+      // Only treat as initializing if there is actual initial content attached.
+      const hasInitState = !!(location.state?.initialMessage || location.state?.imageAttachment || location.state?.fileAttachment);
+      const hasActiveSend = isSending || !!(streamingMessageRef.current && streamingMessageRef.current.isStreaming);
+      setLoading(hasInitState || hasActiveSend);
       hasProcessedInitialMessage.current = false; // Reset flag for new conversations
       return;
     }
@@ -893,10 +903,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
         console.log('[DEBUG] Setting activeConv from async response:', conversationId);
         setActiveConv(conversationId);
         
-        // Navigate immediately to new conversation to prevent blank chat page
+        // Notify parent of new conversation and navigate to it
         if (onNewConversation && !convId) {
-          console.log('[DEBUG] Navigating immediately to new conversation:', conversationId);
-          navigate(`/chat/${conversationId}`, { replace: true });
+          console.log('[DEBUG] Navigating to new conversation:', conversationId);
           onNewConversation(conversationId);
         }
       }
@@ -1208,12 +1217,9 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
           console.log('[DEBUG] Setting activeConv to:', newConvId);
           setActiveConv(newConvId);
           
-          // Navigate to new conversation URL directly (no page reload)
+          // Notify parent of new conversation and navigate to it
           if (!convId) {
             console.log('[DEBUG] Navigating to new conversation:', newConvId);
-            // Use replace to avoid creating history entries for new conversations
-            navigate(`/chat/${newConvId}`, { replace: true });
-            
             // Still notify parent for conversation list updates
             if (onNewConversation) {
               onNewConversation(newConvId);
@@ -1374,6 +1380,69 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
               // Debug: Log parsed event
               console.log("FRONTEND: Parsed NDJSON event:", eventName, "Payload:", actualEventPayload);
+              
+              // Handle conversation_id event with delayed navigation to prevent race condition
+              if ((eventName === 'conversation_id' || eventName === 'conv_id') && actualEventPayload.conv_id) {
+                const newConvId = actualEventPayload.conv_id;
+                console.log('[DEBUG] Processing conversation_id event for:', newConvId);
+                
+                // Only navigate if we don't already have a conversation ID
+                if (!convId && !activeConv) {
+                  console.log('[DEBUG] No existing conversation, setting up delayed navigation to:', newConvId);
+                  
+                  // Set active conversation ID immediately for internal state
+                  setActiveConv(newConvId);
+                  
+                  // Verify conversation exists before navigating
+                  const verifyConversationReady = async (conversationId, attempt = 0) => {
+                    const maxAttempts = 10; // 3 seconds max wait
+                    const delay = 300; // 300ms between attempts
+                    
+                    if (attempt >= maxAttempts) {
+                      console.log('[DEBUG] Max attempts reached, navigating anyway to:', conversationId);
+                      navigate(`/chat/${conversationId}`, { replace: true });
+                      return;
+                    }
+                    
+                    try {
+                      const token = localStorage.getItem('authToken');
+                      const response = await fetch(`/api/conversations/${conversationId}`, {
+                        headers: {
+                          'Authorization': token ? `Bearer ${token}` : '',
+                          'User-ID': '1'
+                        }
+                      });
+                      
+                      if (response.ok) {
+                        const data = await response.json();
+                        console.log('[DEBUG] Conversation verification attempt', attempt + 1, '- Status:', response.status, 'Messages:', data.messages?.length || 0);
+                        
+                        // Consider conversation ready if it exists and has at least the user message
+                        if (data.messages && data.messages.length > 0) {
+                          console.log('[DEBUG] Conversation is ready, navigating to:', conversationId);
+                          navigate(`/chat/${conversationId}`, { replace: true });
+                        } else {
+                          // Wait and retry
+                          console.log('[DEBUG] Conversation exists but no messages yet, retrying...');
+                          setTimeout(() => verifyConversationReady(conversationId, attempt + 1), delay);
+                        }
+                      } else {
+                        // Wait and retry if conversation not found yet
+                        console.log('[DEBUG] Conversation not yet available, retrying...');
+                        setTimeout(() => verifyConversationReady(conversationId, attempt + 1), delay);
+                      }
+                    } catch (error) {
+                      console.log('[DEBUG] Error verifying conversation, retrying:', error.message);
+                      setTimeout(() => verifyConversationReady(conversationId, attempt + 1), delay);
+                    }
+                  };
+                  
+                  // Start verification process
+                  verifyConversationReady(newConvId);
+                } else {
+                  console.log('[DEBUG] Already have conversation, skipping navigation. convId:', convId, 'activeConv:', activeConv);
+                }
+              }
 
               // Handle 'done' event for basic agent mode ONLY
               if (eventName === 'done') {
@@ -1488,11 +1557,10 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   console.log('[DEBUG] Setting activeConv to:', actualEventPayload.conv_id);
                   setActiveConv(actualEventPayload.conv_id);
                   
-                  // Navigate to new conversation URL if needed
+                  // Notify parent of new conversation but don't navigate immediately
+                  // Navigation will happen when conversation data is ready
                   if (!convId) {
-                    console.log('[DEBUG] Navigating to conversation from event:', actualEventPayload.conv_id);
-                    navigate(`/chat/${actualEventPayload.conv_id}`, { replace: true });
-                    
+                    console.log('[DEBUG] Notifying parent of new conversation:', actualEventPayload.conv_id);
                     // Notify parent for conversation list updates
                     if (onNewConversation) {
                       onNewConversation(actualEventPayload.conv_id);
@@ -2362,10 +2430,11 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     
     if ((initialMessage || imageAttachment || fileAttachment) && !messages.length && !loading && !hasProcessedInitialMessage.current) {
       hasProcessedInitialMessage.current = true;
-      
-      if (newConversation && onNewConversation) {
-        onNewConversation();
-      }
+      // Do not trigger onNewConversation() here without a conversation ID.
+      // Navigation will occur later when a valid conversation ID is available
+      // (via handleSend response or async polling), preventing /chat/undefined navigation.
+      // Show immediate loading state while bootstrapping a new conversation
+      setLoading(true);
       
       setInput(initialMessage || '');
       if (imageAttachment) setImageAttachment(imageAttachment);
@@ -2386,7 +2455,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-6 py-3 sm:py-4 max-w-7xl w-full mx-auto">
         <div className="flex flex-col gap-3">
-          {loading ? (
+          {loading && !streamingMessage ? (
             <div className="flex justify-center items-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-zinc-500"></div>
             </div>
