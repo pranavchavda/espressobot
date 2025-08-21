@@ -16,6 +16,7 @@ from langsmith.run_helpers import traceable
 import asyncpg
 from app.context_manager.compressed_context_simple import CompressedContextManager, ExtractedContext
 from app.db.connection_pool import get_database_pool
+from app.utils.markdown_formatter import restore_markdown_formatting
 
 logger = logging.getLogger(__name__)
 # Set logging level to DEBUG for testing
@@ -777,11 +778,26 @@ Guidelines:
 - If key information is missing, ask 1-2 specific clarifying questions.
 - Keep it friendly, actionable, and avoid generic apologies.
 
-Response:"""
+CRITICAL FORMATTING RULE: Always add two spaces ('  ') at the end of lines where you want line breaks, especially:
+- After headings like "# Coffee Methods  "
+- After list items like "- Drip coffee  "
+- After paragraphs for proper spacing
+
+Response (MUST use two spaces '  ' at the end of lines for line breaks):"""
 
                 logger.info("Synthesizing response without agent results using compressed/recent context")
                 response = await self.model.ainvoke(fallback_prompt)
-                return response.content if hasattr(response, 'content') else str(response)
+                raw_content = response.content if hasattr(response, 'content') else str(response)
+                logger.info(f"🔍 Fallback raw content: {repr(raw_content[:200])}")
+                
+                # Convert two spaces to actual line breaks
+                formatted_content = raw_content.replace('  ', '\n')
+                logger.info(f"🔍 Fallback after two-space replacement: {repr(formatted_content[:200])}")
+                
+                final_content = restore_markdown_formatting(formatted_content)
+                logger.info(f"🔍 Fallback final content: {repr(final_content[:200])}")
+                
+                return final_content
             except Exception as e:
                 logger.error(f"Error synthesizing fallback response without agent results: {e}")
                 # Last-resort concise clarifying response
@@ -825,14 +841,29 @@ Create a clear, concise response that:
 4. Mentions any important IDs or links if relevant
 5. Is friendly and conversational
 
+CRITICAL FORMATTING RULE: Always add two spaces ('  ') at the end of lines where you want line breaks, especially:
+- After headings like "# Coffee Methods  "
+- After list items like "- Drip coffee  "
+- After paragraphs for proper spacing
+
 IMPORTANT: Use the recent conversation context to understand what the user is referring to.
 If they say "let's do that" or "yes, do it", look at the previous assistant message to see what was offered.
 
-Response:"""
+Response (MUST use two spaces '  ' at the end of lines for line breaks):"""
 
         try:
             response = await self.model.ainvoke(synthesis_prompt)
-            return response.content if hasattr(response, 'content') else str(response)
+            raw_content = response.content if hasattr(response, 'content') else str(response)
+            logger.info(f"🔍 Raw LLM content (first 200 chars): {repr(raw_content[:200])}")
+            
+            # Convert two spaces to actual line breaks
+            formatted_content = raw_content.replace('  ', '\n')
+            logger.info(f"🔍 After two-space replacement: {repr(formatted_content[:200])}")
+            
+            final_content = restore_markdown_formatting(formatted_content)
+            logger.info(f"🔍 Final formatted content: {repr(final_content[:200])}")
+            
+            return final_content
         except Exception as e:
             logger.error(f"Error synthesizing response: {e}")
             # Fallback to simple concatenation
@@ -1145,12 +1176,24 @@ Response:"""
         
         # CRITICAL: Start streaming the response IMMEDIATELY in chunks
         # Do NOT wait for any post-processing - that happens in background
-        response_chunks = final_response.split()
-        for i, token in enumerate(response_chunks):
-            yield token + " "
-            # Yield control every few tokens to allow other async tasks to run
-            if i % 10 == 0:
+        # IMPORTANT: Preserve newlines by using a different approach than split()
+        
+        # Instead of destroying newlines with split(), stream character by character
+        # or in small chunks while preserving formatting
+        current_chunk = ""
+        for char in final_response:
+            current_chunk += char
+            # Send chunks at word boundaries or newlines, preserving structure
+            if char in [' ', '\n', '\t'] and len(current_chunk) > 20:
+                yield current_chunk
+                current_chunk = ""
+            # Yield control periodically
+            if len(current_chunk) % 50 == 0:
                 await asyncio.sleep(0)  # Yield control to event loop
+        
+        # Send any remaining chunk
+        if current_chunk:
+            yield current_chunk
         
         logger.info(f"✅ Response streaming complete, starting background post-processing")
         
