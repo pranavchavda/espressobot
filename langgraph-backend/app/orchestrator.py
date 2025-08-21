@@ -1033,6 +1033,14 @@ Response:"""
                 self.context_manager.clear_old_context(thread_id)
                 
             logger.info(f"✅ [BACKGROUND] Context compression completed for thread {thread_id}")
+            
+            # Extract and save MEMORY_WORTHY items to database
+            try:
+                logger.info(f"💾 [BACKGROUND] Starting memory extraction for thread {thread_id}")
+                memories_saved = await self.context_manager.extract_memories_from_context(thread_id, user_id)
+                logger.info(f"✅ [BACKGROUND] Memory extraction completed: {memories_saved} memories saved")
+            except Exception as mem_error:
+                logger.error(f"❌ [BACKGROUND] Memory extraction failed for thread {thread_id}: {mem_error}", exc_info=True)
                 
         except Exception as e:
             logger.error(f"❌ [BACKGROUND] Context compression failed for thread {thread_id}: {e}", exc_info=True)

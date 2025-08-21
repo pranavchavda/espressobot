@@ -178,7 +178,7 @@ async def list_memories(
     user_id: str,
     category: Optional[MemoryCategory] = None,
     importance_min: Optional[float] = Query(None, ge=0.0, le=10.0),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
     """List user memories with filtering"""

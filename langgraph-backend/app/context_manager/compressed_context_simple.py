@@ -519,7 +519,7 @@ class CompressedContextManager:
                 metadata={
                     "extraction_class": ext_class,
                     "extraction_method": "context_compression",
-                    "reason": "dual_extraction_process",
+                    "reason": self._generate_memory_reason(ext_class, ext_text, attrs),
                     "attributes": attrs,
                     "model": self.model_id,
                     "confidence": confidence_score
@@ -622,6 +622,50 @@ class CompressedContextManager:
             base_confidence -= 0.1
             
         return min(max(base_confidence, 0.1), 1.0)  # Keep between 0.1 and 1.0
+    
+    def _generate_memory_reason(self, ext_class: str, ext_text: str, attrs: dict) -> str:
+        """Generate human-readable reason why this memory is worth saving"""
+        
+        # Generate contextual reasons based on extraction class and content
+        if ext_class in ["user_identity", "user_profile", "user_role"]:
+            return "Core user identity information that helps personalize future interactions"
+        
+        elif "preference" in ext_class.lower():
+            if "always" in ext_text.lower():
+                return "Strong user preference that consistently influences their decisions"
+            elif "prefer" in ext_text.lower():
+                return "User preference that guides their choices and workflow"
+            else:
+                return "User preference that affects their work style and decisions"
+        
+        elif ext_class in ["user_expertise", "user_specialization", "technical_expertise"]:
+            return "User's professional expertise that determines appropriate conversation depth and context"
+        
+        elif ext_class in ["user_experience", "professional_background"]:
+            years = attrs.get("years_experience") or attrs.get("duration_years")
+            if years:
+                return f"Professional experience level ({years} years) helps tailor recommendations and complexity"
+            else:
+                return "Professional experience level helps determine appropriate conversation depth"
+        
+        elif ext_class in ["business_context", "company_info", "business_details"]:
+            return "Business context that influences recommendations and understanding of user's environment"
+        
+        elif ext_class in ["policy", "standard", "rule"]:
+            return "User's policy or standard that must be considered in future recommendations"
+        
+        elif "tool" in ext_class.lower() or "technology" in ext_class.lower():
+            return "User's tool or technology preference that affects solution recommendations"
+        
+        elif ext_class in ["user_constraint", "user_limitation"]:
+            return "User constraint that must be considered when providing solutions or recommendations"
+        
+        elif ext_class in ["user_goal", "user_objective"]:
+            return "User's stated goal that provides direction for future assistance"
+        
+        # Fallback for any other extraction class
+        else:
+            return f"Durable user information ({ext_class}) with long-term relevance for personalized assistance"
     
     def clear_old_context(self, thread_id: str):
         """Clear old context to prevent unbounded growth"""

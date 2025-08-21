@@ -53,14 +53,22 @@ class EspressoBotCLI:
         self.conversation_id = f"cli-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         self.conversation_history: List[Dict[str, Any]] = []
         
+        # Initialize persistent command history
+        self.history_file = Path.home() / ".config" / "espressobot" / "cli_history.txt"
+        self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load command history for fallback mode
+        self.command_history = []
+        self.history_index = 0
+        self._load_history()
+        
         # Define available commands for autocomplete
         self.commands = [
             "/help", "/agents", "/clear", "/export", "/stream", "/conv", "/new", "/quit",
+            "/history", "/switch", "/save-conv", "/cmd-history",
             "/memory", "/memory-search", "/memory-delete", "/memory-export",
-            "/sales", "/orders", "/revenue",
-            "/product", "/products", "/pricing",
             "/system-health", "/system-status", "/config", "/debug",
-            "/agents-config", "/orchestrator-status", "/logs",
+            "/orchestrator-status",
             "/login", "/get-token", "/logout", "/auth-status"
         ]
         
@@ -71,46 +79,229 @@ class EspressoBotCLI:
             self.command_completer = None
     
     def get_user_input(self, prompt_text: str = "You: ") -> str:
-        """Get user input with helpful command list"""
+        """Get user input with command autocomplete and proper arrow key handling"""
         try:
-            # Show available commands hint for commands starting with /
             clean_prompt = prompt_text.rstrip(': ')
             
-            # Show command hint on first use or when user types just "/"
+            # Show command hint on first use
             hint_shown = getattr(self, '_hint_shown', False)
             if not hint_shown:
                 console.print("[dim]💡 Tip: Type [cyan]/help[/cyan] for commands, or [cyan]/[/cyan] to see available commands[/dim]")
+                console.print("[dim]    Use arrow keys to navigate, Tab for command completion[/dim]")
                 self._hint_shown = True
             
-            # Use rich prompt with enhanced formatting
-            user_input = Prompt.ask(f"[bold blue]{clean_prompt}[/bold blue]")
+            if PROMPT_TOOLKIT_AVAILABLE and self.command_completer:
+                # Use prompt-toolkit in a separate thread to avoid async conflicts
+                import threading
+                import queue
+                
+                result_queue = queue.Queue()
+                
+                def run_prompt():
+                    try:
+                        from prompt_toolkit.shortcuts import PromptSession
+                        from prompt_toolkit.history import FileHistory
+                        from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+                        from prompt_toolkit.completion import CompleteEvent
+                        from prompt_toolkit.formatted_text import HTML
+                        
+                        # Create a custom completer that shows all commands on "/"
+                        class CustomCompleter:
+                            def __init__(self, commands):
+                                self.commands = commands
+                            
+                            def get_completions(self, document, complete_event):
+                                text = document.text
+                                if text == "/":
+                                    # Show all commands when user types just "/"
+                                    for cmd in self.commands:
+                                        yield Completion(cmd[1:], start_position=-1)  # Remove the "/" prefix
+                                else:
+                                    # Normal completion
+                                    for cmd in self.commands:
+                                        if cmd.startswith(text) and len(text) > 0:
+                                            yield Completion(cmd[len(text):])
+                        
+                        from prompt_toolkit.completion import Completion
+                        custom_completer = CustomCompleter(self.commands)
+                        
+                        # Create persistent file history
+                        history = FileHistory(str(self.history_file))
+                        
+                        session = PromptSession(
+                            completer=custom_completer,
+                            complete_style=CompleteStyle.READLINE_LIKE,
+                            history=history,
+                            auto_suggest=AutoSuggestFromHistory(),
+                            mouse_support=False,
+                            vi_mode=False,
+                            enable_history_search=True  # Enable Ctrl+R search
+                        )
+                        
+                        user_input = session.prompt(f"{clean_prompt}: ")
+                        result_queue.put(('success', user_input))
+                    except Exception as e:
+                        result_queue.put(('error', str(e)))
+                
+                # Run in daemon thread
+                thread = threading.Thread(target=run_prompt, daemon=True)
+                thread.start()
+                thread.join(timeout=300)  # 5 minute timeout
+                
+                try:
+                    result_type, result_value = result_queue.get_nowait()
+                    if result_type == 'success':
+                        user_input = result_value
+                    else:
+                        # Fallback on error
+                        user_input = Prompt.ask(f"{clean_prompt}")
+                except queue.Empty:
+                    # Timeout - fallback
+                    user_input = Prompt.ask(f"{clean_prompt}")
+            else:
+                # Fallback to Rich prompt
+                user_input = Prompt.ask(f"{clean_prompt}")
             
-            # If user types just "/", show available commands
+            # Handle "/" command discovery
             if user_input.strip() == "/":
-                console.print("\n[cyan]Available commands:[/cyan]")
-                # Group commands by category
-                command_groups = {
-                    "Chat": ["/help", "/agents", "/clear", "/quit", "/new"],
-                    "Memory": ["/memory", "/memory-search", "/memory-delete"],
-                    "Analytics": ["/sales", "/orders"],
-                    "Products": ["/product", "/products"],
-                    "System": ["/system-status", "/config", "/debug"],
-                    "Auth": ["/login", "/logout", "/auth-status"]
-                }
-                
-                for category, commands in command_groups.items():
-                    console.print(f"\n[bold]{category}:[/bold]")
-                    for cmd in commands:
-                        console.print(f"  [cyan]{cmd}[/cyan]")
-                
-                console.print("\n[dim]Type any command above, or start chatting![/dim]")
-                # Recursive call to get actual input
+                self._show_command_categories()
                 return self.get_user_input(prompt_text)
+            
+            # Add to history if it's a non-empty input
+            if user_input.strip():
+                self._add_to_history(user_input.strip())
             
             return user_input
             
         except (EOFError, KeyboardInterrupt):
             return ""
+    
+    def _load_history(self):
+        """Load command history from file"""
+        try:
+            if self.history_file.exists():
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    self.command_history = [line.strip() for line in f if line.strip()]
+                    # Keep only last 1000 commands
+                    if len(self.command_history) > 1000:
+                        self.command_history = self.command_history[-1000:]
+        except Exception as e:
+            console.print(f"[dim]Could not load command history: {e}[/dim]")
+    
+    def _save_history(self):
+        """Save command history to file"""
+        try:
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                for cmd in self.command_history:
+                    f.write(f"{cmd}\n")
+        except Exception as e:
+            console.print(f"[dim]Could not save command history: {e}[/dim]")
+    
+    def _add_to_history(self, command: str):
+        """Add command to history, avoiding duplicates"""
+        if command.strip() and command != self.command_history[-1:]:
+            self.command_history.append(command.strip())
+            # Keep only last 1000 commands
+            if len(self.command_history) > 1000:
+                self.command_history = self.command_history[-1000:]
+            self._save_history()
+    
+    async def _execute_bash_command(self, command: str):
+        """Execute a bash command and display its output"""
+        try:
+            import subprocess
+            import asyncio
+            
+            # Basic safety check - warn about potentially dangerous commands
+            dangerous_commands = ['rm -rf', 'sudo rm', 'format', 'fdisk', 'mkfs', '> /dev/']
+            if any(danger in command.lower() for danger in dangerous_commands):
+                console.print("[red]⚠️  Warning: This command might be dangerous![/red]")
+                from rich.prompt import Confirm
+                if not Confirm.ask("Are you sure you want to execute this command?"):
+                    console.print("[yellow]Command cancelled[/yellow]")
+                    return
+            
+            # Display the command being executed
+            console.print(f"[dim]$ {command}[/dim]")
+            
+            # Execute the command with timeout
+            with console.status(f"[cyan]Executing: {command}[/cyan]", spinner="dots"):
+                try:
+                    # Use asyncio to run the subprocess without blocking (30 second timeout)
+                    process = await asyncio.wait_for(
+                        asyncio.create_subprocess_shell(
+                            command,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                            cwd=Path.cwd()
+                        ),
+                        timeout=30.0
+                    )
+                    
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=30.0
+                    )
+                    
+                    # Decode output
+                    stdout_text = stdout.decode('utf-8', errors='replace').strip()
+                    stderr_text = stderr.decode('utf-8', errors='replace').strip()
+                    
+                    # Display output
+                    if stdout_text or stderr_text:
+                        output_text = ""
+                        if stdout_text:
+                            output_text += stdout_text
+                        if stderr_text:
+                            if stdout_text:
+                                output_text += "\n\n[red]STDERR:[/red]\n"
+                            output_text += stderr_text
+                        
+                        # Limit output length to prevent overwhelming the terminal
+                        if len(output_text) > 5000:
+                            output_text = output_text[:5000] + "\n\n[dim]... (output truncated)[/dim]"
+                        
+                        console.print(Panel(
+                            output_text, 
+                            title=f"[bold]Output: {command[:40]}{'...' if len(command) > 40 else ''}[/bold]",
+                            border_style="green" if process.returncode == 0 else "red"
+                        ))
+                    else:
+                        # Command executed but no output
+                        status_color = "green" if process.returncode == 0 else "red"
+                        console.print(f"[{status_color}]✓ Command executed successfully (no output)[/{status_color}]")
+                    
+                    # Show return code if non-zero
+                    if process.returncode != 0:
+                        console.print(f"[red]Exit code: {process.returncode}[/red]")
+                        
+                except asyncio.TimeoutError:
+                    console.print("[red]⏰ Command timed out after 30 seconds[/red]")
+                
+        except KeyboardInterrupt:
+            console.print("[yellow]Command interrupted by user[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error executing command: {e}[/red]")
+    
+    def _show_command_categories(self):
+        """Show available commands in organized categories"""
+        console.print("\n[cyan]Available commands:[/cyan]")
+        
+        command_groups = {
+            "Chat": ["/help", "/agents", "/clear", "/quit", "/new", "/stream", "/conv", "/export"],
+            "Conversations": ["/history", "/switch", "/save-conv", "/cmd-history"],
+            "Memory": ["/memory", "/memory-search", "/memory-delete", "/memory-export"],
+            "System": ["/system-health", "/system-status", "/config", "/debug"],
+            "Admin": ["/orchestrator-status"],
+            "Auth": ["/login", "/get-token", "/logout", "/auth-status"]
+        }
+        
+        for category, commands in command_groups.items():
+            console.print(f"\n[bold]{category}:[/bold]")
+            for cmd in commands:
+                console.print(f"  [cyan]{cmd}[/cyan]")
+        
+        console.print("\n[dim]Type any command above, or start chatting![/dim]")
         
     def load_config(self, config_file: Optional[str] = None) -> Dict[str, Any]:
         """Load configuration from file"""
@@ -290,42 +481,6 @@ class EspressoBotCLI:
         except Exception as e:
             return {"error": str(e)}
     
-    # Analytics Methods  
-    async def get_daily_sales(self, date: str = "today") -> Dict[str, Any]:
-        """Get daily sales summary"""
-        try:
-            params = {"date": date}
-            response = await self.client.get(f"{self.base_url}/api/analytics/daily-sales", params=params)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    async def get_order_analytics(self, start_date: str, end_date: str) -> Dict[str, Any]:
-        """Get order analytics for date range"""
-        try:
-            params = {"start_date": start_date, "end_date": end_date}
-            response = await self.client.get(f"{self.base_url}/api/analytics/orders", params=params)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    # Product Management Methods
-    async def search_products(self, query: str, limit: int = 10) -> Dict[str, Any]:
-        """Search products"""
-        try:
-            params = {"query": query, "limit": limit}
-            response = await self.client.get(f"{self.base_url}/api/products/search", params=params)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-    
-    async def get_product(self, identifier: str) -> Dict[str, Any]:
-        """Get product by SKU, handle, or ID"""
-        try:
-            response = await self.client.get(f"{self.base_url}/api/products/{identifier}")
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
     
     # Admin Methods
     async def get_orchestrator_status(self) -> Dict[str, Any]:
@@ -359,22 +514,20 @@ class EspressoBotCLI:
         except Exception as e:
             return {"error": str(e)}
     
-    async def get_agent_config(self, agent_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get agent configuration"""
+    # Conversation Management Methods
+    async def get_conversations(self, limit: int = 20) -> Dict[str, Any]:
+        """Get list of conversations from database"""
         try:
-            if agent_name:
-                response = await self.client.get(f"{self.base_url}/api/orchestrator/agents/{agent_name}")
-            else:
-                response = await self.client.get(f"{self.base_url}/api/orchestrator/agents")
-            return response.json()
+            # Note: The API endpoint is /api/conversations/ (with trailing slash)
+            response = await self.client.get(f"{self.base_url}/api/conversations/")
+            return {"conversations": response.json()}  # Wrap in expected format
         except Exception as e:
             return {"error": str(e)}
     
-    # Enhanced logging and monitoring
-    async def get_conversation_logs(self) -> Dict[str, Any]:
-        """Get recent conversation logs"""
+    async def get_conversation_messages(self, conversation_id: str) -> Dict[str, Any]:
+        """Get messages for a specific conversation"""
         try:
-            response = await self.client.get(f"{self.base_url}/api/agent/logs")
+            response = await self.client.get(f"{self.base_url}/api/conversations/{conversation_id}")
             return response.json()
         except Exception as e:
             return {"error": str(e)}
@@ -683,53 +836,41 @@ class EspressoBotCLI:
         
         console.print(table)
     
-    def display_sales_summary(self, sales_data: Dict[str, Any]):
-        """Display daily sales summary"""
-        if "error" in sales_data:
-            console.print(f"[red]Error: {sales_data['error']}[/red]")
+    def display_conversations(self, conversations_data: Dict[str, Any]):
+        """Display conversations in a table"""
+        if "error" in conversations_data:
+            console.print(f"[red]Error: {conversations_data['error']}[/red]")
             return
         
-        summary = sales_data.get("summary", {})
-        
-        panel_content = f"""
-[bold]Daily Sales Summary[/bold]
-[green]Revenue:[/green] ${summary.get('total_revenue', 0):,.2f}
-[cyan]Orders:[/cyan] {summary.get('order_count', 0)}
-[yellow]Average Order Value:[/yellow] ${summary.get('average_order_value', 0):,.2f}
-        """.strip()
-        
-        console.print(Panel(panel_content, title="Sales", border_style="green"))
-    
-    def display_products(self, products_data: Dict[str, Any]):
-        """Display products in a table"""
-        if "error" in products_data:
-            console.print(f"[red]Error: {products_data['error']}[/red]")
+        conversations = conversations_data.get("conversations", [])
+        if not conversations:
+            console.print("[yellow]No conversations found[/yellow]")
             return
         
-        products = products_data.get("products", [])
-        if not products:
-            console.print("[yellow]No products found[/yellow]")
-            return
-        
-        table = Table(title="Products", show_header=True, header_style="bold magenta")
-        table.add_column("SKU", style="cyan", width=15)
+        table = Table(title="Conversation History", show_header=True, header_style="bold magenta")
+        table.add_column("ID", style="cyan", width=20)
         table.add_column("Title", style="white", width=40)
-        table.add_column("Price", style="green", width=10)
-        table.add_column("Status", style="yellow", width=10)
+        table.add_column("Messages", style="green", width=10)
+        table.add_column("Created", style="dim", width=12)
+        table.add_column("Updated", style="dim", width=12)
         
-        for product in products:
-            variants = product.get("variants", [])
-            price = f"${variants[0].get('price', 0)}" if variants else "N/A"
-            title = product.get("title", "")[:35] + "..." if len(product.get("title", "")) > 35 else product.get("title", "")
+        for conv in conversations:
+            conv_id = conv.get("id", "")
+            title = conv.get("title", "Untitled")[:35] + ("..." if len(conv.get("title", "")) > 35 else "")
+            message_count = conv.get("message_count", 0)
+            created = conv.get("created_at", "")[:10] if conv.get("created_at") else ""
+            updated = conv.get("updated_at", "")[:10] if conv.get("updated_at") else ""
             
             table.add_row(
-                variants[0].get("sku", "") if variants else "",
+                conv_id,
                 title,
-                price,
-                product.get("status", "").lower()
+                str(message_count),
+                created,
+                updated
             )
         
         console.print(table)
+        console.print(f"\n[dim]Use '/switch <conversation_id>' to switch to a conversation[/dim]")
     
     def display_system_status(self, status_data: Dict[str, Any]):
         """Display comprehensive system status"""
@@ -751,32 +892,6 @@ class EspressoBotCLI:
         
         console.print(Panel(panel_content, title="System Status", border_style="blue"))
     
-    def display_agent_config(self, config_data: Dict[str, Any]):
-        """Display agent configuration"""
-        if "error" in config_data:
-            console.print(f"[red]Error: {config_data['error']}[/red]")
-            return
-        
-        if "agents" in config_data:  # List of agents
-            table = Table(title="Agent Configuration", show_header=True, header_style="bold magenta")
-            table.add_column("Agent", style="cyan", width=15)
-            table.add_column("Model", style="green", width=20)
-            table.add_column("Provider", style="yellow", width=15)
-            table.add_column("Status", style="white", width=10)
-            
-            for agent in config_data["agents"]:
-                table.add_row(
-                    agent.get("name", ""),
-                    agent.get("model", "default"),
-                    agent.get("provider", "openai"),
-                    agent.get("status", "active")
-                )
-            console.print(table)
-        else:  # Single agent
-            agent_name = config_data.get("name", "Unknown")
-            model = config_data.get("model", "default")
-            provider = config_data.get("provider", "openai")
-            console.print(f"[bold]{agent_name}[/bold]: {provider}/{model}")
     
     def display_message(self, role: str, content: str, agent: Optional[str] = None):
         """Display a message with formatting"""
@@ -860,6 +975,12 @@ class EspressoBotCLI:
   [cyan]/new[/cyan]          - Start new conversation
   [cyan]/quit[/cyan]         - Exit the CLI
 
+[bold]Conversations:[/bold]
+  [cyan]/history[/cyan] [limit] - Show conversation history (default: 20)
+  [cyan]/switch[/cyan] <id>     - Jump to a specific conversation
+  [cyan]/save-conv[/cyan]       - Save current conversation to file
+  [cyan]/cmd-history[/cyan] [limit] - Show command history (default: 20)
+
 [bold]Memory Commands:[/bold]
   [cyan]/memory[/cyan]       - List user memories
   [cyan]/memory-search[/cyan] <query> - Search memories
@@ -885,9 +1006,7 @@ class EspressoBotCLI:
   [cyan]/debug[/cyan]        - Debug information
 
 [bold]Admin Commands:[/bold]  
-  [cyan]/agents-config[/cyan] [agent] - Agent configuration
   [cyan]/orchestrator-status[/cyan] - Orchestrator status
-  [cyan]/logs[/cyan]         - Recent conversation logs
 
 [bold]Authentication Commands:[/bold]
   [cyan]/login[/cyan] [provider] - OAuth login (default: google)
@@ -895,12 +1014,20 @@ class EspressoBotCLI:
   [cyan]/logout[/cyan]       - Logout and clear tokens
   [cyan]/auth-status[/cyan]  - Check authentication status
   
+[bold]Bash Commands:[/bold]
+  [cyan]!<command>[/cyan]    - Execute bash command and show output
+  [cyan]!ls -la[/cyan]       - List files in current directory
+  [cyan]!pwd[/cyan]          - Show current directory
+  [cyan]!git status[/cyan]   - Check git repository status
+
 [bold]Examples:[/bold]
+  /history 10 - Show last 10 conversations
+  /switch cli-20250120-143022 - Jump to specific conversation
+  /cmd-history 15 - Show last 15 commands
+  !ls -la - Execute bash command
   /memory-search coffee preferences
-  /sales 2025-01-15
-  /orders 2025-01-01 2025-01-31  
-  /product BES870XL
-  /products Breville espresso
+  /new - Start a fresh conversation
+  /agents - See all available agents
         """
         console.print(Panel(help_text, title="[bold]Help[/bold]", border_style="yellow"))
     
@@ -941,9 +1068,19 @@ class EspressoBotCLI:
         while True:
             try:
                 # Get user input with command help
-                message = self.get_user_input("[bold blue]You[/bold blue]: ")
+                message = self.get_user_input("You")
                 
                 if not message:
+                    continue
+                
+                # Handle bash commands (starting with !)
+                if message.startswith("!"):
+                    bash_command = message[1:].strip()
+                    if bash_command:
+                        await self._execute_bash_command(bash_command)
+                    else:
+                        console.print("[yellow]Usage: !<command> - Execute bash command[/yellow]")
+                        console.print("[yellow]Example: !ls -la[/yellow]")
                     continue
                 
                 # Handle commands
@@ -977,6 +1114,81 @@ class EspressoBotCLI:
                         self.conversation_id = f"cli-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
                         self.conversation_history = []
                         console.print(f"[green]✓[/green] New conversation: {self.conversation_id}")
+                    
+                    # Conversation management commands
+                    elif command == "history":
+                        limit = int(args[0]) if args and args[0].isdigit() else 20
+                        with console.status("[cyan]Loading conversation history...", spinner="dots"):
+                            conversations = await self.get_conversations(limit)
+                        self.display_conversations(conversations)
+                    elif command == "switch":
+                        if not args:
+                            console.print("[red]Usage: /switch <conversation_id>[/red]")
+                            continue
+                        target_conv_id = args[0]
+                        with console.status(f"[cyan]Loading conversation {target_conv_id}...", spinner="dots"):
+                            messages_data = await self.get_conversation_messages(target_conv_id)
+                        
+                        if "error" in messages_data:
+                            console.print(f"[red]Error: {messages_data['error']}[/red]")
+                        else:
+                            # Switch to the conversation
+                            self.conversation_id = target_conv_id
+                            messages = messages_data.get("messages", [])
+                            
+                            # Convert API format to CLI format if needed
+                            self.conversation_history = []
+                            for msg in messages:
+                                cli_msg = {
+                                    "role": msg.get("role", "unknown"),
+                                    "content": msg.get("content", ""),
+                                    "agent": msg.get("agent"),
+                                    "timestamp": msg.get("created_at", "")
+                                }
+                                self.conversation_history.append(cli_msg)
+                            
+                            # Clear screen and show conversation
+                            console.clear()
+                            self.display_welcome()
+                            console.print(f"[green]✓[/green] Switched to conversation: [cyan]{target_conv_id}[/cyan]")
+                            console.print(f"[dim]Title: {messages_data.get('title', 'Untitled')}[/dim]")
+                            console.print(f"[dim]Loaded {len(self.conversation_history)} messages[/dim]\n")
+                            
+                            # Display recent messages
+                            recent_messages = self.conversation_history[-5:] if len(self.conversation_history) > 5 else self.conversation_history
+                            if recent_messages:
+                                console.print("[dim]--- Recent messages ---[/dim]")
+                                for msg in recent_messages:
+                                    role = msg.get("role", "unknown")
+                                    content = msg.get("content", "")
+                                    agent = msg.get("agent")
+                                    self.display_message(role, content, agent)
+                                console.print("[dim]--- End of history ---[/dim]\n")
+                            else:
+                                console.print("[dim]No messages in this conversation yet.[/dim]\n")
+                    elif command == "save-conv":
+                        # Manual save current conversation (usually auto-saved)
+                        filename = f"conversation-{self.conversation_id}.json"
+                        with open(filename, "w") as f:
+                            json.dump({
+                                "conversation_id": self.conversation_id,
+                                "timestamp": datetime.now().isoformat(),
+                                "messages": self.conversation_history
+                            }, f, indent=2)
+                        console.print(f"[green]✓[/green] Conversation saved to {filename}")
+                    elif command == "cmd-history":
+                        # Show command history
+                        limit = int(args[0]) if args and args[0].isdigit() else 20
+                        recent_history = self.command_history[-limit:] if len(self.command_history) >= limit else self.command_history
+                        
+                        if not recent_history:
+                            console.print("[yellow]No command history found[/yellow]")
+                        else:
+                            console.print(f"\n[cyan]Recent Commands (last {len(recent_history)}):[/cyan]")
+                            for i, cmd in enumerate(reversed(recent_history), 1):
+                                console.print(f"[dim]{i:2d}.[/dim] {cmd}")
+                            console.print(f"\n[dim]History saved to: {self.history_file}[/dim]")
+                            console.print("[dim]Use ↑/↓ arrow keys to navigate history when typing[/dim]")
                     
                     # Memory commands
                     elif command == "memory":
@@ -1012,46 +1224,6 @@ class EspressoBotCLI:
                         else:
                             console.print(f"[red]Error: {memories['error']}[/red]")
                     
-                    # Analytics commands
-                    elif command == "sales":
-                        date = args[0] if args else "today"
-                        with console.status(f"[cyan]Loading sales for {date}...", spinner="dots"):
-                            sales = await self.get_daily_sales(date)
-                        self.display_sales_summary(sales)
-                    elif command == "orders":
-                        if len(args) < 2:
-                            console.print("[red]Usage: /orders <start_date> <end_date>[/red]")
-                            continue
-                        with console.status(f"[cyan]Loading orders from {args[0]} to {args[1]}...", spinner="dots"):
-                            orders = await self.get_order_analytics(args[0], args[1])
-                        if "error" in orders:
-                            console.print(f"[red]Error: {orders['error']}[/red]")
-                        else:
-                            console.print(f"[green]Orders:[/green] {orders.get('order_count', 0)}")
-                            console.print(f"[green]Revenue:[/green] ${orders.get('total_revenue', 0):,.2f}")
-                    
-                    # Product commands
-                    elif command == "product":
-                        if not args:
-                            console.print("[red]Usage: /product <sku/id>[/red]")
-                            continue
-                        with console.status(f"[cyan]Loading product {args[0]}...", spinner="dots"):
-                            product = await self.get_product(args[0])
-                        if "error" in product:
-                            console.print(f"[red]Error: {product['error']}[/red]")
-                        else:
-                            title = product.get("title", "Unknown")
-                            status = product.get("status", "unknown").lower()
-                            console.print(f"[bold]{title}[/bold] ([{status}])")
-                    elif command == "products":
-                        if not args:
-                            console.print("[red]Usage: /products <search query>[/red]")
-                            continue
-                        query = " ".join(args)
-                        with console.status(f"[cyan]Searching products: {query}...", spinner="dots"):
-                            products = await self.search_products(query)
-                        self.display_products(products)
-                    
                     # System commands
                     elif command == "system-health":
                         with console.status("[cyan]Checking system health...", spinner="dots"):
@@ -1077,11 +1249,6 @@ class EspressoBotCLI:
                             console.print("[dim]Use '/config save' to save current settings[/dim]")
                     
                     # Admin commands
-                    elif command == "agents-config":
-                        agent_name = args[0] if args else None
-                        with console.status("[cyan]Getting agent configuration...", spinner="dots"):
-                            config = await self.get_agent_config(agent_name)
-                        self.display_agent_config(config)
                     elif command == "orchestrator-status":
                         with console.status("[cyan]Getting orchestrator status...", spinner="dots"):
                             status = await self.get_orchestrator_status()
@@ -1091,17 +1258,6 @@ class EspressoBotCLI:
                             console.print(f"[green]Orchestrator Status:[/green] {status.get('status', 'Unknown')}")
                             if "version" in status:
                                 console.print(f"[cyan]Version:[/cyan] {status['version']}")
-                    elif command == "logs":
-                        with console.status("[cyan]Getting conversation logs...", spinner="dots"):
-                            logs = await self.get_conversation_logs()
-                        if "error" in logs:
-                            console.print(f"[red]Error: {logs['error']}[/red]")
-                        else:
-                            console.print("[bold]Recent Conversation Logs:[/bold]")
-                            for log in logs.get("logs", [])[:10]:  # Show last 10
-                                timestamp = log.get("timestamp", "")[:19]
-                                message = log.get("message", "")[:100]
-                                console.print(f"[dim]{timestamp}[/dim] {message}")
                     
                     # Authentication commands
                     elif command == "login":
@@ -1342,6 +1498,8 @@ class EspressoBotCLI:
     
     async def close(self):
         """Clean up"""
+        # Save command history one final time
+        self._save_history()
         await self.client.aclose()
 
 @click.command()

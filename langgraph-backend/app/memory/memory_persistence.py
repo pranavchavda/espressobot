@@ -132,10 +132,10 @@ class MemoryExtractionService:
         """Experimental langextract-based extraction (kept for future improvement)"""
         # Use langextract for structured extraction
         try:
-            # Simplified examples to match context compression pattern  
+            # Refined examples showing good vs bad extraction patterns
             examples = [
                 lx.data.ExampleData(
-                    text="User: My name is John and I love Italian coffee",
+                    text="User: My name is John and I love Italian coffee. I'm a senior Python developer at Netflix.",
                     extractions=[
                         lx.data.Extraction(
                             extraction_class="user_fact",
@@ -152,43 +152,92 @@ class MemoryExtractionService:
                                 "content": "User loves Italian coffee",
                                 "category": "preferences"
                             }
+                        ),
+                        lx.data.Extraction(
+                            extraction_class="user_fact",
+                            extraction_text="I'm a senior Python developer at Netflix",
+                            attributes={
+                                "content": "User is a senior Python developer at Netflix",
+                                "category": "facts"
+                            }
                         )
                     ]
                 ),
                 lx.data.ExampleData(
-                    text="User: Can you check today's sales report?",
+                    text="User: I prefer VS Code over PyCharm. I always use command-line tools when possible.",
                     extractions=[
-                        # No extractions - task-specific request
+                        lx.data.Extraction(
+                            extraction_class="user_preference",
+                            extraction_text="I prefer VS Code over PyCharm",
+                            attributes={
+                                "content": "User prefers VS Code over PyCharm for development",
+                                "category": "preferences"
+                            }
+                        ),
+                        lx.data.Extraction(
+                            extraction_class="user_preference",
+                            extraction_text="I always use command-line tools when possible",
+                            attributes={
+                                "content": "User prefers command-line tools over GUI applications",
+                                "category": "preferences"
+                            }
+                        )
+                    ]
+                ),
+                lx.data.ExampleData(
+                    text="User: Can you check today's sales report? I need the numbers for this afternoon's meeting.",
+                    extractions=[
+                        # No extractions - task-specific request with no lasting personal information
+                    ]
+                ),
+                lx.data.ExampleData(
+                    text="User: I work at a tech company. I have preferences for tools.",
+                    extractions=[
+                        # No extractions - too vague, no specific information provided
                     ]
                 )
             ]
             
             # Extract memories using langextract with balanced parameters
-            prompt_description = """Extract important information about the user that should be remembered for future conversations.
+            prompt_description = """You are a memory extraction system. Your job is to identify ONLY concrete, specific, factual information about the user that would be valuable to remember in future conversations.
 
-                INCLUDE if the information:
-                1. Describes the user's professional role, expertise, or core identity
-                2. Shows consistent preferences or patterns (tools, approaches, communication style)
-                3. Reveals business context or industry they work in
-                4. Establishes how they like to work or what they value
-                5. Contains durable policies or standards they follow
-                
-                EXAMPLES TO EXTRACT:
-                - "User is a senior backend engineer specializing in Python"
-                - "User prefers command-line tools over GUI applications"  
-                - "User manages an e-commerce platform with 100+ daily orders"
-                - "User works with payment systems and fraud prevention"
-                - "User prefers concise explanations over lengthy documentation"
-                - "User always uses VS Code for development"
-                - "Sitewide policy: Always load GA4 via GTM with Consent Mode v2"
+CRITICAL PRINCIPLES:
+1. Extract ONLY when you see specific facts, not when you infer categories might exist
+2. If you can't find concrete details, extract NOTHING - don't create placeholder memories
+3. Quality over quantity - better to extract 0 memories than vague ones
 
-                EXCLUDE task-specific or temporary information:
-                - Specific requests for today/this week/current tasks
-                - Individual order numbers, dates, or data points
-                - One-time troubleshooting or debugging sessions
-                - References to specific current projects or deadlines
-                - Assistant responses or suggestions
-                - Step-by-step workflows for specific tasks
+GOOD EXTRACTIONS (specific facts):
+✓ "User is a senior Python developer at Netflix"
+✓ "User prefers VS Code over PyCharm for development"
+✓ "User manages an e-commerce site with 100+ daily orders"
+✓ "User's company policy: Always use GTM for analytics tracking"
+✓ "User dislikes lengthy documentation, prefers concise explanations"
+✓ "User works in payment fraud prevention systems"
+
+BAD EXTRACTIONS (avoid these completely):
+✗ "User has professional expertise" (too vague - in what?)
+✗ "User follows certain policies" (which policies? be specific!)
+✗ "User has working preferences" (what preferences exactly?)
+✗ "User works in business context" (meaningless without details)
+✗ "User has durable standards" (what standards? this is empty)
+✗ "User values efficiency" (unless they specifically said this)
+
+DECISION FRAMEWORK:
+Before extracting, ask yourself:
+- Is this a specific fact I could tell someone else about the user?
+- Would this help me provide better, more personalized assistance?
+- Did the user actually say/reveal this, or am I inferring a category?
+
+If you're unsure or the information feels generic, DON'T EXTRACT IT.
+
+NEVER EXTRACT:
+- Category placeholders without content ("user has preferences")
+- Inferred traits not explicitly mentioned ("user values X")
+- Generic professional descriptions ("user is a professional")
+- Template language ("for future conversations", "to be remembered")
+- Assistant suggestions or responses
+- Temporary/task-specific requests
+- Troubleshooting sessions or current project details
                 
                 GUIDELINE: When in doubt about lasting value, lean toward including it rather than missing important context. 
                 Most conversations should extract 1-3 memories if they contain genuine user information."""
@@ -340,6 +389,7 @@ class MemoryExtractionService:
                         continue
                     elif any(indicator in content for indicator in task_indicators) and longterm_inst and DEBUG_LANGEXTRACT_LOGS:
                         logger.debug(f"Override[T] keeping durable instrumentation policy: '{normalized[:80]}'")
+
 
                     # Skip empty/short/placeholder content
                     min_len = MIN_MEMORY_CONTENT_CHARS_SHORT if longterm_inst else MIN_MEMORY_CONTENT_CHARS
