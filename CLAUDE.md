@@ -32,9 +32,51 @@
 
 - Use context7 and/or deepwiki to ascertain what langgraph wants, we are using the latest versions, and they won't align with your training data pre-knowledge-cutoff
 - **IMPORTANT RULE**: Always use LLM intelligence for routing decisions. Never resort to programmatic/keyword-based fallbacks. When there's a choice between intelligence-based and programmatic approaches, always choose intelligence. The system should rely on the LLM's reasoning capabilities, not hard-coded heuristics.
-**IMPORTANT WORKFLOW RULE** Use subagents when possible to get stuff done - that way you can retain context for longer - this makes for a smoother workflow flow for the user and less broken code
+- **IMPORTANT RULE 2**: NO FALLBACKS. NO MOCK DATA. This is a real project, use real data and real responses, no mock data, no fallbacks for what an api "might" respond. 
+- **IMPORTANT WORKFLOW RULE** Use subagents when possible to get stuff done - that way you can retain context for longer - this makes for a smoother workflow flow for the user and less broken code
 
-## System Status (August 9, 2025)
+## System Status (August 22, 2025)
+
+### ✅ Agent-to-Agent Orchestration FIXED - Zero-Shot User Experience (August 22, 2025)
+
+#### Core Problem Resolved:
+**Issue**: Orchestrator failed to pass product/variant IDs between agents, causing hallucinated IDs and failed workflows
+**Solution**: Comprehensive agent-to-agent data passing with LLM intelligence over regex extraction
+
+#### Key Fixes Applied:
+1. **Enhanced State Passing** ✅
+   - Added `previous_results` field to AgentCall dataclass for agent context
+   - Orchestrator now passes structured data between agents via `orchestrator_context`
+   - Eliminated hallucinated IDs like `prod_9876543210`, `var_1122334455`
+   - Real product/variant IDs now flow seamlessly: product_mgmt → pricing → other agents
+
+2. **LLM Intelligence over Regex** ✅ 
+   - **CRITICAL**: Replaced brittle regex extraction with Claude's understanding in product_mgmt agent
+   - Agent uses LLM to extract parameters from natural language: "Create Breville Bambino Plus..."
+   - Follows CLAUDE.md rule: "Always use LLM intelligence for routing decisions. Never resort to programmatic/keyword-based fallbacks"
+   - Zero-shot user experience: instruction → execution → done (no errors, retries, or clarifications)
+
+3. **Technical Architecture Improvements** ✅
+   - Fixed agent name mismatch: `product_management` → `product_mgmt` 
+   - Switched from LangChain React agent to direct MCP tool calls (eliminated TaskGroup async errors)
+   - Enhanced conversation chain compression with chronological Dict format instead of List
+   - Added thread_id filtering to prevent memory injection circular references
+
+4. **Validated Multi-Agent Workflows** ✅
+   - **Test 1**: "Create new test product Breville Bambino Plus..." → ✅ Success with real IDs
+   - **Test 2**: "Update price to $349.99" → ✅ Success using inherited context from product creation
+   - **Result**: Complete workflow without user intervention - true zero-shot operation
+
+#### Files Modified:
+- `app/orchestrator.py`: Enhanced AgentCall dataclass and state passing logic  
+- `app/agents/product_mgmt_native_mcp.py`: LLM parameter extraction, direct MCP tool calls
+- `app/context_manager/compressed_context_simple.py`: Chronological compression format
+
+#### Business Impact:
+- **User Experience**: Seamless multi-step workflows (create product → update price → add images)
+- **Reliability**: No more hallucinated IDs or failed agent coordination  
+- **Efficiency**: Zero user intervention needed for complex multi-agent tasks
+- **Scalability**: Pattern works for any agent-to-agent data passing scenario
 
 ### ✅ Memory System v2 - Quality & Decay Implementation (August 15, 2025)
 
@@ -438,8 +480,9 @@ frontend/
 ```
 
 ---
-*Last Updated: August 15, 2025*
-- ✅ **Backend Cleanup Complete** - Single orchestrator, organized docs, 65+ test files removed
-- ✅ **Frontend Cleanup Complete** - Legacy backend archived, 166 test files organized, docs consolidated
+*Last Updated: August 22, 2025*
+- ✅ **Agent-to-Agent Orchestration FIXED** - Zero-shot multi-agent workflows with real data passing
+- ✅ **LLM Intelligence Implementation** - Replaced regex extraction with Claude's natural language understanding  
 - ✅ **Memory System v2** - Langextract integration with task-specific filtering working
-- ✅ **Production Ready** - Both repositories clean and documented for deployment
+- ✅ **Backend Architecture** - Single orchestrator, enhanced state passing, direct MCP tool calls
+- ✅ **Production Ready** - Validated workflows: product creation → price updates → seamless coordination

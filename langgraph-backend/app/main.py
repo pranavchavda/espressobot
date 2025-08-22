@@ -62,10 +62,13 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, chat_async, websocket, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad, profile, cli_auth
+from app.api import chat, chat_async, websocket, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad, profile, cli_auth, chat_optimized
 
-# Main chat endpoint using the orchestrator
+# Progressive orchestrator endpoint (main) - with memory & conversation persistence
 app.include_router(chat.router, prefix="/api/agent")
+
+# Optimized orchestrator endpoint (broken - no memory)
+app.include_router(chat_optimized.router, prefix="/api/agent-optimized")
 
 # Async chat endpoints with background processing
 app.include_router(chat_async.router, prefix="/api/agent")
