@@ -19,8 +19,9 @@ class ExtractedContext:
     # Key is extraction_class, value is list of extractions with that class
     extractions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     
-    # Chronological conversation record - preserves full exchange sequence
-    conversation_chain: List[Dict[str, Any]] = field(default_factory=list)
+    # Chronological conversation record - preserves exchange sequence in compressed format
+    # Format: {"message_1": {"human": "compressed_msg", "assistant": "compressed_response"}, "message_2": {...}}
+    conversation_chain: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
     # Metadata about what was extracted
     extraction_classes: List[str] = field(default_factory=list)  # List of all extraction classes found
@@ -40,25 +41,36 @@ class ExtractedContext:
         # Add chronological conversation record FIRST (most important for continuity)
         if self.conversation_chain:
             parts.append("🔗 Conversation Chain:")
-            # Show recent exchanges (last 10 to keep it manageable)
-            recent_exchanges = self.conversation_chain[-10:] if len(self.conversation_chain) > 10 else self.conversation_chain
-            for i, exchange in enumerate(recent_exchanges, 1):
-                role = exchange.get('role', 'unknown')
-                content = exchange.get('content', '')[:150]  # Truncate long messages
-                timestamp = exchange.get('timestamp', '')
+            # Show recent exchanges in chronological order
+            recent_exchanges = sorted(self.conversation_chain.items(), key=lambda x: int(x[0].split('_')[1]))[-10:]
+            
+            for message_key, exchange in recent_exchanges:
+                message_num = message_key.split('_')[1]
                 
-                # Format exchange with clear role indicators
-                if role.lower() in ['user', 'human']:
-                    parts.append(f"  {i}. 👤 User: {content}")
-                elif role.lower() in ['assistant', 'ai']:
-                    parts.append(f"  {i}. 🤖 Assistant: {content}")
-                else:
-                    parts.append(f"  {i}. {role}: {content}")
+                # Show human message if present
+                if 'human' in exchange:
+                    human_msg = exchange['human'][:200]  # Limit but keep more than before
+                    parts.append(f"  {message_num}. 👤 User: {human_msg}")
+                
+                # Show assistant message if present
+                if 'assistant' in exchange:
+                    assistant_msg = exchange['assistant'][:200]
+                    parts.append(f"  {message_num}. 🤖 Assistant: {assistant_msg}")
                     
-                # Add any agent actions if available
-                if exchange.get('agent_actions'):
-                    actions = exchange['agent_actions']
-                    parts.append(f"      → Actions: {', '.join(actions)}")
+                    # Add agent information if available
+                    if exchange.get('agents_called'):
+                        parts.append(f"      → Agents: {', '.join(exchange['agents_called'])}")
+                    
+                    # Add extracted data summary if available
+                    if exchange.get('agent_data'):
+                        for agent, data in exchange['agent_data'].items():
+                            if data.get('product_ids'):
+                                parts.append(f"      → {agent} found: {len(data['product_ids'])} products")
+                            if data.get('variant_ids'):
+                                parts.append(f"      → {agent} found: {len(data['variant_ids'])} variants")
+                            if data.get('skus'):
+                                parts.append(f"      → {agent} found: {', '.join(data['skus'][:2])}")
+            
             parts.append("")  # Empty line after conversation chain
         
         # Then show extracted entities and facts
@@ -130,6 +142,11 @@ class CompressedContextManager:
         self.model_id = model_id
         self.api_key = api_key
         self.contexts: Dict[str, ExtractedContext] = {}  # thread_id -> context
+        
+        # Initialize compression LLM for message compression
+        from app.config.llm_factory import LLMFactory
+        llm_factory = LLMFactory()
+        self.compress_llm = llm_factory.create_llm("openai/gpt-4o-mini")  # Fast compression
         
         # Dual-extraction prompt that creates both context and memory items
         self.extraction_prompt = textwrap.dedent("""
@@ -244,6 +261,95 @@ class CompressedContextManager:
             self.contexts[thread_id] = ExtractedContext()
         return self.contexts[thread_id]
     
+    async def _compress_message(self, role: str, content: str) -> str:
+        """Compress a message to its essential information while preserving ALL data"""
+        
+        # Skip compression for very short messages
+        if len(content) < 100:
+            return content
+        
+        try:
+            compression_prompt = f"""Compress this {role} message to its essential information.
+KEEP ALL: IDs, SKUs, prices, numbers, names, errors, decisions, specific data
+REMOVE: Pleasantries, repetition, filler words, excessive politeness
+
+Original: {content}
+
+Compressed (preserve ALL data, remove fluff):"""
+            
+            compressed_response = await self.compress_llm.ainvoke(compression_prompt)
+            compressed = compressed_response.content.strip()
+            
+            # Ensure compression actually saved space, otherwise keep original
+            if len(compressed) < len(content) * 0.8:  # At least 20% reduction
+                return compressed
+            else:
+                return content[:300] + "..." if len(content) > 300 else content
+                
+        except Exception as e:
+            logger.warning(f"Message compression failed: {e}")
+            # Fallback to simple truncation
+            return content[:300] + "..." if len(content) > 300 else content
+    
+    def _extract_key_data(self, agent_result: str) -> Dict[str, Any]:
+        """Extract structured data from agent response"""
+        extracted = {
+            "product_ids": [],
+            "variant_ids": [],
+            "skus": [],
+            "prices": [],
+            "errors": [],
+            "actions": []
+        }
+        
+        import re
+        
+        # Extract product IDs
+        product_ids = re.findall(r'gid://shopify/Product/\d+', agent_result)
+        extracted["product_ids"] = list(set(product_ids))  # Remove duplicates
+        
+        # Extract variant IDs
+        variant_ids = re.findall(r'gid://shopify/ProductVariant/\d+', agent_result)
+        extracted["variant_ids"] = list(set(variant_ids))
+        
+        # Extract SKUs (patterns like OB-2507-K58-MIL-CM7750)
+        sku_patterns = [
+            r'[A-Z]{2,3}-\d{4}-[A-Z0-9-]{5,20}',  # OB-XXXX pattern
+            r'[A-Z]{3,}-[A-Z0-9-]{5,15}',         # General SKU pattern
+        ]
+        for pattern in sku_patterns:
+            skus = re.findall(pattern, agent_result)
+            extracted["skus"].extend(skus)
+        extracted["skus"] = list(set(extracted["skus"]))  # Remove duplicates
+        
+        # Extract prices ($4499.00, 4450, etc.)
+        price_patterns = [
+            r'\$[\d,]+\.?\d*',  # $4499.00
+            r'\b\d{3,6}\.?\d{0,2}\b(?=\s*(?:USD|dollars?|price|cost))',  # 4450 when followed by currency/price words
+        ]
+        for pattern in price_patterns:
+            prices = re.findall(pattern, agent_result)
+            extracted["prices"].extend(prices)
+        extracted["prices"] = list(set(extracted["prices"][:5]))  # Keep first 5 unique prices
+        
+        # Extract error messages
+        error_patterns = [
+            r'Error: [^.!?\n]+[.!?]?',
+            r'Failed [^.!?\n]+[.!?]?',
+            r'Cannot [^.!?\n]+[.!?]?',
+        ]
+        for pattern in error_patterns:
+            errors = re.findall(pattern, agent_result, re.IGNORECASE)
+            extracted["errors"].extend(errors)
+        
+        # Extract actions/verbs
+        action_words = ['found', 'created', 'updated', 'deleted', 'searched', 'retrieved', 'processed']
+        for word in action_words:
+            if word in agent_result.lower():
+                extracted["actions"].append(word)
+        
+        return extracted
+    
     async def compress_turn(self, 
                            thread_id: str, 
                            messages: List[Any],
@@ -260,7 +366,7 @@ class CompressedContextManager:
         context = self.get_context(thread_id)
         
         # Record chronological conversation exchanges
-        self._record_conversation_chain(context, messages, agent_results)
+        await self._record_conversation_chain(context, messages, agent_results)
         
         # Convert messages to text for entity extraction
         text_parts = []
@@ -324,52 +430,82 @@ class CompressedContextManager:
         
         return context
     
-    def _record_conversation_chain(self, context: ExtractedContext, messages: List[Any], agent_results: Optional[Dict[str, str]] = None):
-        """Record chronological conversation exchanges for context continuity"""
+    async def _record_conversation_chain(self, context: ExtractedContext, messages: List[Any], agent_results: Optional[Dict[str, str]] = None):
+        """Record compressed chronological conversation exchanges"""
         from datetime import datetime
         
-        # Process each message in chronological order
+        # Track human and assistant messages separately to pair them
+        human_msg = None
+        assistant_msg = None
+        
+        # Process messages to find human-assistant pairs
         for msg in messages:
             if isinstance(msg, (HumanMessage, AIMessage, SystemMessage)):
                 role = msg.__class__.__name__.replace("Message", "").lower()
                 content = msg.content
                 
-                # Skip system messages from conversation chain (they're not exchanges)
+                # Skip system messages
                 if role == "system":
                     continue
                 
-                # Create exchange record
-                exchange = {
-                    'role': role,
-                    'content': content,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'type': 'message'
-                }
-                
-                # Add agent actions if this is an assistant message and we have agent results
-                if role == 'ai' and agent_results:
-                    exchange['agent_actions'] = list(agent_results.keys())
-                
-                context.conversation_chain.append(exchange)
-                
+                if role in ['human', 'user']:
+                    human_msg = content
+                elif role in ['ai', 'assistant']:
+                    assistant_msg = content
+                    
             elif isinstance(msg, dict):
                 role = msg.get("type", "unknown").lower()
                 content = msg.get('content', '')
                 
-                if role != "system":  # Skip system messages
-                    exchange = {
-                        'role': role,
-                        'content': content,
-                        'timestamp': datetime.utcnow().isoformat(),
-                        'type': 'message'
-                    }
-                    context.conversation_chain.append(exchange)
+                if role in ['human', 'user']:
+                    human_msg = content
+                elif role in ['ai', 'assistant']:
+                    assistant_msg = content
         
-        # Trim conversation chain to prevent unbounded growth (keep last 50 exchanges)
-        if len(context.conversation_chain) > 50:
-            context.conversation_chain = context.conversation_chain[-50:]
+        # If we have a human-assistant exchange, record it
+        if human_msg or assistant_msg:
+            # Find the next message number
+            existing_keys = [k for k in context.conversation_chain.keys() if k.startswith('message_')]
+            if existing_keys:
+                max_num = max([int(k.split('_')[1]) for k in existing_keys])
+                next_num = max_num + 1
+            else:
+                next_num = 1
+            
+            message_key = f"message_{next_num}"
+            exchange = {}
+            
+            # Compress and store human message
+            if human_msg:
+                compressed_human = await self._compress_message("human", human_msg)
+                exchange["human"] = compressed_human
+            
+            # Compress and store assistant message with agent data
+            if assistant_msg:
+                compressed_assistant = await self._compress_message("assistant", assistant_msg)
+                exchange["assistant"] = compressed_assistant
+                
+                # Add agent information if available
+                if agent_results:
+                    exchange["agents_called"] = list(agent_results.keys())
+                    exchange["agent_data"] = {}
+                    
+                    # Extract structured data from each agent result
+                    for agent, result in agent_results.items():
+                        exchange["agent_data"][agent] = self._extract_key_data(result)
+            
+            exchange["timestamp"] = datetime.utcnow().isoformat()
+            context.conversation_chain[message_key] = exchange
         
-        logger.debug(f"Recorded {len(messages)} messages in conversation chain (total: {len(context.conversation_chain)} exchanges)")
+        # Trim conversation chain to prevent unbounded growth (keep last 25 message pairs)
+        if len(context.conversation_chain) > 25:
+            # Sort by message number and keep only the most recent
+            sorted_messages = sorted(context.conversation_chain.items(), 
+                                   key=lambda x: int(x[0].split('_')[1]))
+            recent_messages = dict(sorted_messages[-25:])
+            context.conversation_chain = recent_messages
+        
+        logger.debug(f"Recorded conversation in compressed chain (total: {len(context.conversation_chain)} exchanges)")
     
     def _store_extraction(self, context: ExtractedContext, extraction: lx.data.Extraction):
         """Store an extraction in the context and save as memory if relevant"""
@@ -442,7 +578,7 @@ class CompressedContextManager:
                 attrs = item.get('attributes', {})
                 
                 if self._should_save_as_memory(ext_class, ext_text, attrs):
-                    memory_saved = await self._save_memory_direct(ext_class, ext_text, attrs, user_id)
+                    memory_saved = await self._save_memory_direct(ext_class, ext_text, attrs, user_id, thread_id)
                     if memory_saved:
                         memories_saved += 1
         
@@ -502,7 +638,7 @@ class CompressedContextManager:
         
         return should_save and len(ext_text.strip()) >= 10
     
-    async def _save_memory_direct(self, ext_class: str, ext_text: str, attrs: dict, user_id: str) -> bool:
+    async def _save_memory_direct(self, ext_class: str, ext_text: str, attrs: dict, user_id: str, thread_id: str) -> bool:
         """Save extraction as memory directly (not async background task)"""
         try:
             from ..memory.postgres_memory_manager_v2 import SimpleMemoryManager, Memory
@@ -522,7 +658,8 @@ class CompressedContextManager:
                     "reason": self._generate_memory_reason(ext_class, ext_text, attrs),
                     "attributes": attrs,
                     "model": self.model_id,
-                    "confidence": confidence_score
+                    "confidence": confidence_score,
+                    "thread_id": thread_id  # Include thread_id to enable filtering
                 }
             )
             

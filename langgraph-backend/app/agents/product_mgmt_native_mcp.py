@@ -23,19 +23,18 @@ class ProductManagementAgentNativeMCP(ContextAwareMixin):
     """Product Management agent using native LangChain MCP integration with MultiServerMCPClient"""
     
     def __init__(self):
-        self.name = "product_management"
+        self.name = "product_mgmt"
         self.description = "Creates and manages product listings, variants, and combos"
         self.model = agent_model_manager.get_model_for_agent(self.name)
         logger.info(f"{self.name} agent initialized with model: {type(self.model).__name__}")
 
         self.client = None
-        self.tools = None
-        self.agent = None
+        self.tools = {}  # Dictionary like products agent
         self.system_prompt = self._get_system_prompt()
         
     async def _ensure_mcp_connected(self):
-        """Ensure MCP client and agent are initialized"""
-        if not self.agent:
+        """Ensure MCP client and tools are initialized"""
+        if not self.tools:
             try:
                 # Initialize MultiServerMCPClient with product management server
                 self.client = MultiServerMCPClient({
@@ -45,20 +44,19 @@ class ProductManagementAgentNativeMCP(ContextAwareMixin):
                         "transport": "stdio",
                         "env": {
                             **os.environ,
-                            "PYTHONPATH": "/home/pranav/espressobot/frontend/python-tools"
+                            "PYTHONPATH": "/home/pranav/espressobot/frontend/python-tools",
+                            "SHOPIFY_SHOP_URL": os.environ.get("SHOPIFY_SHOP_URL", ""),
+                            "SHOPIFY_ACCESS_TOKEN": os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
                         }
                     }
                 })
                 
                 # Get tools from client
-                self.tools = await self.client.get_tools()
+                tools = await self.client.get_tools()
                 
-                # Create react agent with tools
-                self.agent = create_react_agent(
-                    self.model,
-                    self.tools,
-                    prompt=self.system_prompt
-                )
+                # Store tools by name for easy access (like products agent)
+                for tool in tools:
+                    self.tools[tool.name] = tool
                 
                 logger.info(f"Connected to Product Management MCP server with {len(self.tools)} tools")
                 
@@ -141,35 +139,151 @@ Always provide clear, formatted responses with product information and confirm c
             if not isinstance(last_message, HumanMessage):
                 return state
             
-            # Use context-aware messages from the mixin
-            context_aware_messages = self.build_context_aware_messages(state, self.system_prompt)
+            user_query = last_message.content
+            logger.info(f"🚀 Processing product management query: {user_query[:100]}...")
             
-            # Use the agent to process the request with context
-            agent_state = {"messages": context_aware_messages}
+            # Simple tool selection based on keywords (like products_native_mcp_simple.py)
+            response = None
             
-            # Run the agent
-            logger.info(f"🚀 Running Product Management agent with context-aware prompt with message: {last_message.content[:100]}...")
-            result = await self.agent.ainvoke(agent_state)
-            logger.info(f"✅ Product Management agent completed")
+            if "create" in user_query.lower() and ("product" in user_query.lower() or "new" in user_query.lower()):
+                # Use create_full_product tool
+                if "create_full_product" in self.tools:
+                    logger.info("Using create_full_product tool...")
+                    try:
+                        # Get structured data from orchestrator context (preferred)
+                        orchestrator_context = state.get("orchestrator_context", {})
+                        previous_results = state.get("previous_results", {})
+                        
+                        # Try to get structured data from orchestrator first
+                        title = orchestrator_context.get("title") or previous_results.get("title")
+                        vendor = orchestrator_context.get("vendor") or previous_results.get("vendor")
+                        product_type = orchestrator_context.get("product_type") or previous_results.get("product_type")
+                        price = orchestrator_context.get("price") or previous_results.get("price")
+                        sku = orchestrator_context.get("sku") or previous_results.get("sku")
+                        
+                        # Use LLM intelligence to extract parameters if not provided by orchestrator
+                        if not all([title, vendor, product_type, price]):
+                            extraction_prompt = f"""You are a product data extraction specialist. Extract the following information from this product creation request:
+
+Task: {user_query}
+
+Extract and return ONLY the following information in this exact JSON format:
+{{
+    "title": "exact product title/name",
+    "vendor": "brand/manufacturer name", 
+    "product_type": "category like 'Espresso Machines', 'Grinders', 'Fresh Coffee', etc.",
+    "price": "price as decimal string like '699.99'",
+    "sku": "product SKU if mentioned, or generate logical SKU based on product"
+}}
+
+Rules:
+- If price not specified, use "0.00"
+- If vendor not clear, extract from context or use "Unknown Vendor"
+- Make SKU uppercase with hyphens if generating
+- Be precise and concise"""
+
+                            logger.info("Using LLM to extract product parameters...")
+                            extraction_response = await self.model.ainvoke(extraction_prompt)
+                            
+                            try:
+                                import json
+                                # Try to parse JSON from response
+                                content = extraction_response.content if hasattr(extraction_response, 'content') else str(extraction_response)
+                                # Extract JSON from response (may have surrounding text)
+                                json_start = content.find('{')
+                                json_end = content.rfind('}') + 1
+                                if json_start >= 0 and json_end > json_start:
+                                    json_str = content[json_start:json_end]
+                                    extracted_data = json.loads(json_str)
+                                    
+                                    # Use extracted data if not already provided
+                                    title = title or extracted_data.get("title", "New Product")
+                                    vendor = vendor or extracted_data.get("vendor", "Unknown Vendor")
+                                    product_type = product_type or extracted_data.get("product_type", "General")
+                                    price = price or extracted_data.get("price", "0.00")
+                                    sku = sku or extracted_data.get("sku", f"AUTO-{title.replace(' ', '-').upper()}")
+                                    
+                                    logger.info(f"LLM extracted: title={title}, vendor={vendor}, type={product_type}, price={price}, sku={sku}")
+                                else:
+                                    logger.warning("Could not parse JSON from LLM response, using defaults")
+                                    title = title or "New Product"
+                                    vendor = vendor or "Unknown Vendor"
+                                    product_type = product_type or "General"
+                                    price = price or "0.00"
+                                    sku = sku or f"AUTO-{title.replace(' ', '-').upper()}"
+                                    
+                            except Exception as e:
+                                logger.error(f"Error parsing LLM extraction response: {e}")
+                                # Fallback to defaults
+                                title = title or "New Product"
+                                vendor = vendor or "Unknown Vendor"
+                                product_type = product_type or "General"
+                                price = price or "0.00"
+                                sku = sku or "AUTO-NEW-PRODUCT"
+                        
+                        tool = self.tools["create_full_product"]
+                        
+                        # Call the tool directly (like products agent does)
+                        result = await tool._arun(
+                            title=title,
+                            vendor=vendor,
+                            product_type=product_type,
+                            price=price,
+                            sku=sku,
+                            config={}
+                        )
+                        
+                        # Format the response
+                        if isinstance(result, dict) and result.get("success"):
+                            response = f"""✅ Successfully created product **{title}**!
+
+**Product Details:**
+- **Product ID**: `{result.get('product_id', 'N/A')}`
+- **Variant ID**: `{result.get('variant_id', 'N/A')}`
+- **SKU**: {sku}
+- **Price**: ${price}
+- **Vendor**: {vendor}
+- **Type**: {product_type}
+
+**Admin URL**: {result.get('admin_url', 'N/A')}
+
+The product has been created and is ready for use. You can now update pricing, add images, or make other modifications using the product and variant IDs above."""
+                        else:
+                            response = f"❌ Failed to create product: {str(result)}"
+                        
+                        logger.info(f"✅ Product creation completed")
+                        
+                    except Exception as e:
+                        logger.error(f"Tool execution failed: {e}")
+                        import traceback
+                        logger.error(f"Full traceback: {traceback.format_exc()}")
+                        response = f"❌ I encountered an error while creating the product: {str(e)}"
+                else:
+                    response = "❌ The create_full_product tool is not available."
+            else:
+                # General query - provide guidance
+                response = f"""I'm ready to help with product management! I can help you:
+
+**Create Products**: "Create a new product called [name] by vendor [vendor], type [type], price $[price], SKU [sku]"
+**Update Products**: Add variants, modify details, manage inventory
+**Special Products**: Create combos, open box items, duplicates
+
+What would you like me to help you with?"""
             
-            # Extract the response
-            if result.get("messages"):
-                # Get the last AI message from the agent's response
-                agent_messages = result["messages"]
-                for msg in reversed(agent_messages):
-                    if hasattr(msg, 'content') and msg.content:
-                        state["messages"].append(AIMessage(
-                            content=msg.content,
-                            metadata={"agent": self.name, "intermediate": True}
-                        ))
-                        break
+            # Add response to state
+            if response:
+                state["messages"].append(AIMessage(
+                    content=response,
+                    metadata={"agent": self.name}
+                ))
             else:
                 state["messages"].append(AIMessage(
-                    content="I processed your request but couldn't generate a response.",
-                    metadata={"agent": self.name, "intermediate": True}
+                    content="I couldn't process your request. Please try again.",
+                    metadata={"agent": self.name}
                 ))
             
             state["last_agent"] = self.name
+            logger.info(f"✅ Product Management agent completed")
             return state
             
         except Exception as e:

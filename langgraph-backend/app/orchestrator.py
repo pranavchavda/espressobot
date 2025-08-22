@@ -31,6 +31,9 @@ logger.addHandler(console_handler)
 @dataclass
 class ConversationMemory:
     """Stores important findings from the conversation with compressed context"""
+    # Thread identification for memory filtering
+    thread_id: Optional[str] = None
+    
     # Legacy fields for compatibility
     products: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # product_id -> details
     searches_performed: List[Dict[str, Any]] = field(default_factory=list)
@@ -118,6 +121,7 @@ class AgentCall:
     agent_name: str
     task: str
     context: Dict[str, Any]
+    previous_results: Dict[str, Any] = field(default_factory=dict)  # Results from previous agents
     attempt_number: int = 1
 
 class ProgressiveOrchestrator:
@@ -179,6 +183,7 @@ class ProgressiveOrchestrator:
         from app.agents.google_workspace_native_mcp import GoogleWorkspaceAgentNativeMCP
         from app.agents.ga4_analytics_native_mcp import GA4AnalyticsAgentNativeMCP
         from app.agents.bash_agent import BashAgent
+        from app.agents.product_mgmt_native_mcp import ProductManagementAgentNativeMCP
         
         static_agent_classes = [
             ProductsAgentNativeMCPSimple,
@@ -323,9 +328,13 @@ class ProgressiveOrchestrator:
         """Get or create conversation memory for thread"""
         if thread_id not in self.conversation_memory:
             logger.info(f"Creating new memory for thread {thread_id}")
-            self.conversation_memory[thread_id] = ConversationMemory()
+            memory = ConversationMemory(thread_id=thread_id)
+            self.conversation_memory[thread_id] = memory
         else:
             memory = self.conversation_memory[thread_id]
+            # Ensure thread_id is set for existing memories
+            if not memory.thread_id:
+                memory.thread_id = thread_id
             logger.info(f"Found existing memory for thread {thread_id}: {len(memory.recent_messages)} messages, compressed_context={memory.compressed_context is not None}")
         return self.conversation_memory[thread_id]
     
@@ -362,6 +371,56 @@ Last agent call:
 - Result: {last_agent_result.get('result', 'No result')[:500]}
 """
         
+        # BUILD COMPLETE AGENT HISTORY for state passing
+        all_agent_results = {}
+        extracted_data = {
+            "product_ids": [],
+            "variant_ids": [],
+            "skus": [],
+            "prices": [],
+            "errors": []
+        }
+        
+        if memory.agent_attempts:
+            agent_history = "\nPrevious agent results this conversation:\n"
+            for agent, attempts in memory.agent_attempts.items():
+                if attempts:
+                    # Get the most recent successful attempt
+                    last_attempt = attempts[-1]
+                    all_agent_results[agent] = last_attempt
+                    response = last_attempt.get('response', '')
+                    agent_history += f"- {agent}: {response[:200]}...\n"
+                    
+                    # Extract structured data from previous agents
+                    import re
+                    # Extract product IDs
+                    product_ids = re.findall(r'gid://shopify/Product/\d+', response)
+                    extracted_data["product_ids"].extend(product_ids)
+                    
+                    # Extract variant IDs
+                    variant_ids = re.findall(r'gid://shopify/ProductVariant/\d+', response)
+                    extracted_data["variant_ids"].extend(variant_ids)
+                    
+                    # Extract SKUs
+                    sku_patterns = [
+                        r'[A-Z]{2,3}-\d{4}-[A-Z0-9-]{5,20}',  # OB-XXXX pattern
+                        r'[A-Z]{3,}-[A-Z0-9-]{5,15}',         # General SKU pattern
+                    ]
+                    for pattern in sku_patterns:
+                        skus = re.findall(pattern, response)
+                        extracted_data["skus"].extend(skus)
+                    
+                    # Extract prices
+                    prices = re.findall(r'\$?[\d,]+\.?\d*', response)
+                    extracted_data["prices"].extend(prices[:3])  # Keep first 3 prices per agent
+            
+            # Remove duplicates
+            for key in extracted_data:
+                if isinstance(extracted_data[key], list):
+                    extracted_data[key] = list(set(extracted_data[key]))
+        else:
+            agent_history = ""
+        
         # Log the context being used for debugging
         logger.info(f"Planning with context - Recent messages: {len(memory.recent_messages)}, Has compressed context: {memory.compressed_context is not None}")
         if recent_conversation:
@@ -381,6 +440,14 @@ What we already know from this conversation:
 {known_context}
 
 {last_attempt_context}
+
+{agent_history}
+
+EXTRACTED DATA FROM PREVIOUS AGENTS:
+Product IDs: {extracted_data.get('product_ids', [])}
+Variant IDs: {extracted_data.get('variant_ids', [])}
+SKUs: {extracted_data.get('skus', [])}
+Prices: {extracted_data.get('prices', [])}
 
 Available agents (use this EXACT list when user asks for agent list):
 {self._get_available_agents_description()}
@@ -484,7 +551,8 @@ Respond with JSON."""
                 return AgentCall(
                     agent_name="products",
                     task=user_request,
-                    context={"timeout": True, "fallback": True}
+                    context={"timeout": True, "fallback": True},
+                    previous_results=extracted_data
                 )
             
             content = response.content if hasattr(response, 'content') else str(response)
@@ -499,7 +567,8 @@ Respond with JSON."""
                     return AgentCall(
                         agent_name=decision.get("agent", "products"),
                         task=decision.get("task", ""),
-                        context=decision.get("context", {})
+                        context=decision.get("context", {}),
+                        previous_results=extracted_data  # Pass extracted data to next agent
                     )
                 elif decision.get("action") == "respond":
                     # Store the response message for later use
@@ -533,7 +602,20 @@ Respond with JSON."""
         agent = self.agents[agent_name]
         logger.info(f"🎯 Calling {agent_name} with task: {agent_call.task}")
         
-        # Build state for agent with orchestrator's context
+        # Build enhanced state for agent with previous results
+        previous_data_str = ""
+        if agent_call.previous_results:
+            import json
+            previous_data_str = f"""
+
+DATA FROM PREVIOUS AGENTS:
+{json.dumps(agent_call.previous_results, indent=2)}
+
+CRITICAL: Use this data to complete your task. For example:
+- If updating prices, use the product_id and variant_id provided above
+- If searching, use the SKUs or product names from above
+- Don't ask for data that's already provided above"""
+        
         state = {
             "messages": [
                 SystemMessage(content=f"""You are being called by the orchestrator with a specific task.
@@ -541,14 +623,15 @@ Respond with JSON."""
 Task: {agent_call.task}
 
 Context from orchestrator:
-{json.dumps(agent_call.context, indent=2)}
+{json.dumps(agent_call.context, indent=2)}{previous_data_str}
 
-Complete this specific task. Be direct and factual in your response."""),
+Complete this specific task using any data provided above. Be direct and factual in your response."""),
                 HumanMessage(content=agent_call.task)
             ],
             "user_id": user_id,
             "thread_id": thread_id,
-            "orchestrator_context": agent_call.context
+            "orchestrator_context": agent_call.context,
+            "previous_results": agent_call.previous_results  # Pass structured data
         }
         
         try:
@@ -614,10 +697,77 @@ Complete this specific task. Be direct and factual in your response."""),
             }
     
     def _extract_findings(self, agent_name: str, response: str, memory: ConversationMemory):
-        """Extract and remember important findings from agent response"""
+        """Extract and store structured data from agent responses"""
         response_lower = response.lower()
         
-        # Extract product IDs and details
+        # Store raw response in agent attempts
+        if agent_name not in memory.agent_attempts:
+            memory.agent_attempts[agent_name] = []
+        
+        # Create structured data extraction
+        structured_data = {
+            "task": memory.agent_attempts[agent_name][-1].get("task") if memory.agent_attempts[agent_name] else "",
+            "response": response,
+            "extracted": {}
+        }
+        
+        # Extract structured data using improved patterns
+        import re
+        
+        # Extract product IDs
+        product_ids = re.findall(r'gid://shopify/Product/\d+', response)
+        if product_ids:
+            structured_data["extracted"]["product_ids"] = list(set(product_ids))
+            
+        # Extract variant IDs  
+        variant_ids = re.findall(r'gid://shopify/ProductVariant/\d+', response)
+        if variant_ids:
+            structured_data["extracted"]["variant_ids"] = list(set(variant_ids))
+            
+        # Extract SKUs with better patterns
+        sku_patterns = [
+            r'[A-Z]{2,3}-\d{4}-[A-Z0-9-]{5,20}',  # OB-XXXX pattern
+            r'[A-Z]{3,}-[A-Z0-9-]{5,15}',         # General SKU pattern
+        ]
+        all_skus = []
+        for pattern in sku_patterns:
+            skus = re.findall(pattern, response)
+            all_skus.extend(skus)
+        if all_skus:
+            structured_data["extracted"]["skus"] = list(set(all_skus))
+            
+        # Extract prices with context
+        price_patterns = [
+            r'\$[\d,]+\.?\d*',  # $4499.00
+            r'\b\d{3,6}\.?\d{0,2}\b(?=\s*(?:USD|dollars?|price|cost))',  # 4450 when followed by currency/price words
+        ]
+        all_prices = []
+        for pattern in price_patterns:
+            prices = re.findall(pattern, response)
+            all_prices.extend(prices)
+        if all_prices:
+            structured_data["extracted"]["prices"] = list(set(all_prices[:5]))  # Keep first 5 unique
+        
+        # Extract error messages
+        error_patterns = [
+            r'Error: [^.!?\n]+[.!?]?',
+            r'Failed [^.!?\n]+[.!?]?',
+            r'Cannot [^.!?\n]+[.!?]?',
+        ]
+        all_errors = []
+        for pattern in error_patterns:
+            errors = re.findall(pattern, response, re.IGNORECASE)
+            all_errors.extend(errors)
+        if all_errors:
+            structured_data["extracted"]["errors"] = all_errors
+        
+        # Update the latest attempt with structured data
+        if memory.agent_attempts[agent_name]:
+            memory.agent_attempts[agent_name][-1].update(structured_data)
+        else:
+            memory.agent_attempts[agent_name].append(structured_data)
+        
+        # Legacy product extraction for compatibility
         if "gid://shopify/product/" in response_lower:
             import re
             import json
@@ -669,22 +819,40 @@ Complete this specific task. Be direct and factual in your response."""),
     async def _build_full_context(self, user_request: str, memory: ConversationMemory) -> Dict[str, str]:
         """Build complete context for both planning and synthesis to ensure consistency"""
         
-        # 1. Inject relevant memories from database
+        # 1. Inject relevant memories from database (exclude current thread to avoid circular references)
         memory_context = ""
         if self.memory_manager:
             try:
                 search_results = await self.memory_manager.search_memories(
                     user_id="1",
                     query=user_request,
-                    limit=3
+                    limit=5  # Get more results to account for filtering
                 )
                 
                 if search_results:
                     memory_lines = []
+                    current_thread_id = memory.thread_id
+                    
                     for result in search_results:
                         mem = result.memory
+                        
+                        # Filter out memories from current thread to avoid circular references
+                        mem_metadata = mem.metadata or {}
+                        mem_thread_id = mem_metadata.get('thread_id')
+                        
+                        # Skip if this memory is from the current thread
+                        if current_thread_id and mem_thread_id == current_thread_id:
+                            logger.debug(f"Skipping memory from current thread {current_thread_id}")
+                            continue
+                            
                         memory_lines.append(f"- {mem.content} (importance: {mem.importance_score:.1f})")
-                    memory_context = "Relevant memories:\n" + "\n".join(memory_lines) + "\n\n"
+                        
+                        # Limit to 3 relevant memories after filtering
+                        if len(memory_lines) >= 3:
+                            break
+                    
+                    if memory_lines:
+                        memory_context = "Relevant memories:\n" + "\n".join(memory_lines) + "\n\n"
             except Exception as e:
                 logger.warning(f"Failed to retrieve memories: {e}")
         
@@ -806,11 +974,49 @@ Response (MUST use two spaces '  ' at the end of lines for line breaks):"""
                     "(e.g., search products, check inventory, analyze pricing, or summarize the last steps)?"
                 )
         
-        # Build summary of what was done
+        # COLLECT ALL VERIFIED DATA to prevent hallucinations
+        verified_data = {
+            "product_ids": [],
+            "variant_ids": [],
+            "skus": [],
+            "prices": {},
+            "errors": [],
+            "successful_operations": [],
+            "urls": []
+        }
+        
+        # Build summary of what was done and extract verified data
         actions_summary = []
         for result in all_results:
             if result.get("success"):
-                actions_summary.append(f"- {result['agent']}: {result['task']}")
+                agent_name = result.get("agent")
+                actions_summary.append(f"- {agent_name}: {result['task']}")
+                
+                # Extract verified data from agent responses
+                response = result.get("result", "")
+                
+                # Get from agent attempts with structured extraction
+                if memory.agent_attempts.get(agent_name):
+                    attempts = memory.agent_attempts[agent_name]
+                    if attempts:
+                        extracted = attempts[-1].get("extracted", {})
+                        verified_data["product_ids"].extend(extracted.get("product_ids", []))
+                        verified_data["variant_ids"].extend(extracted.get("variant_ids", []))
+                        verified_data["skus"].extend(extracted.get("skus", []))
+                        verified_data["errors"].extend(extracted.get("errors", []))
+                        
+                        # Track successful operations
+                        if "success" in response.lower() or "completed" in response.lower():
+                            verified_data["successful_operations"].append({
+                                "agent": agent_name,
+                                "operation": result['task'],
+                                "details": response[:200]
+                            })
+        
+        # Remove duplicates from verified data
+        verified_data["product_ids"] = list(set(verified_data["product_ids"]))
+        verified_data["variant_ids"] = list(set(verified_data["variant_ids"]))
+        verified_data["skus"] = list(set(verified_data["skus"]))
         
         # Build the SAME context that was used for planning
         # This ensures synthesizer has identical context to planner
@@ -831,6 +1037,9 @@ What we already know from this conversation:
 Actions taken:
 {chr(10).join(actions_summary)}
 
+VERIFIED DATA FROM AGENTS (ONLY use this data - DO NOT fabricate IDs or values):
+{json.dumps(verified_data, indent=2)}
+
 Agent results:
 {json.dumps(all_results, indent=2)[:3000]}
 
@@ -840,6 +1049,13 @@ Create a clear, concise response that:
 3. Includes specific details from the agent results
 4. Mentions any important IDs or links if relevant
 5. Is friendly and conversational
+
+CRITICAL ANTI-HALLUCINATION RULES:
+- DO NOT generate fake product IDs, variant IDs, or SKUs
+- Use ONLY the verified data provided above
+- If you need IDs that aren't in the verified data, ask the user to provide them
+- Never make up values like "prod_9876543210" or "var_1122334455"
+- If an operation failed, explain what went wrong rather than fabricating success
 
 CRITICAL FORMATTING RULE: Always add two spaces ('  ') at the end of lines where you want line breaks, especially:
 - After headings like "# Coffee Methods  "
@@ -1100,10 +1316,16 @@ Response (MUST use two spaces '  ' at the end of lines for line breaks):"""
         # Get or create memory for this thread
         memory = self._get_memory(thread_id)
         
-        # Load historical messages if this is an existing conversation (async in background)
+        # Load historical messages if this is an existing conversation (SYNCHRONOUSLY for context)
         if not memory.recent_messages:
-            # Start background task to load messages - don't block the response
-            asyncio.create_task(self._load_messages_async(thread_id, memory))
+            # Load messages synchronously to ensure conversation continuity
+            try:
+                historical_messages = await self._load_messages_from_db(thread_id)
+                if historical_messages:
+                    memory.recent_messages = historical_messages[-5:]  # Keep last 5 messages for context
+                    logger.info(f"📚 Loaded {len(memory.recent_messages)} historical messages for thread {thread_id}")
+            except Exception as e:
+                logger.error(f"Failed to load historical messages for thread {thread_id}: {e}")
         
         # Add user message to recent history
         memory.add_recent_message(HumanMessage(content=message))
