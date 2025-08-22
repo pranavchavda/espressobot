@@ -897,18 +897,25 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
 
   // Async task polling function
   const pollAsyncTask = async (taskId, conversationId) => {
+    // Prevent multiple polling for the same task
+    if (window.currentPollingTask === taskId) {
+      console.log('[DEBUG] Already polling task:', taskId);
+      return;
+    }
+    window.currentPollingTask = taskId;
+    
     try {
       // Set conversation ID if this is a new conversation
       if (conversationId && (!convId && !activeConv)) {
         console.log('[DEBUG] Setting activeConv from async response:', conversationId);
         setActiveConv(conversationId);
         
-        // Notify parent of new conversation and navigate to it
-        if (onNewConversation && !convId) {
-          console.log('[DEBUG] Navigating to new conversation:', conversationId);
-          onNewConversation(conversationId);
-        }
+        // Navigation already happened in handleSend, just track the conversation
+        console.log('[DEBUG] Tracking conversation:', conversationId);
       }
+      
+      // Set sending state to show we're processing
+      setIsSending(true);
 
       // Update status message
       setStreamingMessage({
@@ -1007,6 +1014,7 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsSending(false);
+      window.currentPollingTask = null; // Clear the polling task
     }
   };
 
@@ -1197,8 +1205,35 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
       if (useAsync) {
         const result = await response.json();
         console.log('[DEBUG] Async response received:', result);
+        console.log('[DEBUG] Current convId:', convId, 'activeConv:', activeConv);
         
-        // Start polling for task completion
+        // If this is a new conversation, navigate to it with task info
+        if (result.conversation_id && !convId) {
+          console.log('[DEBUG] New conversation created, navigating to:', result.conversation_id);
+          
+          // Set activeConv before navigating to maintain state
+          setActiveConv(result.conversation_id);
+          
+          // Navigate to the new conversation and pass task info in state
+          navigate(`/chat/${result.conversation_id}`, { 
+            replace: true,
+            state: {
+              taskId: result.task_id,
+              fromHomepage: true,
+              userMessage: textToSend
+            }
+          });
+          
+          // Also notify parent for sidebar update
+          if (onNewConversation) {
+            onNewConversation(result.conversation_id);
+          }
+          
+          // Don't start polling here, let the component at the new route handle it
+          return;
+        }
+        
+        // Only poll if we're not navigating (existing conversation)
         if (result.task_id) {
           await pollAsyncTask(result.task_id, result.conversation_id);
         }
@@ -1557,11 +1592,12 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
                   console.log('[DEBUG] Setting activeConv to:', actualEventPayload.conv_id);
                   setActiveConv(actualEventPayload.conv_id);
                   
-                  // Notify parent of new conversation but don't navigate immediately
-                  // Navigation will happen when conversation data is ready
+                  // Navigate to new conversation if we don't have a convId yet
                   if (!convId) {
-                    console.log('[DEBUG] Notifying parent of new conversation:', actualEventPayload.conv_id);
-                    // Notify parent for conversation list updates
+                    console.log('[DEBUG] Navigating to new conversation:', actualEventPayload.conv_id);
+                    navigate(`/chat/${actualEventPayload.conv_id}`, { replace: true });
+                    
+                    // Also notify parent for conversation list updates
                     if (onNewConversation) {
                       onNewConversation(actualEventPayload.conv_id);
                     }
@@ -2424,31 +2460,62 @@ function StreamingChatPage({ convId, onTopicUpdate, onNewConversation }) {
     return () => document.removeEventListener('click', copyHandler);
   }, []);
 
-  // Handle initial message from HomePage
+  // Handle initial message from HomePage and task continuation
   useEffect(() => {
-    const { initialMessage, newConversation, imageAttachment, fileAttachment } = location.state || {};
+    const { initialMessage, newConversation, imageAttachment, fileAttachment, taskId, fromHomepage, userMessage } = location.state || {};
     
-    if ((initialMessage || imageAttachment || fileAttachment) && !messages.length && !loading && !hasProcessedInitialMessage.current) {
-      hasProcessedInitialMessage.current = true;
-      // Do not trigger onNewConversation() here without a conversation ID.
-      // Navigation will occur later when a valid conversation ID is available
-      // (via handleSend response or async polling), preventing /chat/undefined navigation.
-      // Show immediate loading state while bootstrapping a new conversation
-      setLoading(true);
+    console.log('[DEBUG] Initial message effect:', {
+      hasInitialMessage: !!initialMessage,
+      hasTaskId: !!taskId,
+      hasProcessed: hasProcessedInitialMessage.current,
+      convId,
+      pathname: location.pathname
+    });
+    
+    // Handle task continuation after navigation
+    if (taskId && convId && fromHomepage) {
+      console.log('[DEBUG] Continuing async task after navigation:', taskId);
       
-      setInput(initialMessage || '');
-      if (imageAttachment) setImageAttachment(imageAttachment);
-      if (fileAttachment) setFileAttachment(fileAttachment);
-
-      const timeoutId = setTimeout(() => {
-        handleSend(initialMessage || '');
-      }, 500);
+      // Add the user message to the conversation
+      if (userMessage) {
+        setMessages([{
+          role: "user",
+          content: userMessage,
+          timestamp: new Date().toISOString()
+        }]);
+      }
       
+      // Continue polling the task
+      pollAsyncTask(taskId, convId);
+      
+      // Clear the state to prevent re-processing
       window.history.replaceState({}, document.title, window.location.pathname);
-      
-      return () => clearTimeout(timeoutId);
+      return;
     }
-  }, [location.state, messages.length, loading, onNewConversation]);
+    
+    // Only process if we have something to send and haven't processed it yet
+    if ((initialMessage || imageAttachment || fileAttachment) && !hasProcessedInitialMessage.current) {
+      console.log('[DEBUG] Processing initial message from homepage');
+      hasProcessedInitialMessage.current = true;
+      
+      // If we don't have a convId yet, we're at /chat and need to send the message
+      if (!convId) {
+        console.log('[DEBUG] No convId, setting up to send message');
+        setInput(initialMessage || '');
+        if (imageAttachment) setImageAttachment(imageAttachment);
+        if (fileAttachment) setFileAttachment(fileAttachment);
+
+        const timeoutId = setTimeout(() => {
+          console.log('[DEBUG] Calling handleSend with initial message');
+          handleSend(initialMessage || '');
+        }, 100); // Reduced timeout for faster response
+        
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [location.state, convId]); // Removed other deps to simplify
 
   return (
     <div className="flex flex-col h-[90vh] w-full max-w-full overflow-x-hidden bg-gradient-to-b from-transparent to-zinc-50 dark:bg-zinc-900">
