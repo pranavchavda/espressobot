@@ -109,9 +109,10 @@ class AsyncOrchestrator:
             # Import and use the main orchestrator
             from app.orchestrator import orchestrator
             
-            # The orchestrator returns a generator, so we need to consume it
+            # The orchestrator returns an async generator, so we need to consume it with async for
             response_parts = []
             try:
+                # Use async for loop since orchestrate() returns an async generator
                 async for token in orchestrator.orchestrate(message, thread_id, user_id):
                     # Check if task was cancelled during processing
                     if task_progress.status == TaskStatus.CANCELLED:

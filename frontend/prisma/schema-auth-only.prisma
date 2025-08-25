@@ -1,0 +1,27 @@
+// Simple auth-only schema for frontend
+// Only contains tables needed for Google OAuth and user sessions
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model users {
+  id                     Int       @id @default(autoincrement())
+  email                  String    @unique
+  name                   String?
+  google_id              String?   @unique
+  profile_picture        String?
+  google_access_token    String?
+  google_refresh_token   String?
+  google_token_expiry    DateTime?
+  is_whitelisted         Boolean   @default(true)
+  is_admin               Boolean   @default(false)
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @default(now())
+}

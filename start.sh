@@ -107,8 +107,8 @@ echo "============================================"
 echo ""
 
 # Check for .env file
-if [ ! -f "/home/pranav/espressobot/.env" ]; then
-    print_error ".env file not found at /home/pranav/espressobot/.env"
+if [ ! -f "/home/pranav/ebot/langgraph-backend/.env" ]; then
+    print_error ".env file not found at /home/pranav/ebot/langgraph-backend/.env"
     exit 1
 fi
 
@@ -165,26 +165,14 @@ echo "============================================"
 echo "         Starting LangGraph Backend"
 echo "============================================"
 
-cd /home/pranav/espressobot/langgraph-backend
+cd /home/pranav/ebot/langgraph-backend
 
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    print_warning "Virtual environment not found. Creating..."
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-else
-    source venv/bin/activate
-fi
+# Use system python instead of venv since it has all dependencies
+print_info "Using system Python (venv has dependency issues)"
 
 # Start backend in background
 print_info "Starting backend server on port 8000..."
-PYTHONPATH=/home/pranav/espressobot/langgraph-backend DISABLE_MCP_SERVER=true uvicorn app.main:app \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --reload \
-    --log-level info \
-    > /tmp/espressobot-backend.log 2>&1 &
+cd /home/pranav/ebot/langgraph-backend && python run.py > /tmp/espressobot-backend.log 2>&1 &
 
 BACKEND_PID=$!
 print_info "Backend PID: $BACKEND_PID"
@@ -198,7 +186,7 @@ echo "============================================"
 echo "         Starting Vite Frontend"
 echo "============================================"
 
-cd /home/pranav/espressobot/frontend
+cd /home/pranav/ebot/frontend
 
 # Check node_modules
 if [ ! -d "node_modules" ]; then

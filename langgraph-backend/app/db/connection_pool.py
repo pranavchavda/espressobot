@@ -39,11 +39,17 @@ class DatabasePool:
             return database_url
             
         # Construct from individual components if DATABASE_URL not set
-        host = os.getenv("DB_HOST", "localhost")
-        port = os.getenv("DB_PORT", "5432")
-        user = os.getenv("DB_USER", "espressobot")
-        password = os.getenv("DB_PASSWORD", "localdev123")
-        database = os.getenv("DB_NAME", "espressobot_dev")
+        host = os.getenv("DB_HOST")
+        port = os.getenv("DB_PORT", "5432")  # Port 5432 is safe default for PostgreSQL
+        user = os.getenv("DB_USER")
+        password = os.getenv("DB_PASSWORD")
+        database = os.getenv("DB_NAME")
+        
+        # Require all essential database connection parameters
+        if not all([host, user, password, database]):
+            missing = [name for name, value in [("DB_HOST", host), ("DB_USER", user), ("DB_PASSWORD", password), ("DB_NAME", database)] if not value]
+            raise ValueError(f"Missing required database environment variables: {', '.join(missing)}")
+            
         return f"postgresql://{user}:{password}@{host}:{port}/{database}"
     
     async def initialize(self) -> None:

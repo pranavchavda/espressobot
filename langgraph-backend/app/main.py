@@ -62,7 +62,7 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-from app.api import chat, chat_async, websocket, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad, profile, cli_auth, chat_optimized
+from app.api import chat, chat_async, websocket, conversations, auth_proxy, agent_management, memory_enhanced, dashboard, price_monitor, dynamic_agents, user_mcp_servers, orchestrator_admin, logs_stream, sandbox, scratchpad, profile, cli_auth, chat_optimized, memory_deduplication
 
 # Progressive orchestrator endpoint (main) - with memory & conversation persistence
 app.include_router(chat.router, prefix="/api/agent")
@@ -82,6 +82,7 @@ app.include_router(conversations.router, prefix="/api/conversations")
 app.include_router(auth_proxy.router)  # Auth proxy includes its own /api/auth prefix
 app.include_router(agent_management.router)  # Agent management API
 app.include_router(memory_enhanced.router, prefix="/api/memory")  # Enhanced memory management API
+app.include_router(memory_deduplication.router, prefix="/api/memory/dedup")  # Memory deduplication API
 
 # Enable dashboard router
 app.include_router(dashboard.router, prefix="/api/dashboard")

@@ -162,9 +162,14 @@ class ProgressiveOrchestrator:
         # Initialize static agents first
         self._initialize_static_agents()
         
-        # Initialize dynamic agents from database (fire and forget to avoid blocking startup)
+        # Initialize dynamic agents from database (only if event loop is running)
         import asyncio
-        asyncio.create_task(self._initialize_dynamic_agents_async())
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(self._initialize_dynamic_agents_async())
+        except RuntimeError:
+            # No event loop running, skip dynamic agent initialization
+            logger.info("No event loop running, skipping dynamic agent initialization during import")
     
     def _initialize_static_agents(self):
         """Initialize hardcoded static agents"""

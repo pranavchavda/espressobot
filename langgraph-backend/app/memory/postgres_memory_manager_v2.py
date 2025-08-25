@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import logging
 import time
+import uuid
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -110,23 +111,35 @@ class SimpleMemoryManager:
                     logger.debug(f"Memory already exists: {memory.content[:50]}...")
                     return existing['id']
                 
+                # Convert embedding to proper format for pgvector
+                embedding_data = None
+                if memory.embedding:
+                    # Convert list to string format that pgvector expects
+                    embedding_str = '[' + ','.join(map(str, memory.embedding)) + ']'
+                    embedding_data = embedding_str
+                
+                # Generate UUID for id field
+                memory_id = str(uuid.uuid4())
+                
                 # Insert new memory
                 result = await self.db.fetchrow(
                     """
                     INSERT INTO memories (
-                        user_id, content, embedding, metadata, category,
-                        importance_score, confidence_score, created_at, status
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
+                        id, user_id, content, embedding, metadata, category,
+                        importance_score, confidence_score, created_at, updated_at, status
+                    ) VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9, $10, 'active')
                     RETURNING id
                     """,
+                    memory_id,
                     memory.user_id,
                     memory.content,
-                    json.dumps(memory.embedding) if memory.embedding else None,
+                    embedding_data,
                     json.dumps(memory.metadata) if memory.metadata else '{}',
                     memory.category or 'general',
                     memory.importance_score,
                     memory.metadata.get('confidence', 0.5) if memory.metadata else 0.5,
-                    memory.created_at
+                    memory.created_at,
+                    memory.created_at  # Set updated_at to same as created_at initially
                 )
                 
                 if result:
@@ -154,6 +167,9 @@ class SimpleMemoryManager:
                 embedding_result = await self.embedding_service.get_embedding(query)
                 query_embedding = embedding_result.embedding
                 
+                # Convert query embedding to proper format for pgvector
+                query_embedding_str = '[' + ','.join(map(str, query_embedding)) + ']'
+                
                 # Build query
                 sql = """
                     SELECT 
@@ -165,7 +181,7 @@ class SimpleMemoryManager:
                     AND status = 'active'
                 """
                 
-                params = [user_id, json.dumps(query_embedding)]
+                params = [user_id, query_embedding_str]
                 
                 if category:
                     sql += " AND category = $3"

@@ -40,38 +40,16 @@ async def list_conversations(
             )
         """)
         
-        # Query conversations from both checkpoints and conversation_metadata
-        # This ensures we show conversations from both LangGraph and Progressive orchestrators
+        # Query conversations from conversation_metadata (Progressive Orchestrator)
+        # Since checkpoints table doesn't exist, we use only conversation_metadata
         rows = await conn.fetch("""
-            WITH all_conversations AS (
-                -- Get conversations from checkpoints (LangGraph)
-                SELECT 
-                    c.thread_id,
-                    COUNT(*) as message_count,
-                    m.title,
-                    m.created_at,
-                    m.updated_at
-                FROM checkpoints c
-                LEFT JOIN conversation_metadata m ON c.thread_id = m.thread_id
-                WHERE c.thread_id IS NOT NULL
-                GROUP BY c.thread_id, m.title, m.created_at, m.updated_at
-                
-                UNION
-                
-                -- Get conversations only in metadata (Progressive orchestrator)
-                SELECT 
-                    m.thread_id,
-                    0 as message_count,  -- No checkpoint messages
-                    m.title,
-                    m.created_at,
-                    m.updated_at
-                FROM conversation_metadata m
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM checkpoints c WHERE c.thread_id = m.thread_id
-                )
-            )
-            SELECT * FROM all_conversations
-            ORDER BY COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) DESC
+            SELECT 
+                thread_id,
+                title,
+                created_at,
+                updated_at
+            FROM conversation_metadata
+            ORDER BY COALESCE(updated_at, created_at) DESC
             LIMIT 50
         """)
         
@@ -96,7 +74,7 @@ async def list_conversations(
                 title=title,
                 created_at=created_at,
                 updated_at=updated_at,
-                message_count=row['message_count']
+                message_count=1  # Default to 1 since we don't track message counts in metadata
             ))
         
         logger.info(f"Found {len(response)} conversations")
@@ -171,10 +149,8 @@ async def get_conversation(
             WHERE thread_id = $1
         """, thread_id)
         
-        if metadata and not await conn.fetchval("""
-            SELECT EXISTS(SELECT 1 FROM checkpoints WHERE thread_id = $1 LIMIT 1)
-        """, thread_id):
-            # This is a Progressive orchestrator conversation without checkpoints
+        if metadata:
+            # This is a Progressive orchestrator conversation
             # Load messages from progressive_messages table
             messages = []
             

@@ -14,13 +14,40 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Database connection parameters
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': int(os.getenv('DB_PORT', '5432')),
-    'user': os.getenv('DB_USER', 'espressobot'),
-    'password': os.getenv('DB_PASSWORD', 'localdev123'),
-    'database': os.getenv('DB_NAME', 'espressobot_dev')
-}
+def get_db_config():
+    """Get database configuration, ensuring all required env vars are present"""
+    host = os.getenv('DB_HOST')
+    port = int(os.getenv('DB_PORT', '5432'))  # Safe default for PostgreSQL
+    user = os.getenv('DB_USER')
+    password = os.getenv('DB_PASSWORD')
+    database = os.getenv('DB_NAME')
+    
+    # Check for DATABASE_URL first
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        # Parse DATABASE_URL if provided
+        import urllib.parse
+        parsed = urllib.parse.urlparse(database_url)
+        return {
+            'host': parsed.hostname,
+            'port': parsed.port or 5432,
+            'user': parsed.username,
+            'password': parsed.password,
+            'database': parsed.path[1:]  # Remove leading '/'
+        }
+    
+    # Require all essential database connection parameters
+    if not all([host, user, password, database]):
+        missing = [name for name, value in [("DB_HOST", host), ("DB_USER", user), ("DB_PASSWORD", password), ("DB_NAME", database)] if not value]
+        raise ValueError(f"Missing required database environment variables: {', '.join(missing)}")
+    
+    return {
+        'host': host,
+        'port': port,
+        'user': user,
+        'password': password,
+        'database': database
+    }
 
 MIGRATION_SQL = """
 -- Database schema for optimized orchestrator state persistence
@@ -197,7 +224,8 @@ ORDER BY hour_bucket DESC, error_count DESC;
 async def check_database_connection():
     """Test database connection"""
     try:
-        conn = await asyncpg.connect(**DB_CONFIG)
+        db_config = get_db_config()
+        conn = await asyncpg.connect(**db_config)
         await conn.fetchval("SELECT 1")
         await conn.close()
         logger.info("✅ Database connection successful")
@@ -216,7 +244,8 @@ async def run_migration():
         return False
     
     try:
-        conn = await asyncpg.connect(**DB_CONFIG)
+        db_config = get_db_config()
+        conn = await asyncpg.connect(**db_config)
         
         # Start transaction
         async with conn.transaction():
@@ -252,7 +281,8 @@ async def verify_migration():
     logger.info("🔍 Verifying migration...")
     
     try:
-        conn = await asyncpg.connect(**DB_CONFIG)
+        db_config = get_db_config()
+        conn = await asyncpg.connect(**db_config)
         
         # Check that all tables exist
         tables_to_check = [
@@ -333,8 +363,9 @@ async def main():
     logger.info("=" * 50)
     
     # Show configuration
-    logger.info(f"Database: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
-    logger.info(f"User: {DB_CONFIG['user']}")
+    db_config = get_db_config()
+    logger.info(f"Database: {db_config['host']}:{db_config['port']}/{db_config['database']}")
+    logger.info(f"User: {db_config['user']}")
     logger.info("")
     
     # Run migration

@@ -1,6 +1,36 @@
 {
-  "timestamp": 1755661010.9870415,
+  "timestamp": 1756070985.7295432,
   "models": [
+    {
+      "id": "deepseek/deepseek-chat-v3.1",
+      "name": "DeepSeek: DeepSeek V3.1",
+      "provider": "openrouter",
+      "context_length": 163840,
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000008",
+        "request": "0",
+        "image": "0",
+        "web_search": "0",
+        "internal_reasoning": "0"
+      },
+      "description": "via OpenRouter - DeepSeek-V3.1 is a large hybrid reasoning model (671B parameters, 37B active) that supports both thi"
+    },
+    {
+      "id": "deepseek/deepseek-v3.1-base",
+      "name": "DeepSeek: DeepSeek V3.1 Base",
+      "provider": "openrouter",
+      "context_length": 163840,
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000008",
+        "request": "0",
+        "image": "0",
+        "web_search": "0",
+        "internal_reasoning": "0"
+      },
+      "description": "via OpenRouter - This is a base model, trained only for raw next-token prediction. Unlike instruct/chat models, it ha"
+    },
     {
       "id": "openai/gpt-4o-audio-preview",
       "name": "OpenAI: GPT-4o Audio",
@@ -27,7 +57,6 @@
         "completion": "0.000002",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -40,10 +69,9 @@
       "context_length": 65536,
       "pricing": {
         "prompt": "0.0000005",
-        "completion": "0.0000017",
+        "completion": "0.0000018",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -59,7 +87,6 @@
         "completion": "0.00001",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000125"
@@ -76,7 +103,6 @@
         "completion": "0.00001",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000125"
@@ -93,7 +119,6 @@
         "completion": "0.000002",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000025"
@@ -110,7 +135,6 @@
         "completion": "0.0000004",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000005"
@@ -127,7 +151,6 @@
         "completion": "0.00000028",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -143,7 +166,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -159,7 +181,6 @@
         "completion": "0.00000015",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -175,7 +196,6 @@
         "completion": "0.000075",
         "request": "0",
         "image": "0.024",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.0000015",
@@ -193,7 +213,6 @@
         "completion": "0.0000009",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -209,7 +228,6 @@
         "completion": "0.0000008",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -225,7 +243,6 @@
         "completion": "0.000000800064",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -241,7 +258,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -257,7 +273,6 @@
         "completion": "0.0000011",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.00000003"
@@ -274,7 +289,6 @@
         "completion": "0.00000031202496",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -290,7 +304,6 @@
         "completion": "0.0000001",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -306,7 +319,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -322,7 +334,6 @@
         "completion": "0.0000008",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -338,7 +349,6 @@
         "completion": "0.0000004",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000025",
@@ -356,7 +366,6 @@
         "completion": "0.00000031202496",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -372,7 +381,6 @@
         "completion": "0.000000138",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -388,7 +396,6 @@
         "completion": "0.000002",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -404,7 +411,6 @@
         "completion": "0.00000028",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -420,7 +426,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -436,7 +441,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -452,7 +456,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -468,7 +471,6 @@
         "completion": "0.0000001",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -484,7 +486,6 @@
         "completion": "0.0000004",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000025",
@@ -502,7 +503,6 @@
         "completion": "0.0000025",
         "request": "0",
         "image": "0.001238",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.000000075",
@@ -520,7 +520,6 @@
         "completion": "0.00001",
         "request": "0",
         "image": "0.00516",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.00000031",
@@ -538,7 +537,6 @@
         "completion": "0.0000015",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -554,7 +552,6 @@
         "completion": "0.000005",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -570,7 +567,6 @@
         "completion": "0.000005",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -586,7 +582,6 @@
         "completion": "0.00001",
         "request": "0",
         "image": "0.00516",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.00000031",
@@ -604,7 +599,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -620,7 +614,6 @@
         "completion": "0.00000002",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -636,7 +629,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -648,11 +640,10 @@
       "provider": "openrouter",
       "context_length": 163840,
       "pricing": {
-        "prompt": "0.00000017992692",
-        "completion": "0.0000007200576",
+        "prompt": "0.0000001999188",
+        "completion": "0.000000800064",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -668,7 +659,6 @@
         "completion": "0.000075",
         "request": "0",
         "image": "0.024",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.0000015",
@@ -686,7 +676,6 @@
         "completion": "0.000015",
         "request": "0",
         "image": "0.0048",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.0000003",
@@ -704,7 +693,6 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -720,7 +708,6 @@
         "completion": "0.0000000800064",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -736,7 +723,6 @@
         "completion": "0.0000003733632",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -752,7 +738,6 @@
         "completion": "0.000002",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
@@ -768,7 +753,6 @@
         "completion": "0.00001",
         "request": "0",
         "image": "0.00516",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0",
         "input_cache_read": "0.00000031",
@@ -786,43 +770,10 @@
         "completion": "0",
         "request": "0",
         "image": "0",
-        "audio": "0",
         "web_search": "0",
         "internal_reasoning": "0"
       },
       "description": "via OpenRouter - Qwen3-4B is a 4 billion parameter dense language model from the Qwen3 series, designed to support bo"
-    },
-    {
-      "id": "deepseek/deepseek-prover-v2",
-      "name": "DeepSeek: DeepSeek Prover V2",
-      "provider": "openrouter",
-      "context_length": 163840,
-      "pricing": {
-        "prompt": "0.0000005",
-        "completion": "0.00000218",
-        "request": "0",
-        "image": "0",
-        "audio": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      },
-      "description": "via OpenRouter - DeepSeek Prover V2 is a 671B parameter model, speculated to be geared towards logic and mathematics."
-    },
-    {
-      "id": "meta-llama/llama-guard-4-12b",
-      "name": "Meta: Llama Guard 4 12B",
-      "provider": "openrouter",
-      "context_length": 163840,
-      "pricing": {
-        "prompt": "0.00000018",
-        "completion": "0.00000018",
-        "request": "0",
-        "image": "0",
-        "audio": "0",
-        "web_search": "0",
-        "internal_reasoning": "0"
-      },
-      "description": "via OpenRouter - Llama Guard 4 is a Llama 4 Scout-derived multimodal pretrained model, fine-tuned for content safety "
     },
     {
       "id": "gpt-4-0613",

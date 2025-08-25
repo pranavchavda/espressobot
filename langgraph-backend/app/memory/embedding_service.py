@@ -26,7 +26,7 @@ class EmbeddingService:
     
     def __init__(self):
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "text-embedding-3-large"
+        self.model = "text-embedding-3-large"  # Back to 3072 dimensions as it was working
         self.dimensions = 3072
         self.max_batch_size = 100  # OpenAI's batch limit
         self.cache: Dict[str, EmbeddingResult] = {}

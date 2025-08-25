@@ -563,8 +563,13 @@ Compressed (preserve ALL data, remove fluff):"""
     async def extract_memories_from_context(self, thread_id: str, user_id: str = "1") -> int:
         """Extract and save memories from compressed context as a separate process"""
         context = self.get_context(thread_id)
-        if not context or context.extraction_count == 0:
+        if not context:
             logger.info(f"No context found for thread {thread_id}")
+            return 0
+        
+        # Even if no structured extractions, try conversation chain for memories
+        if context.extraction_count == 0 and not context.conversation_chain:
+            logger.info(f"No context or conversation chain found for thread {thread_id}")
             return 0
         
         memories_saved = 0
@@ -582,8 +587,76 @@ Compressed (preserve ALL data, remove fluff):"""
                     if memory_saved:
                         memories_saved += 1
         
+        # If no structured extractions but we have conversation chain, try to extract memories from raw conversation
+        if context.extraction_count == 0 and context.conversation_chain:
+            logger.info(f"No structured extractions, trying conversation chain memory extraction for {thread_id}")
+            memories_from_conversation = await self._extract_memories_from_conversation_chain(context, user_id, thread_id)
+            memories_saved += memories_from_conversation
+        
         logger.info(f"💾 Extracted {memories_saved} memories from context for thread {thread_id}")
         return memories_saved
+    
+    async def _extract_memories_from_conversation_chain(self, context: ExtractedContext, user_id: str, thread_id: str) -> int:
+        """Extract memories from conversation chain using direct LLM processing"""
+        if not context.conversation_chain:
+            return 0
+        
+        # Convert conversation chain to text
+        conversation_text = ""
+        for message_key in sorted(context.conversation_chain.keys(), key=lambda x: int(x.split('_')[1])):
+            exchange = context.conversation_chain[message_key]
+            if 'human' in exchange:
+                conversation_text += f"Human: {exchange['human']}\n"
+            if 'assistant' in exchange:
+                conversation_text += f"Assistant: {exchange['assistant']}\n"
+        
+        logger.info(f"Processing conversation chain: {conversation_text[:200]}...")
+        
+        # Use memory persistence to extract memories from the conversation text
+        try:
+            from app.memory.memory_persistence import MemoryExtractionService
+            extraction_service = MemoryExtractionService()
+            # Convert conversation text to fake messages for the extraction service
+            from langchain_core.messages import HumanMessage, AIMessage
+            fake_messages = []
+            lines = conversation_text.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line.startswith('Human: '):
+                    fake_messages.append(HumanMessage(content=line[7:]))
+                elif line.startswith('Assistant: '):
+                    fake_messages.append(AIMessage(content=line[11:]))
+            memories = await extraction_service.extract_memories_from_conversation(fake_messages, user_id)
+            
+            # Save each memory
+            memories_saved = 0
+            for memory in memories:
+                # Add thread context
+                memory.metadata = memory.metadata or {}
+                memory.metadata['thread_id'] = thread_id
+                memory.metadata['extraction_source'] = 'conversation_chain'
+                
+                success = await self._save_memory_via_manager(memory, user_id)
+                if success:
+                    memories_saved += 1
+            
+            logger.info(f"Extracted {memories_saved} memories from conversation chain")
+            return memories_saved
+            
+        except Exception as e:
+            logger.error(f"Error extracting memories from conversation chain: {e}")
+            return 0
+    
+    async def _save_memory_via_manager(self, memory, user_id: str) -> bool:
+        """Save memory using the memory manager"""
+        try:
+            from app.memory.postgres_memory_manager_v2 import SimpleMemoryManager
+            memory_manager = SimpleMemoryManager()
+            await memory_manager.store_memory(memory)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving memory via manager: {e}")
+            return False
     
     def _should_save_as_memory(self, ext_class: str, ext_text: str, attrs: dict) -> bool:
         """Determine if an extraction should be saved as memory"""
